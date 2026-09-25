@@ -3,9 +3,11 @@
 M-INV es el sistema de inventarios B2B de Z&P Software Fast Solutions: libros de Excel arquitectados como aplicación
 transaccional inmutable (CQRS, append-only), preparados para migrar a SQL/.NET.
 
-Versión actual: **2.0.0** en la rama `Inventario-V2`: libro **colaborativo** para Microsoft 365 (SharePoint/OneDrive,
-Excel para la web) con Office Scripts (`src/office-scripts/`). La edición local V1.2 (Estándar `.xlsx` y Plus `.xlsm`)
-sigue en el repositorio (`tools/build_minv.py`, rama `Inventario-V1.2`). Idioma del producto y la documentación: español.
+Versión actual: **2.1.0** en la rama `Inventario-V2.1`: libro **colaborativo** para Microsoft 365 (SharePoint/OneDrive,
+Excel para la web) con Office Scripts (`src/office-scripts/`): portadas por rol (Bodega, Ventas, Gerencia), captura por
+usuario, consulta por usuario, toma física colaborativa, pedido sugerido, registro de actividad y resumen diario para
+Power Automate. La edición local V1.2 (Estándar `.xlsx` y Plus `.xlsm`) sigue en el repositorio (`tools/build_minv.py`,
+rama `Inventario-V1.2`). Idioma del producto y la documentación: español.
 
 ## Reglas obligatorias
 
@@ -19,6 +21,7 @@ powershell -ExecutionPolicy Bypass -File tools\build_v2.ps1 -Capturas        # V
 .venv\Scripts\python tools\build_minv_v2.py                                   # V2: solo generar
 .venv\Scripts\python tools\office_scripts.py sync                             # copiar lib/comun.ts en cada script
 node tests\office-scripts\pruebas.mts                                         # pruebas de los Office Scripts
+$env:MINV_TSC = '<ruta de tsc>'                                                # opcional: build_v2 verifica tipos
 powershell -ExecutionPolicy Bypass -File tools\build_all.ps1 -Capturas        # V1.2 local: ciclo completo
 ```
 
@@ -30,6 +33,7 @@ variables); los Office Scripts, TypeScript sin `any` ni sintaxis no borrable.
 ## Documentación
 
 - Coautoría y fragmentación: `.claude/v2-concurrency-rules.md`
+- Acceso paso a paso (demo, producción, uso diario): `docs/deployment/inicio-rapido.md`
 - Despliegue y roles: `docs/deployment/sharepoint-rbac-policies.md`
 - Modelo de datos: `docs/architecture/data-dictionary-v2.md` (V2) y `docs/architecture/data-dictionary.md` (V1.2)
 - Sistema visual y UX: `docs/product/ux-ui-guidelines.md`

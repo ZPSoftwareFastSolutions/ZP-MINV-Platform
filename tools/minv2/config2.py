@@ -8,7 +8,7 @@ import demo_data as D
 from minv.base import C, ESTADOS, FIRST, HDR, Col, Ctx, nested_if, q, status_cf, this_row
 from minv.config_sheets import config_band, simple_table
 
-from .base2 import EDICION2, MAX_USR, S_USR, VERSION2, barra, chip, franja, lienzo, msg, tabla
+from .base2 import EDICION2, MAX_USR, ROLES_CONSULTA, S_USR, con_margen, VERSION2, barra, chip, franja, lienzo, msg, tabla
 
 # Tipos de movimiento: el dominio define en qué fragmento (hoja) se registran
 TIPOS2 = [
@@ -119,7 +119,8 @@ def build_config2(ctx: Ctx, overrides: dict | None = None):
 def usuarios_cols() -> list[Col]:
     r = this_row("tblUsuarios")
     orden = {}
-    for key, roles in (("OrdenBodega", ("BODEGA", "ADMIN")), ("OrdenVentas", ("VENTAS", "ADMIN"))):
+    for key, roles in (("OrdenBodega", ("BODEGA", "ADMIN")), ("OrdenVentas", ("VENTAS", "ADMIN")),
+                       ("OrdenConsulta", ROLES_CONSULTA)):
         rango = lambda c: f"INDEX(tblUsuarios[{c}],1):{r(c)}"  # noqa: E731
         cond = "+".join(f'({rango("Rol")}="{x}")' for x in roles)
         es = f'AND({r("Correo")}<>"",{r("Activo")}<>"NO",OR(' + ",".join(f'{r("Rol")}="{x}"' for x in roles) + "))"
@@ -139,10 +140,12 @@ def usuarios_cols() -> list[Col]:
         Col("Rol", "in", 110, "center", "ADMIN (todo), BODEGA (10A: entradas y ajustes), VENTAS (10B: salidas), "
                                         "CONSULTA (solo lectura)."),
         Col("Activo", "in", 76, "center", "Escriba NO para retirar el acceso sin borrar la fila (auditoría)."),
-        Col("OrdenBodega", "calc", 110, "center", "Fila de captura que le corresponde en 10A_ENTRADAS.",
+        Col("OrdenBodega", "calc", 128, "center", "Fila de captura que le corresponde en 10A_ENTRADAS.",
             formula=orden["OrdenBodega"]),
-        Col("OrdenVentas", "calc", 110, "center", "Fila de captura que le corresponde en 10B_SALIDAS.",
+        Col("OrdenVentas", "calc", 124, "center", "Fila de captura que le corresponde en 10B_SALIDAS.",
             formula=orden["OrdenVentas"]),
+        Col("OrdenConsulta", "calc", 136, "center", "Fila que le corresponde en 17_CONSULTA (ADMIN, BODEGA y VENTAS).",
+            formula=orden["OrdenConsulta"]),
         Col("Validación", "calc", 170, "status", "Control del registro.", formula="=" + valid),
     ]
 
@@ -150,7 +153,7 @@ def usuarios_cols() -> list[Col]:
 def build_usuarios(ctx: Ctx):
     ws, st, wb = ctx.sheets[S_USR], ctx.st, ctx.wb
     cols = usuarios_cols()
-    widths = [16] + [c.width for c in cols] + [96, 96, 16]   # margen derecho: la barra de navegación cabe
+    widths = con_margen([16] + [c.width for c in cols] + [16])   # margen derecho para la barra de navegación
     lienzo(ws, widths, zoom=90)
     franja(ctx, ws, widths, "Usuarios autorizados",
            "Control de acceso por rol · Lo administra el ADMIN · Los scripts validan el correo de Microsoft 365",

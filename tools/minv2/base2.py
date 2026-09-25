@@ -16,18 +16,21 @@ from xlsxwriter.utility import xl_col_to_name
 from minv.base import (C, FONT_SB, S_ALERT, S_AYUDA, S_CAT, S_CONFIG, S_KPI, S_LISTAS, S_PROD, S_PROV,  # noqa: F401
                        S_STOCK, S_UNI, Col, Ctx, Styles, check_msg, q)
 
-VERSION2 = "2.0.0"
+VERSION2 = "2.1.0"
 EDICION2 = "Colaborativa (Microsoft 365)"
 
-S_PB, S_PV = "00_PORTADA_BODEGA", "00_PORTADA_VENTAS"
+S_PB, S_PV, S_PG = "00_PORTADA_BODEGA", "00_PORTADA_VENTAS", "00_PORTADA_GERENCIA"
 S_USR = "02_USUARIOS"
 S_ENT, S_SAL = "10A_ENTRADAS", "10B_SALIDAS"
+S_CONTEO, S_ACT = "13_CONTEO", "14_ACTIVIDAD"
+S_CONS, S_PED = "17_CONSULTA", "18_PEDIDO"
 S_SES = "92_SESION"
 HIDDEN2 = (S_CONFIG, S_CAT, S_UNI, S_LISTAS, S_KPI, S_SES)
 
 # Capacidades
 MAX_USR = 50          # usuarios autorizados (02_USUARIOS)
 MAX_CAPT = 15         # filas de captura por hoja de escritura (una por usuario del rol)
+MAX_CONS = 20         # filas de consulta (una por usuario operativo)
 
 # Filas Excel (1-based) de las hojas de escritura: captura arriba, bitácora oficial debajo
 CAP_HDR = 8
@@ -42,6 +45,7 @@ PREFIJO = {S_ENT: "E", S_SAL: "S"}
 
 ROLES = ("ADMIN", "BODEGA", "VENTAS", "CONSULTA")
 ROLES_DOMINIO = {S_ENT: ("BODEGA", "ADMIN"), S_SAL: ("VENTAS", "ADMIN")}
+ROLES_CONSULTA = ("ADMIN", "BODEGA", "VENTAS")          # CONSULTA es solo lectura en SharePoint
 TIPOS_BODEGA = ("ENTRADA", "SALDO INICIAL", "AJUSTE (+)", "AJUSTE (-)")
 ESTADO_OK = "✔ Consolidado"
 
@@ -83,12 +87,14 @@ def lcol(name: str) -> str:
 NAV2 = [  # clave, etiqueta, hoja destino, celda destino, ayuda
     ("bodega", "⌂ Bodega", S_PB, "A1", "Portada de Bodega"),
     ("ventas", "⌂ Ventas", S_PV, "A1", "Portada de Ventas"),
+    ("gerencia", "◈ Gerencia", S_PG, "A1", "Portada de Gerencia: indicadores, pedido y actividad"),
     ("entradas", "⇩ Entradas", S_ENT, f"{ccol('Tipo')}{CAP_FIRST}", "Registrar entradas y ajustes (Bodega)"),
     ("salidas", "⇧ Salidas", S_SAL, f"{ccol('Producto')}{CAP_FIRST}", "Registrar salidas (Ventas)"),
+    ("consulta", "⌕ Consulta", S_CONS, "C9", "Consultar un producto en su fila"),
     ("stock", "▦ Stock", S_STOCK, "A1", "Stock (instantánea recalculada a demanda)"),
-    ("alertas", "⚠ Alertas", S_ALERT, "A1", "Productos que requieren acción"),
-    ("catalogo", "☰ Catálogo", S_PROD, "A1", "Catálogo de productos"),
-    ("guia", "? Guía", S_AYUDA, "A1", "Guía de uso y de instalación"),
+    ("pedido", "✚ Pedido", S_PED, "A1", "Pedido sugerido por proveedor"),
+    ("conteo", "✓ Conteo", S_CONTEO, "I9", "Toma física (conteo) colaborativa"),
+    ("guia", "? Guía", S_AYUDA, "A1", "Guía de uso, acceso e instalación"),
 ]
 
 
@@ -108,6 +114,17 @@ def pill_spans(widths: list[int], n: int, first: int = 1, min_w: int = 80) -> li
             c += 1
         spans.append((start, c - 1))
     return spans
+
+
+def con_margen(widths: list[int], start: int = 1, ancho: int = 96) -> list[int]:
+    """Agrega columnas de margen (antes del borde derecho) hasta que quepa la barra de navegación."""
+    w = list(widths)
+    while True:
+        try:
+            pill_spans(w, len(NAV2), start)
+            return w
+        except ValueError:
+            w.insert(len(w) - 1, ancho)
 
 
 def lienzo(ws, widths: list[int], zoom: int = 100, hidden_cols=()):

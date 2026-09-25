@@ -1,12 +1,13 @@
 /**
- * M-INV V2 · Pruebas automáticas de los Office Scripts (sin Excel).
+ * M-INV V2.1 · Pruebas automáticas de los Office Scripts (sin Excel).
  *
  *   node tests/office-scripts/pruebas.mts            (requiere build/v2/fixture.json: tools/build_minv_v2.py)
  *
  * Cada prueba carga el script REAL de src/office-scripts (Node elimina los tipos de TypeScript), lo ejecuta contra
  * un libro simulado con el estado del Core generado y verifica: autorización por correo, poka-yoke de stock,
- * inmutabilidad y auditoría de la bitácora, registros simultáneos, protección de hojas siempre restaurada y que
- * RecalcularStock produzca exactamente la misma instantánea que el generador (misma regla, dos implementaciones).
+ * inmutabilidad y auditoría de la bitácora, registro de actividad, registros simultáneos, protección de hojas siempre
+ * restaurada, que RecalcularStock produzca exactamente la misma instantánea (stock, alertas y pedido) que el generador
+ * (misma regla, dos implementaciones), la toma física con sus ajustes y el resumen diario de solo lectura.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -20,8 +21,24 @@ const fx: Fixture = JSON.parse(fs.readFileSync(FIXTURE, "utf8"));
 const [anio, mes, dia] = fx.hoy.split("-").map(Number);
 const AHORA = new Date(anio, mes - 1, dia, 18, 30, 0);
 const HOY = (Date.UTC(anio, mes - 1, dia) - Date.UTC(1899, 11, 30)) / 86400000;
-const ESP = fx.esperado as { stock: Celda[][]; alertas: Celda[][]; ejemplo_agotado: string; ejemplo_con_stock: string;
-  stock_con_stock: number };
+const ESP = fx.esperado as { stock: Celda[][]; alertas: Celda[][]; pedido: Celda[][]; conteo_skus: string[];
+  ejemplo_agotado: string; ejemplo_con_stock: string; stock_con_stock: number };
+const dos = (n: number): string => (n < 10 ? "0" : "") + n;
+const HOY_TXT = dos(dia) + "/" + dos(mes) + "/" + anio;
+const DOC_CF = "CF-" + anio + dos(mes) + dos(dia);
+
+interface ResumenDelDia {
+  asunto: string;
+  html: string;
+  texto: string;
+  movimientosHoy: number;
+  rechazosHoy: number;
+  bloqueosHoy: number;
+  agotados: number;
+  criticos: number;
+  bajos: number;
+  totalPedido: number;
+}
 
 const U = {
   admin: { correo: "admin@distribuidorademo.example", nombre: "Administrador M-INV" },
@@ -33,6 +50,7 @@ const U = {
 };
 const ID_S = /^S-\d{8}-\d{6}-[0-9A-F]{4}$/;
 const ID_E = /^E-\d{8}-\d{6}-[0-9A-F]{4}$/;
+const ID_A = /^A-\d{8}-\d{6}-[0-9A-F]{4}$/;
 
 // ------------------------------------------------------------------------------------------------ carga de scripts
 const PRELUDIO = `
@@ -45,8 +63,9 @@ Math.random = __azar;
 `;
 
 type Main = (wb: MockLibro) => string;
+type MainResumen = (wb: MockLibro) => ResumenDelDia;
 
-function cargar(nombre: string, clave = fx.password): Main {
+function cargar<T = Main>(nombre: string, clave = fx.password): T {
   const ts = fs.readFileSync(path.join(RAIZ, "src", "office-scripts", nombre + ".ts"), "utf8")
     .replace('"__MINV_PASSWORD__"', JSON.stringify(clave));
   let semilla = 20260925;
@@ -62,7 +81,7 @@ function cargar(nombre: string, clave = fx.password): Main {
   vm.createContext(contexto);
   vm.runInContext(PRELUDIO + stripTypeScriptTypes(ts) + "\n;globalThis.__main = main;", contexto,
     { filename: nombre + ".ts" });
-  return contexto.__main as Main;
+  return contexto.__main as T;
 }
 
 const SCRIPTS = {
@@ -70,6 +89,8 @@ const SCRIPTS = {
   salida: cargar("RegistrarSalida"),
   recalcular: cargar("RecalcularStock"),
   diagnostico: cargar("DiagnosticoInstalacion"),
+  conteo: cargar("GenerarAjustesConteo"),
+  resumen: cargar<MainResumen>("ResumenDiario"),
 };
 
 function libro(usuario: { correo: string; nombre: string }): MockLibro {
@@ -147,8 +168,25 @@ function etiqueta(sku: string): string {
 
 const CAP_E = "tblCapturaEntradas", CAP_S = "tblCapturaSalidas";
 
+function ultimaActividad(wb: MockLibro): Record<string, Celda> {
+  return wb.fila("tblActividad", wb.tabla("tblActividad").filas.length - 1);
+}
+
+function filaConteo(wb: MockLibro, sku: string): number {
+  const t = wb.tabla("tblConteo");
+  return t.filas.findIndex((f: Celda[]) => f[t.encabezados.indexOf("SKU")] === sku);
+}
+
+function confirmarConteo(wb: MockLibro, valor: Celda = "SI"): void {
+  wb.nombres.get("ctConfirmar")!.valor = valor;
+}
+
+function filasDe(wb: MockLibro, tabla: string): Record<string, Celda>[] {
+  return wb.tabla(tabla).filas.map((_: Celda[], i: number) => wb.fila(tabla, i));
+}
+
 // ================================================================================================= PRUEBAS
-console.log("M-INV V2 · pruebas de los Office Scripts (" + fx.hoy + ")");
+console.log("M-INV V2.1 · pruebas de los Office Scripts (" + fx.hoy + ")");
 
 prueba("RegistrarSalida: salida válida → bitácora oficial auditada, captura limpia, hoja protegida", () => {
   const wb = libro(U.sofia);
@@ -288,11 +326,15 @@ prueba("Release vacío: el primer registro ocupa la fila en blanco de la tabla (
   afirmar(t.filas.length === 1 && String(t.filas[0][0]).startsWith("E-"), "debía usar la fila en blanco existente");
 });
 
-prueba("RecalcularStock: instantánea idéntica a la del generador (stock, semáforo y alertas priorizadas)", () => {
+prueba("RecalcularStock: instantánea idéntica a la del generador (stock, cobertura, ranking, alertas y pedido)", () => {
   const wb = libro(U.admin);
   const m = SCRIPTS.recalcular(wb);
   afirmar(m.startsWith("✔ Stock recalculado: " + ESP.stock.length + " productos"), "mensaje: " + m);
-  for (const [tabla, esperado] of [["tblStock", ESP.stock], ["tblAlertas", ESP.alertas]] as [string, Celda[][]][]) {
+  afirmar(m.indexOf(ESP.pedido.length + " líneas de pedido") >= 0, "mensaje sin las líneas de pedido: " + m);
+  afirmar(ESP.pedido.length > 0 && ESP.stock.some((f: Celda[]) => typeof f[19] === "number"),
+    "la demo debía tener pedido y ranking (prueba no trivial)");
+  for (const [tabla, esperado] of [["tblStock", ESP.stock], ["tblAlertas", ESP.alertas],
+    ["tblPedido", ESP.pedido]] as [string, Celda[][]][]) {
     const filas = wb.tabla(tabla).filas;
     esperado.forEach((fila: Celda[], i: number) => fila.forEach((v: Celda, j: number) => {
       afirmar(igualAprox(filas[i][j], v), `${tabla} fila ${i + 1} col ${wb.tabla(tabla).encabezados[j]}: ${filas[i][j]} ≠ ${v}`);
@@ -302,7 +344,10 @@ prueba("RecalcularStock: instantánea idéntica a la del generador (stock, semá
   afirmar(wb.nombres.get("stkActualizadoPor")!.valor === U.admin.correo, "no registró quién recalculó");
   afirmar(Math.floor(wb.nombres.get("stkActualizado")!.valor as number) === HOY, "fecha del cálculo");
   afirmar(wb.calculos === 1, "debía pedir un recálculo completo del libro");
-  hojasIntactas(wb, ["15_STOCK", "16_ALERTAS", "01_CONFIG"]);
+  const a = ultimaActividad(wb);
+  afirmar(a.Script === "RecalcularStock" && a.Resultado === "✔ Stock recalculado" && a.Usuario_O365 === U.admin.correo,
+    "actividad: " + JSON.stringify(a));
+  hojasIntactas(wb, ["15_STOCK", "16_ALERTAS", "18_PEDIDO", "01_CONFIG", "14_ACTIVIDAD"]);
 });
 
 prueba("Comando + proyección: tras una salida, RecalcularStock refleja el nuevo stock", () => {
@@ -318,10 +363,214 @@ prueba("DiagnosticoInstalacion: informe completo y sin problemas; detecta la con
   let wb = libro(U.sofia);
   const m = SCRIPTS.diagnostico(wb);
   afirmar(m.indexOf("RESULTADO: instalación correcta") >= 0, m);
+  afirmar(m.indexOf("Hojas: 16 de 16") >= 0 && m.indexOf("Tablas: 16 de 16") >= 0, "inventario de la V2.1: " + m);
+  afirmar(m.indexOf("Fila de consulta en 17_CONSULTA") >= 0 && m.indexOf("Fila de captura en 10B_SALIDAS") >= 0, m);
   afirmar(String(wb.hojas.get("92_SESION")!.celdas.get("A3")).startsWith("M-INV V2"), "el informe no quedó en 92_SESION");
+  const a = ultimaActividad(wb);
+  afirmar(a.Script === "DiagnosticoInstalacion" && a.Resultado === "✔ Instalación correcta", JSON.stringify(a));
+  hojasIntactas(wb, ["10A_ENTRADAS", "10B_SALIDAS", "13_CONTEO", "14_ACTIVIDAD", "15_STOCK", "16_ALERTAS", "18_PEDIDO"]);
   wb = libro(U.sofia);
   const m2 = cargar("DiagnosticoInstalacion", "otra-clave")(wb);
   afirmar(m2.indexOf("problema(s) por resolver") >= 0 && m2.indexOf("contraseña del script no coincide") >= 0, m2);
+});
+
+prueba("Actividad: registros y bloqueos quedan en 14_ACTIVIDAD con correo, script, resultado y detalle", () => {
+  let wb = libro(U.sofia);
+  const n0 = wb.tabla("tblActividad").filas.length;
+  const m = SCRIPTS.salida(wb);
+  afirmar(wb.tabla("tblActividad").filas.length === n0 + 1, "debía agregar una fila de actividad");
+  const a = ultimaActividad(wb);
+  const id = m.split(" · ")[0].replace("✔ Registrado ", "");
+  afirmar(ID_A.test(String(a.ID)) && a.Usuario_O365 === U.sofia.correo && a.Nombre === U.sofia.nombre, JSON.stringify(a));
+  afirmar(a.Script === "RegistrarSalida" && a.Resultado === "✔ Registrado" && String(a.Detalle).indexOf(id) >= 0,
+    "detalle: " + a.Detalle);
+  afirmar(Math.floor(a.Timestamp as number) === HOY, "Timestamp de la actividad");
+  hojasIntactas(wb, ["10B_SALIDAS", "14_ACTIVIDAD"]);
+  wb = libro(U.carlos);
+  SCRIPTS.salida(wb);
+  const b = ultimaActividad(wb);
+  afirmar(b.Resultado === "✖ Bloqueado" && String(b.Detalle).indexOf("stock insuficiente") >= 0, JSON.stringify(b));
+  wb = libro(U.gerencia);
+  lanza(() => SCRIPTS.salida(wb), "no tiene fila de captura");
+  const g = ultimaActividad(wb);
+  afirmar(g.Usuario_O365 === U.gerencia.correo && g.Resultado === "✖ Bloqueado", "intento sin fila: " + JSON.stringify(g));
+  hojasIntactas(wb, ["14_ACTIVIDAD"]);
+});
+
+prueba("Actividad: si no se puede escribir (contraseña distinta) la operación no se interrumpe por la auditoría", () => {
+  const wb = libro(U.sofia);
+  wb.hojas.get("14_ACTIVIDAD")!.proteccion.clave = "otra-clave-solo-en-14";
+  const n0 = wb.tabla("tblActividad").filas.length;
+  afirmar(SCRIPTS.salida(wb).startsWith("✔ Registrado"), "el registro debía completarse");
+  afirmar(wb.tabla("tblActividad").filas.length === n0, "no debía escribir la actividad");
+  const p = wb.hojas.get("14_ACTIVIDAD")!.proteccion;
+  afirmar(p.protegida && !p.pausada, "14_ACTIVIDAD debía seguir protegida");
+});
+
+prueba("GenerarAjustesConteo: sin «SI» en Confirmar no registra nada y lo explica en 13_CONTEO", () => {
+  const wb = libro(U.ana);
+  const antes = wb.tabla("tblEntradas").filas.length;
+  const m = SCRIPTS.conteo(wb);
+  afirmar(m.startsWith("✖ Bloqueado: escriba SI"), m);
+  afirmar(wb.tabla("tblEntradas").filas.length === antes, "no debía registrar");
+  afirmar(String(wb.nombres.get("ctResultado")!.valor).startsWith("✖ Bloqueado"), "ctResultado sin el motivo");
+  afirmar(wb.fila("tblConteo", filaConteo(wb, ESP.conteo_skus[0])).Conteo !== "", "los conteos debían conservarse");
+  afirmar(ultimaActividad(wb).Script === "GenerarAjustesConteo" && ultimaActividad(wb).Resultado === "✖ Bloqueado",
+    "actividad del bloqueo");
+  hojasIntactas(wb, ["10A_ENTRADAS", "13_CONTEO", "14_ACTIVIDAD"]);
+});
+
+prueba("GenerarAjustesConteo: sobrante y faltante → AJUSTE (+)/(-) contra el stock exacto en UNA inserción", () => {
+  const wb = libro(U.ana);
+  confirmarConteo(wb);
+  const skus = ESP.conteo_skus;
+  const contado = skus.map((s: string) => Number(wb.fila("tblConteo", filaConteo(wb, s)).Conteo));
+  const dif = skus.map((s: string, k: number) => Math.round((contado[k] - disponible(wb, s)) * 1e6) / 1e6);
+  afirmar(dif[0] > 0 && dif[1] < 0, "la demo debía traer un sobrante y un faltante: " + dif);
+  const antes = wb.tabla("tblEntradas").filas.length;
+  const m = SCRIPTS.conteo(wb);
+  afirmar(m.startsWith("✔ Toma física del " + HOY_TXT + ": 2 movimiento(s) en 10A (1 sobrante(s), 1 faltante(s)"), m);
+  afirmar(wb.registro.indexOf("addRows tblEntradas 2") >= 0, "los ajustes debían entrar en una sola inserción");
+  const nuevos = filasDe(wb, "tblEntradas").slice(antes);
+  afirmar(nuevos.length === 2 && nuevos[0].ID !== nuevos[1].ID, "debían agregarse 2 ajustes con IDs distintos");
+  skus.forEach((sku: string, k: number) => {
+    const r = nuevos.find((x: Record<string, Celda>) => x.SKU === sku)!;
+    afirmar(r.Tipo === (dif[k] > 0 ? "AJUSTE (+)" : "AJUSTE (-)") && igualAprox(r.CantidadNeta, dif[k]) &&
+      igualAprox(r.Cantidad, Math.abs(dif[k])), sku + ": " + JSON.stringify(r));
+    afirmar(r.Documento === DOC_CF && String(r.Observaciones).startsWith("Toma física del " + HOY_TXT) &&
+      r.Estado === "✔ Consolidado" && ID_E.test(String(r.ID)) && r.Usuario_O365 === U.ana.correo &&
+      r["Registró"] === U.ana.nombre && r.Fecha === HOY, sku + " (auditoría): " + JSON.stringify(r));
+    afirmar(disponible(wb, sku) === contado[k], sku + ": el stock debía quedar igual al conteo");
+    afirmar(wb.fila("tblConteo", filaConteo(wb, sku)).Conteo === "", sku + ": el conteo procesado debía limpiarse");
+  });
+  afirmar(wb.nombres.get("ctConfirmar")!.valor === "", "la confirmación debía borrarse");
+  afirmar(String(wb.nombres.get("ctResultado")!.valor).startsWith("✔ Toma física"), "ctResultado");
+  const a = ultimaActividad(wb);
+  afirmar(a.Script === "GenerarAjustesConteo" && a.Resultado === "✔ Ajustes generados", JSON.stringify(a));
+  hojasIntactas(wb, ["10A_ENTRADAS", "13_CONTEO", "14_ACTIVIDAD"]);
+});
+
+prueba("GenerarAjustesConteo: sin movimientos → SALDO INICIAL; un 0 cuadra; en el libro vacío usa la fila en blanco", () => {
+  const wb = libro(U.admin);
+  confirmarConteo(wb);
+  for (const nombre of ["tblEntradas", "tblSalidas"]) {
+    const tb = wb.tabla(nombre);
+    tb.filas = [tb.encabezados.map(() => "" as Celda)];
+  }
+  const tc = wb.tabla("tblConteo");
+  const cC = tc.encabezados.indexOf("Conteo"), cS = tc.encabezados.indexOf("SKU");
+  tc.filas.forEach((f: Celda[]) => {
+    f[cC] = "";
+  });
+  const cantidades = [7, 0, 3];
+  cantidades.forEach((q: number, i: number) => {
+    tc.filas[i][cC] = q;
+  });
+  const m = SCRIPTS.conteo(wb);
+  afirmar(m.indexOf(": 2 movimiento(s) en 10A (0 sobrante(s), 0 faltante(s), 2 saldo(s) inicial(es)) · 1 cuadran") >= 0, m);
+  const t = filasDe(wb, "tblEntradas");
+  afirmar(t.length === 2 && t.every((r: Record<string, Celda>) => r.Tipo === "SALDO INICIAL" && r.FactorStock === 1),
+    "debían quedar 2 SALDO INICIAL (el primero en la fila en blanco): " + JSON.stringify(t.map((r) => r.Tipo)));
+  afirmar(disponible(wb, String(tc.filas[0][cS])) === 7 && disponible(wb, String(tc.filas[2][cS])) === 3, "saldos");
+  afirmar(tc.filas.slice(0, 3).every((f: Celda[]) => f[cC] === ""), "los tres conteos (incluido el 0) debían limpiarse");
+});
+
+prueba("GenerarAjustesConteo: un conteo no válido bloquea todo (nada se registra); rol VENTAS no autorizado", () => {
+  let wb = libro(U.laura);
+  confirmarConteo(wb);
+  const [s1, s2] = ESP.conteo_skus;
+  wb.poner("tblConteo", filaConteo(wb, s1), { Conteo: 2.5 });
+  wb.poner("tblConteo", filaConteo(wb, s2), { Conteo: -1 });
+  const antes = wb.tabla("tblEntradas").filas.length;
+  const m = SCRIPTS.conteo(wb);
+  afirmar(m.indexOf("2 conteo(s) no válido(s)") >= 0 && m.indexOf("no admite decimales") >= 0 &&
+    m.indexOf(s2 + " (no es un número mayor o igual a 0)") >= 0, m);
+  afirmar(wb.tabla("tblEntradas").filas.length === antes, "no debía registrar nada");
+  afirmar(wb.fila("tblConteo", filaConteo(wb, s1)).Conteo === 2.5, "los conteos debían conservarse para corregirlos");
+  afirmar(wb.nombres.get("ctConfirmar")!.valor === "SI", "la confirmación solo se borra si el proceso termina");
+  hojasIntactas(wb, ["10A_ENTRADAS", "13_CONTEO"]);
+  wb = libro(U.carlos);
+  confirmarConteo(wb);
+  afirmar(SCRIPTS.conteo(wb).indexOf("su rol (VENTAS) no permite generar los ajustes del conteo") >= 0, "rol VENTAS");
+});
+
+prueba("GenerarAjustesConteo: fecha futura bloqueada; con fecha válida el documento usa esa fecha", () => {
+  let wb = libro(U.ana);
+  confirmarConteo(wb);
+  wb.nombres.get("ctFecha")!.valor = HOY + 3;
+  afirmar(SCRIPTS.conteo(wb).indexOf("la fecha del conteo no es válida") >= 0, "fecha futura");
+  wb = libro(U.ana);
+  confirmarConteo(wb);
+  wb.nombres.get("ctFecha")!.valor = HOY - 1;
+  const antes = wb.tabla("tblEntradas").filas.length;
+  const m = SCRIPTS.conteo(wb);
+  const r = wb.fila("tblEntradas", antes);
+  afirmar(m.startsWith("✔") && r.Fecha === HOY - 1 && String(r.Documento).startsWith("CF-") && r.Documento !== DOC_CF,
+    "fecha del conteo en los ajustes: " + JSON.stringify(r));
+});
+
+prueba("GenerarAjustesConteo: si una venta simultánea deja negativo un faltante, ese ajuste queda «✖ Rechazado»", () => {
+  const wb = libro(U.ana);
+  confirmarConteo(wb);
+  const s2 = ESP.conteo_skus[1];
+  const c2 = Number(wb.fila("tblConteo", filaConteo(wb, s2)).Conteo);
+  wb.antesDeAgregar.set("tblEntradas", () => {
+    const t = wb.tabla("tblSalidas");
+    t.filas.push(t.encabezados.map((e: string) => ({
+      ID: "S-20260925-182959-CAFE", Tipo: "SALIDA", Fecha: HOY, Producto: etiqueta(s2), Cantidad: c2 + 5,
+      CantidadNeta: -(c2 + 5), Estado: "✔ Consolidado", "Registró": U.carlos.nombre, Unidad: "UND", FactorStock: -1,
+      Usuario_O365: U.carlos.correo, SKU: s2, Timestamp: HOY + 0.77
+    } as Record<string, Celda>)[e] ?? ""));
+  });
+  const m = SCRIPTS.conteo(wb);
+  afirmar(m.indexOf("✖ 1 rechazado(s) por registros simultáneos: " + s2) >= 0, m);
+  const aj = filasDe(wb, "tblEntradas").filter((r: Record<string, Celda>) => r.SKU === s2 && r.Documento === DOC_CF);
+  afirmar(aj.length === 1 && String(aj[0].Estado).startsWith("✖ Rechazado"), "el faltante debía quedar rechazado");
+  afirmar(ultimaActividad(wb).Resultado === "✖ Rechazado", "actividad: " + JSON.stringify(ultimaActividad(wb)));
+  hojasIntactas(wb, ["10A_ENTRADAS", "13_CONTEO", "14_ACTIVIDAD"]);
+});
+
+prueba("ResumenDiario: solo lectura; asunto, HTML e indicadores coherentes con el stock exacto y la actividad", () => {
+  const wb = libro(U.admin);
+  const foto = (): string => JSON.stringify([...wb.tablas.values()].map((x) => x.filas)) +
+    JSON.stringify([...wb.nombres.entries()]);
+  const antes = foto();
+  const r = SCRIPTS.resumen(wb);
+  afirmar(foto() === antes && wb.registro.length === 0 && wb.comentarios.size === 0, "ResumenDiario modificó el libro");
+  afirmar(r.asunto.indexOf("Resumen del " + HOY_TXT) >= 0, r.asunto);
+  const activos = (e: string): number => ESP.stock.filter((f: Celda[]) => f[12] === e && f[5] === "SI").length;
+  afirmar(r.agotados === activos("AGOTADO") && r.criticos === activos("CRÍTICO") && r.bajos === activos("BAJO"),
+    `alertas ${r.agotados}/${r.criticos}/${r.bajos}`);
+  const total = ESP.pedido.reduce((s: number, f: Celda[]) => s + Number(f[10]), 0);
+  afirmar(Math.abs(r.totalPedido - total) <= 1, `total del pedido ${r.totalPedido} ≠ ${total}`);
+  let hoyOk = 0, hoyMal = 0;
+  for (const nombre of ["tblEntradas", "tblSalidas"]) {
+    for (const f of filasDe(wb, nombre)) {
+      if (Math.floor(Number(f.Timestamp)) === HOY) {
+        if (String(f.Estado).startsWith("✔")) {
+          hoyOk++;
+        } else {
+          hoyMal++;
+        }
+      }
+    }
+  }
+  const bloqueos = filasDe(wb, "tblActividad").filter((a: Record<string, Celda>) =>
+    Math.floor(Number(a.Timestamp)) === HOY && String(a.Resultado).startsWith("✖")).length;
+  afirmar(r.movimientosHoy === hoyOk && r.rechazosHoy === hoyMal && r.bloqueosHoy === bloqueos,
+    `movimientos ${r.movimientosHoy}/${hoyOk} · rechazos ${r.rechazosHoy}/${hoyMal} · bloqueos ${r.bloqueosHoy}/${bloqueos}`);
+  afirmar(r.html.indexOf(ESP.ejemplo_agotado) >= 0 && r.html.indexOf("<table") >= 0, "el HTML debía listar el agotado");
+  afirmar(r.texto.indexOf("Pedido sugerido estimado") >= 0, "texto plano");
+});
+
+prueba("ResumenDiario: los textos del libro se escapan en el HTML del correo", () => {
+  const wb = libro(U.admin);
+  const p = wb.tabla("tblProductos");
+  const i = p.filas.findIndex((f: Celda[]) => f[p.encabezados.indexOf("SKU")] === ESP.ejemplo_agotado);
+  p.filas[i][p.encabezados.indexOf("Producto")] = "<b>Tornillo</b> & \"tuerca\"";
+  const r = SCRIPTS.resumen(wb);
+  afirmar(r.html.indexOf("&lt;b&gt;Tornillo&lt;/b&gt; &amp; &quot;tuerca&quot;") >= 0 && r.html.indexOf("<b>Tornillo") < 0,
+    "el nombre del producto debía escaparse");
 });
 
 console.log(fallas === 0 ? `RESULTADO: ${total} pruebas sin fallas` : `RESULTADO: ${fallas} de ${total} pruebas fallaron`);

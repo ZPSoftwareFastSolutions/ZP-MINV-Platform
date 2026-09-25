@@ -1,5 +1,5 @@
 """
-M-INV V2 · Portadas por rol: 00_PORTADA_BODEGA y 00_PORTADA_VENTAS.
+M-INV V2 · Portadas por rol: 00_PORTADA_BODEGA y 00_PORTADA_VENTAS (Gerencia en gerencia.py).
 
 Solo celdas (vínculos, tarjetas, listas) y gráficos nativos: funcionan igual en Excel para la web. Cada portada muestra
 únicamente las acciones de su rol, la frescura de la instantánea de stock y el lugar del botón «Recalcular stock».
@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from minv.base import C, ESTADOS, FONT_SB, S_LISTAS, Ctx, estado_cf, q
 
-from .base2 import (CAP_FIRST, S_ALERT, S_ENT, S_PB, S_PV, S_SAL, S_STOCK, VERSION2, boton, ccol, celda, franja,
-                    lienzo, marcador_script, seccion)
+from .base2 import (CAP_FIRST, S_ALERT, S_CONS, S_CONTEO, S_ENT, S_PB, S_PV, S_SAL, S_STOCK, VERSION2, boton, ccol,
+                    celda, franja, lienzo, marcador_script, seccion)
 
 GRID = [24] + [94] * 12 + [24]
 HEIGHTS = {5: 10, 6: 40, 7: 8, 8: 34, 9: 10, 10: 22, 11: 36, 12: 36, 13: 12, 14: 22, 15: 20, 16: 42, 17: 20,
@@ -22,7 +22,7 @@ CRIT_ROWS = range(21, 31)      # 10 filas de la lista de la instantánea
 LAST_ROWS = range(34, 42)      # 8 últimos movimientos
 
 
-def _base(ctx: Ctx, sheet: str, titulo: str, activo: str):
+def _base(ctx: Ctx, sheet: str, titulo: str, activo: str, heights: dict | None = None):
     ws, st = ctx.sheets[sheet], ctx.st
     lienzo(ws, GRID)
     franja(ctx, ws, GRID, titulo, "", activo)
@@ -34,7 +34,7 @@ def _base(ctx: Ctx, sheet: str, titulo: str, activo: str):
     ws.merge_range(2, 9, 2, 12, f"Edición colaborativa · M-INV V{VERSION2}",
                    st(bg_color=ink, font_color=C["band_sub"], align="right", font_size=8.5))
     canvas = st(bg_color=C["canvas"])
-    for r, h in HEIGHTS.items():
+    for r, h in (heights or HEIGHTS).items():
         ws.set_row_pixels(r, h, canvas)
     # Frescura de la instantánea + lugar del botón del script
     fb = st(font_name=FONT_SB, font_size=10, indent=1, bg_color=C["white"], border=1, border_color=C["border"],
@@ -59,19 +59,21 @@ def _paso(ctx: Ctx, ws, st, nombre: str):
                                             "format": st.cf(font_color=fg, bg_color=bg)})
 
 
-def _tarjetas(ctx: Ctx, ws, st, cards):
-    seccion(ctx, ws, 14, 1, "INDICADORES")
+def _tarjetas(ctx: Ctx, ws, st, cards, fila: int = 15, titulo: str | None = "INDICADORES"):
+    """Cuatro tarjetas (etiqueta, valor grande, nota) en las filas fila..fila+2; sección en fila-1."""
+    if titulo:
+        seccion(ctx, ws, fila - 1, 1, titulo)
     for i, (label, formula, nf, color, note) in enumerate(cards):
         c0, c1 = 1 + 3 * i, 3 + 3 * i
         edge = dict(bg_color=C["white"], left=1, left_color=C["border"], right=1, right_color=C["border"])
-        ws.merge_range(15, c0, 15, c1, label, st(font_size=8.5, bold=True, font_color=C["muted"], indent=1,
-                                                 top=5, top_color=color, **edge))
-        ws.merge_range(16, c0, 16, c1, "", st(**edge))
-        ws.write_formula(16, c0, formula, st(font_name=FONT_SB, font_size=22, font_color=color, indent=1,
-                                             num_format=nf, formula=True, **edge))
-        ws.merge_range(17, c0, 17, c1, "", st(**edge))
-        ws.write_formula(17, c0, note, st(font_size=8.5, font_color=C["muted"], indent=1, bottom=1,
-                                          bottom_color=C["border"], formula=True, **edge))
+        ws.merge_range(fila, c0, fila, c1, label, st(font_size=8.5, bold=True, font_color=C["muted"], indent=1,
+                                                     top=5, top_color=color, **edge))
+        ws.merge_range(fila + 1, c0, fila + 1, c1, "", st(**edge))
+        ws.write_formula(fila + 1, c0, formula, st(font_name=FONT_SB, font_size=22, font_color=color, indent=1,
+                                                   num_format=nf, formula=True, **edge))
+        ws.merge_range(fila + 2, c0, fila + 2, c1, "", st(**edge))
+        ws.write_formula(fila + 2, c0, note, st(font_size=8.5, font_color=C["muted"], indent=1, bottom=1,
+                                                bottom_color=C["border"], formula=True, **edge))
 
 
 def _lista_alertas(ctx: Ctx, ws, st, titulo: str, filtro: tuple[str, ...] | None, cols):
@@ -127,10 +129,10 @@ def _decimales(ws, st, rng: str, ref: str):
                                 "format": st.cf(num_format="#,##0.00")})
 
 
-def _pie(ctx: Ctx, ws, st):
+def _pie(ctx: Ctx, ws, st, fila: int = 43):
     f = st(font_size=8.5, font_color=C["muted"], bg_color=C["canvas"], indent=1, formula=True)
-    celda(ws, st, 43, 1, 7, "=txtBitacoras", f, formula=True)
-    celda(ws, st, 43, 8, 12, "M-INV V2 · Colaborativo en Microsoft 365 · Z&P Software Fast Solutions",
+    celda(ws, st, fila, 1, 7, "=txtBitacoras", f, formula=True)
+    celda(ws, st, fila, 8, 12, f"M-INV V{VERSION2} · Colaborativo en Microsoft 365 · Z&P Software Fast Solutions",
           st(font_size=8.5, font_color=C["muted"], bg_color=C["canvas"], align="right"))
 
 
@@ -138,14 +140,16 @@ def build_portada_bodega(ctx: Ctx):
     ws, st = _base(ctx, S_PB, "M-INV · Bodega", "bodega")
     _paso(ctx, ws, st, "txtPasoBodega")
     seccion(ctx, ws, 10, 1, "¿QUÉ NECESITA HACER?")
-    boton(ctx, ws, 11, 1, 4, "⇩   REGISTRAR ENTRADA", S_ENT, f"{ccol('Tipo')}{CAP_FIRST}", fill=C["green"], rows=2,
-          size=12, tip="Ir a su fila de captura en 10A_ENTRADAS (tipo ENTRADA o SALDO INICIAL)")
-    boton(ctx, ws, 11, 5, 8, "±   REGISTRAR AJUSTE", S_ENT, f"{ccol('Tipo')}{CAP_FIRST}", fill=C["amber"], rows=2,
-          size=12, tip="Ir a su fila de captura en 10A_ENTRADAS y elegir AJUSTE (+) o AJUSTE (-)")
-    f = st(font_name=FONT_SB, font_size=12, align="center", valign="vcenter", font_color=C["white"],
+    boton(ctx, ws, 11, 1, 3, "⇩  REGISTRAR ENTRADA", S_ENT, f"{ccol('Tipo')}{CAP_FIRST}", fill=C["green"], rows=2,
+          size=11, tip="Ir a su fila de captura en 10A_ENTRADAS (tipo ENTRADA o SALDO INICIAL)")
+    boton(ctx, ws, 11, 4, 6, "±  REGISTRAR AJUSTE", S_ENT, f"{ccol('Tipo')}{CAP_FIRST}", fill=C["amber"], rows=2,
+          size=11, tip="Ir a su fila de captura en 10A_ENTRADAS y elegir AJUSTE (+) o AJUSTE (-)")
+    boton(ctx, ws, 11, 7, 9, "✓  TOMA FÍSICA", S_CONTEO, "I9", fill=C["purple"], rows=2, size=11,
+          tip="Conteo colaborativo: cada quien su zona; el script genera los ajustes")
+    f = st(font_name=FONT_SB, font_size=11, align="center", valign="vcenter", font_color=C["white"],
            bg_color=C["red"], border=2, border_color=C["white"], formula=True)
-    ws.merge_range(11, 9, 12, 12, "", f)
-    ws.write_formula(11, 9, f'=HYPERLINK("#{q(S_ALERT)}!A1",txtAlertasBtn)', f)
+    ws.merge_range(11, 10, 12, 12, "", f)
+    ws.write_formula(11, 10, f'=HYPERLINK("#{q(S_ALERT)}!A1",txtAlertasBtn)', f)
     _tarjetas(ctx, ws, st, [
         ("ENTRADAS DE HOY", "=kpiEntradasHoy", "#,##0", C["green"], '="Ajustes del mes: "&kpiAjustesMes'),
         ("AGOTADOS", "=kpiAgotados", "#,##0", C["red"], '="sin stock en la instantánea"'),
@@ -169,10 +173,12 @@ def build_portada_ventas(ctx: Ctx):
     ws, st = _base(ctx, S_PV, "M-INV · Ventas", "ventas")
     _paso(ctx, ws, st, "txtPasoVentas")
     seccion(ctx, ws, 10, 1, "¿QUÉ NECESITA HACER?")
-    boton(ctx, ws, 11, 1, 6, "⇧   REGISTRAR SALIDA", S_SAL, f"{ccol('Producto')}{CAP_FIRST}", fill=C["brand"],
-          rows=2, size=12, tip="Ir a su fila de captura en 10B_SALIDAS")
-    boton(ctx, ws, 11, 7, 12, "▦   CONSULTAR DISPONIBILIDAD", S_STOCK, "B8", fill=C["teal"], rows=2, size=12,
-          tip="Stock por producto (instantánea). Para el disponible exacto, elija el producto en su fila de 10B")
+    boton(ctx, ws, 11, 1, 4, "⇧  REGISTRAR SALIDA", S_SAL, f"{ccol('Producto')}{CAP_FIRST}", fill=C["brand"],
+          rows=2, size=11, tip="Ir a su fila de captura en 10B_SALIDAS")
+    boton(ctx, ws, 11, 5, 8, "⌕  CONSULTAR PRODUCTO", S_CONS, "C9", fill=C["teal"], rows=2, size=11,
+          tip="Ficha al instante en su fila de 17_CONSULTA: disponible exacto, estado, cobertura y último movimiento")
+    boton(ctx, ws, 11, 9, 12, "▦  STOCK COMPLETO", S_STOCK, "B8", fill=C["slate"], rows=2, size=11,
+          tip="Instantánea de stock de todos los productos (filtre en su Vista de hoja)")
     _tarjetas(ctx, ws, st, [
         ("SALIDAS DE HOY", "=kpiSalidasHoy", "#,##0", C["brand"], '="Unidades despachadas: "&kpiUnidadesHoy'),
         ("SALIDAS DEL MES", "=kpiSalidasMes", "#,##0", C["teal"], '="registros consolidados en 10B"'),
@@ -215,6 +221,25 @@ def series_graficos(ctx: Ctx):
                                                            formula=True))
         ws.write_formula(16 + d, 6, f'=-SUMIFS(tblSalidas[CantidadNeta],tblSalidas[Fecha],F{17 + d},'
                                     f'tblSalidas[Estado],"✔*")', n)
+    # Gerencia: unidades despachadas por mes (6 meses) y valor del inventario por categoría
+    ws.set_column_pixels(8, 8, 110)
+    ws.set_column_pixels(9, 9, 100)
+    ws.set_column_pixels(11, 11, 190)
+    ws.set_column_pixels(12, 12, 120)
+    ws.write_string(6, 8, "Mes", hdr)
+    ws.write_string(6, 9, "Unidades", hdr)
+    ws.write_string(6, 11, "Categoría", hdr)
+    ws.write_string(6, 12, "Valor", hdr)
+    for m in range(6):
+        ws.write_formula(7 + m, 8, f"=EDATE(DATE(YEAR(TODAY()),MONTH(TODAY()),1),{m - 5})",
+                         st(num_format="mmm yy", border=1, border_color=C["border"], formula=True))
+        ws.write_formula(7 + m, 9, f'=-SUMIFS(tblSalidas[CantidadNeta],tblSalidas[Fecha],">="&I{8 + m},'
+                                   f'tblSalidas[Fecha],"<"&EDATE(I{8 + m},1),tblSalidas[Estado],"✔*")', n)
+    for k in range(ctx.layout.get("n_cats", 6)):
+        ws.write_formula(7 + k, 11, f'=IFERROR(INDEX(tblCategorias[Categoría],{k + 1})&"","")', n)
+        ws.write_formula(7 + k, 12, f'=IF(L{8 + k}="",0,SUMIF(tblStock[Categoría],L{8 + k},'
+                                    f'tblStock[ValorInventario]))',
+                         st(num_format="$ #,##0", border=1, border_color=C["border"], formula=True))
 
 
 def _grafico_salud(ctx: Ctx, ws):

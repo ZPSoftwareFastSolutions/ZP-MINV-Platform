@@ -1,20 +1,223 @@
 /**
- * M-INV V2.1 · RegistrarEntrada.ts — fragmento de Bodega (10A_ENTRADAS)
+ * M-INV V2.1 · GenerarAjustesConteo.ts — toma física colaborativa (13_CONTEO)
  * Z&P Software Fast Solutions
  *
- * Botón «Registrar en bodega». Consolida la fila de captura de QUIEN PULSA el botón (ENTRADA, SALDO INICIAL,
- * AJUSTE (+) o AJUSTE (-)) en la bitácora oficial tblEntradas:
- *   1. Identifica la cuenta de Microsoft 365 y la autoriza contra 02_USUARIOS (roles BODEGA o ADMIN).
- *   2. Valida la fila con las mismas reglas de la columna Validación (sin confiar en las fórmulas).
- *   3. Agrega el movimiento al final de la bitácora (inserción atómica) con ID, Usuario_O365 y Timestamp.
- *   4. En los AJUSTE (-), vuelve a verificar el disponible (registros simultáneos) y se rechaza si no alcanza.
- *   5. Escribe el resultado en la fila de captura y la limpia (conserva el Tipo para el siguiente registro).
- *   6. Deja la ejecución en 14_ACTIVIDAD (quién, cuándo, resultado), también los intentos bloqueados.
- * La bitácora oficial queda protegida: solo los scripts la escriben (pausan la protección para su sesión).
+ * Botón «Generar ajustes del conteo». Varias personas cuentan a la vez (cada una escribe solo el Conteo de su zona:
+ * celdas distintas, sin colisiones). Al terminar, el responsable (BODEGA o ADMIN) escribe SI en «Confirmar» y pulsa:
+ *   1. Identifica y autoriza la cuenta y exige la confirmación (evita ejecuciones accidentales).
+ *   2. Valida TODOS los conteos (número mayor o igual a 0; decimales solo si la unidad los admite). Si alguno no es
+ *      válido no registra nada e indica cuáles corregir.
+ *   3. Compara cada conteo contra el stock EXACTO de ese momento (las dos bitácoras, no la instantánea).
+ *   4. Registra en 10A_ENTRADAS, con UNA inserción atómica, un AJUSTE (+) o AJUSTE (-) por cada diferencia, o el
+ *      SALDO INICIAL si el producto aún no tiene movimientos, con el documento CF-AAAAMMDD y el detalle del conteo.
+ *   5. Vuelve a verificar los ajustes negativos (registros simultáneos) y rechaza los que dejarían stock negativo.
+ *   6. Limpia los conteos procesados y la confirmación, y deja el resultado en 13_CONTEO y en 14_ACTIVIDAD.
  */
 function main(workbook: ExcelScript.Workbook): string {
-  return registrar(workbook, "BODEGA", "10A_ENTRADAS", "tblCapturaEntradas", "tblEntradas", "E",
-    ["BODEGA", "ADMIN"], ["Fecha", "Producto", "Cantidad", "Documento", "Observaciones"]);
+  const ahora = new Date();
+  const hojaEntradas = hoja(workbook, "10A_ENTRADAS");
+  const hojaConteo = hoja(workbook, "13_CONTEO");
+  const yo = identificarUsuario(workbook);
+  let nombre = yo.nombre;
+  let resultado = "✔ Ajustes generados";
+  let mensaje = "";
+  try {
+    const registro = buscarUsuario(workbook, yo.correo);
+    if (registro && registro.nombre) {
+      nombre = registro.nombre;
+    }
+    autorizar(registro, yo.correo, ["BODEGA", "ADMIN"], "generar los ajustes del conteo");
+    if (texto(valorNombre(workbook, "ctConfirmar")).toUpperCase() !== "SI") {
+      throw new Error("escriba SI en «Confirmar» (celda H7 de 13_CONTEO) y vuelva a pulsar el botón");
+    }
+    const hoy = Math.floor(serialDe(ahora));
+    const fecha = fechaDelConteo(workbook, hoy);
+    const conteo = leerTabla(workbook, "tblConteo");
+    const cConteo = columna(conteo, "Conteo");
+    const contados = validarConteos(workbook, conteo);
+    if (contados.length === 0) {
+      throw new Error("no hay conteos: escriba las cantidades contadas en la columna Conteo");
+    }
+    const factores = factoresDeBodega(workbook);
+    const actuales = saldos(workbook);
+    const documento = "CF-" + fechaCompacta(fecha);
+    const origen = "Toma física del " + fechaTexto(fecha);
+    const bitacora = workbook.getTable("tblEntradas");
+    if (!bitacora) {
+      throw new Error("falta la tabla tblEntradas");
+    }
+    const usados = new Set<string>();
+    const ajustes: AjusteConteo[] = [];
+    let cuadran = 0;
+    for (const c of contados) {
+      const s = actuales.get(c.producto.sku) || { stock: 0, movimientos: 0 };
+      let tipo = "";
+      let cantidad = 0;
+      let nota = "";
+      if (s.movimientos === 0) {
+        tipo = "SALDO INICIAL";
+        cantidad = c.cantidad;
+        nota = origen + ": saldo inicial contado " + c.cantidad + " " + c.producto.unidad;
+      } else {
+        const diferencia = r6(c.cantidad - s.stock);
+        tipo = diferencia > 0 ? "AJUSTE (+)" : "AJUSTE (-)";
+        cantidad = Math.abs(diferencia);
+        nota = origen + ": sistema " + s.stock + ", contado " + c.cantidad + " " + c.producto.unidad +
+          " (diferencia " + (diferencia > 0 ? "+" : "") + diferencia + ")";
+      }
+      if (!(cantidad > 0)) {
+        cuadran++;
+        continue;
+      }
+      let id = nuevoId("E", ahora);
+      while (usados.has(id)) {
+        id = nuevoId("E", ahora);
+      }
+      usados.add(id);
+      const factor = factores.get(tipo) || 0;
+      if (factor !== 1 && factor !== -1) {
+        throw new Error("el tipo " + tipo + " no está configurado en tblTiposMov para Bodega");
+      }
+      const neta = r6(cantidad * factor);
+      ajustes.push({
+        id, tipo, sku: c.producto.sku, neta,
+        fila: filaSegunEncabezados(bitacora, new Map<string, Celda>([
+          ["ID", id], ["Tipo", tipo], ["Fecha", fecha], ["Producto", c.producto.sku + SEPARADOR + c.producto.nombre],
+          ["Cantidad", cantidad], ["Documento", documento], ["Observaciones", nota.substring(0, MAX_OBSERVACIONES)],
+          ["CantidadNeta", neta], ["Estado", ESTADO_OK], ["Registró", nombre], ["Unidad", c.producto.unidad],
+          ["FactorStock", factor], ["Usuario_O365", yo.correo], ["SKU", c.producto.sku], ["Timestamp", serialDe(ahora)]
+        ]))
+      });
+    }
+    mensaje = conHojasDesbloqueadas([hojaEntradas, hojaConteo], () => {
+      agregarFilas(bitacora, ajustes.map((a: AjusteConteo) => a.fila));
+      const rechazados: string[] = [];
+      if (ajustes.some((a: AjusteConteo) => a.neta < 0)) {
+        const despues = saldos(workbook);
+        for (const a of ajustes) {
+          const s = despues.get(a.sku);
+          if (a.neta < 0 && s && s.stock < 0) {
+            marcarRechazo(bitacora, a.id, "stock negativo por un registro simultáneo: vuelva a contar " + a.sku);
+            rechazados.push(a.sku);
+          }
+        }
+      }
+      const cuerpo = conteo.tabla.getRangeBetweenHeaderAndTotal();
+      for (const c of contados) {
+        cuerpo.getCell(c.indice, cConteo).setValue("");
+      }
+      const cuenta = (tipo: string): number => ajustes.filter((a: AjusteConteo) => a.tipo === tipo).length;
+      let m = ajustes.length === 0 ?
+        "✔ " + origen + ": los " + contados.length + " producto(s) contados cuadran; no se generaron ajustes" :
+        "✔ " + origen + ": " + (ajustes.length - rechazados.length) + " movimiento(s) en 10A (" + cuenta("AJUSTE (+)") +
+        " sobrante(s), " + cuenta("AJUSTE (-)") + " faltante(s), " + cuenta("SALDO INICIAL") + " saldo(s) inicial(es))" +
+        " · " + cuadran + " cuadran · documento " + documento;
+      if (rechazados.length > 0) {
+        resultado = "✖ Rechazado";
+        m += " · ✖ " + rechazados.length + " rechazado(s) por registros simultáneos: " + rechazados.join(", ");
+      }
+      if (ajustes.length === 0) {
+        resultado = "✔ Conteo sin diferencias";
+      }
+      m += " · " + horaDe(ahora) + " · " + nombre;
+      escribirNombre(workbook, "ctConfirmar", "");
+      escribirNombre(workbook, "ctResultado", m);
+      return m;
+    });
+  } catch (error) {
+    resultado = "✖ Bloqueado";
+    mensaje = "✖ Bloqueado: " + mensajeDe(error as Error);
+    try {
+      conHojasDesbloqueadas([hojaConteo], () => escribirNombre(workbook, "ctResultado", mensaje));
+    } catch (error2) {
+      console.log("Conteo: no se pudo escribir el resultado (" + mensajeDe(error2 as Error) + ")");
+    }
+  }
+  registrarActividad(workbook, yo, nombre, "GenerarAjustesConteo", resultado, mensaje, ahora);
+  console.log(mensaje);
+  return mensaje;
+}
+
+interface Contado {
+  indice: number;
+  producto: Producto;
+  cantidad: number;
+}
+
+interface AjusteConteo {
+  id: string;
+  tipo: string;
+  sku: string;
+  neta: number;
+  fila: Celda[];
+}
+
+/** Fecha del conteo (ctFecha): vacía = hoy; nunca futura ni anterior a cfgFechaMin. */
+function fechaDelConteo(workbook: ExcelScript.Workbook, hoy: number): number {
+  const v = valorNombre(workbook, "ctFecha");
+  if (texto(v) === "") {
+    return hoy;
+  }
+  const f = Math.floor(numero(v));
+  const minima = Math.floor(numero(valorNombre(workbook, "cfgFechaMin")) || 0);
+  if (!(f > 0) || f > hoy || f < minima) {
+    throw new Error("la fecha del conteo no es válida (futura o anterior a la mínima)");
+  }
+  return f;
+}
+
+/** Filas con conteo, validadas contra el catálogo y las unidades. Un solo error bloquea todo el proceso. */
+function validarConteos(workbook: ExcelScript.Workbook, conteo: TablaLeida): Contado[] {
+  const cS = columna(conteo, "SKU"), cC = columna(conteo, "Conteo");
+  const catalogo = new Map<string, Producto>();
+  for (const p of leerProductos(workbook)) {
+    catalogo.set(p.sku, p);
+  }
+  const unidades = leerTabla(workbook, "tblUnidades");
+  const cU = columna(unidades, "Código"), cD = columna(unidades, "Decimales");
+  const sinDecimales = new Set<string>();
+  for (const f of unidades.filas) {
+    if (texto(f[cD]).toUpperCase() === "NO") {
+      sinDecimales.add(texto(f[cU]));
+    }
+  }
+  const contados: Contado[] = [];
+  const errores: string[] = [];
+  conteo.filas.forEach((f: Celda[], i: number) => {
+    if (texto(f[cC]) === "") {
+      return;
+    }
+    const sku = texto(f[cS]);
+    const producto = catalogo.get(sku);
+    const cantidad = numero(f[cC]);
+    if (sku === "" || !producto) {
+      errores.push("fila " + (i + 1) + " sin producto");
+    } else if (isNaN(cantidad) || cantidad < 0) {
+      errores.push(sku + " (no es un número mayor o igual a 0)");
+    } else if (cantidad !== Math.floor(cantidad) && sinDecimales.has(producto.unidad)) {
+      errores.push(sku + " (" + producto.unidad + " no admite decimales)");
+    } else {
+      contados.push({ indice: i, producto, cantidad: r6(cantidad) });
+    }
+  });
+  if (errores.length > 0) {
+    throw new Error(errores.length + " conteo(s) no válido(s): " + errores.slice(0, 8).join("; ") +
+      (errores.length > 8 ? "; …" : "") + ". Corríjalos y vuelva a intentar (no se registró nada)");
+  }
+  return contados;
+}
+
+/** FactorStock de los tipos de Bodega (tblTiposMov, dominio BODEGA). */
+function factoresDeBodega(workbook: ExcelScript.Workbook): Map<string, number> {
+  const t = leerTabla(workbook, "tblTiposMov");
+  const cT = columna(t, "Tipo"), cF = columna(t, "FactorStock"), cD = columna(t, "Dominio");
+  const m = new Map<string, number>();
+  for (const f of t.filas) {
+    if (texto(f[cD]).toUpperCase() === "BODEGA") {
+      m.set(texto(f[cT]).toUpperCase(), numero(f[cF]));
+    }
+  }
+  return m;
 }
 
 // >>> M-INV · BLOQUE COMÚN (generado desde lib/comun.ts con tools/office_scripts.py: no editar aquí)

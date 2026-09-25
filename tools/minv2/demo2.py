@@ -35,6 +35,11 @@ class DatosV2:
     alertas: list[list] = field(default_factory=list)
     stock_completo: list[list] = field(default_factory=list)   # lo que debe producir RecalcularStock.ts
     alertas_completas: list[list] = field(default_factory=list)
+    pedido: list[list] = field(default_factory=list)     # 18_PEDIDO precargado
+    pedido_completo: list[list] = field(default_factory=list)
+    actividad: list[dict] = field(default_factory=list)  # 14_ACTIVIDAD
+    consulta: dict = field(default_factory=dict)         # {n.º de fila de 17_CONSULTA: etiqueta}
+    conteo: dict = field(default_factory=dict)           # {n.º de fila de 13_CONTEO: cantidad contada}
     meta: dict = field(default_factory=dict)             # stkActualizado, stkActualizadoPor...
 
 
@@ -42,6 +47,16 @@ def productos_dict() -> list[dict]:
     return [{"SKU": p.sku, "Producto": p.nombre, "Categoría": p.categoria, "Unidad": p.unidad,
              "StockMin": p.minimo, "StockMax": p.maximo, "CostoUnitario": p.costo, "Proveedor": p.proveedor,
              "Ubicación": p.ubicacion, "Activo": "SI" if p.activo else "NO"} for p in D.PRODUCTOS_DEMO]
+
+
+def proveedores_dict() -> list[dict]:
+    return [{"Proveedor": p[0], "NIT": p[1], "Contacto": p[2], "Teléfono": p[3], "Correo": p[4], "DiasEntrega": p[5]}
+            for p in D.PROVEEDORES_DEMO]
+
+
+def orden_consulta() -> list[tuple]:
+    """Usuarios operativos (ADMIN, BODEGA, VENTAS) en el orden de 02_USUARIOS (define su fila de 17_CONSULTA)."""
+    return [u for u in USUARIOS_DEMO if u[2] in ("ADMIN", "BODEGA", "VENTAS")]
 
 
 def orden_captura(hoja: str) -> list[tuple]:
@@ -96,11 +111,14 @@ def generar(fin: dt.date) -> DatosV2:
 
     def a_proy(filas):
         return [{"SKU": f["SKU"], "CantidadNeta": f["CantidadNeta"], "Fecha": serial(f["Fecha"]),
-                 "Estado": f["Estado"]} for f in filas]
+                 "Estado": f["Estado"], "Tipo": f["Tipo"]} for f in filas]
 
-    datos.stock, datos.alertas, n = proyectar(prods, a_proy([f for f in todos if f["Timestamp"] <= corte]), margen,
-                                              fin)
-    datos.stock_completo, datos.alertas_completas, _ = proyectar(prods, a_proy(todos), margen, fin)
+    provs = proveedores_dict()
+    parcial = proyectar(prods, a_proy([f for f in todos if f["Timestamp"] <= corte]), margen, fin, provs)
+    completo = proyectar(prods, a_proy(todos), margen, fin, provs)
+    datos.stock, datos.alertas, datos.pedido, n = parcial["stock"], parcial["alertas"], parcial["pedido"], parcial["n"]
+    datos.stock_completo, datos.alertas_completas = completo["stock"], completo["alertas"]
+    datos.pedido_completo = completo["pedido"]
     datos.meta = {"stkActualizado": corte, "stkActualizadoPor": ADMIN[0], "stkActualizadoNombre": ADMIN[1],
                   "stkMovimientos": n}
 
@@ -125,6 +143,47 @@ def generar(fin: dt.date) -> DatosV2:
     datos.meta["ejemplo_agotado"] = agotado
     datos.meta["ejemplo_con_stock"] = con_stock
     datos.meta["stock_con_stock"] = final[con_stock][8]
+
+    # Consultas de ejemplo (17_CONSULTA): cada una en la fila de su usuario
+    veces: dict[str, int] = {}
+    for f in todos:
+        veces[f["SKU"]] = veces.get(f["SKU"], 0) + 1
+    mas_movido = max(veces, key=veces.get)
+    cons = orden_consulta()
+    datos.consulta = {1 + cons.index(POR_NOMBRE["Ana Gómez"]): f"{mas_movido} · {NOMBRE[mas_movido]}",
+                      1 + cons.index(POR_NOMBRE["Carlos Ruiz"]): f"{con_stock} · {NOMBRE[con_stock]}",
+                      1 + cons.index(POR_NOMBRE["Sofía López"]): f"{agotado} · {NOMBRE[agotado]}"}
+
+    # Conteo en curso de ejemplo (13_CONTEO): un sobrante y un faltante frente a la instantánea (productos sin
+    # movimientos posteriores al cálculo: la vista previa de la hoja coincide con el ajuste que generará el script)
+    parcial_por_sku = {r[0]: r for r in datos.stock}
+    tras_corte = {f["SKU"] for f in todos if f["Timestamp"] > corte}
+    candidatos = [i for i, pr in enumerate(prods) if parcial_por_sku[pr["SKU"]][12] == "ÓPTIMO"
+                  and pr["Unidad"] not in D.UNIDADES_DECIMALES
+                  and pr["SKU"] not in (con_stock, mas_movido) and pr["SKU"] not in tras_corte]
+    i1, i2 = candidatos[0], candidatos[1]
+    datos.conteo = {i1 + 1: parcial_por_sku[prods[i1]["SKU"]][8] + 2, i2 + 1: parcial_por_sku[prods[i2]["SKU"]][8] - 1}
+    datos.meta["conteo_skus"] = [prods[i1]["SKU"], prods[i2]["SKU"]]
+
+    # Registro de actividad: cada movimiento, algunos intentos bloqueados y el recálculo de la instantánea
+    act = []
+    for f in todos:
+        ts = f["Timestamp"] + dt.timedelta(seconds=2)
+        script = "RegistrarSalida" if f["Tipo"] == "SALIDA" else "RegistrarEntrada"
+        act.append({"ID": _id("A", ts, rnd), "Timestamp": ts, "Usuario_O365": f["Usuario_O365"],
+                    "Nombre": f["Registró"], "Script": script, "Resultado": "✔ Registrado",
+                    "Detalle": f"✔ Registrado {f['ID']} · {f['Tipo']} {f['Cantidad']:g} {f['Unidad']} · {f['SKU']}"})
+    salidas_recientes = [f for f in datos.salidas if (fin - f["Fecha"]).days <= 20]
+    for f in rnd.sample(salidas_recientes, min(4, len(salidas_recientes))):
+        ts = f["Timestamp"] - dt.timedelta(minutes=25)
+        act.append({"ID": _id("A", ts, rnd), "Timestamp": ts, "Usuario_O365": f["Usuario_O365"],
+                    "Nombre": f["Registró"], "Script": "RegistrarSalida", "Resultado": "✖ Bloqueado",
+                    "Detalle": f"✖ Bloqueado: stock insuficiente: disponible 0 {UNIDAD[agotado]} ({agotado})"})
+    act.append({"ID": _id("A", corte, rnd), "Timestamp": corte, "Usuario_O365": ADMIN[0], "Nombre": ADMIN[1],
+                "Script": "RecalcularStock", "Resultado": "✔ Stock recalculado",
+                "Detalle": f"✔ Stock recalculado: {len(datos.stock)} productos · {n} movimientos · "
+                           f"{len(datos.alertas)} alertas · {len(datos.pedido)} líneas de pedido"})
+    datos.actividad = sorted(act, key=lambda a: a["Timestamp"])
     return datos
 
 
@@ -171,6 +230,8 @@ def fixture(datos: DatosV2, password: str, fin: dt.date, cfg: dict, tablas_extra
         "nombres": {k: {"hoja": "01_CONFIG", "valor": _v(v)} for k, v in cfg.items()},
         "esperado": {"stock": [[_v(x) for x in r] for r in datos.stock_completo],
                      "alertas": [[_v(x) for x in r] for r in datos.alertas_completas],
+                     "pedido": [[_v(x) for x in r] for r in datos.pedido_completo],
+                     "conteo_skus": datos.meta.get("conteo_skus", []),
                      "ejemplo_agotado": datos.meta["ejemplo_agotado"],
                      "ejemplo_con_stock": datos.meta["ejemplo_con_stock"],
                      "stock_con_stock": datos.meta["stock_con_stock"]},

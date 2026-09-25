@@ -37,9 +37,15 @@ from minv.master import productos_cols, productos_tabla, proveedores_cols, prove
 from minv.postprocess import postprocess  # noqa: E402
 from minv2 import demo2, motor  # noqa: E402
 from minv2.ayuda2 import build_ayuda2  # noqa: E402
-from minv2.base2 import (HIDDEN2, S_ENT, S_PB, S_PV, S_SAL, S_SES, S_USR, VERSION2, franja, lienzo)  # noqa: E402
+from minv2.actividad import ACT_COLS, build_actividad  # noqa: E402
+from minv2.base2 import (HIDDEN2, S_ACT, S_CONS, S_CONTEO, S_ENT, S_PB, S_PED, S_PG, S_PV, S_SAL, S_SES,  # noqa: E402
+                         S_USR, VERSION2, con_margen, franja, lienzo)
 from minv2.config2 import TIPOS2, build_config2, build_usuarios, usuarios_cols  # noqa: E402
-from minv2.lectura import ALERT_COLS, STOCK_COLS, build_alertas2, build_stock2  # noqa: E402
+from minv2.consulta2 import CONS_COLS, build_consulta  # noqa: E402
+from minv2.conteo2 import CONTEO_COLS, build_conteo2  # noqa: E402
+from minv2.gerencia import build_portada_gerencia  # noqa: E402
+from minv2.lectura import (ALERT_COLS, PEDIDO_COLS, STOCK_COLS, build_alertas2, build_pedido2,  # noqa: E402
+                           build_stock2)
 from minv2.portadas import build_portada_bodega, build_portada_ventas, series_graficos  # noqa: E402
 from minv2.transacciones import build_transaccional  # noqa: E402
 
@@ -48,10 +54,11 @@ OUT = {
     "release": ROOT / "releases" / "M-INV_V2_Colaborativo_Produccion.xlsx",
 }
 FIXTURE = ROOT / "build" / "v2" / "fixture.json"
-ORDER = [S_PB, S_PV, S_CONFIG, S_USR, S_CAT, S_PROV, S_PROD, S_UNI, S_ENT, S_SAL, S_STOCK, S_ALERT, S_LISTAS, S_KPI,
-         S_SES, S_AYUDA]
-TABS = {S_PB: C["green"], S_PV: C["brand"], S_USR: C["slate"], S_PROV: "#8D6E63", S_PROD: C["purple"],
-        S_ENT: "#2E7D32", S_SAL: C["brand_dk"], S_STOCK: C["teal"], S_ALERT: "#C62828", S_AYUDA: "#455A64"}
+ORDER = [S_PB, S_PV, S_PG, S_CONFIG, S_USR, S_CAT, S_PROV, S_PROD, S_UNI, S_ENT, S_SAL, S_CONTEO, S_ACT, S_STOCK,
+         S_ALERT, S_CONS, S_PED, S_LISTAS, S_KPI, S_SES, S_AYUDA]
+TABS = {S_PB: C["green"], S_PV: C["brand"], S_PG: C["ink2"], S_USR: C["slate"], S_PROV: "#8D6E63",
+        S_PROD: C["purple"], S_ENT: "#2E7D32", S_SAL: C["brand_dk"], S_CONTEO: C["purple"], S_ACT: C["slate"],
+        S_STOCK: C["teal"], S_ALERT: "#C62828", S_CONS: C["teal"], S_PED: "#BF360C", S_AYUDA: "#455A64"}
 
 
 def productos_cols_v2():
@@ -93,6 +100,7 @@ def build(mode: str, out: Path, password: str, fin: dt.date) -> dict:
     ctx.layout["pwd_ventas"] = os.environ.get("MINV_V2_PWD_VENTAS") or None
     ctx.sheets = {name: wb.add_worksheet(name) for name in ORDER}
     datos = demo2.generar(fin) if demo else demo2.DatosV2()
+    ctx.layout["n_cats"] = len(D.CATEGORIAS_DEMO if demo else D.CATEGORIAS_BASE)
 
     ctx.tables["tblProveedores"] = proveedores_cols()
     ctx.tables["tblProductos"] = productos_cols_v2()
@@ -114,7 +122,7 @@ def build(mode: str, out: Path, password: str, fin: dt.date) -> dict:
                                               "«Recalcular stock» · Nunca borre filas (use Activo = NO)",
              "catalogo", ctx.tables["tblProductos"], productos_tabla)):
         ws = ctx.sheets[sheet]
-        widths = [16] + [c.width for c in cols] + [16]
+        widths = con_margen([16] + [c.width for c in cols] + [16])
         lienzo(ws, widths, zoom=90)
         franja(ctx, ws, widths, titulo, sub, activo)
         fn(ctx, ws, cols)
@@ -123,8 +131,12 @@ def build(mode: str, out: Path, password: str, fin: dt.date) -> dict:
     build_unidades(ctx, ctx.sheets[S_UNI])
     build_transaccional(ctx, S_ENT, datos.entradas, datos.captura.get(S_ENT, {}))
     build_transaccional(ctx, S_SAL, datos.salidas, datos.captura.get(S_SAL, {}))
+    build_conteo2(ctx, datos.conteo)
+    build_actividad(ctx, datos.actividad)
     build_stock2(ctx, datos.stock)
     build_alertas2(ctx, datos.alertas)
+    build_consulta(ctx, datos.consulta)
+    build_pedido2(ctx, datos.pedido)
     motor.build_listas2(ctx)
     series_graficos(ctx)
     motor.build_kpis2(ctx)
@@ -132,13 +144,14 @@ def build(mode: str, out: Path, password: str, fin: dt.date) -> dict:
     motor.build_sesion(ctx)
     build_portada_bodega(ctx)
     build_portada_ventas(ctx)
+    build_portada_gerencia(ctx)
     build_ayuda2(ctx)
 
     # Protección por capa (la contraseña la usan también los scripts: pauseProtection)
     data = {"autofilter": True, "format_columns": True, "select_locked_cells": True, "select_unlocked_cells": True}
-    for name in (S_USR, S_PROV, S_PROD, S_ENT, S_SAL, S_STOCK, S_ALERT):
+    for name in (S_USR, S_PROV, S_PROD, S_ENT, S_SAL, S_CONTEO, S_ACT, S_STOCK, S_ALERT, S_CONS, S_PED):
         ctx.sheets[name].protect(password, data)
-    for name in (S_PB, S_PV, S_AYUDA):   # vínculos en celdas: la selección debe estar permitida
+    for name in (S_PB, S_PV, S_PG, S_AYUDA):   # vínculos en celdas: la selección debe estar permitida
         ctx.sheets[name].protect(password, {"select_locked_cells": True, "select_unlocked_cells": True})
     for name in HIDDEN2:
         if name != S_SES:                 # 92_SESION sin proteger: los scripts crean y borran comentarios
@@ -158,7 +171,7 @@ def build(mode: str, out: Path, password: str, fin: dt.date) -> dict:
     if demo:
         FIXTURE.parent.mkdir(parents=True, exist_ok=True)
         FIXTURE.write_text(json.dumps(_fixture(ctx, datos, password, fin), ensure_ascii=False), encoding="utf-8")
-    return {"entradas": len(datos.entradas), "salidas": len(datos.salidas)}
+    return {"entradas": len(datos.entradas), "salidas": len(datos.salidas), "actividad": len(datos.actividad)}
 
 
 def _fixture(ctx: Ctx, datos, password: str, fin: dt.date) -> dict:
@@ -174,17 +187,16 @@ def _fixture(ctx: Ctx, datos, password: str, fin: dt.date) -> dict:
                                                                                 else "")
         filas_p.append(fila)
     ucols = [c.name for c in usuarios_cols()]
-    orden = {"OrdenBodega": 0, "OrdenVentas": 0}
+    orden = {"OrdenBodega": 0, "OrdenVentas": 0, "OrdenConsulta": 0}
     filas_u = []
     for correo, nombre, rol in demo2.USUARIOS_DEMO:
         f = {"Correo": correo, "Nombre": nombre, "Rol": rol, "Activo": "SI", "OrdenBodega": "", "OrdenVentas": "",
-             "Validación": "✔ Autorizado"}
-        if rol in ("BODEGA", "ADMIN"):
-            orden["OrdenBodega"] += 1
-            f["OrdenBodega"] = orden["OrdenBodega"]
-        if rol in ("VENTAS", "ADMIN"):
-            orden["OrdenVentas"] += 1
-            f["OrdenVentas"] = orden["OrdenVentas"]
+             "OrdenConsulta": "", "Validación": "✔ Autorizado"}
+        for clave, roles in (("OrdenBodega", ("BODEGA", "ADMIN")), ("OrdenVentas", ("VENTAS", "ADMIN")),
+                             ("OrdenConsulta", ("ADMIN", "BODEGA", "VENTAS"))):
+            if rol in roles:
+                orden[clave] += 1
+                f[clave] = orden[clave]
         filas_u.append([f[c] for c in ucols])
     extra = {
         "tblUsuarios": {"hoja": S_USR, "encabezados": ucols, "filas": filas_u},
@@ -199,14 +211,67 @@ def _fixture(ctx: Ctx, datos, password: str, fin: dt.date) -> dict:
                      "filas": [["" for _ in STOCK_COLS] for _ in range(MAX_PROD)]},
         "tblAlertas": {"hoja": S_ALERT, "encabezados": ALERT_COLS,
                        "filas": [["" for _ in ALERT_COLS] for _ in range(MAX_PROD)]},
+        "tblPedido": {"hoja": S_PED, "encabezados": PEDIDO_COLS,
+                      "filas": [["" for _ in PEDIDO_COLS] for _ in range(MAX_PROD)]},
+        "tblProveedores": {"hoja": S_PROV, "encabezados": [c.name for c in ctx.tables["tblProveedores"]],
+                           "filas": _filas_proveedores(ctx)},
+        "tblConteo": {"hoja": S_CONTEO, "encabezados": CONTEO_COLS, "filas": _filas_conteo(prods, datos)},
+        "tblConsulta": {"hoja": S_CONS, "encabezados": CONS_COLS, "filas": _filas_consulta(datos)},
+        "tblActividad": {"hoja": S_ACT, "encabezados": ACT_COLS,
+                         "filas": [[demo2._v(a[c]) for c in ACT_COLS] for a in datos.actividad] or [["" for _ in ACT_COLS]]},
     }
     cfg = {"cfgMargenAlerta": D.MARGEN_ALERTA, "cfgDiasSinRotacion": 60, "cfgFechaMin": dt.date(2020, 1, 1),
            **{k: datos.meta[k] for k in ("stkActualizado", "stkActualizadoPor", "stkActualizadoNombre",
                                          "stkMovimientos")}}
     fx = demo2.fixture(datos, password, fin, cfg, extra)
+    for n in ("ctFecha", "ctConfirmar", "ctResultado"):
+        fx["nombres"][n] = {"hoja": S_CONTEO, "valor": ""}
+    fx["nombres"]["cfgEmpresa"] = {"hoja": S_CONFIG, "valor": D.EMPRESA_DEMO}
     fx["hojas"] = [{"nombre": n, "protegida": n != S_SES} for n in ORDER]
     fx["primera_fila"] = FIRST
     return fx
+
+
+def _filas_proveedores(ctx: Ctx) -> list[list]:
+    cols = [c.name for c in ctx.tables["tblProveedores"]]
+    filas = []
+    for pv in demo2.proveedores_dict():
+        f = {c: "" for c in cols}
+        f.update(pv)
+        filas.append([f[c] for c in cols])
+    filas += [["" for _ in cols] for _ in range(100 - len(filas))]
+    return filas
+
+
+def _filas_conteo(prods: list[dict], datos) -> list[list]:
+    """Columnas con fórmula de 13_CONTEO ya evaluadas (el script solo lee SKU, Unidad y Conteo)."""
+    filas = []
+    for i in range(MAX_PROD):
+        pr = prods[i] if i < len(prods) else None
+        f = {c: "" for c in CONTEO_COLS}
+        if pr:
+            f.update({"SKU": pr["SKU"], "Producto": pr["Producto"], "Categoría": pr["Categoría"],
+                      "Ubicación": pr["Ubicación"], "Unidad": pr["Unidad"], "Activo": pr["Activo"]})
+            v = datos.conteo.get(i + 1)
+            if v is not None:
+                f["Conteo"] = v
+        filas.append([f[c] for c in CONTEO_COLS])
+    return filas
+
+
+def _filas_consulta(datos) -> list[list]:
+    cons = demo2.orden_consulta()
+    filas = []
+    for n in range(1, 21):
+        u = cons[n - 1] if n <= len(cons) else None
+        f = {c: "" for c in CONS_COLS}
+        if u:
+            f.update({"Usuario": u[1], "Correo": u[0]})
+        prod = datos.consulta.get(n, "")
+        if prod:
+            f.update({"Producto": prod, "SKU": prod.split(" · ")[0]})
+        filas.append([f[c] for c in CONS_COLS])
+    return filas
 
 
 def main():
@@ -223,7 +288,8 @@ def main():
         if mode == "release" and not rel_pwd:
             print("[aviso]   MINV_RELEASE_PASSWORD no definida: el release usa la contraseña de desarrollo.")
         info = build(mode, out, pwd if mode == "core" else (rel_pwd or pwd), args.fin_demo)
-        extra = f"  ({info['entradas']} entradas/ajustes · {info['salidas']} salidas demo)" if mode == "core" else ""
+        extra = (f"  ({info['entradas']} entradas/ajustes · {info['salidas']} salidas · "
+                 f"{info['actividad']} registros de actividad demo)" if mode == "core" else "")
         print(f"[v2/{mode}] {out.relative_to(ROOT)}{extra}")
     if FIXTURE.exists() and (not args.solo or args.solo == "core"):
         print(f"[v2/fixture] {FIXTURE.relative_to(ROOT)}")

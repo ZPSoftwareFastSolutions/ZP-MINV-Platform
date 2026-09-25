@@ -1,5 +1,5 @@
 /**
- * M-INV V2 · RegistrarSalida.ts — fragmento de Ventas (10B_SALIDAS)
+ * M-INV V2.1 · RegistrarSalida.ts — fragmento de Ventas (10B_SALIDAS)
  * Z&P Software Fast Solutions
  *
  * Botón «Registrar salida». Consolida la fila de captura de QUIEN PULSA el botón en la bitácora oficial tblSalidas:
@@ -11,6 +11,7 @@
  *      verificar: si otra persona registró al mismo tiempo y el stock quedó negativo, marca su propio registro
  *      «✖ Rechazado» (queda en rojo tachado y no suma).
  *   5. Escribe el resultado en la fila de captura y la limpia.
+ *   6. Deja la ejecución en 14_ACTIVIDAD (quién, cuándo, resultado), también los intentos bloqueados.
  */
 function main(workbook: ExcelScript.Workbook): string {
   return registrar(workbook, "VENTAS", "10B_SALIDAS", "tblCapturaSalidas", "tblSalidas", "S",
@@ -19,7 +20,7 @@ function main(workbook: ExcelScript.Workbook): string {
 
 // >>> M-INV · BLOQUE COMÚN (generado desde lib/comun.ts con tools/office_scripts.py: no editar aquí)
 // ============================================================================================================
-// M-INV V2 · Bloque común de los Office Scripts · Z&P Software Fast Solutions
+// M-INV V2.1 · Bloque común de los Office Scripts · Z&P Software Fast Solutions
 // Fuente única: src/office-scripts/lib/comun.ts. Office Scripts no permite importar módulos, así que
 // tools/office_scripts.py copia este bloque dentro de cada script (sync) y verifica que no se desvíe (check).
 // ============================================================================================================
@@ -27,11 +28,17 @@ function main(workbook: ExcelScript.Workbook): string {
 /** Contraseña de las hojas protegidas: tools/office_scripts.py la inyecta al generar la versión instalable. */
 const CLAVE = "__MINV_PASSWORD__";
 const HOJA_SESION = "92_SESION";
+const HOJA_ACTIVIDAD = "14_ACTIVIDAD";
 const PREFIJO_OK = "✔";
 const ESTADO_OK = "✔ Consolidado";
 const SEPARADOR = " · ";
 const MAX_DOCUMENTO = 30;
 const MAX_OBSERVACIONES = 250;
+const MAX_DETALLE = 250;
+const VENTANA_DIAS = 30;
+const ALERTAS = ["INCONSISTENTE", "AGOTADO", "CRÍTICO", "BAJO", "SOBRESTOCK"];
+const REPONER = ["AGOTADO", "CRÍTICO", "BAJO"];
+const SIN_PROVEEDOR = "(Sin proveedor)";
 
 type Celda = string | number | boolean;
 
@@ -76,6 +83,11 @@ interface Movimiento {
   observaciones: string;
 }
 
+interface Saldo {
+  stock: number;
+  movimientos: number;
+}
+
 // ---------------------------------------------------------------------------------------------- utilidades
 function texto(v: Celda): string {
   return v === undefined || v === null ? "" : String(v).trim();
@@ -104,6 +116,18 @@ function serialDe(d: Date): number {
 
 function horaDe(d: Date): string {
   return dos(d.getHours()) + ":" + dos(d.getMinutes());
+}
+
+/** Número de serie de Excel (solo la parte de fecha) como dd/mm/aaaa. */
+function fechaTexto(serial: number): string {
+  const d = new Date(Math.round((Math.floor(serial) - 25569) * 86400000));
+  return dos(d.getUTCDate()) + "/" + dos(d.getUTCMonth() + 1) + "/" + d.getUTCFullYear();
+}
+
+/** Número de serie de Excel como AAAAMMDD (documentos generados, ej. CF-20260925). */
+function fechaCompacta(serial: number): string {
+  const d = new Date(Math.round((Math.floor(serial) - 25569) * 86400000));
+  return d.getUTCFullYear() + dos(d.getUTCMonth() + 1) + dos(d.getUTCDate());
 }
 
 /** ID sin coordinación: fragmento-fecha-hora-aleatorio. Dos registros simultáneos nunca comparten ID. */
@@ -202,6 +226,16 @@ function identificarUsuario(workbook: ExcelScript.Workbook): Identidad {
   }
   throw new Error("No se pudo identificar su cuenta de Microsoft 365. Abra el libro con su cuenta de trabajo " +
     "(no como invitado anónimo) y vuelva a intentar.");
+}
+
+/** Nombre visible de la cuenta: el de 02_USUARIOS si está registrada; si no, el de Microsoft 365. */
+function nombreVisible(workbook: ExcelScript.Workbook, yo: Identidad): string {
+  try {
+    const u = buscarUsuario(workbook, yo.correo);
+    return u && u.nombre ? u.nombre : yo.nombre;
+  } catch (error) {
+    return yo.nombre;
+  }
 }
 
 function buscarUsuario(workbook: ExcelScript.Workbook, correo: string): Usuario | undefined {
@@ -322,6 +356,51 @@ function skuDeEtiqueta(etiqueta: string): string {
   return (p >= 0 ? etiqueta.substring(0, p) : etiqueta).trim();
 }
 
+/** Semáforo: mismas reglas y orden que tblEstados (01_CONFIG) y que el proyector del generador (regla C-11). */
+function estadoDe(stock: number, minimo: number, maximo: number, activo: boolean, margen: number): string {
+  if (!activo) {
+    return "INACTIVO";
+  }
+  if (stock < 0) {
+    return "INCONSISTENTE";
+  }
+  if (stock === 0) {
+    return "AGOTADO";
+  }
+  if (stock <= minimo) {
+    return "CRÍTICO";
+  }
+  if (stock <= minimo * (1 + margen)) {
+    return "BAJO";
+  }
+  if (maximo > 0 && stock > maximo) {
+    return "SOBRESTOCK";
+  }
+  return "ÓPTIMO";
+}
+
+/** Stock exacto de TODOS los productos con una sola lectura de las dos bitácoras (solo registros consolidados ✔). */
+function saldos(workbook: ExcelScript.Workbook): Map<string, Saldo> {
+  const m = new Map<string, Saldo>();
+  for (const nombre of ["tblEntradas", "tblSalidas"]) {
+    const [skus, netas, estados] = leerColumnas(workbook, nombre, ["SKU", "CantidadNeta", "Estado"]);
+    for (let i = 0; i < skus.length; i++) {
+      const sku = texto(skus[i]);
+      if (sku === "" || texto(estados[i]).indexOf(PREFIJO_OK) !== 0) {
+        continue;
+      }
+      const s = m.get(sku) || { stock: 0, movimientos: 0 };
+      s.stock += numero(netas[i]) || 0;
+      s.movimientos++;
+      m.set(sku, s);
+    }
+  }
+  m.forEach((s: Saldo) => {
+    s.stock = r6(s.stock);
+  });
+  return m;
+}
+
 /** Disponible exacto: suma de CantidadNeta consolidada (✔) de las dos bitácoras oficiales. */
 function disponible(workbook: ExcelScript.Workbook, sku: string): number {
   let total = 0;
@@ -432,6 +511,27 @@ function validarCaptura(workbook: ExcelScript.Workbook, c: FilaCaptura, dominio:
 }
 
 // ---------------------------------------------------------------------------------------------- bitácora
+/** Valores de una fila en el orden de los encabezados de la tabla (las columnas que falten quedan vacías). */
+function filaSegunEncabezados(tabla: ExcelScript.Table, valores: Map<string, Celda>): Celda[] {
+  const encabezados = tabla.getHeaderRowRange().getValues()[0].map((x: Celda) => texto(x));
+  return encabezados.map((e: string) => (valores.has(e) ? valores.get(e) as Celda : ""));
+}
+
+/** Agrega varios registros con UNA inserción atómica del servidor (addRows); ocupa la fila en blanco si la hay. */
+function agregarFilas(tabla: ExcelScript.Table, filas: Celda[][]): void {
+  let resto = filas;
+  if (resto.length > 0 && tabla.getRowCount() === 1) {
+    const unica = tabla.getRangeBetweenHeaderAndTotal();
+    if (unica.getValues()[0].every((x: Celda) => texto(x) === "")) {
+      unica.setValues([resto[0]]);
+      resto = resto.slice(1);
+    }
+  }
+  if (resto.length > 0) {
+    tabla.addRows(-1, resto);
+  }
+}
+
 /** Agrega un registro al final de la bitácora oficial (inserción atómica del servidor). */
 function agregarFila(tabla: ExcelScript.Table, valores: Celda[]): void {
   if (tabla.getRowCount() === 1) {
@@ -458,6 +558,44 @@ function marcarRechazo(tabla: ExcelScript.Table, id: string, motivo: string): vo
   }
 }
 
+// ---------------------------------------------------------------------------------------------- auditoría
+/**
+ * 14_ACTIVIDAD: una fila por ejecución de un script (quién, cuándo, qué script, resultado y detalle), agregada al
+ * final con una inserción atómica, igual que las bitácoras. Nunca interrumpe la operación principal: si no puede
+ * escribir (libro anterior a la 2.1, contraseña distinta), solo lo informa en la salida del script.
+ */
+function registrarActividad(workbook: ExcelScript.Workbook, yo: Identidad, nombre: string, script: string,
+  resultado: string, detalle: string, momento: Date): void {
+  try {
+    const tabla = workbook.getTable("tblActividad");
+    const h = workbook.getWorksheet(HOJA_ACTIVIDAD);
+    if (!tabla || !h) {
+      console.log("Actividad: el libro no tiene " + HOJA_ACTIVIDAD + " (versión anterior a la 2.1)");
+      return;
+    }
+    const corto = detalle.length > MAX_DETALLE ? detalle.substring(0, MAX_DETALLE - 1) + "…" : detalle;
+    const fila = filaSegunEncabezados(tabla, new Map<string, Celda>([
+      ["ID", nuevoId("A", momento)], ["Timestamp", serialDe(momento)], ["Usuario_O365", yo.correo],
+      ["Nombre", nombre || yo.nombre], ["Script", script], ["Resultado", resultado], ["Detalle", corto]
+    ]));
+    conHojasDesbloqueadas([h], () => agregarFila(tabla, fila));
+  } catch (error) {
+    console.log("Actividad: no se pudo registrar (" + mensajeDe(error as Error) + ")");
+  }
+}
+
+/** La fila de captura del usuario; si no la tiene, deja el intento en 14_ACTIVIDAD antes de informar el error. */
+function capturaAuditada(workbook: ExcelScript.Workbook, tabla: string, yo: Identidad, hojaNombre: string,
+  script: string, momento: Date): FilaCaptura {
+  try {
+    return filaDeCaptura(workbook, tabla, yo.correo, hojaNombre);
+  } catch (error) {
+    registrarActividad(workbook, yo, nombreVisible(workbook, yo), script, "✖ Bloqueado",
+      "✖ Bloqueado: " + mensajeDe(error as Error), momento);
+    throw error;
+  }
+}
+
 /**
  * Comando común de registro: identifica al usuario, autoriza, valida su fila de captura, agrega el movimiento a la
  * bitácora oficial con Usuario_O365 y Timestamp, vuelve a verificar el stock (registros simultáneos) y deja el
@@ -466,34 +604,40 @@ function marcarRechazo(tabla: ExcelScript.Table, id: string, motivo: string): vo
 function registrar(workbook: ExcelScript.Workbook, dominio: string, hojaNombre: string, tablaCaptura: string,
   tablaBitacora: string, prefijo: string, roles: string[], limpiar: string[]): string {
   const ahora = new Date();
+  const script = dominio === "VENTAS" ? "RegistrarSalida" : "RegistrarEntrada";
   const hojaMov = hoja(workbook, hojaNombre);
   const yo = identificarUsuario(workbook);
-  const captura = filaDeCaptura(workbook, tablaCaptura, yo.correo, hojaNombre);
+  const captura = capturaAuditada(workbook, tablaCaptura, yo, hojaNombre, script, ahora);
+  let nombre = yo.nombre;
+  let resultado = "✔ Registrado";
   let mensaje = "";
-  let cambios = new Map<string, Celda>();
+  let detalle = "";
   try {
-    const usuario = autorizar(buscarUsuario(workbook, yo.correo), yo.correo, roles,
-      dominio === "VENTAS" ? "registrar salidas" : "registrar movimientos de bodega");
+    const registro = buscarUsuario(workbook, yo.correo);
+    if (registro && registro.nombre) {
+      nombre = registro.nombre;
+    }
+    autorizar(registro, yo.correo, roles, dominio === "VENTAS" ? "registrar salidas" : "registrar movimientos de bodega");
     const mov = validarCaptura(workbook, captura, dominio, Math.floor(serialDe(ahora)));
     const antes = disponible(workbook, mov.producto.sku);
     const neta = r6(mov.cantidad * mov.factor);
+    const resumen = mov.tipo + " " + mov.cantidad + " " + mov.producto.unidad + SEPARADOR + mov.producto.sku;
     if (antes + neta < 0) {
-      throw new Error("stock insuficiente: disponible " + antes + " " + mov.producto.unidad);
+      throw new Error("stock insuficiente: disponible " + antes + " " + mov.producto.unidad + " (" + mov.producto.sku +
+        ")");
     }
     const bitacora = workbook.getTable(tablaBitacora);
     if (!bitacora) {
       throw new Error("falta la tabla " + tablaBitacora);
     }
     const id = nuevoId(prefijo, ahora);
-    const valores = new Map<string, Celda>([
+    const fila = filaSegunEncabezados(bitacora, new Map<string, Celda>([
       ["ID", id], ["Tipo", mov.tipo], ["Fecha", mov.fecha], ["Producto", mov.producto.sku + SEPARADOR + mov.producto.nombre],
       ["Cantidad", mov.cantidad], ["Documento", mov.documento], ["Observaciones", mov.observaciones],
-      ["CantidadNeta", neta], ["Estado", ESTADO_OK], ["Registró", usuario.nombre || yo.nombre],
+      ["CantidadNeta", neta], ["Estado", ESTADO_OK], ["Registró", nombre],
       ["Unidad", mov.producto.unidad], ["FactorStock", mov.factor], ["Usuario_O365", yo.correo],
       ["SKU", mov.producto.sku], ["Timestamp", serialDe(ahora)]
-    ]);
-    const encabezados = bitacora.getHeaderRowRange().getValues()[0].map((x: Celda) => texto(x));
-    const fila: Celda[] = encabezados.map((e: string) => (valores.has(e) ? valores.get(e) as Celda : ""));
+    ]));
     mensaje = conHojasDesbloqueadas([hojaMov], () => {
       agregarFila(bitacora, fila);
       if (neta < 0) {
@@ -502,11 +646,14 @@ function registrar(workbook: ExcelScript.Workbook, dominio: string, hojaNombre: 
           marcarRechazo(bitacora, id, "stock insuficiente por un registro simultáneo");
           escribirCaptura(captura, new Map<string, Celda>([["Resultado",
             "✖ Bloqueado: otra persona registró antes y el stock no alcanza (disponible " + r6(despues - neta) + ")"]]));
+          resultado = "✖ Rechazado";
+          detalle = "✖ Rechazado " + id + SEPARADOR + resumen + ": stock insuficiente por un registro simultáneo";
           return "✖ Rechazado " + id + ": stock insuficiente por un registro simultáneo";
         }
       }
       const saldo = r6(antes + neta);
       const ok = "✔ Registrado " + id + " · " + horaDe(ahora) + " · stock " + saldo + " " + mov.producto.unidad;
+      detalle = "✔ Registrado " + id + SEPARADOR + resumen + " · stock " + saldo;
       const limpieza = new Map<string, Celda>([["Resultado", ok]]);
       for (const c of limpiar) {
         limpieza.set(c, "");
@@ -515,10 +662,12 @@ function registrar(workbook: ExcelScript.Workbook, dominio: string, hojaNombre: 
       return ok;
     });
   } catch (error) {
+    resultado = "✖ Bloqueado";
     mensaje = "✖ Bloqueado: " + mensajeDe(error as Error);
-    cambios = new Map<string, Celda>([["Resultado", mensaje]]);
-    conHojasDesbloqueadas([hojaMov], () => escribirCaptura(captura, cambios));
+    detalle = mensaje;
+    conHojasDesbloqueadas([hojaMov], () => escribirCaptura(captura, new Map<string, Celda>([["Resultado", mensaje]])));
   }
+  registrarActividad(workbook, yo, nombre, script, resultado, detalle || mensaje, ahora);
   console.log(mensaje);
   return mensaje;
 }

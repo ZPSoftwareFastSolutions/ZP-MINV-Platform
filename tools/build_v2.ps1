@@ -1,10 +1,11 @@
 <#
 .SYNOPSIS
-    M-INV V2 - Ciclo completo del libro colaborativo (definicion de terminado, reglas R-12 y C-12).
+    M-INV V2.1 - Ciclo completo del libro colaborativo (definicion de terminado, reglas R-12 y C-12).
 
 .DESCRIPTION
     1. tools\build_minv_v2.py        Genera el Core (demo) y el Release del libro colaborativo + fixture de pruebas.
     2. tools\office_scripts.py check  Verifica que cada Office Script tenga el bloque comun actualizado.
+       (opcional) TypeScript estricto  Verifica los tipos de cada script si hay un tsc disponible (PATH o MINV_TSC).
     3. tests\office-scripts          Ejecuta los scripts reales contra el simulador de ExcelScript (Node 22.18+).
     4. tools\verify_minv_v2.ps1      Verifica Core y Release en Excel real y los guarda recalculados.
     5. tools\office_scripts.py deploy Genera las versiones instalables (con contrasena) en build\office-scripts.
@@ -42,6 +43,19 @@ Paso 'Generar libro colaborativo (build_minv_v2.py)' { & $py @pyArgs }
 if ($script:fallas.Count -gt 0) { Write-Output 'RESULTADO: la generacion fallo; no se continua.'; exit 1 }
 
 Paso 'Bloque comun de los Office Scripts' { & $py (Join-Path $PSScriptRoot 'office_scripts.py') check }
+Paso 'Tipos de los Office Scripts (TypeScript estricto, opcional)' {
+    $tsc = $env:MINV_TSC
+    if (-not $tsc) { $cmd = Get-Command tsc -ErrorAction SilentlyContinue; if ($cmd) { $tsc = $cmd.Source } }
+    if (-not $tsc) { Write-Output '[omitido] TypeScript no disponible: defina MINV_TSC (ruta de tsc) para verificar los tipos.'; return }
+    $dts = Join-Path $root 'tests\office-scripts\excelscript-tipos.d.ts'
+    $opciones = @('--noEmit', '--strict', '--noImplicitReturns', '--target', 'ES2019', '--lib', 'ES2019', $dts)
+    $malos = 0
+    foreach ($f in Get-ChildItem (Join-Path $root 'src\office-scripts') -Filter '*.ts') {
+        if ([IO.Path]::GetExtension($tsc) -in @('', '.js')) { & node $tsc @opciones $f.FullName } else { & $tsc @opciones $f.FullName }
+        if ($LASTEXITCODE -ne 0) { $malos++ } else { Write-Output ('  [OK]    ' + $f.Name + ': tipos estrictos sin errores') }
+    }
+    $global:LASTEXITCODE = [int]($malos -gt 0)
+}
 Paso 'Pruebas de los Office Scripts (Node)' {
     & node --disable-warning=ExperimentalWarning (Join-Path $root 'tests\office-scripts\pruebas.mts')
 }

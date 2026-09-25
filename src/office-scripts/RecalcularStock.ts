@@ -1,15 +1,19 @@
 /**
- * M-INV V2 · RecalcularStock.ts — lectura a demanda (lazy evaluation)
+ * M-INV V2.1 · RecalcularStock.ts — lectura a demanda (lazy evaluation)
  * Z&P Software Fast Solutions
  *
- * Botón «Recalcular stock». 15_STOCK y 16_ALERTAS no se recalculan en vivo (con muchos usuarios paralizarían
- * Excel para la web): son una instantánea de VALORES que este script reconstruye cuando alguien la necesita.
- *   1. Lee el catálogo y las columnas SKU, CantidadNeta, Fecha y Estado de las dos bitácoras oficiales.
- *   2. Calcula entradas, salidas, stock, semáforo, valor, último movimiento y días sin movimiento por producto
- *      (mismas reglas que tblEstados; el generador usa el mismo algoritmo para la demo y las pruebas).
+ * Botón «Recalcular stock». 15_STOCK, 16_ALERTAS y 18_PEDIDO no se recalculan en vivo (con muchos usuarios
+ * paralizarían Excel para la web): son una instantánea de VALORES que este script reconstruye cuando alguien la
+ * necesita.
+ *   1. Lee el catálogo, los proveedores y las columnas SKU, CantidadNeta, Fecha, Estado y Tipo de las dos bitácoras.
+ *   2. Calcula por producto entradas, salidas, stock, semáforo, valor, último movimiento, días sin movimiento,
+ *      salidas de los últimos 30 días, cobertura en días y ranking de ventas (mismas reglas que tblEstados; el
+ *      generador usa el mismo algoritmo para la demo y las pruebas: regla C-11).
  *   3. Prioriza las alertas (inconsistente, agotado, crítico, bajo, sobrestock) con la cantidad sugerida.
- *   4. Escribe ambas instantáneas en una sola operación por tabla, registra cuándo y quién calculó y dispara un
- *      recálculo completo del libro (útil si el administrador pasa el cálculo a Manual).
+ *   4. Arma el pedido sugerido: agotados, críticos y bajos hasta el máximo, agrupados por proveedor, con costo,
+ *      días de entrega, fecha estimada y contacto.
+ *   5. Escribe las tres instantáneas con una operación por tabla, registra cuándo y quién calculó (01_CONFIG y
+ *      14_ACTIVIDAD) y dispara un recálculo completo del libro (útil si el administrador pasa el cálculo a Manual).
  */
 function main(workbook: ExcelScript.Workbook): string {
   const inicio = Date.now();
@@ -22,16 +26,20 @@ function main(workbook: ExcelScript.Workbook): string {
   }
   const margen = numero(valorNombre(workbook, "cfgMargenAlerta")) || 0;
   const hoy = Math.floor(serialDe(ahora));
+  const desde = hoy - (VENTANA_DIAS - 1);
   const productos = leerProductos(workbook);
   const acciones = accionesPorEstado(workbook);
+  const proveedores = leerProveedores(workbook);
 
   // 1. Movimientos consolidados de los dos fragmentos
   const entradas = new Map<string, number>();
   const salidas = new Map<string, number>();
   const ultimo = new Map<string, number>();
+  const ventas30 = new Map<string, number>();
   let procesados = 0;
   for (const nombre of ["tblEntradas", "tblSalidas"]) {
-    const [skus, netas, fechas, estados] = leerColumnas(workbook, nombre, ["SKU", "CantidadNeta", "Fecha", "Estado"]);
+    const [skus, netas, fechas, estados, tipos] = leerColumnas(workbook, nombre,
+      ["SKU", "CantidadNeta", "Fecha", "Estado", "Tipo"]);
     for (let i = 0; i < skus.length; i++) {
       const sku = texto(skus[i]);
       if (sku === "" || texto(estados[i]).indexOf(PREFIJO_OK) !== 0) {
@@ -48,12 +56,17 @@ function main(workbook: ExcelScript.Workbook): string {
       if (f > (ultimo.get(sku) || 0)) {
         ultimo.set(sku, f);
       }
+      if (texto(tipos[i]) === "SALIDA" && f >= desde) {
+        ventas30.set(sku, (ventas30.get(sku) || 0) - neta);
+      }
     }
   }
 
-  // 2. Stock por producto y 3. alertas priorizadas
+  // 2. Stock por producto, 3. alertas priorizadas y 4. pedido sugerido
   const filasStock: Celda[][] = [];
-  const candidatas: CandidataAlerta[] = [];
+  const ranking: Candidata[] = [];
+  const candidatas: Candidata[] = [];
+  const lineas: Candidata[] = [];
   for (const p of productos) {
     const e = r6(entradas.get(p.sku) || 0);
     const s = r6(salidas.get(p.sku) || 0);
@@ -63,81 +76,126 @@ function main(workbook: ExcelScript.Workbook): string {
     const u = ultimo.has(p.sku) ? (ultimo.get(p.sku) as number) : NaN;
     const ult: Celda = isNaN(u) ? "" : u;
     const dias: Celda = isNaN(u) ? "" : Math.floor(hoy) - Math.floor(u);
-    filasStock.push([p.sku, p.nombre, p.categoria, p.proveedor, p.unidad, p.activo ? "SI" : "NO", e, s, stock,
-      p.minimo, p.maximo, nivel, estado, p.costo, r6(Math.max(0, stock) * p.costo), ult, dias]);
+    const v30 = r6(ventas30.get(p.sku) || 0);
+    const cobertura: Celda = v30 > 0 ? Math.floor(Math.max(0, stock) / (v30 / VENTANA_DIAS)) : "";
+    const fila: Celda[] = [p.sku, p.nombre, p.categoria, p.proveedor, p.unidad, p.activo ? "SI" : "NO", e, s, stock,
+      p.minimo, p.maximo, nivel, estado, p.costo, r6(Math.max(0, stock) * p.costo), ult, dias, v30, cobertura, ""];
+    filasStock.push(fila);
+    if (v30 > 0) {
+      ranking.push({ clave: [-v30, p.indice], fila });
+    }
+    const tope = p.maximo > 0 ? p.maximo : 2 * p.minimo;
     if (p.activo && ALERTAS.indexOf(estado) >= 0) {
-      const cobertura = p.minimo > 0 ? Math.max(0, stock) / p.minimo : 0;
-      const tope = p.maximo > 0 ? p.maximo : 2 * p.minimo;
+      const cobMin = p.minimo > 0 ? Math.max(0, stock) / p.minimo : 0;
       const sugerido = estado === "SOBRESTOCK" || estado === "INCONSISTENTE" ? 0 :
         r6(Math.max(0, tope - Math.max(0, stock)));
       candidatas.push({
-        clave: [ALERTAS.indexOf(estado), Math.min(99, Math.floor(cobertura * 10)), p.indice],
+        clave: [ALERTAS.indexOf(estado), Math.min(99, Math.floor(cobMin * 10)), p.indice],
         fila: [estado, p.sku, p.nombre, p.categoria, p.proveedor, stock, p.minimo, p.maximo, p.unidad,
           r6(Math.max(0, p.minimo - stock)), sugerido, acciones.get(estado) || "", ult]
       });
     }
+    if (p.activo && REPONER.indexOf(estado) >= 0) {
+      const apedir = r6(Math.max(0, tope - Math.max(0, stock)));
+      if (apedir > 0) {
+        const pv = proveedores.get(p.proveedor);
+        const de: Celda = pv ? pv.dias : "";
+        lineas.push({
+          clave: [pv ? pv.orden : 999, REPONER.indexOf(estado), p.indice],
+          fila: [p.proveedor || SIN_PROVEEDOR, p.sku, p.nombre, p.unidad, estado, stock, p.minimo, p.maximo, apedir,
+            p.costo, r6(apedir * p.costo), de, typeof de === "number" ? hoy + de : "", pv ? pv.contacto : "",
+            pv ? pv.telefono : "", pv ? pv.correo : ""]
+        });
+      }
+    }
   }
-  candidatas.sort((a: CandidataAlerta, b: CandidataAlerta) =>
-    a.clave[0] - b.clave[0] || a.clave[1] - b.clave[1] || a.clave[2] - b.clave[2]);
-  const filasAlertas: Celda[][] = candidatas.map((c: CandidataAlerta, k: number) => {
+  const orden = (a: Candidata, b: Candidata): number => compararClaves(a.clave, b.clave);
+  ranking.sort(orden);
+  ranking.forEach((c: Candidata, k: number) => {
+    c.fila[COLUMNAS_STOCK.length - 1] = k + 1;
+  });
+  candidatas.sort(orden);
+  lineas.sort(orden);
+  const filasAlertas: Celda[][] = candidatas.map((c: Candidata, k: number) => {
     const fila: Celda[] = [k + 1];
     return fila.concat(c.fila);
   });
+  const filasPedido: Celda[][] = lineas.map((c: Candidata) => c.fila);
 
-  // 4. Escritura de las instantáneas y de los metadatos (una operación por tabla)
+  // 5. Escritura de las instantáneas y de los metadatos (una operación por tabla)
   const tStock = tablaConColumnas(workbook, "tblStock", COLUMNAS_STOCK);
   const tAlertas = tablaConColumnas(workbook, "tblAlertas", COLUMNAS_ALERTAS);
+  const tPedido = tablaConColumnas(workbook, "tblPedido", COLUMNAS_PEDIDO);
   const bloqueStock = rellenar(filasStock, tStock.getRowCount(), COLUMNAS_STOCK.length, "15_STOCK");
   const bloqueAlertas = rellenar(filasAlertas, tAlertas.getRowCount(), COLUMNAS_ALERTAS.length, "16_ALERTAS");
-  const hojas = [hoja(workbook, "15_STOCK"), hoja(workbook, "16_ALERTAS"), hoja(workbook, "01_CONFIG")];
+  const bloquePedido = rellenar(filasPedido, tPedido.getRowCount(), COLUMNAS_PEDIDO.length, "18_PEDIDO");
+  const hojas = [hoja(workbook, "15_STOCK"), hoja(workbook, "16_ALERTAS"), hoja(workbook, "18_PEDIDO"),
+    hoja(workbook, "01_CONFIG")];
   conHojasDesbloqueadas(hojas, () => {
     tStock.getRangeBetweenHeaderAndTotal().setValues(bloqueStock);
     tAlertas.getRangeBetweenHeaderAndTotal().setValues(bloqueAlertas);
+    tPedido.getRangeBetweenHeaderAndTotal().setValues(bloquePedido);
     escribirNombre(workbook, "stkActualizado", serialDe(ahora));
     escribirNombre(workbook, "stkActualizadoPor", yo.correo);
     escribirNombre(workbook, "stkActualizadoNombre", yo.nombre);
     escribirNombre(workbook, "stkMovimientos", procesados);
   });
-  workbook.getApplication().calculate(ExcelScript.CalculationType.full);
   const mensaje = "✔ Stock recalculado: " + filasStock.length + " productos · " + procesados + " movimientos · " +
-    filasAlertas.length + " alertas (" + (Date.now() - inicio) + " ms)";
+    filasAlertas.length + " alertas · " + filasPedido.length + " líneas de pedido (" + (Date.now() - inicio) + " ms)";
+  registrarActividad(workbook, yo, nombreVisible(workbook, yo), "RecalcularStock", "✔ Stock recalculado", mensaje,
+    ahora);
+  workbook.getApplication().calculate(ExcelScript.CalculationType.full);
   console.log(mensaje);
   return mensaje;
 }
 
-interface CandidataAlerta {
+interface Candidata {
   clave: number[];
   fila: Celda[];
 }
 
-const ALERTAS = ["INCONSISTENTE", "AGOTADO", "CRÍTICO", "BAJO", "SOBRESTOCK"];
+interface Proveedor {
+  orden: number;
+  contacto: string;
+  telefono: string;
+  correo: string;
+  dias: Celda;
+}
+
 const COLUMNAS_STOCK = ["SKU", "Producto", "Categoría", "Proveedor", "Unidad", "Activo", "Entradas", "Salidas",
   "StockActual", "StockMin", "StockMax", "Nivel", "Estado", "CostoUnitario", "ValorInventario", "UltimoMov",
-  "DiasSinMov"];
+  "DiasSinMov", "Salidas30d", "CoberturaDias", "RankSalidas30d"];
 const COLUMNAS_ALERTAS = ["#", "Estado", "SKU", "Producto", "Categoría", "Proveedor", "Stock", "Mínimo", "Máximo",
   "Unidad", "Faltante", "SugeridoPedir", "AcciónSugerida", "UltimoMov"];
+const COLUMNAS_PEDIDO = ["Proveedor", "SKU", "Producto", "Unidad", "Estado", "Stock", "Mínimo", "Máximo", "APedir",
+  "CostoUnitario", "Subtotal", "DiasEntrega", "EntregaEstimada", "Contacto", "Teléfono", "Correo"];
 
-/** Semáforo: mismas reglas y orden que tblEstados (01_CONFIG). */
-function estadoDe(stock: number, minimo: number, maximo: number, activo: boolean, margen: number): string {
-  if (!activo) {
-    return "INACTIVO";
+function compararClaves(a: number[], b: number[]): number {
+  for (let i = 0; i < Math.min(a.length, b.length); i++) {
+    if (a[i] !== b[i]) {
+      return a[i] - b[i];
+    }
   }
-  if (stock < 0) {
-    return "INCONSISTENTE";
-  }
-  if (stock === 0) {
-    return "AGOTADO";
-  }
-  if (stock <= minimo) {
-    return "CRÍTICO";
-  }
-  if (stock <= minimo * (1 + margen)) {
-    return "BAJO";
-  }
-  if (maximo > 0 && stock > maximo) {
-    return "SOBRESTOCK";
-  }
-  return "ÓPTIMO";
+  return a.length - b.length;
+}
+
+/** Proveedores por nombre (primera aparición): orden de 04_PROVEEDORES, contacto y días de entrega. */
+function leerProveedores(workbook: ExcelScript.Workbook): Map<string, Proveedor> {
+  const t = leerTabla(workbook, "tblProveedores");
+  const cP = columna(t, "Proveedor"), cC = columna(t, "Contacto"), cT = columna(t, "Teléfono");
+  const cM = columna(t, "Correo"), cD = columna(t, "DiasEntrega");
+  const m = new Map<string, Proveedor>();
+  t.filas.forEach((f: Celda[], j: number) => {
+    const nombre = texto(f[cP]);
+    if (nombre !== "" && !m.has(nombre)) {
+      const d = f[cD];
+      m.set(nombre, {
+        orden: j, contacto: texto(f[cC]), telefono: texto(f[cT]), correo: texto(f[cM]),
+        dias: typeof d === "number" ? d : ""
+      });
+    }
+  });
+  return m;
 }
 
 function accionesPorEstado(workbook: ExcelScript.Workbook): Map<string, string> {
@@ -153,7 +211,7 @@ function accionesPorEstado(workbook: ExcelScript.Workbook): Map<string, string> 
 function tablaConColumnas(workbook: ExcelScript.Workbook, nombre: string, esperadas: string[]): ExcelScript.Table {
   const t = leerTabla(workbook, nombre);
   if (t.encabezados.join("|") !== esperadas.join("|")) {
-    throw new Error("La estructura de " + nombre + " cambió: regenere el libro con el generador de M-INV V2.");
+    throw new Error("La estructura de " + nombre + " cambió: regenere el libro con el generador de M-INV V2.1.");
   }
   return t.tabla;
 }
@@ -175,7 +233,7 @@ function rellenar(filas: Celda[][], capacidad: number, ancho: number, hojaNombre
 
 // >>> M-INV · BLOQUE COMÚN (generado desde lib/comun.ts con tools/office_scripts.py: no editar aquí)
 // ============================================================================================================
-// M-INV V2 · Bloque común de los Office Scripts · Z&P Software Fast Solutions
+// M-INV V2.1 · Bloque común de los Office Scripts · Z&P Software Fast Solutions
 // Fuente única: src/office-scripts/lib/comun.ts. Office Scripts no permite importar módulos, así que
 // tools/office_scripts.py copia este bloque dentro de cada script (sync) y verifica que no se desvíe (check).
 // ============================================================================================================
@@ -183,11 +241,17 @@ function rellenar(filas: Celda[][], capacidad: number, ancho: number, hojaNombre
 /** Contraseña de las hojas protegidas: tools/office_scripts.py la inyecta al generar la versión instalable. */
 const CLAVE = "__MINV_PASSWORD__";
 const HOJA_SESION = "92_SESION";
+const HOJA_ACTIVIDAD = "14_ACTIVIDAD";
 const PREFIJO_OK = "✔";
 const ESTADO_OK = "✔ Consolidado";
 const SEPARADOR = " · ";
 const MAX_DOCUMENTO = 30;
 const MAX_OBSERVACIONES = 250;
+const MAX_DETALLE = 250;
+const VENTANA_DIAS = 30;
+const ALERTAS = ["INCONSISTENTE", "AGOTADO", "CRÍTICO", "BAJO", "SOBRESTOCK"];
+const REPONER = ["AGOTADO", "CRÍTICO", "BAJO"];
+const SIN_PROVEEDOR = "(Sin proveedor)";
 
 type Celda = string | number | boolean;
 
@@ -232,6 +296,11 @@ interface Movimiento {
   observaciones: string;
 }
 
+interface Saldo {
+  stock: number;
+  movimientos: number;
+}
+
 // ---------------------------------------------------------------------------------------------- utilidades
 function texto(v: Celda): string {
   return v === undefined || v === null ? "" : String(v).trim();
@@ -260,6 +329,18 @@ function serialDe(d: Date): number {
 
 function horaDe(d: Date): string {
   return dos(d.getHours()) + ":" + dos(d.getMinutes());
+}
+
+/** Número de serie de Excel (solo la parte de fecha) como dd/mm/aaaa. */
+function fechaTexto(serial: number): string {
+  const d = new Date(Math.round((Math.floor(serial) - 25569) * 86400000));
+  return dos(d.getUTCDate()) + "/" + dos(d.getUTCMonth() + 1) + "/" + d.getUTCFullYear();
+}
+
+/** Número de serie de Excel como AAAAMMDD (documentos generados, ej. CF-20260925). */
+function fechaCompacta(serial: number): string {
+  const d = new Date(Math.round((Math.floor(serial) - 25569) * 86400000));
+  return d.getUTCFullYear() + dos(d.getUTCMonth() + 1) + dos(d.getUTCDate());
 }
 
 /** ID sin coordinación: fragmento-fecha-hora-aleatorio. Dos registros simultáneos nunca comparten ID. */
@@ -358,6 +439,16 @@ function identificarUsuario(workbook: ExcelScript.Workbook): Identidad {
   }
   throw new Error("No se pudo identificar su cuenta de Microsoft 365. Abra el libro con su cuenta de trabajo " +
     "(no como invitado anónimo) y vuelva a intentar.");
+}
+
+/** Nombre visible de la cuenta: el de 02_USUARIOS si está registrada; si no, el de Microsoft 365. */
+function nombreVisible(workbook: ExcelScript.Workbook, yo: Identidad): string {
+  try {
+    const u = buscarUsuario(workbook, yo.correo);
+    return u && u.nombre ? u.nombre : yo.nombre;
+  } catch (error) {
+    return yo.nombre;
+  }
 }
 
 function buscarUsuario(workbook: ExcelScript.Workbook, correo: string): Usuario | undefined {
@@ -478,6 +569,51 @@ function skuDeEtiqueta(etiqueta: string): string {
   return (p >= 0 ? etiqueta.substring(0, p) : etiqueta).trim();
 }
 
+/** Semáforo: mismas reglas y orden que tblEstados (01_CONFIG) y que el proyector del generador (regla C-11). */
+function estadoDe(stock: number, minimo: number, maximo: number, activo: boolean, margen: number): string {
+  if (!activo) {
+    return "INACTIVO";
+  }
+  if (stock < 0) {
+    return "INCONSISTENTE";
+  }
+  if (stock === 0) {
+    return "AGOTADO";
+  }
+  if (stock <= minimo) {
+    return "CRÍTICO";
+  }
+  if (stock <= minimo * (1 + margen)) {
+    return "BAJO";
+  }
+  if (maximo > 0 && stock > maximo) {
+    return "SOBRESTOCK";
+  }
+  return "ÓPTIMO";
+}
+
+/** Stock exacto de TODOS los productos con una sola lectura de las dos bitácoras (solo registros consolidados ✔). */
+function saldos(workbook: ExcelScript.Workbook): Map<string, Saldo> {
+  const m = new Map<string, Saldo>();
+  for (const nombre of ["tblEntradas", "tblSalidas"]) {
+    const [skus, netas, estados] = leerColumnas(workbook, nombre, ["SKU", "CantidadNeta", "Estado"]);
+    for (let i = 0; i < skus.length; i++) {
+      const sku = texto(skus[i]);
+      if (sku === "" || texto(estados[i]).indexOf(PREFIJO_OK) !== 0) {
+        continue;
+      }
+      const s = m.get(sku) || { stock: 0, movimientos: 0 };
+      s.stock += numero(netas[i]) || 0;
+      s.movimientos++;
+      m.set(sku, s);
+    }
+  }
+  m.forEach((s: Saldo) => {
+    s.stock = r6(s.stock);
+  });
+  return m;
+}
+
 /** Disponible exacto: suma de CantidadNeta consolidada (✔) de las dos bitácoras oficiales. */
 function disponible(workbook: ExcelScript.Workbook, sku: string): number {
   let total = 0;
@@ -588,6 +724,27 @@ function validarCaptura(workbook: ExcelScript.Workbook, c: FilaCaptura, dominio:
 }
 
 // ---------------------------------------------------------------------------------------------- bitácora
+/** Valores de una fila en el orden de los encabezados de la tabla (las columnas que falten quedan vacías). */
+function filaSegunEncabezados(tabla: ExcelScript.Table, valores: Map<string, Celda>): Celda[] {
+  const encabezados = tabla.getHeaderRowRange().getValues()[0].map((x: Celda) => texto(x));
+  return encabezados.map((e: string) => (valores.has(e) ? valores.get(e) as Celda : ""));
+}
+
+/** Agrega varios registros con UNA inserción atómica del servidor (addRows); ocupa la fila en blanco si la hay. */
+function agregarFilas(tabla: ExcelScript.Table, filas: Celda[][]): void {
+  let resto = filas;
+  if (resto.length > 0 && tabla.getRowCount() === 1) {
+    const unica = tabla.getRangeBetweenHeaderAndTotal();
+    if (unica.getValues()[0].every((x: Celda) => texto(x) === "")) {
+      unica.setValues([resto[0]]);
+      resto = resto.slice(1);
+    }
+  }
+  if (resto.length > 0) {
+    tabla.addRows(-1, resto);
+  }
+}
+
 /** Agrega un registro al final de la bitácora oficial (inserción atómica del servidor). */
 function agregarFila(tabla: ExcelScript.Table, valores: Celda[]): void {
   if (tabla.getRowCount() === 1) {
@@ -614,6 +771,44 @@ function marcarRechazo(tabla: ExcelScript.Table, id: string, motivo: string): vo
   }
 }
 
+// ---------------------------------------------------------------------------------------------- auditoría
+/**
+ * 14_ACTIVIDAD: una fila por ejecución de un script (quién, cuándo, qué script, resultado y detalle), agregada al
+ * final con una inserción atómica, igual que las bitácoras. Nunca interrumpe la operación principal: si no puede
+ * escribir (libro anterior a la 2.1, contraseña distinta), solo lo informa en la salida del script.
+ */
+function registrarActividad(workbook: ExcelScript.Workbook, yo: Identidad, nombre: string, script: string,
+  resultado: string, detalle: string, momento: Date): void {
+  try {
+    const tabla = workbook.getTable("tblActividad");
+    const h = workbook.getWorksheet(HOJA_ACTIVIDAD);
+    if (!tabla || !h) {
+      console.log("Actividad: el libro no tiene " + HOJA_ACTIVIDAD + " (versión anterior a la 2.1)");
+      return;
+    }
+    const corto = detalle.length > MAX_DETALLE ? detalle.substring(0, MAX_DETALLE - 1) + "…" : detalle;
+    const fila = filaSegunEncabezados(tabla, new Map<string, Celda>([
+      ["ID", nuevoId("A", momento)], ["Timestamp", serialDe(momento)], ["Usuario_O365", yo.correo],
+      ["Nombre", nombre || yo.nombre], ["Script", script], ["Resultado", resultado], ["Detalle", corto]
+    ]));
+    conHojasDesbloqueadas([h], () => agregarFila(tabla, fila));
+  } catch (error) {
+    console.log("Actividad: no se pudo registrar (" + mensajeDe(error as Error) + ")");
+  }
+}
+
+/** La fila de captura del usuario; si no la tiene, deja el intento en 14_ACTIVIDAD antes de informar el error. */
+function capturaAuditada(workbook: ExcelScript.Workbook, tabla: string, yo: Identidad, hojaNombre: string,
+  script: string, momento: Date): FilaCaptura {
+  try {
+    return filaDeCaptura(workbook, tabla, yo.correo, hojaNombre);
+  } catch (error) {
+    registrarActividad(workbook, yo, nombreVisible(workbook, yo), script, "✖ Bloqueado",
+      "✖ Bloqueado: " + mensajeDe(error as Error), momento);
+    throw error;
+  }
+}
+
 /**
  * Comando común de registro: identifica al usuario, autoriza, valida su fila de captura, agrega el movimiento a la
  * bitácora oficial con Usuario_O365 y Timestamp, vuelve a verificar el stock (registros simultáneos) y deja el
@@ -622,34 +817,40 @@ function marcarRechazo(tabla: ExcelScript.Table, id: string, motivo: string): vo
 function registrar(workbook: ExcelScript.Workbook, dominio: string, hojaNombre: string, tablaCaptura: string,
   tablaBitacora: string, prefijo: string, roles: string[], limpiar: string[]): string {
   const ahora = new Date();
+  const script = dominio === "VENTAS" ? "RegistrarSalida" : "RegistrarEntrada";
   const hojaMov = hoja(workbook, hojaNombre);
   const yo = identificarUsuario(workbook);
-  const captura = filaDeCaptura(workbook, tablaCaptura, yo.correo, hojaNombre);
+  const captura = capturaAuditada(workbook, tablaCaptura, yo, hojaNombre, script, ahora);
+  let nombre = yo.nombre;
+  let resultado = "✔ Registrado";
   let mensaje = "";
-  let cambios = new Map<string, Celda>();
+  let detalle = "";
   try {
-    const usuario = autorizar(buscarUsuario(workbook, yo.correo), yo.correo, roles,
-      dominio === "VENTAS" ? "registrar salidas" : "registrar movimientos de bodega");
+    const registro = buscarUsuario(workbook, yo.correo);
+    if (registro && registro.nombre) {
+      nombre = registro.nombre;
+    }
+    autorizar(registro, yo.correo, roles, dominio === "VENTAS" ? "registrar salidas" : "registrar movimientos de bodega");
     const mov = validarCaptura(workbook, captura, dominio, Math.floor(serialDe(ahora)));
     const antes = disponible(workbook, mov.producto.sku);
     const neta = r6(mov.cantidad * mov.factor);
+    const resumen = mov.tipo + " " + mov.cantidad + " " + mov.producto.unidad + SEPARADOR + mov.producto.sku;
     if (antes + neta < 0) {
-      throw new Error("stock insuficiente: disponible " + antes + " " + mov.producto.unidad);
+      throw new Error("stock insuficiente: disponible " + antes + " " + mov.producto.unidad + " (" + mov.producto.sku +
+        ")");
     }
     const bitacora = workbook.getTable(tablaBitacora);
     if (!bitacora) {
       throw new Error("falta la tabla " + tablaBitacora);
     }
     const id = nuevoId(prefijo, ahora);
-    const valores = new Map<string, Celda>([
+    const fila = filaSegunEncabezados(bitacora, new Map<string, Celda>([
       ["ID", id], ["Tipo", mov.tipo], ["Fecha", mov.fecha], ["Producto", mov.producto.sku + SEPARADOR + mov.producto.nombre],
       ["Cantidad", mov.cantidad], ["Documento", mov.documento], ["Observaciones", mov.observaciones],
-      ["CantidadNeta", neta], ["Estado", ESTADO_OK], ["Registró", usuario.nombre || yo.nombre],
+      ["CantidadNeta", neta], ["Estado", ESTADO_OK], ["Registró", nombre],
       ["Unidad", mov.producto.unidad], ["FactorStock", mov.factor], ["Usuario_O365", yo.correo],
       ["SKU", mov.producto.sku], ["Timestamp", serialDe(ahora)]
-    ]);
-    const encabezados = bitacora.getHeaderRowRange().getValues()[0].map((x: Celda) => texto(x));
-    const fila: Celda[] = encabezados.map((e: string) => (valores.has(e) ? valores.get(e) as Celda : ""));
+    ]));
     mensaje = conHojasDesbloqueadas([hojaMov], () => {
       agregarFila(bitacora, fila);
       if (neta < 0) {
@@ -658,11 +859,14 @@ function registrar(workbook: ExcelScript.Workbook, dominio: string, hojaNombre: 
           marcarRechazo(bitacora, id, "stock insuficiente por un registro simultáneo");
           escribirCaptura(captura, new Map<string, Celda>([["Resultado",
             "✖ Bloqueado: otra persona registró antes y el stock no alcanza (disponible " + r6(despues - neta) + ")"]]));
+          resultado = "✖ Rechazado";
+          detalle = "✖ Rechazado " + id + SEPARADOR + resumen + ": stock insuficiente por un registro simultáneo";
           return "✖ Rechazado " + id + ": stock insuficiente por un registro simultáneo";
         }
       }
       const saldo = r6(antes + neta);
       const ok = "✔ Registrado " + id + " · " + horaDe(ahora) + " · stock " + saldo + " " + mov.producto.unidad;
+      detalle = "✔ Registrado " + id + SEPARADOR + resumen + " · stock " + saldo;
       const limpieza = new Map<string, Celda>([["Resultado", ok]]);
       for (const c of limpiar) {
         limpieza.set(c, "");
@@ -671,10 +875,12 @@ function registrar(workbook: ExcelScript.Workbook, dominio: string, hojaNombre: 
       return ok;
     });
   } catch (error) {
+    resultado = "✖ Bloqueado";
     mensaje = "✖ Bloqueado: " + mensajeDe(error as Error);
-    cambios = new Map<string, Celda>([["Resultado", mensaje]]);
-    conHojasDesbloqueadas([hojaMov], () => escribirCaptura(captura, cambios));
+    detalle = mensaje;
+    conHojasDesbloqueadas([hojaMov], () => escribirCaptura(captura, new Map<string, Celda>([["Resultado", mensaje]])));
   }
+  registrarActividad(workbook, yo, nombre, script, resultado, detalle || mensaje, ahora);
   console.log(mensaje);
   return mensaje;
 }

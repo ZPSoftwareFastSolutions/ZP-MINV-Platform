@@ -12,6 +12,7 @@ from minv.config_sheets import config_band
 from .base2 import ROLES, S_SES, TIPOS_BODEGA, fecha_txt, hora_txt
 
 MES = 'DATE(YEAR(TODAY()),MONTH(TODAY()),1)'
+ULT = 'LOOKUP(2,1/(tblActividad[ID]<>""),tblActividad[{c}])'
 OK = '"✔*"'
 
 
@@ -63,6 +64,25 @@ def kpi_specs2() -> list[tuple[str, str, str, str]]:
          '=COUNTIF(tblEntradas[Timestamp],">"&N(stkActualizado))+COUNTIF(tblSalidas[Timestamp],">"&N(stkActualizado))',
          "#,##0"),
         ("kpiRechazos", "Rechazos", "=kpiRechEnt+kpiRechSal", "#,##0"),
+        ("kpiMovMes", "Movimientos consolidados del mes",
+         f'=COUNTIFS(tblEntradas[Fecha],">="&{MES},tblEntradas[Estado],{OK})+'
+         f'COUNTIFS(tblSalidas[Fecha],">="&{MES},tblSalidas[Estado],{OK})', "#,##0"),
+        ("kpiUnid30", "Unidades vendidas en 30 días (instantánea)", "=SUM(tblStock[Salidas30d])", "#,##0.##"),
+        ("kpiCobMed", "Cobertura mediana en días (instantánea)", '=IFERROR(MEDIAN(tblStock[CoberturaDias]),"")', "0"),
+        # --- pedido sugerido (instantánea 18_PEDIDO)
+        ("kpiPedidoLineas", "Líneas del pedido sugerido", "=COUNT(tblPedido[APedir])", "#,##0"),
+        ("kpiPedidoTotal", "Total estimado del pedido sugerido", "=SUM(tblPedido[Subtotal])", "$ #,##0"),
+        ("kpiPedidoProv", "Proveedores en el pedido",
+         '=SUMPRODUCT((tblPedido[Proveedor]<>"")/COUNTIF(tblPedido[Proveedor],tblPedido[Proveedor]&""))', "#,##0"),
+        # --- toma física (13_CONTEO)
+        ("kpiConteoContados", "Productos contados", "=COUNT(tblConteo[Conteo])", "#,##0"),
+        ("kpiConteoDif", "Productos con diferencia",
+         '=COUNTIF(tblConteo[Diferencia],">0")+COUNTIF(tblConteo[Diferencia],"<0")', "#,##0"),
+        ("kpiConteoValor", "Valor neto de las diferencias", "=SUM(tblConteo[ValorDiferencia])", "$ #,##0"),
+        # --- actividad (14_ACTIVIDAD)
+        ("kpiEjecuciones", "Ejecuciones de scripts registradas", '=COUNTIF(tblActividad[ID],"?*")', "#,##0"),
+        ("kpiBloqMes", "Bloqueos del mes",
+         f'=COUNTIFS(tblActividad[Resultado],"✖*",tblActividad[Timestamp],">="&{MES})', "#,##0"),
         # --- textos
         ("txtHoy", "Fecha de hoy", f'="Hoy · "&{fecha_txt("TODAY()")}', "@"),
         ("txtEmpresa", "Empresa y bodega", '=cfgEmpresa&"   ·   "&cfgBodega', "@"),
@@ -77,14 +97,26 @@ def kpi_specs2() -> list[tuple[str, str, str, str]]:
         ("txtFrescuraCorta", "Frescura (chip)",
          '=IF(N(stkActualizado)=0,"⚠ Sin calcular",IF(kpiNuevosDesdeCalculo>0,"⚠ "&kpiNuevosDesdeCalculo&'
          '" mov. nuevo(s): recalcule","✔ Al día con las bitácoras"))', "@"),
+        ("txtPedidoBtn", "Botón del pedido", '="✚  PEDIDO SUGERIDO  ·  $ "&FIXED(kpiPedidoTotal,0)', "@"),
+        ("txtUltimaEjecucion", "Última ejecución de un script",
+         f'=IF(kpiEjecuciones=0,"Sin ejecuciones registradas","Última: "&{fecha_txt(ULT.format(c="Timestamp"))}&" "&'
+         f'{hora_txt(ULT.format(c="Timestamp"))}&" · "&{ULT.format(c="Script")}&" · "&{ULT.format(c="Nombre")})', "@"),
+        ("txtPasoGerencia", "Próximo paso (Gerencia)",
+         '=IF(N(stkActualizado)=0,"⚠ Pulse «Recalcular stock» para calcular la instantánea",'
+         'IF(kpiRechEnt+kpiRechSal>0,"✖ "&(kpiRechEnt+kpiRechSal)&" registro(s) rechazado(s) en las bitácoras: '
+         'revise 10A/10B y 14_ACTIVIDAD",IF(kpiEnAlerta>0,"● "&kpiEnAlerta&" producto(s) requieren acción · pedido '
+         'sugerido $ "&FIXED(kpiPedidoTotal,0)&" en "&kpiPedidoLineas&" línea(s)","✔ Inventario saludable · valor $ "&'
+         'FIXED(kpiValor,0))))', "@"),
         ("txtAlertasBtn", "Botón de alertas", '="⚠  ALERTAS DE STOCK CRÍTICO ("&kpiEnAlerta&")"', "@"),
         ("txtPasoBodega", "Próximo paso (Bodega)",
          '=IF(kpiUsuarios=0,"① El administrador debe registrar los usuarios en 02_USUARIOS",'
          'IF(kpiCatalogo=0,"② Registre los productos en el catálogo (05_PRODUCTOS)",'
          'IF(kpiSaldosIni=0,"③ Cargue el SALDO INICIAL de cada producto en 10A_ENTRADAS",'
          'IF(kpiRechEnt>0,"✖ Hay "&kpiRechEnt&" registro(s) rechazados en 10A: revíselos",'
+         'IF(kpiConteoContados>0,"✓ Conteo en curso: "&kpiConteoContados&" producto(s) contados · escriba SI en '
+         'Confirmar y pulse Generar ajustes",'
          'IF(kpiAgotados+kpiCriticos>0,"● "&(kpiAgotados+kpiCriticos)&" producto(s) agotados o críticos: gestione la '
-         'reposición y registre las entradas al recibir","✔ Inventario saludable")))))', "@"),
+         'reposición y registre las entradas al recibir","✔ Inventario saludable"))))))', "@"),
         ("txtPasoVentas", "Próximo paso (Ventas)",
          '=IF(kpiUsuarios=0,"El administrador debe registrar los usuarios en 02_USUARIOS",'
          'IF(kpiRechSal>0,"✖ Hay "&kpiRechSal&" salida(s) rechazadas en 10B: revíselas",'

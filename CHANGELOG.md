@@ -2,6 +2,60 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semántico.
 
+## [2.1.0] · 2026-09-25 · rama `Inventario-V2.1`
+
+Tema de la versión: **M-INV colaborativo completo**. Sobre la base de la 2.0 (captura por usuario, bitácoras
+fragmentadas, instantánea a demanda) se agregan las funciones que faltaban para operar el día a día en Microsoft 365
+sin salir del libro, todas con la misma regla de oro: nadie escribe en la celda de otro.
+
+### Agregado
+
+- **Portada de Gerencia** (`00_PORTADA_GERENCIA`): próximo paso, accesos (stock y cobertura, alertas, pedido sugerido,
+  actividad), 8 indicadores (valor, requieren acción, pedido, movimientos del mes, unidades vendidas en 30 días,
+  cobertura mediana, bloqueos del mes, usuarios), gráficos nativos (unidades despachadas por mes, valor por categoría),
+  los 10 más vendidos en 30 días y la actividad de cada usuario en el mes.
+- **Consulta por usuario** (`17_CONSULTA`): una fila por persona (ADMIN, BODEGA, VENTAS) con su propio selector de
+  producto: disponible exacto en vivo, semáforo, mínimo/máximo, sugerido, proveedor, ubicación, último movimiento
+  (fecha, tipo y quién), entradas y salidas de 30 días, cobertura y valor. Nuevo `OrdenConsulta` en `02_USUARIOS`.
+- **Toma física colaborativa** (`13_CONTEO`): cada producto tiene su celda de conteo; vista previa de la diferencia y
+  del ajuste; fecha y confirmación `SI`. Nuevo script **`GenerarAjustesConteo.ts`**: valida todo, compara contra el
+  stock exacto, registra AJUSTE (±) o SALDO INICIAL en una sola inserción (`addRows`), vuelve a verificar los ajustes
+  negativos y limpia solo los conteos procesados.
+- **Pedido sugerido por proveedor** (`18_PEDIDO`): instantánea que escribe `RecalcularStock` con cantidad a pedir,
+  subtotal, días de entrega, fecha estimada y contacto del proveedor, lista para filtrar e imprimir.
+- **Registro de actividad** (`14_ACTIVIDAD`): cada ejecución de un script (registros, bloqueos, rechazos, recálculos,
+  conteos, diagnósticos) con ID, correo, nombre, script, resultado y detalle. Indicadores `kpiEjecuciones`,
+  `kpiBloqMes` y `txtUltimaEjecucion`.
+- **Resumen diario** `ResumenDiario.ts` (solo lectura) para un flujo programado de Power Automate: asunto, HTML, texto e
+  indicadores del día calculados con el stock exacto.
+- **15_STOCK**: columnas `Salidas30d`, `CoberturaDias` y `RankSalidas30d` (misma regla en Python y TypeScript).
+- **Portadas**: Bodega con *Toma física*; Ventas con *Consultar producto* y *Stock completo*; barra de navegación de 10
+  destinos en todas las hojas; próximo paso de Bodega con el conteo en curso.
+- **Guía de acceso paso a paso** `docs/deployment/inicio-rapido.md` (demo local, demo en la nube, producción, uso diario
+  por rol, Power Automate y solución de problemas) y `99_AYUDA` ampliada (cómo entrar, consulta, toma física, pedido,
+  actividad, gerencia, resumen diario).
+- **Verificación de tipos** opcional en `tools/build_v2.ps1`: cada script se compila con TypeScript estricto contra
+  `tests/office-scripts/excelscript-tipos.d.ts` si hay `tsc` (PATH o `MINV_TSC`).
+- **Pruebas**: de 12 a 22 (actividad, toma física, resumen diario, paridad del pedido y de las columnas nuevas);
+  el simulador de `ExcelScript` admite `Table.addRows`.
+
+### Cambiado
+
+- `lib/comun.ts`: `registrarActividad`, `agregarFilas` (lote atómico), `saldos` (stock exacto de todos los productos en
+  una pasada), `estadoDe` (compartido), `fechaTexto`/`fechaCompacta`, `nombreVisible`; `registrar` audita también los
+  intentos sin fila de captura.
+- `RecalcularStock.ts` escribe tres instantáneas (stock de 20 columnas, alertas y pedido) y deja su ejecución en
+  `14_ACTIVIDAD`; `DiagnosticoInstalacion.ts` revisa las 16 hojas, 16 tablas y 9 nombres de la 2.1, la fila de consulta
+  y la contraseña de cada hoja que escriben los scripts.
+- `tools/verify_minv_v2.ps1`: 21 hojas; nuevas comprobaciones independientes de cobertura, ranking, pedido, conteo,
+  consulta, actividad y Gerencia, con pruebas en vivo (escribir y recalcular).
+- Anchos de columna revisados para que los encabezados con filtro no se corten.
+
+### Corregido
+
+- Verificador: `[math]::Max(0, $x)` de PowerShell redondeaba a entero un stock decimal (usaba la sobrecarga `Int32`);
+  ahora `[math]::Max(0.0, $x)`.
+
 ## [2.0.0] · 2026-09-25 · rama `Inventario-V2`
 
 Tema de la versión: **M-INV colaborativo en Microsoft 365**. Un solo libro en SharePoint/OneDrive que Bodega y Ventas

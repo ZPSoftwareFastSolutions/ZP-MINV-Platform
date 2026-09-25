@@ -206,9 +206,16 @@ La V2 conserva la paleta, la tipografía y los principios de esta guía, con est
 | Registro | Siguiente fila libre o formulario | **Fila de captura propia** por usuario (su nombre en la primera columna) y columna *Resultado* que escribe el script |
 | Error de stock | Validación `✖ Stock insuficiente` | Además: **rojo sangre `#8A0303` con texto blanco tachado** en la cantidad (poka-yoke) |
 | Stock | Proyección en vivo | Instantánea con barra de frescura: «Calculado el … por …» y «⚠ N movimiento(s) nuevo(s): recalcule» |
+| Consulta (2.1) | `17_KARDEX` con un selector | `17_CONSULTA`: **una fila por persona** con su selector; la ficha ocupa la fila (disponible exacto, semáforo, cobertura, último movimiento) |
+| Toma física (2.1) | Formulario de conteo | `13_CONTEO`: columna *Conteo* azul (✎) por producto, *Resultado* con ▲ sobrante (azul), ▼ faltante (ámbar), ● saldo inicial (morado), ✔ cuadra (verde), ✖ (rojo); confirmación `SI` antes del botón |
+| Gerencia (2.1) | Tablero único | `00_PORTADA_GERENCIA`: accesos, dos filas de tarjetas, dos gráficos nativos, top 10 y actividad por usuario (bloqueos en rojo) |
+| Auditoría (2.1) | — | `14_ACTIVIDAD`: ✔ en verde, ✖ en rojo, chip de bloqueos del mes en rojo si hay alguno |
 
 - Barra de navegación: fila 5, fondo `ink2`; la hoja activa se marca en blanco. Las píldoras ocupan columnas completas
-  (mínimo ~80 px) porque una celda no puede partirse.
+  (mínimo ~80 px) porque una celda no puede partirse. Desde la 2.1 son 10 destinos (Bodega, Ventas, Gerencia, Entradas,
+  Salidas, Consulta, Stock, Pedido, Conteo, Guía); si una hoja es angosta, el generador agrega columnas de margen
+  (`con_margen`) en lugar de encimar píldoras.
+- Encabezados con filtro: el ancho de columna deja ~20 px para el botón de filtro (el texto no debe cortarse).
 - Los recuadros `⚙` indican dónde va cada botón de script y explican qué hacer si aún no está instalado.
 - Nada de formas con vínculo, imágenes clicables ni cuadros vinculados: en la web no son fiables. Los gráficos nativos
   sí se usan (dona de salud del inventario, columnas de unidades despachadas).

@@ -5,7 +5,7 @@
  *  - una hoja protegida rechaza escrituras salvo que la protección esté pausada (sesión) o quitada;
  *  - pauseProtection/unprotect exigen la contraseña;
  *  - un comentario lo crea el usuario de la sesión (getAuthorEmail) y una celda no admite dos comentarios;
- *  - Table.addRow agrega al final (ganchos para simular a otra persona registrando al mismo tiempo).
+ *  - Table.addRow / addRows agregan al final (ganchos para simular a otra persona registrando al mismo tiempo).
  * No evalúa fórmulas: el fixture trae los valores ya calculados (lo que Excel devolvería con getValues).
  */
 export type Celda = string | number | boolean;
@@ -202,6 +202,25 @@ export class MockTabla {
       this.filas.splice(indice, 0, valores.slice());
     }
     this.libro.registro.push("addRow " + this.nombre);
+  }
+
+  addRows(indice?: number, valores?: Celda[][]): void {
+    this.hoja.exigirEscritura();
+    if (!valores || valores.length === 0 || valores.some((f: Celda[]) => f.length !== this.encabezados.length)) {
+      throw new Error("InvalidArgument: addRows espera filas de " + this.encabezados.length + " valores");
+    }
+    const gancho = this.libro.antesDeAgregar.get(this.nombre);
+    if (gancho) {
+      this.libro.antesDeAgregar.delete(this.nombre);
+      gancho(this);
+    }
+    const copia = valores.map((f: Celda[]) => f.slice());
+    if (indice === undefined || indice === null || indice === -1) {
+      this.filas.push(...copia);
+    } else {
+      this.filas.splice(indice, 0, ...copia);
+    }
+    this.libro.registro.push("addRows " + this.nombre + " " + valores.length);
   }
 }
 

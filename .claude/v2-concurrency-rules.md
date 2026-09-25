@@ -1,4 +1,4 @@
-# Reglas de concurrencia y coautoría · M-INV V2 (Microsoft 365)
+# Reglas de concurrencia y coautoría · M-INV V2.1 (Microsoft 365)
 
 > **Documento normativo** para personas y agentes que trabajen en el libro colaborativo
 > (`src/M-INV_V2_Colaborativo.xlsx`, `src/office-scripts/`, `tools/minv2/`).
@@ -23,7 +23,7 @@ La V2 elimina ambos riesgos con tres fragmentaciones y una lectura a demanda:
 │ separados: 0 filas comunes   │   │                               │   │ ID, Usuario_O365, Timestamp  │
 └──────────────────────────────┘   └───────────────────────────────┘   └──────────────┬───────────────┘
                                                                                       │ RecalcularStock.ts
-                                                                    15_STOCK / 16_ALERTAS (instantánea de valores)
+                                                          15_STOCK / 16_ALERTAS / 18_PEDIDO (instantánea de valores)
 ```
 
 ## 1. Reglas
@@ -38,6 +38,8 @@ La V2 elimina ambos riesgos con tres fragmentaciones y una lectura a demanda:
 ### C-02 · Fragmentación por usuario (captura)
 - Cada usuario autorizado del dominio tiene **una fila de captura propia**; su posición la define el orden de
   `02_USUARIOS` (columnas `OrdenBodega` / `OrdenVentas`). El ADMIN tiene fila en ambos fragmentos.
+- Lo mismo vale para la lectura interactiva: cada usuario operativo tiene **su fila de consulta** en `17_CONSULTA`
+  (`OrdenConsulta`) y en la toma física cada producto tiene **su celda de conteo** en `13_CONTEO` (reglas C-13 y C-15).
 - NO DEBE existir una zona de escritura compartida («siguiente fila libre», formulario común, celda de búsqueda común).
 - Los usuarios nuevos se agregan **al final** de `02_USUARIOS`; nunca se reordena ni se borra (retiro = `Activo = NO`).
   Esos cambios se hacen cuando nadie está registrando: mueven la asignación de filas.
@@ -79,11 +81,13 @@ La V2 elimina ambos riesgos con tres fragmentaciones y una lectura a demanda:
   el stock quedó negativo, marca su propio registro `✖ Rechazado: …` (rojo tachado, no suma) y lo informa.
 
 ### C-08 · Lectura a demanda (lazy)
-- `15_STOCK` y `16_ALERTAS` son **instantáneas de valores** que reconstruye `RecalcularStock.ts` con una escritura por
-  tabla; `stkActualizado`, `stkActualizadoPor`, `stkActualizadoNombre` y `stkMovimientos` registran cuándo y quién.
+- `15_STOCK`, `16_ALERTAS` y `18_PEDIDO` son **instantáneas de valores** que reconstruye `RecalcularStock.ts` con una
+  escritura por tabla (la cobertura, el ranking de ventas y el pedido también se calculan ahí, no en fórmulas);
+  `stkActualizado`, `stkActualizadoPor`, `stkActualizadoNombre` y `stkMovimientos` registran cuándo y quién.
 - Las portadas muestran la frescura (`kpiNuevosDesdeCalculo`: movimientos con `Timestamp` posterior al cálculo).
-- El libro se mantiene en cálculo **automático** porque sus fórmulas son livianas (≈ 2.800). NO DEBE usarse el cálculo
-  manual como mecanismo: en Excel es una opción por libro y por sesión (no por hoja) y congelaría el disponible y el
+- El libro se mantiene en cálculo **automático** porque sus fórmulas son livianas (≈ 9.000 en la 2.1, casi todas
+  búsquedas por posición del conteo; las sumas sobre las bitácoras se limitan a las filas de captura y de consulta,
+  unas 50). NO DEBE usarse el cálculo manual como mecanismo: en Excel es una opción por libro y por sesión (no por hoja) y congelaría el disponible y el
   poka-yoke de la captura. Si el administrador lo activa por rendimiento, `RecalcularStock.ts` también ejecuta
   `calculate(full)`.
 - NO DEBEN reintroducirse proyecciones pesadas en vivo (SUMAR.SI.CONJUNTO por producto, rankings de 500 filas).
@@ -101,21 +105,53 @@ La V2 elimina ambos riesgos con tres fragmentaciones y una lectura a demanda:
 - Toda escritura en hojas protegidas DEBE ir dentro de `conHojasDesbloqueadas`: pausa la protección solo para la sesión
   (`pauseProtection`) o, si el anfitrión no lo permite, desprotege y vuelve a proteger con las mismas opciones, siempre
   en `finally`.
-- El resultado para el usuario se escribe en su fila de captura (`Resultado`), nunca en una celda compartida.
+- El resultado para el usuario se escribe en su fila de captura (`Resultado`), nunca en una celda compartida. Única
+  excepción: `ctResultado` de `13_CONTEO`, que escribe solo el proceso de conteo (una ejecución confirmada a la vez).
+- Varias filas nuevas en una tabla DEBEN agregarse con una sola llamada (`agregarFilas` → `Table.addRows`), con IDs
+  únicos también dentro del lote.
+- Las constantes de nivel superior propias de un script van antes del bloque común y NO DEBEN usar constantes del
+  bloque (todavía no están inicializadas): use literales.
 - La contraseña se inyecta en la versión instalable (`build/office-scripts/`, fuera de Git). NO DEBE versionarse.
 
 ### C-11 · Paridad de algoritmos
 - El proyector de `tools/minv2/lectura.py` (demo y pruebas) y `RecalcularStock.ts` implementan la misma regla de stock,
-  semáforo y prioridad de alertas con la misma aritmética (`r6`). Si una cambia, DEBE cambiar la otra; la prueba
-  `RecalcularStock: instantánea idéntica a la del generador` lo verifica.
+  semáforo, prioridad de alertas, salidas de 30 días, cobertura, ranking y pedido sugerido con la misma aritmética
+  (`r6`). Si una cambia, DEBE cambiar la otra; la prueba `RecalcularStock: instantánea idéntica a la del generador` lo
+  verifica columna por columna en `tblStock`, `tblAlertas` y `tblPedido`.
 
 ### C-12 · Definición de terminado de la V2
 Un cambio en el libro colaborativo o en sus scripts está terminado solo si:
-1. `tools/build_v2.ps1` termina sin fallas: genera Core y Release, verifica el bloque común, ejecuta las pruebas de los
-   Office Scripts (`tests/office-scripts`) y pasa `tools/verify_minv_v2.ps1` en ambos libros.
+1. `tools/build_v2.ps1` termina sin fallas: genera Core y Release, verifica el bloque común, compila los scripts con
+   TypeScript estricto (si hay `tsc`), ejecuta las pruebas de los Office Scripts (`tests/office-scripts`) y pasa
+   `tools/verify_minv_v2.ps1` en ambos libros.
 2. Las capturas se revisaron y la documentación refleja el cambio (este documento, el diccionario de datos V2 y la
    guía de despliegue).
 3. En cada despliegue real se ejecuta `DiagnosticoInstalacion` en el tenant del cliente y su informe queda sin `✖`.
+
+### C-13 · Toma física colaborativa (13_CONTEO)
+- La fila *n* refleja el producto *n* del catálogo; los contadores escriben solo en la columna `Conteo` (una celda por
+  producto) y se reparten zonas por `Ubicación` o `Categoría`, cada uno en su Vista de hoja.
+- Los ajustes los genera solo `GenerarAjustesConteo.ts` (BODEGA/ADMIN) con `SI` en `ctConfirmar`: compara contra el stock
+  **exacto** de ese momento (no contra la instantánea), valida todo antes de escribir (un conteo inválido bloquea el
+  proceso completo), agrega todos los movimientos con una sola inserción y vuelve a verificar los ajustes negativos.
+- Un producto sin movimientos consolidados recibe `SALDO INICIAL`; los demás, `AJUSTE (+)`/`AJUSTE (-)` con documento
+  `CF-AAAAMMDD`. Al terminar se borran **solo** las celdas de conteo procesadas (nunca la columna completa).
+
+### C-14 · Auditoría de ejecución (14_ACTIVIDAD)
+- Cada ejecución de un script que modifica el libro DEBE dejar una fila en `tblActividad` (`registrarActividad`): ID sin
+  coordinación (`A-…`), correo, nombre, script, resultado y detalle, **incluidos los intentos bloqueados**.
+- `tblActividad` es append-only y solo la escriben los scripts. Un fallo al auditar NO DEBE interrumpir ni deshacer la
+  operación principal (se informa en la salida del script).
+
+### C-15 · Consulta por usuario (17_CONSULTA)
+- Cada usuario operativo (ADMIN, BODEGA, VENTAS) tiene una fila con su propio selector de producto. NO DEBE existir un
+  selector de consulta compartido.
+- Sus fórmulas en vivo se limitan a esas filas (20 como máximo): son la única lectura exacta y en vivo por producto
+  además de la captura; las listas completas siguen siendo instantáneas (C-08).
+
+### C-16 · Scripts de solo lectura
+- `ResumenDiario.ts` NO DEBE escribir en el libro (ni siquiera el comentario de identidad): así puede programarse en
+  Power Automate sin riesgo para la coautoría. Devuelve sus resultados como valor del script.
 
 ## 2. Qué cambia respecto de las reglas de la V1
 
@@ -126,6 +162,9 @@ Un cambio en el libro colaborativo o en sus scripts está terminado solo si:
 | R-05 `Estado` por fórmula en cada fila | Validación viva en la captura + validación autoritativa en el script; la bitácora guarda `✔ Consolidado` o `✖ Rechazado` |
 | R-06 Filas alineadas 05 ↔ 15 | La instantánea se escribe compacta en el orden del catálogo |
 | R-13 VBA (edición Plus) | Office Scripts (TypeScript), sin macros en el `.xlsx` (C-10) |
+| `13_CONTEO` con macro de ajustes (Plus) | Conteo por celdas + `GenerarAjustesConteo.ts` contra el stock exacto (C-13) |
+| `17_KARDEX` con un selector | `17_CONSULTA` con un selector por usuario (C-15); historial con Vistas de hoja |
+| `18_PEDIDO` en vivo | Instantánea que escribe `RecalcularStock.ts` (C-08) |
 
 ## 3. Checklist para agentes
 
@@ -135,4 +174,6 @@ Un cambio en el libro colaborativo o en sus scripts está terminado solo si:
 - [ ] ¿Se agregó una fórmula pesada en vivo o se propuso cálculo manual? → instantánea a demanda (C-08).
 - [ ] ¿Se agregó una forma con vínculo o un cuadro vinculado? → celdas (C-09).
 - [ ] ¿Se tocó `lib/comun.ts`? → `python tools/office_scripts.py sync` y pruebas (C-10).
-- [ ] ¿Cambió la regla de stock o alertas? → mismo cambio en Python y TypeScript (C-11).
+- [ ] ¿Cambió la regla de stock, alertas, cobertura, ranking o pedido? → mismo cambio en Python y TypeScript (C-11).
+- [ ] ¿Un script nuevo modifica el libro? → `registrarActividad` en todos sus caminos, también los de error (C-14).
+- [ ] ¿Se agregan varias filas? → una sola `agregarFilas` (C-10); ¿se limpian entradas de otros? → solo las procesadas (C-13).

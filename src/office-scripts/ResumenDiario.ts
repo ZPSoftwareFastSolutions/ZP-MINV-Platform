@@ -1,20 +1,189 @@
 /**
- * M-INV V2.1 · RegistrarEntrada.ts — fragmento de Bodega (10A_ENTRADAS)
+ * M-INV V2.1 · ResumenDiario.ts — resumen del día para Power Automate (SOLO LECTURA)
  * Z&P Software Fast Solutions
  *
- * Botón «Registrar en bodega». Consolida la fila de captura de QUIEN PULSA el botón (ENTRADA, SALDO INICIAL,
- * AJUSTE (+) o AJUSTE (-)) en la bitácora oficial tblEntradas:
- *   1. Identifica la cuenta de Microsoft 365 y la autoriza contra 02_USUARIOS (roles BODEGA o ADMIN).
- *   2. Valida la fila con las mismas reglas de la columna Validación (sin confiar en las fórmulas).
- *   3. Agrega el movimiento al final de la bitácora (inserción atómica) con ID, Usuario_O365 y Timestamp.
- *   4. En los AJUSTE (-), vuelve a verificar el disponible (registros simultáneos) y se rechaza si no alcanza.
- *   5. Escribe el resultado en la fila de captura y la limpia (conserva el Tipo para el siguiente registro).
- *   6. Deja la ejecución en 14_ACTIVIDAD (quién, cuándo, resultado), también los intentos bloqueados.
- * La bitácora oficial queda protegida: solo los scripts la escriben (pausan la protección para su sesión).
+ * Pensado para un flujo programado de Power Automate («Ejecutar script» de Excel Online (Business) + «Enviar un
+ * correo (V2)»), aunque también se puede ejecutar a mano desde Automatizar. No modifica el libro, así que se puede
+ * programar sin riesgo. Calcula con el stock EXACTO de ese momento (las dos bitácoras, no la instantánea):
+ *   - movimientos registrados hoy (entradas y ajustes, salidas y unidades vendidas) y registros rechazados;
+ *   - intentos bloqueados hoy (14_ACTIVIDAD);
+ *   - productos que requieren acción (agotados, críticos y bajos) con la cantidad a pedir y el total estimado;
+ *   - frescura de la instantánea (cuándo se recalculó y cuántos movimientos llegaron después).
+ * Devuelve el asunto, el cuerpo en HTML y en texto y los indicadores (campos dinámicos del flujo).
  */
-function main(workbook: ExcelScript.Workbook): string {
-  return registrar(workbook, "BODEGA", "10A_ENTRADAS", "tblCapturaEntradas", "tblEntradas", "E",
-    ["BODEGA", "ADMIN"], ["Fecha", "Producto", "Cantidad", "Documento", "Observaciones"]);
+function main(workbook: ExcelScript.Workbook): ResumenDelDia {
+  const ahora = new Date();
+  const hoy = Math.floor(serialDe(ahora));
+  const empresa = texto(valorOpcional(workbook, "cfgEmpresa"));
+  const margen = numero(valorNombre(workbook, "cfgMargenAlerta")) || 0;
+  const calculado = numero(valorOpcional(workbook, "stkActualizado")) || 0;
+
+  // Movimientos registrados hoy (Timestamp) y los que llegaron después del último recálculo
+  let entradasHoy = 0, salidasHoy = 0, unidadesHoy = 0, rechazosHoy = 0, nuevos = 0;
+  for (const nombre of ["tblEntradas", "tblSalidas"]) {
+    const [marcas, netas, estados] = leerColumnas(workbook, nombre, ["Timestamp", "CantidadNeta", "Estado"]);
+    for (let i = 0; i < marcas.length; i++) {
+      const ts = numero(marcas[i]);
+      if (isNaN(ts)) {
+        continue;
+      }
+      if (ts > calculado) {
+        nuevos++;
+      }
+      if (Math.floor(ts) !== hoy) {
+        continue;
+      }
+      const estado = texto(estados[i]);
+      if (estado.indexOf(PREFIJO_OK) !== 0) {
+        rechazosHoy++;
+      } else if (nombre === "tblSalidas") {
+        salidasHoy++;
+        unidadesHoy += -(numero(netas[i]) || 0);
+      } else {
+        entradasHoy++;
+      }
+    }
+  }
+
+  // Intentos bloqueados hoy (14_ACTIVIDAD)
+  const bloqueos: string[][] = [];
+  if (workbook.getTable("tblActividad")) {
+    const [marcas, nombres, resultados, detalles] = leerColumnas(workbook, "tblActividad",
+      ["Timestamp", "Nombre", "Resultado", "Detalle"]);
+    for (let i = 0; i < marcas.length; i++) {
+      const ts = numero(marcas[i]);
+      if (!isNaN(ts) && Math.floor(ts) === hoy && texto(resultados[i]).indexOf("✖") === 0) {
+        bloqueos.push([horaDeSerial(ts), texto(nombres[i]), texto(detalles[i])]);
+      }
+    }
+  }
+
+  // Productos que requieren acción con el stock exacto de este momento
+  const actuales = saldos(workbook);
+  const reponer: Reponer[] = [];
+  let totalPedido = 0;
+  for (const p of leerProductos(workbook)) {
+    const s = actuales.get(p.sku);
+    const stock = s ? s.stock : 0;
+    const estado = estadoDe(stock, p.minimo, p.maximo, p.activo, margen);
+    if (!p.activo || REPONER.indexOf(estado) < 0) {
+      continue;
+    }
+    const tope = p.maximo > 0 ? p.maximo : 2 * p.minimo;
+    const apedir = r6(Math.max(0, tope - Math.max(0, stock)));
+    totalPedido += r6(apedir * p.costo);
+    reponer.push({ orden: [REPONER.indexOf(estado), p.indice], estado, producto: p, stock, apedir });
+  }
+  reponer.sort((a: Reponer, b: Reponer) => a.orden[0] - b.orden[0] || a.orden[1] - b.orden[1]);
+  const cuenta = (e: string): number => reponer.filter((r: Reponer) => r.estado === e).length;
+  const agotados = cuenta("AGOTADO"), criticos = cuenta("CRÍTICO"), bajos = cuenta("BAJO");
+  totalPedido = Math.round(totalPedido);
+
+  // Correo
+  const fecha = fechaTexto(hoy);
+  const asunto = "M-INV" + (empresa ? " · " + empresa : "") + " · Resumen del " + fecha + " · " +
+    (reponer.length === 0 ? "inventario sin alertas de reposición" : reponer.length + " producto(s) por reponer");
+  const frescura = calculado > 0 ?
+    "Instantánea de stock calculada el " + fechaTexto(calculado) + " a las " + horaDeSerial(calculado) +
+    (nuevos > 0 ? " · " + nuevos + " movimiento(s) nuevos desde entonces: pulse «Recalcular stock»." : " · al día.") :
+    "La instantánea de stock aún no se calcula: pulse «Recalcular stock».";
+  const indicadores: string[][] = [
+    ["Entradas y ajustes registrados hoy", miles(entradasHoy)],
+    ["Salidas registradas hoy", miles(salidasHoy) + " (" + cantidadTexto(unidadesHoy) + " unidades)"],
+    ["Registros rechazados hoy", miles(rechazosHoy)],
+    ["Intentos bloqueados hoy", miles(bloqueos.length)],
+    ["Productos por reponer", agotados + " agotado(s) · " + criticos + " crítico(s) · " + bajos + " bajo(s)"],
+    ["Pedido sugerido estimado", "$ " + miles(totalPedido)],
+  ];
+  const lineas = reponer.slice(0, MAX_LINEAS_RESUMEN);
+  const estilo = "font-family:Segoe UI,Arial,sans-serif;font-size:13px;color:#1E293B";
+  const celda = "padding:4px 8px;border-bottom:1px solid #E2E8F0";
+  let html = "<div style=\"" + estilo + "\"><h2 style=\"margin:0 0 4px\">M-INV · Resumen del " + fecha + "</h2>" +
+    "<p style=\"margin:0 0 12px;color:#64748B\">" + escapar(empresa || "Inventario colaborativo") + " · generado a las " +
+    horaDe(ahora) + "</p><table style=\"border-collapse:collapse;margin-bottom:12px\">" +
+    indicadores.map((f: string[]) => "<tr><td style=\"" + celda + "\">" + escapar(f[0]) + "</td><td style=\"" + celda +
+      ";font-weight:bold\">" + escapar(f[1]) + "</td></tr>").join("") + "</table>";
+  if (lineas.length > 0) {
+    html += "<h3 style=\"margin:12px 0 4px\">Productos por reponer (stock exacto)</h3>" +
+      "<table style=\"border-collapse:collapse\"><tr style=\"background:#0F172A;color:#FFFFFF\">" +
+      ["Estado", "SKU", "Producto", "Stock", "A pedir", "Proveedor"].map((h: string) =>
+        "<th style=\"padding:4px 8px;text-align:left\">" + h + "</th>").join("") + "</tr>" +
+      lineas.map((r: Reponer) => "<tr><td style=\"" + celda + ";color:" + (r.estado === "BAJO" ? "#B45309" : "#B91C1C") +
+        ";font-weight:bold\">" + r.estado + "</td><td style=\"" + celda + "\">" + escapar(r.producto.sku) +
+        "</td><td style=\"" + celda + "\">" + escapar(r.producto.nombre) + "</td><td style=\"" + celda + "\">" +
+        cantidadTexto(r.stock) + " " + escapar(r.producto.unidad) + "</td><td style=\"" + celda + "\">" +
+        cantidadTexto(r.apedir) + "</td><td style=\"" + celda + "\">" + escapar(r.producto.proveedor || SIN_PROVEEDOR) +
+        "</td></tr>").join("") + "</table>";
+    if (reponer.length > lineas.length) {
+      html += "<p>… y " + (reponer.length - lineas.length) + " producto(s) más en 18_PEDIDO.</p>";
+    }
+  }
+  if (bloqueos.length > 0) {
+    html += "<h3 style=\"margin:12px 0 4px\">Intentos bloqueados hoy</h3><ul>" +
+      bloqueos.slice(0, MAX_LINEAS_RESUMEN).map((b: string[]) => "<li>" + escapar(b[0] + " · " + b[1] + " · " + b[2]) +
+        "</li>").join("") + "</ul>";
+  }
+  html += "<p style=\"color:#64748B\">" + escapar(frescura) + "</p></div>";
+  const textoPlano = ["M-INV · Resumen del " + fecha + (empresa ? " · " + empresa : "")]
+    .concat(indicadores.map((f: string[]) => "- " + f[0] + ": " + f[1]))
+    .concat(lineas.map((r: Reponer) => "  " + r.estado + " · " + r.producto.sku + " · " + r.producto.nombre +
+      " · stock " + cantidadTexto(r.stock) + " · pedir " + cantidadTexto(r.apedir)))
+    .concat([frescura]).join("\n");
+  console.log(textoPlano);
+  return {
+    asunto, html, texto: textoPlano, fecha, movimientosHoy: entradasHoy + salidasHoy, unidadesVendidasHoy: r6(unidadesHoy),
+    rechazosHoy, bloqueosHoy: bloqueos.length, agotados, criticos, bajos, totalPedido
+  };
+}
+
+/** Resultado para Power Automate (cada campo aparece como contenido dinámico del flujo). */
+interface ResumenDelDia {
+  asunto: string;
+  html: string;
+  texto: string;
+  fecha: string;
+  movimientosHoy: number;
+  unidadesVendidasHoy: number;
+  rechazosHoy: number;
+  bloqueosHoy: number;
+  agotados: number;
+  criticos: number;
+  bajos: number;
+  totalPedido: number;
+}
+
+interface Reponer {
+  orden: number[];
+  estado: string;
+  producto: Producto;
+  stock: number;
+  apedir: number;
+}
+
+const MAX_LINEAS_RESUMEN = 25;
+
+function valorOpcional(workbook: ExcelScript.Workbook, nombre: string): Celda {
+  const n = workbook.getNamedItem(nombre);
+  return n ? n.getRange().getValue() as Celda : "";
+}
+
+function horaDeSerial(serial: number): string {
+  const minutos = Math.round((serial - Math.floor(serial)) * 1440);
+  return dos(Math.floor(minutos / 60) % 24) + ":" + dos(minutos % 60);
+}
+
+/** Entero con separador de miles (1.234.567). */
+function miles(n: number): string {
+  return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+}
+
+function cantidadTexto(n: number): string {
+  const x = r6(n);
+  return x === Math.floor(x) ? miles(x) : String(x).replace(".", ",");
+}
+
+function escapar(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
 // >>> M-INV · BLOQUE COMÚN (generado desde lib/comun.ts con tools/office_scripts.py: no editar aquí)
