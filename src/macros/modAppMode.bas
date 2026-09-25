@@ -22,7 +22,13 @@ Public Sub AplicarModoApp(ByVal hoja As Object)
 End Sub
 
 ' Deja Excel como lo encontro el usuario.
+' Durante el cierre del libro Excel ignora la asignacion directa de
+' DisplayFormulaBar (probado en Microsoft 365), por eso primero se usa el
+' comando de la cinta (Vista > Barra de formulas), que si se aplica.
 Public Sub RestaurarModoExcel()
     On Error Resume Next
+    If Not Application.CommandBars.GetPressedMso("ViewFormulaBar") Then
+        Application.CommandBars.ExecuteMso "ViewFormulaBar"
+    End If
     Application.DisplayFormulaBar = True
 End Sub

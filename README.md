@@ -12,6 +12,7 @@ para migrar a SQL/.NET en la V2.
 |---|---|---|
 | [`src/M-INV_V1_Core.xlsx`](src/M-INV_V1_Core.xlsx) | Equipo Z&P (maestro de desarrollo) | Sistema completo con **datos de demostración** (34 productos, ~480 movimientos). Capas de configuración ocultas (no bloqueadas). |
 | [`releases/M-INV_V1_Produccion_Bloqueado.xlsx`](releases/M-INV_V1_Produccion_Bloqueado.xlsx) | Cliente final | Plantilla **limpia**: fórmulas ocultas, configuración y motor en *muy oculto*, estructura del libro bloqueada. |
+| [`src/M-INV_V1_Core.xlsm`](src/M-INV_V1_Core.xlsm) | Opcional (V1.1) | Core + VBA de modo app: oculta la barra de fórmulas en la portada y la restaura al salir. |
 
 Ambos libros se **generan** desde código (`tools/build_minv.py`) y se **verifican** en Excel real
 (`tools/verify_minv.ps1`). No se editan a mano.
@@ -42,6 +43,7 @@ ZP-MINV-Platform/
 │   ├── demo_data.py                   Catálogos base + simulación de datos demo
 │   ├── make_assets.py                 Generador de iconos y branding
 │   ├── verify_minv.ps1                Verificación en Excel real (COM)
+│   ├── build_xlsm.ps1                 Genera y prueba la variante .xlsm con el VBA de modo app
 │   └── requirements.txt
 └── README.md
 ```
@@ -110,12 +112,12 @@ usan funciones exclusivas de 365 (`BUSCARX`, `FILTRAR`, `LET`…) ni `TEXTO()` c
 - **Tablas pre-asignadas** (500 productos, 5.000 movimientos) porque Excel no expande tablas en hojas protegidas.
 - **`INDICE+COINCIDIR` en lugar de `BUSCARX`/`BUSCARV`**: misma función, compatible con Excel 2016 e inmune al
   orden de columnas.
-- **Barra de fórmulas**: es una opción de aplicación que un `.xlsx` no puede guardar; se entrega el módulo VBA
-  opcional en `src/macros/` y, en el Release, las fórmulas quedan ocultas.
+- **Barra de fórmulas**: es una opción de aplicación que un `.xlsx` no puede guardar. La variante `.xlsm`
+  (generada y probada con `tools/build_xlsm.ps1`) la oculta en la portada; en el Release `.xlsx` las fórmulas quedan ocultas.
 
 ## Hoja de ruta
 
-- **V1.1** · Libro `.xlsm` opcional: modo app (barra de fórmulas), sellado de filas registradas, cierre de período asistido.
+- **V1.1** · Sobre el `.xlsm` (modo app ya disponible): sellado de filas registradas y cierre de período asistido.
 - **V1.2** · Multi-bodega (`02_BODEGAS`) y traslados (`11_TRASLADOS`), kardex por producto (`17_KARDEX`).
 - **V2** · Migración a SQL + .NET siguiendo el mapeo del diccionario de datos.
 

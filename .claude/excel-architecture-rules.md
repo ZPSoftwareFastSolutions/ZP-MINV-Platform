@@ -45,7 +45,8 @@ Numeración reservada: `02` bodegas, `04` proveedores/terceros, `07`-`09` maestr
 ## 2. Reglas
 
 ### R-01 · Excel-as-code
-- La fuente de verdad es `tools/build_minv.py` (+ `tools/demo_data.py`). Los `.xlsx` son **artefactos generados**.
+- La fuente de verdad es `tools/build_minv.py` (+ `tools/demo_data.py`). Los `.xlsx` son **artefactos generados**;
+  el `.xlsm` se deriva del Core con `tools/build_xlsm.ps1` (VBA fuente en `src/macros/`).
 - NO DEBE editarse a mano `src/M-INV_V1_Core.xlsx` ni `releases/M-INV_V1_Produccion_Bloqueado.xlsx`.
   Cualquier cambio se hace en el generador, se regenera y se verifica (R-12).
 - La única excepción es el ajuste de datos del tenant durante una implementación en el archivo del cliente
