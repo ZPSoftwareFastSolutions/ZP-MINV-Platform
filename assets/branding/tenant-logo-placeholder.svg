@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="144" viewBox="0 0 480 144" role="img" aria-label="Espacio para el logo del cliente">
+  <!-- Placeholder del logo del tenant. Reemplace por el logo real (PNG transparente 480x144). -->
+  <rect x="3" y="3" width="474" height="138" rx="22" fill="none" stroke="#FFFFFF" stroke-opacity="0.6" stroke-width="4" stroke-dasharray="18 12"/>
+  <text x="240" y="62" text-anchor="middle" dominant-baseline="middle" font-family="Segoe UI Semibold, Segoe UI, Arial, sans-serif" font-size="40" fill="#FFFFFF" fill-opacity="0.9">SU LOGO AQUÍ</text>
+  <text x="240" y="107" text-anchor="middle" dominant-baseline="middle" font-family="Segoe UI, Arial, sans-serif" font-size="20" fill="#FFFFFF" fill-opacity="0.6">PNG transparente · 480 × 144 px</text>
+</svg>

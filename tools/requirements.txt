@@ -1,0 +1,4 @@
+# Generador del libro (tools/build_minv.py)
+XlsxWriter==3.2.9
+# Solo para regenerar iconos y branding (tools/make_assets.py)
+Pillow==12.3.0

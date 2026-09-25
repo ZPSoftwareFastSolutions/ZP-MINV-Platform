@@ -1,0 +1,26 @@
+'==============================================================================
+' M-INV V1 - Eventos del libro (OPCIONAL: requiere .xlsm y modAppMode.bas)
+' Pegue este codigo en el modulo "ThisWorkbook" del Editor de VBA (Alt + F11).
+'==============================================================================
+Option Explicit
+
+Private Sub Workbook_Open()
+    Me.Worksheets(HOJA_PORTADA).Activate
+    AplicarModoApp ActiveSheet
+End Sub
+
+Private Sub Workbook_Activate()
+    AplicarModoApp ActiveSheet
+End Sub
+
+Private Sub Workbook_SheetActivate(ByVal Sh As Object)
+    AplicarModoApp Sh
+End Sub
+
+Private Sub Workbook_Deactivate()
+    RestaurarModoExcel
+End Sub
+
+Private Sub Workbook_BeforeClose(Cancel As Boolean)
+    RestaurarModoExcel
+End Sub

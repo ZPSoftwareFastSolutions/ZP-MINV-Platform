@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="620" height="176" viewBox="0 0 620 176" role="img" aria-label="Z&amp;P Software Fast Solutions">
+  <!-- Variante para fondo claro. Para fondo oscuro cambie #0B1F33 por #FFFFFF y #1565C0 por #64B5F6. -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1E88E5"/>
+      <stop offset="1" stop-color="#0D47A1"/>
+    </linearGradient>
+  </defs>
+  <rect width="176" height="176" rx="38.7" fill="url(#g)"/>
+  <text x="88" y="84" text-anchor="middle" dominant-baseline="middle" font-family="Segoe UI Black, Segoe UI, Arial, sans-serif" font-weight="900" font-size="63" fill="#FFFFFF">Z&amp;P</text>
+  <rect x="58.1" y="133.8" width="59.8" height="5.3" rx="2.6" fill="#64B5F6"/>
+  <rect x="66.9" y="143.4" width="42.2" height="5.3" rx="2.6" fill="#64B5F6"/>
+  <rect x="75.7" y="153.1" width="24.6" height="5.3" rx="2.6" fill="#64B5F6"/>
+  <text x="212" y="72" dominant-baseline="middle" font-family="Segoe UI, Arial, sans-serif" font-weight="700" font-size="58" fill="#0B1F33">Z&amp;P Software</text>
+  <text x="214" y="130" dominant-baseline="middle" font-family="Segoe UI Semibold, Segoe UI, Arial, sans-serif" font-weight="600" font-size="30" letter-spacing="6" fill="#1565C0">FAST SOLUTIONS</text>
+</svg>

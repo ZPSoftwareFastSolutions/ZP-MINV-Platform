@@ -1,0 +1,17 @@
+# Entorno Python
+.venv/
+__pycache__/
+*.pyc
+
+# Artefactos temporales del build y la verificación
+build/
+*.tmp.xlsx
+
+# Archivos de bloqueo y temporales de Office
+~$*
+*.tmp
+
+# Sistema operativo
+Thumbs.db
+desktop.ini
+.DS_Store
