@@ -30,4 +30,6 @@ public sealed class ProductSupplier : BaseEntity
     public int? LeadTimeDays { get; private set; }
 
     public bool IsPreferred { get; private set; }
+
+    public void SetPreferred(bool isPreferred) => IsPreferred = isPreferred;
 }

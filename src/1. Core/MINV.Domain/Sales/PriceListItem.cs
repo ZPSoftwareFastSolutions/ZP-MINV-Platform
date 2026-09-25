@@ -22,4 +22,6 @@ public sealed class PriceListItem : BaseEntity
     public Guid VariantId { get; private set; }
 
     public decimal UnitPrice { get; private set; }
+
+    public void ChangePrice(decimal unitPrice) => UnitPrice = Guard.NonNegative(unitPrice, "El precio");
 }

@@ -146,6 +146,7 @@ public static class ClientServices
         services.AddScoped<SessionContext>();
         services.AddScoped<SerialMediator>();
         services.AddScoped<DataCache>();
+        services.AddScoped<ImageCache>();
         services.AddScoped<NotificationService>();
         services.AddScoped<DialogService>();
         services.AddScoped<AppServices>();
@@ -159,6 +160,15 @@ public static class ClientServices
         services.AddScoped<ActivityViewModel>();
         services.AddScoped<SettingsViewModel>();
         services.AddScoped<HelpViewModel>();
+        services.AddScoped<CatalogViewModel>();
+        services.AddScoped<PosViewModel>();
+        services.AddScoped<SalesViewModel>();
+        services.AddScoped<CustomersViewModel>();
+        services.AddScoped<PurchaseOrdersViewModel>();
+        services.AddScoped<SuppliersViewModel>();
+        services.AddScoped<ReportsViewModel>();
+        services.AddScoped<AccountingViewModel>();
+        services.AddScoped<UsersViewModel>();
         return services;
     }
 }

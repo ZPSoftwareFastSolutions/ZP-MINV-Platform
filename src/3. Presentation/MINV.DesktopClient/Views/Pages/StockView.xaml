@@ -13,6 +13,13 @@
 
         <DockPanel Margin="0,0,0,16">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <Border Background="{DynamicResource SurfaceHover}" CornerRadius="10" Padding="2" Margin="0,0,10,0">
+                    <StackPanel Orientation="Horizontal">
+                        <RadioButton Style="{StaticResource Segment}" Content="Galería" c:Ui.Icon="{x:Static c:Glyphs.Sparkle}" IsChecked="{Binding IsGallery}"
+                                     GroupName="stockView" />
+                        <RadioButton Style="{StaticResource Segment}" Content="Tabla" c:Ui.Icon="{x:Static c:Glyphs.Menu}" IsChecked="{Binding IsList}" GroupName="stockView" />
+                    </StackPanel>
+                </Border>
                 <Button Content="Exportar a Excel" c:Ui.Icon="{x:Static c:Glyphs.Download}" Command="{Binding Export}" Margin="0,0,8,0" />
                 <Button Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Refresh}" Command="{Binding Refresh}" ToolTip="Actualizar (F5)" />
             </StackPanel>
@@ -83,14 +90,60 @@
                           ItemsPanel="{StaticResource WrapPanelTemplate}" Focusable="False" Margin="0,0,0,6" />
         </StackPanel>
 
+        <!-- Galería: una tarjeta con la imagen de cada producto -->
+        <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" Margin="-7,0" Visibility="{Binding IsGallery, Converter={StaticResource Visible}}">
+            <ItemsControl ItemsSource="{Binding Rows}" ItemsPanel="{StaticResource WrapPanelTemplate}" Focusable="False">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="{x:Type vm:StockItem}">
+                        <Button Style="{StaticResource CardButton}" Padding="0" Width="206" Margin="7" ToolTip="Ver ficha y kardex"
+                                Command="{Binding DataContext.OpenProduct, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}">
+                            <StackPanel>
+                                <Grid Height="136" Margin="8,8,8,0">
+                                    <c:ProductThumb Source="{Binding Image}" CornerRadius="10" />
+                                    <c:StatusBadge Status="{Binding Status}" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="6" />
+                                    <Border Style="{StaticResource Pill}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="6" Background="{DynamicResource Surface}">
+                                        <TextBlock Text="{Binding Sku}" Style="{StaticResource Mono}" FontSize="11" />
+                                    </Border>
+                                </Grid>
+                                <StackPanel Margin="12,10,12,12">
+                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" TextWrapping="Wrap" Height="36"
+                                               TextTrimming="CharacterEllipsis" LineHeight="18" LineStackingStrategy="BlockLineHeight" />
+                                    <TextBlock Text="{Binding Category}" Style="{StaticResource Caption}" FontSize="11.5" TextTrimming="CharacterEllipsis" />
+                                    <DockPanel Margin="0,8,0,0">
+                                        <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Width="30" Height="30" FontSize="13" Content="{x:Static c:Glyphs.Add}"
+                                                ToolTip="Registrar un movimiento de este producto"
+                                                Command="{Binding DataContext.RegisterFor, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"
+                                                Visibility="{Binding DataContext.CanRegister, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource Visible}}" />
+                                        <TextBlock VerticalAlignment="Center">
+                                            <Run Text="{Binding StockText, Mode=OneWay}" FontWeight="Bold" FontSize="17" Foreground="{DynamicResource TextPrimary}" />
+                                            <Run Text="{Binding Unit, Mode=OneWay}" Foreground="{DynamicResource TextMuted}" FontSize="11.5" />
+                                        </TextBlock>
+                                    </DockPanel>
+                                    <c:LevelBar Value="{Binding Level}" Status="{Binding Status}" Margin="0,6,0,0" />
+                                    <DockPanel Margin="0,7,0,0">
+                                        <TextBlock DockPanel.Dock="Right" Text="{Binding ValueText}" Style="{StaticResource Caption}" FontSize="11.5" />
+                                        <TextBlock Style="{StaticResource Caption}" FontSize="11.5">
+                                            <Run Text="Mín/máx" /> <Run Text="{Binding MinMaxText, Mode=OneWay}" />
+                                        </TextBlock>
+                                    </DockPanel>
+                                </StackPanel>
+                            </StackPanel>
+                        </Button>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+
         <!-- Tabla -->
-        <Border Grid.Row="3" Style="{StaticResource CardFlat}" Padding="4,2,4,4">
+        <Border Grid.Row="3" Style="{StaticResource CardFlat}" Padding="4,2,4,4" Visibility="{Binding IsList, Converter={StaticResource Visible}}">
             <Grid>
                 <DataGrid x:Name="Grid" ItemsSource="{Binding Rows}" RowHeight="58" MouseDoubleClick="OnRowDoubleClick">
                     <DataGrid.Columns>
                         <DataGridTemplateColumn Header="PRODUCTO" Width="*" MinWidth="240" SortMemberPath="Name" CanUserSort="True">
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate DataType="{x:Type vm:StockItem}">
+                                    <DockPanel VerticalAlignment="Center">
+                                    <c:ProductThumb DockPanel.Dock="Left" Width="42" Height="42" Source="{Binding Image}" CornerRadius="8" Margin="0,0,12,0" />
                                     <StackPanel VerticalAlignment="Center">
                                         <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                                         <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
@@ -101,6 +154,7 @@
                                                        TextTrimming="CharacterEllipsis" />
                                         </StackPanel>
                                     </StackPanel>
+                                    </DockPanel>
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>

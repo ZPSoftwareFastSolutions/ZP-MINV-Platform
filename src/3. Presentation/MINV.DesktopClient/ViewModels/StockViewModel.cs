@@ -24,6 +24,7 @@ public sealed class StockViewModel : PageViewModel
     private string _category = AllCategories;
     private string _summary = string.Empty;
     private int _visible;
+    private bool _isGallery = true;
 
     public StockViewModel(AppServices app) : base(app, "stock", "Stock", "Existencias al instante, sin recalcular", Glyphs.Box)
     {
@@ -82,6 +83,25 @@ public sealed class StockViewModel : PageViewModel
 
     public string Summary { get => _summary; private set => Set(ref _summary, value); }
 
+    /// <summary>Galería (tarjetas con la imagen de cada producto) o tabla.</summary>
+    public bool IsGallery
+    {
+        get => _isGallery;
+        set
+        {
+            if (Set(ref _isGallery, value))
+            {
+                OnPropertyChanged(nameof(IsList));
+            }
+        }
+    }
+
+    public bool IsList
+    {
+        get => !_isGallery;
+        set => IsGallery = !value;
+    }
+
     public int VisibleCount { get => _visible; private set => Set(ref _visible, value); }
 
     public bool IsEmpty => HasLoaded && VisibleCount == 0;
@@ -110,7 +130,8 @@ public sealed class StockViewModel : PageViewModel
     {
         var view = await App.Data.ProjectionAsync(force);
         var rows = view.Result.Stock;
-        _items = rows.Select(r => new StockItem(r)).ToList();
+        var images = await App.Images.AllAsync(force);
+        _items = rows.Select(r => new StockItem(r) { Image = images.GetValueOrDefault(r.Sku) }).ToList();
         Rows = CollectionViewSource.GetDefaultView(_items);
         Rows.Filter = Matches;
         OnPropertyChanged(nameof(Rows));

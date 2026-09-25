@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore.Design;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using MINV.Application.Abstractions;
 using MINV.Infrastructure.Demo;
 using MINV.Infrastructure.Importing.V21;
@@ -23,7 +24,7 @@ public static class DependencyInjection
     /// Todo es «scoped»: el cliente de escritorio abre un scope por sesión de usuario.</summary>
     public static IServiceCollection AddMinvInfrastructure(this IServiceCollection services, string connectionString)
     {
-        services.AddSingleton<IClock, SystemClock>();
+        services.TryAddSingleton<IClock, SystemClock>();   // los datos de prueba registran antes un reloj simulado
         services.AddScoped<TenantSessionInterceptor>();
         return services.AddMinvPersistence((sp, options) => Configure(options, connectionString)
             .AddInterceptors(sp.GetRequiredService<TenantSessionInterceptor>()));
@@ -63,6 +64,7 @@ public static class DependencyInjection
         services.AddScoped<IAuditTrail, AuditTrail>();
         services.AddScoped<TenantProvisioner>();
         services.AddScoped<V21Importer>();
+        services.AddTransient<Seeding.LocalDataSeeder>();
         return services;
     }
 

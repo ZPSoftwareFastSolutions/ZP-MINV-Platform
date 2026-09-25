@@ -52,6 +52,38 @@ public sealed class SalesOrder : Entity, IConcurrencyAware, IAggregateRoot
         return line;
     }
 
+    /// <summary>Total con descuentos (los precios incluyen impuestos).</summary>
+    public decimal Total => decimal.Round(_lines.Sum(l => l.Amount), 2, MidpointRounding.AwayFromZero);
+
+    /// <summary>Confirma la venta: desde aquí ya no se agregan líneas y se descuenta el stock.</summary>
+    public void Confirm()
+    {
+        EnsureDraft();
+        Guard.That(_lines.Count > 0, "sale.empty", "Agregue al menos un producto a la venta.");
+        Status = SalesOrderStatus.Confirmed;
+    }
+
+    /// <summary>Todas las líneas tienen su salida de stock registrada.</summary>
+    public void MarkFulfilled()
+    {
+        Guard.That(Status == SalesOrderStatus.Confirmed, "sale.fulfill", "Solo se despacha una venta confirmada.");
+        Guard.That(_lines.All(l => l.StockMovementId is not null), "sale.movements", "Cada línea necesita su salida de stock.");
+        Status = SalesOrderStatus.Fulfilled;
+    }
+
+    public void MarkInvoiced()
+    {
+        Guard.That(Status == SalesOrderStatus.Fulfilled, "sale.invoice", "Solo se factura una venta despachada.");
+        Status = SalesOrderStatus.Invoiced;
+    }
+
+    public void Cancel()
+    {
+        Guard.That(Status is SalesOrderStatus.Draft or SalesOrderStatus.Confirmed, "sale.cancel",
+            $"La venta {Number} ya se despachó: corríjala con una devolución.");
+        Status = SalesOrderStatus.Cancelled;
+    }
+
     private void EnsureDraft() => Guard.That(Status == SalesOrderStatus.Draft, "document.not_draft",
         "Solo se pueden modificar documentos en borrador.");
 }

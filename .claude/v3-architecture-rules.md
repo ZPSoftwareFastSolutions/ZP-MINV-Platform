@@ -110,6 +110,18 @@ Un cambio en la V3 está terminado solo si:
   Level Security, triggers, transacciones reales) se prueba contra PostgreSQL con `MINV_TEST_PG`.
 - La interfaz DEBE mostrar siempre que se está en la demostración (distintivo en la barra superior).
 
+### A-13 · Base local y datos de prueba
+- `tools/bd_local.ps1` instala PostgreSQL portátil en `%LOCALAPPDATA%\M-INV` y `minv datos-prueba` (`LocalDataSeeder`)
+  genera la empresa de prueba. Los datos DEBEN crearse con los casos de uso (tubería completa: validación, permisos,
+  poka-yoke, auditoría y contabilidad), nunca insertando filas a mano: así son coherentes por construcción.
+- Las contraseñas de prueba y de PostgreSQL son aleatorias en cada carga y viven solo en el equipo
+  (`usuarios-prueba.txt`, `credenciales-bd-local.txt`): NO DEBEN versionarse ni escribirse en la documentación.
+- Cada cambio en un caso de uso de escritura DEBE seguir pasando `LocalDataSeederTests` (memoria) y
+  `Los_datos_de_prueba_respetan_todas_las_restricciones_de_PostgreSQL` (con `MINV_TEST_PG`): PostgreSQL valida CHECK,
+  arcos exclusivos y triggers que la memoria no conoce.
+- Las imágenes de producto se guardan en `catalog.product_images` (PNG/JPEG ≤ 1 MB); el cliente las reduce antes de
+  enviarlas y las muestra como miniaturas en caché (`ImageCache`).
+
 ## 2. Checklist para agentes
 
 - [ ] ¿El dominio ganó una dependencia? → rechazar (A-01).

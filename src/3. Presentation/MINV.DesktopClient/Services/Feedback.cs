@@ -106,6 +106,28 @@ public sealed class DialogRequest : ObservableObject
     public RelayCommand Cancel { get; }
 
     public Task<bool> Result => _result.Task;
+
+    /// <summary>Campo de entrada opcional (motivo, efectivo contado, documento…): etiqueta, texto y sugerencias del combo.</summary>
+    public string? InputLabel { get; init; }
+
+    public bool HasInput => InputLabel is not null;
+
+    public string InputText
+    {
+        get => _input;
+        set => Set(ref _input, value ?? string.Empty);
+    }
+
+    public IReadOnlyList<string> InputOptions { get; init; } = [];
+
+    public string? InputPlaceholder { get; init; }
+
+    /// <summary>Texto destacado que el usuario puede copiar (p. ej. una contraseña generada).</summary>
+    public string? Highlight { get; init; }
+
+    public bool HasHighlight => Highlight is not null;
+
+    private string _input = string.Empty;
 }
 
 public sealed class DialogService : ObservableObject
@@ -116,6 +138,49 @@ public sealed class DialogService : ObservableObject
     {
         get => _current;
         private set => Set(ref _current, value);
+    }
+
+    /// <summary>Pide un dato con un combo editable (sugerencias + texto libre). Null si el usuario cancela.</summary>
+    public async Task<string?> PromptAsync(string title, string message, string label, IReadOnlyList<string>? options = null,
+        string confirmText = "Aceptar", string? initial = null, string? placeholder = null, bool isDanger = false, string? glyph = null)
+    {
+        var request = new DialogRequest(title, message, confirmText, "Cancelar", isDanger, glyph ?? (isDanger ? Glyphs.Warning : Glyphs.Info), null)
+        {
+            InputLabel = label,
+            InputOptions = options ?? [],
+            InputPlaceholder = placeholder,
+            InputText = initial ?? string.Empty,
+        };
+        Current = request;
+        try
+        {
+            return await request.Result ? request.InputText.Trim() : null;
+        }
+        finally
+        {
+            if (ReferenceEquals(Current, request))
+            {
+                Current = null;
+            }
+        }
+    }
+
+    /// <summary>Muestra un dato para copiar (p. ej. la contraseña recién generada: se ve una sola vez).</summary>
+    public async Task ShowSecretAsync(string title, string message, string secret, IReadOnlyList<string>? details = null)
+    {
+        var request = new DialogRequest(title, message, "Listo", "Cerrar", false, Glyphs.Key, details) { Highlight = secret };
+        Current = request;
+        try
+        {
+            await request.Result;
+        }
+        finally
+        {
+            if (ReferenceEquals(Current, request))
+            {
+                Current = null;
+            }
+        }
     }
 
     public async Task<bool> ConfirmAsync(string title, string message, string confirmText = "Aceptar", string cancelText = "Cancelar",

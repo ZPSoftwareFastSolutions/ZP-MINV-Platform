@@ -39,6 +39,9 @@ public sealed class StockItem(StockRow r)
 {
     public StockRow Row { get; } = r;
 
+    /// <summary>Miniatura del producto (galería del stock) o null.</summary>
+    public System.Windows.Media.ImageSource? Image { get; init; }
+
     public string Sku => Row.Sku;
 
     public string Name => Row.Name;

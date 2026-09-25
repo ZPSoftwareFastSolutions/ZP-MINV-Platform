@@ -41,4 +41,14 @@ public sealed class Customer : Entity, IConcurrencyAware, IAggregateRoot
     public void Activate() => IsActive = true;
 
     public void Deactivate() => IsActive = false;
+
+    /// <summary>Actualiza los datos del cliente (el código no cambia: identifica al cliente en los documentos).</summary>
+    public void Update(string name, string? taxId, string? email, string? phone, Guid customerCategoryId)
+    {
+        Name = Guard.Text(name, "El nombre", 150);
+        TaxId = Guard.OptionalText(taxId, "El NIT/CI", 30);
+        Email = Guard.OptionalEmail(email, "El correo");
+        Phone = Guard.OptionalText(phone, "El teléfono", 40);
+        CustomerCategoryId = Guard.NotEmpty(customerCategoryId, nameof(customerCategoryId));
+    }
 }

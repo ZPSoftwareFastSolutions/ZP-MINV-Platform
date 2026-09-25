@@ -1,4 +1,4 @@
-✔ 24 capturas · M-INV 3.1.0-alpha.1 · 25/09/2026 13:36
+✔ 46 capturas · M-INV 3.1.0-alpha.1 · 25/09/2026 15:57
 01-pantalla-de-carga.png
 02-inicio-de-sesion.png
 03-demostracion-elegir-rol.png
@@ -23,3 +23,25 @@
 25-cambiar-contrasena.png
 30-rol-ventas-inicio.png
 31-rol-ventas-registro.png
+40-inicio-administrador.png
+41-catalogo-galeria.png
+42-catalogo-editor.png
+43-catalogo-lista.png
+44-ventas.png
+45-clientes.png
+46-ordenes-de-compra.png
+47-proveedores.png
+48-reportes-ventas.png
+49-reportes-inventario.png
+50-contabilidad-resultados.png
+51-libro-diario.png
+52-nuevo-asiento.png
+53-usuarios.png
+54-roles-y-funciones.png
+57-stock-galeria.png
+55-ficha-con-imagen.png
+60-oscuro-catalogo.png
+61-oscuro-reportes.png
+62-oscuro-contabilidad.png
+56-punto-de-venta.png
+63-oscuro-punto-de-venta.png

@@ -223,7 +223,7 @@ public sealed class HelpViewModel(AppServices app) : PageViewModel(app, "ayuda",
     public IReadOnlyList<HelpEntry> Shortcuts { get; } =
     [
         new("Ctrl + K", "Buscar un producto y abrir su ficha", Glyphs.Search),
-        new("Ctrl + 1 … 7", "Ir a cada pantalla del menú", Glyphs.Menu),
+        new("Ctrl + 1 … 9", "Ir a las primeras pantallas del menú", Glyphs.Menu),
         new("Ctrl + N", "Registrar un movimiento", Glyphs.Add),
         new("F5", "Actualizar la pantalla actual", Glyphs.Refresh),
         new("Ctrl + B", "Ocultar o mostrar el menú lateral", Glyphs.ChevronLeft),
@@ -262,6 +262,39 @@ public sealed class HelpViewModel(AppServices app) : PageViewModel(app, "ayuda",
             "Pulse Ctrl+K, escriba parte del nombre o del SKU y elija el producto.",
             "La ficha muestra el semáforo, las existencias por posición y el kardex con el saldo acumulado.",
             "Desde la ficha puede registrar una entrada o una salida de ese producto.",
+        ]),
+        new("Vender en el punto de venta", "Cajero y Ventas", Glyphs.Money,
+        [
+            "Abra «Punto de venta», elija la caja y el fondo inicial y pulse «Abrir caja».",
+            "Toque las tarjetas de los productos (o léalos con el escáner) para llenar el carrito.",
+            "Ajuste cantidades con − / +, aplique un descuento por línea y elija cliente y medio de pago en los combos.",
+            "En efectivo escriba lo recibido (o use Exacto, 50, 100, 200) y vea el vuelto; con QR o tarjeta indique la referencia.",
+            "«Cobrar» emite la factura, descuenta el stock y registra el asiento contable. Al terminar el día, «Cerrar caja» con el arqueo.",
+        ]),
+        new("Catálogo con imágenes y precios", "Administración", Glyphs.Tag,
+        [
+            "En «Catálogo» vea los productos en galería (con su imagen) o en lista, y filtre por categoría, estado u orden.",
+            "«Nuevo producto» o un clic en una tarjeta abre el editor: categoría, unidad, proveedor y posición se eligen de combos.",
+            "Escriba el costo y elija un margen del combo para calcular el precio de venta con IVA.",
+            "«Cambiar imagen…» sube una foto (PNG o JPG; las grandes se reducen solas).",
+        ]),
+        new("Comprar a proveedores", "Bodega y Gerencia", Glyphs.Clipboard,
+        [
+            "En «Órdenes de compra» use «Desde el pedido sugerido» o «Nueva orden» (proveedor, fecha de entrega y productos en combos).",
+            "La orden nace en borrador: «Aprobar» la deja lista para recibir.",
+            "«Recibir» ingresa la mercadería al stock, actualiza el costo promedio y registra la deuda con el proveedor.",
+        ]),
+        new("Reportes y contabilidad", "Gerencia y Administración", Glyphs.Chart,
+        [
+            "«Reportes» muestra ventas, utilidad, margen, ticket promedio, compras, movimientos e inventario del período elegido.",
+            "«Contabilidad» tiene el estado de resultados, el libro diario (asientos automáticos de ventas y compras) y el plan de cuentas.",
+            "Registre gastos, pagos y depósitos con «Nuevo asiento» (hay plantillas); el debe debe igualar al haber.",
+        ]),
+        new("Usuarios y permisos", "Administración", Glyphs.Shield,
+        [
+            "En «Usuarios y roles» cree usuarios, asigne el rol en el combo y entregue la contraseña temporal que se genera.",
+            "El botón de la llave restablece la contraseña y desbloquea la cuenta.",
+            "«Roles y funciones» muestra qué puede hacer cada rol; «Empresa» ajusta el margen de alerta y los días sin rotación.",
         ]),
     ];
 

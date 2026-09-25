@@ -1,0 +1,330 @@
+<UserControl x:Class="MINV.DesktopClient.Views.Pages.AccountingView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:MINV.DesktopClient.Controls"
+             xmlns:vm="clr-namespace:MINV.DesktopClient.ViewModels"
+             xmlns:a="clr-namespace:MINV.Application.Accounting;assembly=MINV.Application">
+    <UserControl.Resources>
+        <!-- Cuenta del estado de resultados -->
+        <DataTemplate x:Key="StatementRow" DataType="{x:Type a:AccountRow}">
+            <DockPanel Margin="0,4">
+                <TextBlock DockPanel.Dock="Right" Text="{Binding Balance, StringFormat={}{0:N2}}" FontWeight="SemiBold" />
+                <TextBlock Foreground="{DynamicResource TextSecondary}">
+                    <Run Text="{Binding Code, Mode=OneWay}" Foreground="{DynamicResource TextMuted}" /> <Run Text="{Binding Name, Mode=OneWay}" />
+                </TextBlock>
+            </DockPanel>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <Grid Margin="28,6,28,24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <DockPanel Margin="0,0,0,14">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <ComboBox Width="190" ItemsSource="{Binding Periods}" SelectedItem="{Binding Period}" ToolTip="Período" Margin="0,0,8,0" />
+                <Button Content="Exportar" c:Ui.Icon="{x:Static c:Glyphs.Download}" Command="{Binding Export}" Margin="0,0,8,0" ToolTip="Libro diario o plan de cuentas" />
+                <Button Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Refresh}" Command="{Binding Refresh}" ToolTip="Actualizar (F5)" />
+            </StackPanel>
+            <StackPanel>
+                <TextBlock Text="{Binding Title}" Style="{StaticResource H1}" />
+                <TextBlock Text="{Binding Subtitle}" Style="{StaticResource Caption}" FontSize="13" Margin="0,4,0,0" />
+            </StackPanel>
+        </DockPanel>
+
+        <Border Grid.Row="1" Background="{DynamicResource SurfaceHover}" CornerRadius="10" Padding="2" HorizontalAlignment="Left" Margin="0,0,0,14">
+            <StackPanel Orientation="Horizontal">
+                <RadioButton Style="{StaticResource Segment}" Content="Estado de resultados" c:Ui.Icon="{x:Static c:Glyphs.Chart}" IsChecked="{Binding IsResults}" GroupName="accTab" />
+                <RadioButton Style="{StaticResource Segment}" Content="Libro diario" c:Ui.Icon="{x:Static c:Glyphs.Library}" IsChecked="{Binding IsJournal}" GroupName="accTab" />
+                <RadioButton Style="{StaticResource Segment}" Content="Plan de cuentas" c:Ui.Icon="{x:Static c:Glyphs.Report}" IsChecked="{Binding IsAccounts}" GroupName="accTab" />
+                <RadioButton Style="{StaticResource Segment}" Content="Nuevo asiento" c:Ui.Icon="{x:Static c:Glyphs.Add}" IsChecked="{Binding IsNewEntry}" GroupName="accTab" />
+            </StackPanel>
+        </Border>
+
+        <!-- ========================================================================== resultados -->
+        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Visibility="{Binding IsResults, Converter={StaticResource Visible}}">
+            <StackPanel>
+                <UniformGrid Columns="5" Margin="-6,0,-6,10">
+                    <ContentControl Content="{Binding RevenueKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+                    <ContentControl Content="{Binding CostKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+                    <ContentControl Content="{Binding GrossKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+                    <ContentControl Content="{Binding ExpensesKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+                    <ContentControl Content="{Binding NetKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+                </UniformGrid>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="2*" />
+                        <ColumnDefinition Width="16" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Border Style="{StaticResource Card}" DataContext="{Binding Statement}">
+                        <StackPanel>
+                            <TextBlock Text="Estado de resultados" Style="{StaticResource H3}" />
+                            <TextBlock Style="{StaticResource Caption}" Margin="0,2,0,12">
+                                <Run Text="Del" /> <Run Text="{Binding From, Mode=OneWay, StringFormat={}{0:dd/MM/yyyy}}" /> <Run Text="al" />
+                                <Run Text="{Binding To, Mode=OneWay, StringFormat={}{0:dd/MM/yyyy}}" />
+                            </TextBlock>
+                            <TextBlock Text="INGRESOS" Style="{StaticResource Overline}" />
+                            <ItemsControl ItemsSource="{Binding Revenue}" ItemTemplate="{StaticResource StatementRow}" Focusable="False" />
+                            <DockPanel Margin="0,4,0,12">
+                                <TextBlock DockPanel.Dock="Right" Text="{Binding TotalRevenue, StringFormat={}{0:N2}}" FontWeight="Bold" />
+                                <TextBlock Text="Total ingresos" FontWeight="SemiBold" />
+                            </DockPanel>
+                            <TextBlock Text="COSTO DE VENTAS" Style="{StaticResource Overline}" />
+                            <ItemsControl ItemsSource="{Binding Costs}" ItemTemplate="{StaticResource StatementRow}" Focusable="False" />
+                            <Border Background="{DynamicResource SurfaceAlt}" CornerRadius="8" Padding="10,8" Margin="0,6,0,12">
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Right" Text="{Binding GrossProfit, StringFormat={}{0:N2}}" FontWeight="Bold" Foreground="{DynamicResource Info}" />
+                                    <TextBlock Text="Utilidad bruta" FontWeight="SemiBold" />
+                                </DockPanel>
+                            </Border>
+                            <TextBlock Text="GASTOS DE OPERACIÓN" Style="{StaticResource Overline}" />
+                            <ItemsControl ItemsSource="{Binding Expenses}" ItemTemplate="{StaticResource StatementRow}" Focusable="False" />
+                            <DockPanel Margin="0,4,0,12">
+                                <TextBlock DockPanel.Dock="Right" Text="{Binding TotalExpenses, StringFormat={}{0:N2}}" FontWeight="Bold" />
+                                <TextBlock Text="Total gastos" FontWeight="SemiBold" />
+                            </DockPanel>
+                            <Border Background="{DynamicResource BrandSoft}" CornerRadius="8" Padding="12,10">
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Right" Text="{Binding NetIncome, StringFormat={}{0:N2}}" FontWeight="Bold" FontSize="18"
+                                               Foreground="{DynamicResource BrandText}" />
+                                    <TextBlock Text="UTILIDAD NETA DEL PERÍODO" FontWeight="Bold" Foreground="{DynamicResource BrandText}" VerticalAlignment="Center" />
+                                </DockPanel>
+                            </Border>
+                        </StackPanel>
+                    </Border>
+                    <Border Grid.Column="2" Style="{StaticResource Card}" VerticalAlignment="Top">
+                        <StackPanel>
+                            <TextBlock Text="¿A dónde va cada boliviano vendido?" Style="{StaticResource H3}" TextWrapping="Wrap" />
+                            <c:DonutChart Segments="{Binding ResultSegments}" Stroke="24" Height="180" Width="180" Margin="0,16" />
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                <Ellipse Width="9" Height="9" Fill="{DynamicResource Warning}" VerticalAlignment="Center" />
+                                <TextBlock Text="Costo" Margin="5,0,12,0" Style="{StaticResource Caption}" />
+                                <Ellipse Width="9" Height="9" Fill="{DynamicResource Danger}" VerticalAlignment="Center" />
+                                <TextBlock Text="Gastos" Margin="5,0,12,0" Style="{StaticResource Caption}" />
+                                <Ellipse Width="9" Height="9" Fill="{DynamicResource Success}" VerticalAlignment="Center" />
+                                <TextBlock Text="Utilidad" Margin="5,0,0,0" Style="{StaticResource Caption}" />
+                            </StackPanel>
+                            <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,14,0,0"
+                                       Text="Los asientos de ventas, compras, anulaciones y ajustes se generan solos. Use «Nuevo asiento» para gastos, pagos y depósitos." />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- ========================================================================== libro diario -->
+        <DockPanel Grid.Row="2" Visibility="{Binding IsJournal, Converter={StaticResource Visible}}">
+            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+                <TextBlock DockPanel.Dock="Right" Text="{Binding JournalSummary}" Style="{StaticResource Caption}" VerticalAlignment="Center" />
+                <StackPanel Orientation="Horizontal">
+                    <TextBox Width="300" Text="{Binding JournalSearch, UpdateSourceTrigger=PropertyChanged}" c:Ui.Icon="{x:Static c:Glyphs.Search}"
+                             c:Ui.Placeholder="Buscar asiento o descripción" Margin="0,0,10,0" />
+                    <ComboBox Width="200" ItemsSource="{Binding Origins}" SelectedItem="{Binding JournalOrigin}" ToolTip="Origen" />
+                </StackPanel>
+            </DockPanel>
+            <Border Style="{StaticResource CardFlat}" Padding="0">
+                <ListBox ItemsSource="{Binding Journal}" Style="{StaticResource PlainList}" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.ScrollUnit="Pixel"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:JournalEntryItem}">
+                            <Border Padding="16,12" BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1">
+                                <StackPanel>
+                                    <DockPanel>
+                                        <TextBlock DockPanel.Dock="Right" Text="{Binding TotalText}" FontWeight="Bold" />
+                                        <Border Style="{StaticResource Pill}" Background="{DynamicResource BrandSoft}">
+                                            <TextBlock Text="{Binding Number}" Style="{StaticResource Mono}" Foreground="{DynamicResource BrandText}" FontWeight="SemiBold" />
+                                        </Border>
+                                        <TextBlock Text="{Binding DateText}" Style="{StaticResource Caption}" Margin="10,0" VerticalAlignment="Center" />
+                                        <Border Style="{StaticResource Pill}" Margin="0,0,10,0">
+                                            <TextBlock Text="{Binding Origin}" FontSize="11" />
+                                        </Border>
+                                        <TextBlock Text="{Binding Description}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                    </DockPanel>
+                                    <ItemsControl ItemsSource="{Binding Lines}" Margin="0,8,0,0" Focusable="False">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type a:JournalLineRow}">
+                                                <Grid Margin="0,2">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="80" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="120" />
+                                                        <ColumnDefinition Width="120" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Text="{Binding AccountCode}" Style="{StaticResource Mono}" Foreground="{DynamicResource TextMuted}" />
+                                                    <TextBlock Grid.Column="1" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource TextSecondary}">
+                                                        <Run Text="{Binding AccountName, Mode=OneWay}" /> <Run Text="{Binding Memo, Mode=OneWay}" Foreground="{DynamicResource TextFaint}" />
+                                                    </TextBlock>
+                                                    <TextBlock Grid.Column="2" Text="{Binding Debit, StringFormat={}{0:#,##0.00;-#,##0.00;#}}" HorizontalAlignment="Right" />
+                                                    <TextBlock Grid.Column="3" Text="{Binding Credit, StringFormat={}{0:#,##0.00;-#,##0.00;#}}" HorizontalAlignment="Right" />
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Border>
+        </DockPanel>
+
+        <!-- ========================================================================== plan de cuentas -->
+        <Grid Grid.Row="2" Visibility="{Binding IsAccounts, Converter={StaticResource Visible}}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="16" />
+                <ColumnDefinition Width="340" />
+            </Grid.ColumnDefinitions>
+            <DockPanel>
+                <ComboBox DockPanel.Dock="Top" Width="220" HorizontalAlignment="Left" ItemsSource="{Binding AccountTypes}" SelectedItem="{Binding AccountFilter}"
+                          Margin="0,0,0,12" ToolTip="Tipo de cuenta" />
+                <Border Style="{StaticResource CardFlat}" Padding="4,2,4,4">
+                    <DataGrid ItemsSource="{Binding Accounts}" RowHeight="36" CanUserSortColumns="False">
+                        <DataGrid.Columns>
+                            <DataGridTemplateColumn Header="CUENTA" Width="*" MinWidth="280">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate DataType="{x:Type vm:AccountItem}">
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="{Binding Indent, Converter={StaticResource Indent}}">
+                                            <TextBlock Text="{Binding Code}" Style="{StaticResource Mono}" Foreground="{DynamicResource TextMuted}" Width="64" />
+                                            <TextBlock x:Name="N" Text="{Binding Name}" />
+                                        </StackPanel>
+                                        <DataTemplate.Triggers>
+                                            <DataTrigger Binding="{Binding IsGroup}" Value="True">
+                                                <Setter TargetName="N" Property="FontWeight" Value="Bold" />
+                                            </DataTrigger>
+                                        </DataTemplate.Triggers>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="TIPO" Binding="{Binding TypeText}" Width="120" ElementStyle="{StaticResource CellText}" />
+                            <DataGridTextColumn Header="DEBE" Binding="{Binding DebitText}" Width="120" HeaderStyle="{StaticResource HeaderRight}" ElementStyle="{StaticResource CellRight}" />
+                            <DataGridTextColumn Header="HABER" Binding="{Binding CreditText}" Width="120" HeaderStyle="{StaticResource HeaderRight}" ElementStyle="{StaticResource CellRight}" />
+                            <DataGridTextColumn Header="SALDO" Binding="{Binding BalanceText}" Width="140" HeaderStyle="{StaticResource HeaderRight}" ElementStyle="{StaticResource CellRight}" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Border>
+            </DockPanel>
+            <Border Grid.Column="2" Style="{StaticResource Card}" VerticalAlignment="Top">
+                <StackPanel>
+                    <TextBlock Text="Nueva cuenta" Style="{StaticResource H3}" />
+                    <TextBlock Text="Se agrega como subcuenta imputable del grupo elegido." Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,2,0,12" />
+                    <TextBlock Text="Grupo (cuenta padre)" Style="{StaticResource FieldLabel}" />
+                    <ComboBox ItemsSource="{Binding Groups}" SelectedItem="{Binding Parent}" DisplayMemberPath="Display" />
+                    <TextBlock Text="Código" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
+                    <TextBox Text="{Binding NewCode, UpdateSourceTrigger=PropertyChanged}" FontFamily="{StaticResource MonoFont}" />
+                    <TextBlock Text="Nombre" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
+                    <TextBox Text="{Binding NewName, UpdateSourceTrigger=PropertyChanged}" c:Ui.Placeholder="Ej.: Publicidad" />
+                    <Button Style="{StaticResource PrimaryButton}" Content="Crear cuenta" c:Ui.Icon="{x:Static c:Glyphs.Add}" Command="{Binding CreateAccount}" Margin="0,16,0,0"
+                            c:Ui.IsBusy="{Binding CreateAccount.IsRunning}" />
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- ========================================================================== nuevo asiento -->
+        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Visibility="{Binding IsNewEntry, Converter={StaticResource Visible}}">
+            <Border Style="{StaticResource Card}" MaxWidth="980" HorizontalAlignment="Left" VerticalAlignment="Top">
+                <StackPanel>
+                    <TextBlock Text="Asiento manual" Style="{StaticResource H3}" />
+                    <TextBlock Text="Elija una plantilla o arme el asiento: cada línea va al debe o al haber, y el total del debe debe ser igual al del haber."
+                               Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,2,0,14" />
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="260" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="240" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Plantilla" Style="{StaticResource FieldLabel}" />
+                            <ComboBox ItemsSource="{Binding Templates}" SelectedItem="{Binding Template}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="Fecha" Style="{StaticResource FieldLabel}" />
+                            <ComboBox ItemsSource="{Binding EntryDates}" SelectedItem="{Binding EntryDate}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="4">
+                            <TextBlock Text="Descripción" Style="{StaticResource FieldLabel}" />
+                            <TextBox Text="{Binding EntryDescription, UpdateSourceTrigger=PropertyChanged}" MaxLength="250" c:Ui.Placeholder="Qué registra este asiento" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid Margin="0,18,0,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="130" />
+                            <ColumnDefinition Width="130" />
+                            <ColumnDefinition Width="200" />
+                            <ColumnDefinition Width="40" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="CUENTA" Style="{StaticResource Overline}" />
+                        <TextBlock Grid.Column="1" Text="DEBE" Style="{StaticResource Overline}" Margin="8,0" />
+                        <TextBlock Grid.Column="2" Text="HABER" Style="{StaticResource Overline}" Margin="8,0" />
+                        <TextBlock Grid.Column="3" Text="GLOSA" Style="{StaticResource Overline}" Margin="8,0" />
+                    </Grid>
+                    <ItemsControl ItemsSource="{Binding EntryLines}" Focusable="False">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:EntryLine}">
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="130" />
+                                        <ColumnDefinition Width="130" />
+                                        <ColumnDefinition Width="200" />
+                                        <ColumnDefinition Width="40" />
+                                    </Grid.ColumnDefinitions>
+                                    <ComboBox ItemsSource="{Binding Accounts}" SelectedItem="{Binding Account}" DisplayMemberPath="Display" IsTextSearchEnabled="True"
+                                              TextSearch.TextPath="Display" />
+                                    <TextBox Grid.Column="1" Margin="8,0" Text="{Binding Debit, UpdateSourceTrigger=PropertyChanged}" TextAlignment="Right" c:Ui.Placeholder="0,00" />
+                                    <TextBox Grid.Column="2" Margin="8,0" Text="{Binding Credit, UpdateSourceTrigger=PropertyChanged}" TextAlignment="Right" c:Ui.Placeholder="0,00" />
+                                    <TextBox Grid.Column="3" Margin="8,0" Text="{Binding Memo, UpdateSourceTrigger=PropertyChanged}" MaxLength="120" c:Ui.Placeholder="Opcional" />
+                                    <Button Grid.Column="4" Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Delete}" Foreground="{DynamicResource Danger}"
+                                            ToolTip="Quitar la línea"
+                                            Command="{Binding DataContext.RemoveEntryLine, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <Button Style="{StaticResource GhostButton}" Content="Agregar línea" c:Ui.Icon="{x:Static c:Glyphs.Add}" Command="{Binding AddEntryLine}" HorizontalAlignment="Left" />
+
+                    <Border Style="{StaticResource Panel}" Margin="0,12,0,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="130" />
+                                <ColumnDefinition Width="130" />
+                                <ColumnDefinition Width="240" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="{Binding BalanceText}" FontWeight="SemiBold" VerticalAlignment="Center">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="{DynamicResource Warning}" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsBalanced}" Value="True">
+                                                <Setter Property="Foreground" Value="{DynamicResource Success}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                            <TextBlock Grid.Column="1" Text="{Binding DebitTotalText}" FontWeight="Bold" HorizontalAlignment="Right" Margin="8,0" VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="2" Text="{Binding CreditTotalText}" FontWeight="Bold" HorizontalAlignment="Right" Margin="8,0" VerticalAlignment="Center" />
+                            <StackPanel Grid.Column="3" Orientation="Horizontal" HorizontalAlignment="Right">
+                                <Button Content="Limpiar" Command="{Binding ClearEntry}" Margin="0,0,8,0" />
+                                <Button Style="{StaticResource PrimaryButton}" Content="Registrar asiento" c:Ui.Icon="{x:Static c:Glyphs.Save}" Command="{Binding SaveEntry}"
+                                        c:Ui.IsBusy="{Binding SaveEntry.IsRunning}" />
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                    <Border Style="{StaticResource FormError}" Visibility="{Binding EntryError, Converter={StaticResource HasValue}}">
+                        <TextBlock Text="{Binding EntryError}" Foreground="{DynamicResource Danger}" TextWrapping="Wrap" />
+                    </Border>
+                </StackPanel>
+            </Border>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

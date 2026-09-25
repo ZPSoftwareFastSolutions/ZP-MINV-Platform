@@ -25,6 +25,14 @@ public partial class MainWindow : Window
         DataContext = viewModel;
         _scanner.Scanned += (_, e) => Dispatcher.BeginInvoke(() => OnScanned(e.Code));
         viewModel.PropertyChanged += OnShellChanged;
+        viewModel.Dialogs.PropertyChanged += (_, e) =>
+        {
+            // Cuadro con dato a completar: el foco va directo al campo
+            if (e.PropertyName == nameof(Services.DialogService.Current) && viewModel.Dialogs.Current is { HasInput: true })
+            {
+                Dispatcher.BeginInvoke(() => DialogInput.Focus(), System.Windows.Threading.DispatcherPriority.Input);
+            }
+        };
         StateChanged += (_, _) => FitMaximized();
         SourceInitialized += (_, _) => RoundCorners();
         Loaded += async (_, _) => await viewModel.StartAsync();

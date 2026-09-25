@@ -1281,6 +1281,72 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.ToTable("product_barcodes", "catalog");
                 });
 
+            modelBuilder.Entity("MINV.Domain.Catalog.ProductImage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<byte[]>("Content")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("content");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("content_type");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("FileName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("file_name");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<Guid>("VariantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("variant_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_product_images");
+
+                    b.HasAlternateKey("TenantId", "Id")
+                        .HasName("ak_product_images_tenant_id_id");
+
+                    b.HasIndex("TenantId", "VariantId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_product_images_tenant_id_variant_id");
+
+                    b.ToTable("product_images", "catalog", t =>
+                        {
+                            t.HasCheckConstraint("ck_product_images_tamano", "octet_length(content) BETWEEN 1 AND 1048576");
+
+                            t.HasCheckConstraint("ck_product_images_tipo", "content_type IN ('image/png', 'image/jpeg')");
+                        });
+                });
+
             modelBuilder.Entity("MINV.Domain.Catalog.ProductStockPolicy", b =>
                 {
                     b.Property<Guid>("Id")
@@ -7120,6 +7186,24 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_product_barcodes_tenant_id_variant_id");
+                });
+
+            modelBuilder.Entity("MINV.Domain.Catalog.ProductImage", b =>
+                {
+                    b.HasOne("MINV.Domain.Iam.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_product_images_tenant_id");
+
+                    b.HasOne("MINV.Domain.Catalog.ProductVariant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "VariantId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_product_images_tenant_id_variant_id");
                 });
 
             modelBuilder.Entity("MINV.Domain.Catalog.ProductStockPolicy", b =>

@@ -3,20 +3,20 @@
 Fuente de verdad: el modelo Code-First de `src/2. Infrastructure/MINV.Infrastructure` (entidades en
 `src/1. Core/MINV.Domain`, configuraciones en `Persistence/Configurations`, migraciones en `Persistence/Migrations`).
 Script equivalente: `scripts/db_init.sql`. La prueba `MINV.Infrastructure.Tests.ModelTests` verifica este documento
-contra el modelo real (96 tablas, 7 esquemas, FK compuestas por tenant, xmin, append-only).
+contra el modelo real (97 tablas, 7 esquemas, FK compuestas por tenant, xmin, append-only).
 
 ## 1. Resumen
 
 | Contexto delimitado | Esquema | Tablas |
 |---|---|---|
 | IAM y tenants (identidad, RBAC, licencias, auditoría) | `iam` | 14 |
-| Catálogo y datos maestros | `catalog` | 18 |
+| Catálogo y datos maestros | `catalog` | 19 |
 | Topología de almacén | `warehouse` | 10 |
 | Motor transaccional de stock | `inventory` | 14 |
 | Compras y proveedores | `purchasing` | 11 |
 | Ventas y POS | `sales` | 19 |
 | Costos y contabilidad | `accounting` | 10 |
-| **Total** | 7 | **96** |
+| **Total** | 7 | **97** |
 
 ## 2. Convenciones comunes a todas las tablas
 
@@ -210,7 +210,7 @@ erDiagram
 | `iam.access_logs` | Intentos de inicio de sesión (append-only). · **append-only** | (id) | user_id → iam.users<br>hardware_token_id → iam.hardware_tokens | — |
 | `iam.audit_logs` | Auditoría inmutable de cada comando (sucesora de 14_ACTIVIDAD de la V2.1). · **append-only** | (id) | user_id → iam.users | único (tenant_id, legacy_reference) WHERE legacy_reference IS NOT NULL |
 
-### Catálogo y datos maestros · esquema `catalog` (18 tablas)
+### Catálogo y datos maestros · esquema `catalog` (19 tablas)
 
 ```mermaid
 erDiagram
@@ -340,6 +340,14 @@ erDiagram
         numeric min_quantity
         numeric max_quantity
     }
+    product_images {
+        uuid id PK
+        uuid tenant_id FK
+        uuid variant_id FK
+        bytea content
+        varchar content_type
+        varchar file_name
+    }
     categories ||--o{ category_hierarchies : "ancestor_id"
     categories ||--o{ category_hierarchies : "descendant_id"
     brands ||--o{ models : "brand_id"
@@ -361,6 +369,7 @@ erDiagram
     taxes ||--o{ product_taxes : "tax_id"
     products ||--o{ product_suppliers : "product_id"
     product_variants ||--o{ product_stock_policies : "variant_id"
+    product_variants ||--o| product_images : "variant_id"
 ```
 
 | Tabla | Descripción | Clave | Referencias (FK) | Únicos / CHECK |
@@ -383,6 +392,7 @@ erDiagram
 | `catalog.product_taxes` | Impuestos que aplican a cada producto. | (product_id, tax_id) | product_id → catalog.products<br>tax_id → catalog.taxes | — |
 | `catalog.product_suppliers` | Proveedores de cada producto (uno preferido). | (product_id, supplier_id) | product_id → catalog.products<br>supplier_id → purchasing.suppliers | único (product_id) WHERE is_preferred<br>CHECK lead_time_days IS NULL OR lead_time_days >= 0 |
 | `catalog.product_stock_policies` | Mínimo y máximo de una variante en un almacén (semáforo y pedido sugerido). · OCC xmin | (id) | variant_id → catalog.product_variants<br>warehouse_id → warehouse.warehouses | único (variant_id, warehouse_id)<br>CHECK min_quantity >= 0<br>CHECK max_quantity >= 0 AND (max_quantity = 0 OR max_quantity >= min_quantity) |
+| `catalog.product_images` | Imagen (foto o ilustración) de una variante: la galería del catálogo, del stock y del punto de venta. PNG o JPEG de hasta 1 MB guardado en la base (viaja con los respaldos y respeta RLS). | (id) | variant_id → catalog.product_variants | único (tenant_id, variant_id)<br>CHECK content_type IN ('image/png', 'image/jpeg')<br>CHECK octet_length(content) BETWEEN 1 AND 1048576 |
 
 ### Topología de almacén · esquema `warehouse` (10 tablas)
 

@@ -33,4 +33,9 @@ public sealed class SalesOrderLine : Entity
     public decimal DiscountPercent { get; private set; }
 
     public Guid? StockMovementId { get; private set; }
+
+    /// <summary>Importe de la línea: cantidad × precio − descuento (redondeado a centavos).</summary>
+    public decimal Amount => decimal.Round(Quantity * UnitPrice * (1 - DiscountPercent / 100m), 2, MidpointRounding.AwayFromZero);
+
+    public void LinkMovement(Guid stockMovementId) => StockMovementId = Guard.NotEmpty(stockMovementId, nameof(stockMovementId));
 }

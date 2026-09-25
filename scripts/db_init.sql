@@ -4425,3 +4425,62 @@ BEGIN
 END $EF$;
 COMMIT;
 
+START TRANSACTION;
+
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925184331_ProductImages') THEN
+    CREATE TABLE catalog.product_images (
+        id uuid NOT NULL,
+        variant_id uuid NOT NULL,
+        content bytea NOT NULL,
+        content_type character varying(20) NOT NULL,
+        file_name character varying(200),
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        updated_at timestamp with time zone,
+        updated_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_product_images PRIMARY KEY (id),
+        CONSTRAINT ak_product_images_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_product_images_tamano CHECK (octet_length(content) BETWEEN 1 AND 1048576),
+        CONSTRAINT ck_product_images_tipo CHECK (content_type IN ('image/png', 'image/jpeg')),
+        CONSTRAINT fk_product_images_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_product_images_tenant_id_variant_id FOREIGN KEY (tenant_id, variant_id) REFERENCES catalog.product_variants (tenant_id, id) ON DELETE CASCADE
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925184331_ProductImages') THEN
+    CREATE UNIQUE INDEX ux_product_images_tenant_id_variant_id ON catalog.product_images (tenant_id, variant_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925184331_ProductImages') THEN
+    ALTER TABLE catalog.product_images ENABLE ROW LEVEL SECURITY;
+    DROP POLICY IF EXISTS tenant_isolation ON catalog.product_images;
+    CREATE POLICY tenant_isolation ON catalog.product_images
+        USING (tenant_id = iam.current_tenant_id()) WITH CHECK (tenant_id = iam.current_tenant_id());
+    DO $$
+    BEGIN
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'minv_app') THEN
+            GRANT SELECT, INSERT, UPDATE, DELETE ON catalog.product_images TO minv_app;
+        END IF;
+    END $$;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925184331_ProductImages') THEN
+    INSERT INTO iam.__ef_migrations_history ("MigrationId", "ProductVersion")
+    VALUES ('20260925184331_ProductImages', '8.0.31');
+    END IF;
+END $EF$;
+COMMIT;
+

@@ -296,3 +296,73 @@ public sealed class ProgressRing : Control
         set => SetValue(IsActiveProperty, value);
     }
 }
+
+/// <summary>
+/// Miniatura de un producto: la imagen recortada con esquinas redondeadas o, si no tiene, un ícono sobre fondo suave.
+/// Los colores salen de la paleta (cambian con el tema).
+/// </summary>
+public sealed class ProductThumb : Border
+{
+    public static readonly DependencyProperty SourceProperty = DependencyProperty.Register(nameof(Source), typeof(System.Windows.Media.ImageSource),
+        typeof(ProductThumb), new PropertyMetadata(null, (d, _) => ((ProductThumb)d).Update()));
+
+    public static readonly DependencyProperty GlyphProperty = DependencyProperty.Register(nameof(Glyph), typeof(string),
+        typeof(ProductThumb), new PropertyMetadata(Glyphs.Box, (d, _) => ((ProductThumb)d).Update()));
+
+    public static readonly DependencyProperty StretchProperty = DependencyProperty.Register(nameof(Stretch), typeof(System.Windows.Media.Stretch),
+        typeof(ProductThumb), new PropertyMetadata(System.Windows.Media.Stretch.Uniform, (d, _) => ((ProductThumb)d).Update()));
+
+    private readonly System.Windows.Controls.Image _image = new() { SnapsToDevicePixels = true };
+    private readonly TextBlock _glyph = new() { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+
+    public ProductThumb()
+    {
+        CornerRadius = new CornerRadius(10);
+        ClipToBounds = true;
+        SetResourceReference(BackgroundProperty, "SurfaceAlt");
+        System.Windows.Media.RenderOptions.SetBitmapScalingMode(_image, System.Windows.Media.BitmapScalingMode.HighQuality);
+        _glyph.SetResourceReference(TextBlock.FontFamilyProperty, "IconFont");
+        _glyph.SetResourceReference(TextBlock.ForegroundProperty, "TextFaint");
+        SizeChanged += (_, _) =>
+        {
+            _glyph.FontSize = Math.Max(12, Math.Min(ActualWidth, ActualHeight) * 0.36);
+            Clip = new System.Windows.Media.RectangleGeometry(new Rect(0, 0, ActualWidth, ActualHeight), CornerRadius.TopLeft, CornerRadius.TopLeft);
+        };
+        Update();
+    }
+
+    public System.Windows.Media.ImageSource? Source
+    {
+        get => (System.Windows.Media.ImageSource?)GetValue(SourceProperty);
+        set => SetValue(SourceProperty, value);
+    }
+
+    /// <summary>Ícono cuando no hay imagen.</summary>
+    public string Glyph
+    {
+        get => (string)GetValue(GlyphProperty);
+        set => SetValue(GlyphProperty, value);
+    }
+
+    public System.Windows.Media.Stretch Stretch
+    {
+        get => (System.Windows.Media.Stretch)GetValue(StretchProperty);
+        set => SetValue(StretchProperty, value);
+    }
+
+    private void Update()
+    {
+        if (Source is { } source)
+        {
+            _image.Source = source;
+            _image.Stretch = Stretch;
+            _image.Margin = Stretch == System.Windows.Media.Stretch.Uniform ? new Thickness(6) : new Thickness(0);
+            Child = _image;
+        }
+        else
+        {
+            _glyph.Text = Glyph;
+            Child = _glyph;
+        }
+    }
+}

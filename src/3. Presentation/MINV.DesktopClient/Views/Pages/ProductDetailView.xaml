@@ -13,7 +13,11 @@
         <!-- Encabezado -->
         <Border Padding="26,22,18,18" BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1">
             <DockPanel>
+                <c:ProductThumb DockPanel.Dock="Left" Width="104" Height="104" Source="{Binding Image}" CornerRadius="12" Margin="0,0,18,0"
+                                VerticalAlignment="Top" />
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top">
+                    <Button Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Settings}" Command="{Binding EditInCatalog}"
+                            ToolTip="Editar en el catálogo (precio, imagen, datos)" Visibility="{Binding CanEditCatalog, Converter={StaticResource Visible}}" />
                     <Button Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Refresh}" Command="{Binding Refresh}" ToolTip="Actualizar" />
                     <Button Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Close}" ToolTip="Cerrar (Esc)"
                             Command="{Binding DataContext.CloseProduct, RelativeSource={RelativeSource AncestorType=Window}}" />

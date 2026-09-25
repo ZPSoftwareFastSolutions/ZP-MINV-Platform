@@ -1,13 +1,18 @@
+using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using MINV.Application.Abstractions;
 using MINV.Domain.Iam;
 using MINV.Infrastructure;
 using MINV.Infrastructure.Importing.V21;
 using MINV.Infrastructure.Persistence;
 using MINV.Infrastructure.Provisioning;
+using MINV.Infrastructure.Seeding;
+using MINV.Infrastructure.Services;
 
 // =====================================================================================================================
 // minv · herramienta de administración de M-INV V3
@@ -16,6 +21,7 @@ using MINV.Infrastructure.Provisioning;
 //   minv import-v21 --archivo libro.xlsx --codigo DEMO --admin correo --nombre "…" [--clave …] [--zona America/Bogota]
 //   minv user password --codigo DEMO --correo x@y [--clave …]
 //   minv verify [--codigo DEMO]
+//   minv datos-prueba [--codigo MINV] [--dias 60] [--semilla 2026] [--credenciales archivo.txt]
 // Conexión: --conexion "Host=…" o variable MINV_DB. La clave también puede venir de MINV_CLAVE o se pide sin eco.
 // =====================================================================================================================
 Console.OutputEncoding = Encoding.UTF8;
@@ -49,15 +55,27 @@ internal static class Cli
         var connection = options.GetValueOrDefault("conexion")
                          ?? Environment.GetEnvironmentVariable(DependencyInjection.ConnectionStringVariable)
                          ?? DependencyInjection.DefaultConnectionString;
+        var command = string.Join(' ', args.TakeWhile(a => !a.StartsWith("--", StringComparison.Ordinal)));
         var builder = Host.CreateApplicationBuilder();
+        builder.Logging.AddFilter("Microsoft.EntityFrameworkCore", LogLevel.None);
+        if (command == "datos-prueba")
+        {
+            // Reloj simulado: la operación de los últimos N días se registra con sus fechas y horas «reales»
+            builder.Services.AddSingleton<DemoClock>();
+            builder.Services.AddSingleton<IClock>(sp => sp.GetRequiredService<DemoClock>());
+            MINV.Application.DependencyInjection.AddMinvApplication(builder.Services);
+        }
         builder.Services.AddMinvInfrastructure(connection);
         using var host = builder.Build();
         using var scope = host.Services.CreateScope();
         var sp = scope.ServiceProvider;
         var db = sp.GetRequiredService<MINVDbContext>();
 
-        switch (string.Join(' ', args.TakeWhile(a => !a.StartsWith("--", StringComparison.Ordinal))))
+        switch (command)
         {
+            case "datos-prueba":
+                return await SeedAsync(host.Services, db, options);
+
             case "migrate":
                 await db.Database.MigrateAsync();
                 Console.WriteLine("✔ Base de datos al día: " + string.Join(", ", await db.Database.GetAppliedMigrationsAsync()));
@@ -156,6 +174,56 @@ internal static class Cli
         return ok ? 0 : 1;
     }
 
+    /// <summary>
+    /// Empresa de prueba con datos aleatorios (reproducibles con --semilla) y N días de operación. Las contraseñas se
+    /// generan en cada ejecución: se muestran una sola vez y se guardan en el archivo de --credenciales (fuera del repo).
+    /// </summary>
+    private static async Task<int> SeedAsync(IServiceProvider services, MINVDbContext db, Dictionary<string, string> options)
+    {
+        var code = (options.GetValueOrDefault("codigo") ?? "MINV").Trim().ToUpperInvariant();
+        if (await db.Tenants.AnyAsync(t => t.Code == code))
+        {
+            Console.Error.WriteLine($"✖ La empresa {code} ya existe. Recree la base (tools\\bd_local.ps1 -Accion recrear) o use otro --codigo.");
+            return 1;
+        }
+        var seedOptions = new SeedOptions(code,
+            Days: int.Parse(options.GetValueOrDefault("dias") ?? "60", CultureInfo.InvariantCulture),
+            Seed: int.Parse(options.GetValueOrDefault("semilla") ?? "2026", CultureInfo.InvariantCulture));
+        var watch = Stopwatch.StartNew();
+        var seeder = services.GetRequiredService<LocalDataSeeder>();
+        var result = await seeder.SeedAsync(seedOptions, line => Console.WriteLine("   " + line));
+        var text = Credentials(result);
+        Console.WriteLine();
+        Console.WriteLine(text);
+        if (options.GetValueOrDefault("credenciales") is { Length: > 0 } file)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(file))!);
+            await File.WriteAllTextAsync(file, text, new UTF8Encoding(true));
+            Console.WriteLine($"✔ Credenciales guardadas en {file}");
+        }
+        Console.WriteLine($"✔ Datos de prueba listos en {watch.Elapsed.TotalSeconds:N0} s");
+        return 0;
+    }
+
+    private static string Credentials(SeedResult r)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("M-INV · base de datos LOCAL · usuarios de prueba");
+        sb.AppendLine($"Empresa: {r.CompanyName} · código de empresa: {r.TenantCode}");
+        sb.AppendLine($"Datos: {r.Products} productos con imagen, {r.Suppliers} proveedores, {r.Customers} clientes, {r.Tickets} ventas, " +
+                      $"{r.PurchaseOrders} órdenes de compra, {r.Movements} movimientos y {r.JournalEntries} asientos ({r.From:dd/MM/yyyy} a {r.To:dd/MM/yyyy}).");
+        sb.AppendLine();
+        sb.AppendLine($"{"Rol",-15} {"Nombre",-26} {"Correo",-44} Contraseña");
+        sb.AppendLine(new string('-', 104));
+        foreach (var u in r.Users)
+        {
+            sb.AppendLine($"{u.RoleName,-15} {u.Name,-26} {u.Email,-44} {u.Password}");
+        }
+        sb.AppendLine();
+        sb.AppendLine("Son contraseñas de PRUEBA generadas al azar para esta base local: no las use en producción.");
+        return sb.ToString();
+    }
+
     private static Dictionary<string, string> Options(string[] args)
     {
         var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -208,6 +276,7 @@ internal static class Cli
           minv import-v21 --archivo src/M-INV_V2_Colaborativo.xlsx --codigo DEMO --admin admin@distribuidorademo.example --nombre "Administrador" [--clave …] [--zona America/Bogota] [--moneda COP] [--pais CO --pais-nombre Colombia]
           minv user password --codigo DEMO --correo ana.gomez@distribuidorademo.example [--clave …]
           minv verify [--codigo DEMO]
+          minv datos-prueba [--codigo MINV] [--dias 60] [--semilla 2026] [--credenciales %LOCALAPPDATA%\M-INV\credenciales-bd-local.txt]
         Conexión: --conexion "Host=localhost;Database=minv;Username=minv_owner;Password=…" o variable MINV_DB.
         """;
 }

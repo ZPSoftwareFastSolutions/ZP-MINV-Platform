@@ -103,3 +103,33 @@ public sealed class SidebarWidthConverter : IValueConverter
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotSupportedException();
 }
+
+/// <summary>Participación (0 a 1) → ancho de una barra (ConverterParameter = ancho máximo en píxeles).</summary>
+public sealed class ShareWidthConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        var max = double.TryParse(parameter as string, NumberStyles.Float, CultureInfo.InvariantCulture, out var m) ? m : 200;
+        return value is double share ? Math.Max(2, Math.Clamp(share, 0, 1) * max) : 0d;
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => throw new NotSupportedException();
+}
+
+/// <summary>Sangría (píxeles) → margen izquierdo (árbol del plan de cuentas).</summary>
+public sealed class IndentConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture) =>
+        new Thickness(value is double indent ? indent : 0, 0, 0, 0);
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => throw new NotSupportedException();
+}
+
+/// <summary>Panel de detalle: visible si hay selección (valor 0) y no se está editando (valor 1).</summary>
+public sealed class DetailVisibilityConverter : IMultiValueConverter
+{
+    public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture) =>
+        values is [true, false] ? Visibility.Visible : Visibility.Collapsed;
+
+    public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture) => throw new NotSupportedException();
+}

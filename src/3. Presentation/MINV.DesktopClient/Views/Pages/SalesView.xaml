@@ -1,0 +1,162 @@
+<UserControl x:Class="MINV.DesktopClient.Views.Pages.SalesView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:MINV.DesktopClient.Controls"
+             xmlns:vm="clr-namespace:MINV.DesktopClient.ViewModels"
+             xmlns:s="clr-namespace:MINV.Application.Sales;assembly=MINV.Application">
+    <Grid Margin="28,6,28,24">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <DockPanel Grid.ColumnSpan="2" Margin="0,0,0,14">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <ComboBox Width="190" ItemsSource="{Binding Periods}" SelectedItem="{Binding Period}" ToolTip="Período" Margin="0,0,8,0" />
+                <Button Content="Exportar" c:Ui.Icon="{x:Static c:Glyphs.Download}" Command="{Binding Export}" Margin="0,0,8,0" />
+                <Button Style="{StaticResource PrimaryButton}" Content="Nueva venta" c:Ui.Icon="{x:Static c:Glyphs.Cart}" Command="{Binding GoToPos}" Margin="0,0,8,0"
+                        Visibility="{Binding CanSell, Converter={StaticResource Visible}}" />
+                <Button Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Refresh}" Command="{Binding Refresh}" ToolTip="Actualizar (F5)" />
+            </StackPanel>
+            <StackPanel>
+                <TextBlock Text="{Binding Title}" Style="{StaticResource H1}" />
+                <TextBlock Text="{Binding Subtitle}" Style="{StaticResource Caption}" FontSize="13" Margin="0,4,0,0" />
+            </StackPanel>
+        </DockPanel>
+
+        <UniformGrid Grid.Row="1" Grid.ColumnSpan="2" Columns="4" Margin="-6,0,-6,10">
+            <ContentControl Content="{Binding TotalKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+            <ContentControl Content="{Binding TicketsKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+            <ContentControl Content="{Binding AverageKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+            <ContentControl Content="{Binding VoidedKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+        </UniformGrid>
+
+        <DockPanel Grid.Row="2" Grid.ColumnSpan="2" Margin="0,0,0,12">
+            <TextBlock DockPanel.Dock="Right" Text="{Binding Summary}" Style="{StaticResource Caption}" VerticalAlignment="Center" />
+            <WrapPanel>
+                <TextBox Width="280" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}" c:Ui.Icon="{x:Static c:Glyphs.Search}"
+                         c:Ui.Placeholder="Buscar factura o cliente" Margin="0,0,10,0" />
+                <ComboBox Width="210" ItemsSource="{Binding Methods}" SelectedItem="{Binding Method}" ToolTip="Medio de pago" Margin="0,0,10,0" />
+                <ComboBox Width="210" ItemsSource="{Binding Cashiers}" SelectedItem="{Binding Cashier}" ToolTip="Cajero" Margin="0,0,10,0" />
+                <ComboBox Width="140" ItemsSource="{Binding Statuses}" SelectedItem="{Binding Status}" ToolTip="Estado" />
+            </WrapPanel>
+        </DockPanel>
+
+        <Border Grid.Row="3" Style="{StaticResource CardFlat}" Padding="4,2,4,4">
+            <Grid>
+                <DataGrid ItemsSource="{Binding Rows}" SelectedItem="{Binding Selected}" RowHeight="56">
+                    <DataGrid.Columns>
+                        <DataGridTemplateColumn Header="FACTURA" Width="112" SortMemberPath="Invoice" CanUserSort="True">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:SaleItem}">
+                                    <Border Style="{StaticResource Pill}" Background="{DynamicResource BrandSoft}">
+                                        <TextBlock Text="{Binding Invoice}" Style="{StaticResource Mono}" Foreground="{DynamicResource BrandText}" FontWeight="SemiBold" />
+                                    </Border>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTextColumn Header="FECHA" Binding="{Binding WhenText}" Width="142" SortMemberPath="IssuedAt" ElementStyle="{StaticResource CellText}" />
+                        <DataGridTemplateColumn Header="CLIENTE · CAJERO · PAGO" Width="*" MinWidth="220" SortMemberPath="Customer" CanUserSort="True">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:SaleItem}">
+                                    <DockPanel VerticalAlignment="Center">
+                                        <Border DockPanel.Dock="Left" Width="30" Height="30" CornerRadius="15" Background="{Binding Cashier, Converter={StaticResource AvatarBrush}}"
+                                                ToolTip="{Binding Cashier}">
+                                            <TextBlock Text="{Binding Initials}" Foreground="#FFFFFF" FontSize="10.5" FontWeight="SemiBold" HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center" />
+                                        </Border>
+                                        <StackPanel Margin="10,0,0,0" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Customer}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Style="{StaticResource Caption}" FontSize="11.5" TextTrimming="CharacterEllipsis">
+                                                <Run Text="{Binding Cashier, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding Method, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding ItemsText, Mode=OneWay}" />
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </DockPanel>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTextColumn Header="TOTAL" Binding="{Binding TotalText}" Width="120" SortMemberPath="Total" HeaderStyle="{StaticResource HeaderRight}"
+                                            ElementStyle="{StaticResource CellRight}" />
+                        <DataGridTemplateColumn Header="ESTADO" Width="104" SortMemberPath="IsVoided" CanUserSort="True">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:SaleItem}">
+                                    <Border x:Name="P" Style="{StaticResource StatusPill}" Background="{DynamicResource SuccessSoft}">
+                                        <TextBlock x:Name="T" Text="{Binding StatusText}" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Success}" />
+                                    </Border>
+                                    <DataTemplate.Triggers>
+                                        <DataTrigger Binding="{Binding IsVoided}" Value="True">
+                                            <Setter TargetName="P" Property="Background" Value="{DynamicResource DangerSoft}" />
+                                            <Setter TargetName="T" Property="Foreground" Value="{DynamicResource Danger}" />
+                                        </DataTrigger>
+                                    </DataTemplate.Triggers>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+                <ContentControl Style="{StaticResource EmptyState}" Tag="{x:Static c:Glyphs.Money}" Visibility="{Binding IsEmpty, Converter={StaticResource Visible}}">
+                    <TextBlock Text="No hay ventas en el período y filtros elegidos" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" />
+                </ContentControl>
+            </Grid>
+        </Border>
+
+        <!-- Detalle de la factura -->
+        <Border Grid.Row="3" Grid.Column="1" Style="{StaticResource EditorPanel}" Width="350" Visibility="{Binding HasSelection, Converter={StaticResource Visible}}">
+            <DockPanel Margin="20,16">
+                <StackPanel DockPanel.Dock="Top">
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Close}" ToolTip="Cerrar"
+                                Click="OnCloseDetail" />
+                        <TextBlock Text="{Binding Selected.Invoice}" Style="{StaticResource H2}" VerticalAlignment="Center" />
+                    </DockPanel>
+                    <TextBlock Style="{StaticResource Caption}" Margin="0,4,0,0" TextWrapping="Wrap">
+                        <Run Text="{Binding Selected.WhenText, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding Selected.Method, Mode=OneWay}" />
+                    </TextBlock>
+                    <TextBlock Text="{Binding Selected.Customer}" FontWeight="SemiBold" Margin="0,8,0,0" />
+                    <TextBlock Style="{StaticResource Caption}">
+                        <Run Text="Atendió:" /> <Run Text="{Binding Selected.Cashier, Mode=OneWay}" />
+                    </TextBlock>
+                    <Border Style="{StaticResource FormError}" Visibility="{Binding Selected.IsVoided, Converter={StaticResource Visible}}">
+                        <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource Danger}">
+                            <Run Text="Anulada:" FontWeight="SemiBold" /> <Run Text="{Binding Selected.Row.VoidReason, Mode=OneWay}" />
+                        </TextBlock>
+                    </Border>
+                </StackPanel>
+                <StackPanel DockPanel.Dock="Bottom">
+                    <Border Height="1" Background="{DynamicResource Border}" Margin="0,10" />
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Right" Text="{Binding Selected.TotalText}" FontSize="22" FontWeight="Bold" />
+                        <TextBlock Text="TOTAL" Style="{StaticResource Overline}" VerticalAlignment="Center" />
+                    </DockPanel>
+                    <Button Style="{StaticResource DangerButton}" Content="Anular esta venta" c:Ui.Icon="{x:Static c:Glyphs.Error}" Command="{Binding Void}" Margin="0,14,0,0"
+                            Visibility="{Binding CanVoid, Converter={StaticResource Visible}}" c:Ui.IsBusy="{Binding Void.IsRunning}" />
+                </StackPanel>
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,14,0,0">
+                    <ItemsControl ItemsSource="{Binding Lines}" Focusable="False">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type s:SaleLineRow}">
+                                <DockPanel Margin="0,6">
+                                    <TextBlock DockPanel.Dock="Right" Text="{Binding Amount, StringFormat={}{0:N2}}" FontWeight="SemiBold" VerticalAlignment="Top" />
+                                    <StackPanel Margin="0,0,10,0">
+                                        <TextBlock Text="{Binding Name}" TextWrapping="Wrap" Foreground="{DynamicResource TextPrimary}" />
+                                        <TextBlock Style="{StaticResource Caption}" FontSize="11.5">
+                                            <Run Text="{Binding Quantity, Mode=OneWay, StringFormat={}{0:0.###}}" /> <Run Text="{Binding Unit, Mode=OneWay}" />
+                                            <Run Text=" × " /><Run Text="{Binding UnitPrice, Mode=OneWay, StringFormat={}{0:N2}}" />
+                                            <Run Text="{Binding DiscountPercent, Mode=OneWay, StringFormat={} · desc. {0:0.#} %}" />
+                                        </TextBlock>
+                                    </StackPanel>
+                                </DockPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
+    </Grid>
+</UserControl>

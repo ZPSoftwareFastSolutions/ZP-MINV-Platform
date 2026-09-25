@@ -17,6 +17,10 @@
     <ProjectReference Include="..\..\1. Core\MINV.Application\MINV.Application.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <!-- Ilustraciones de productos para los datos de prueba y la demostración (tools/generar_imagenes_productos.py). -->
+    <EmbeddedResource Include="Seeding\Imagenes\*.png" />
+  </ItemGroup>
+  <ItemGroup>
     <InternalsVisibleTo Include="MINV.Infrastructure.Tests" />
   </ItemGroup>
 </Project>

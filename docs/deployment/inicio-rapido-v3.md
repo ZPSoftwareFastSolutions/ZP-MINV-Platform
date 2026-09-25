@@ -6,6 +6,16 @@ toma física, alertas, pedido, ficha con kardex, tema claro/oscuro) y un **modo 
 datos. Guía visual de la interfaz: [`docs/product/escritorio-v3.1.md`](../product/escritorio-v3.1.md).
 
 ```text
+ALGORITMO CON BASE DE DATOS LOCAL · PostgreSQL en este equipo, con datos de prueba (recomendado para probar TODO)
+ A. Requisitos: Windows 10/11 y .NET SDK 8 o superior (con el SDK 10 funciona). Sin permisos de administrador.
+ B. Instalar PostgreSQL 16 portátil + base "minv" (97 tablas) + datos de prueba (una sola vez, ~2 min):
+        powershell -ExecutionPolicy Bypass -File tools\bd_local.ps1 -Accion instalar -Zip <postgresql-16.x-windows-x64-binaries.zip>
+    (si ya está instalado:  tools\bd_local.ps1 -Accion recrear   → borra la base, migra y genera datos nuevos)
+ C. Publicar el ejecutable:            powershell -ExecutionPolicy Bypass -File tools\publicar_escritorio.ps1
+ D. Abrir dist\M-INV-<versión>-win-x64\M-INV.exe  →  empresa MINV  →  correo y contraseña de
+    %LOCALAPPDATA%\M-INV\usuarios-prueba.txt  (un usuario por rol: Administrador, Gerencia, Bodega, Ventas, Cajero, Consulta)
+ E. Cada vez que encienda el equipo:   tools\bd_local.ps1 -Accion iniciar   (o una vez: -Accion iniciar -Autoiniciar)
+
 ALGORITMO RÁPIDO · probar el sistema en 3 pasos, sin instalar PostgreSQL
  A. Requisitos: Windows 10/11 y .NET SDK 8 o superior (con el SDK 10 funciona).
  B. Publicar el ejecutable:            powershell -ExecutionPolicy Bypass -File tools\publicar_escritorio.ps1
@@ -15,7 +25,7 @@ ALGORITMO COMPLETO · con PostgreSQL (trabajo real)
  1. Requisitos: Windows 10/11, .NET SDK 8 o superior, PostgreSQL 15+ (16 recomendado).
  2. Compilar y probar:                 tools\build_v3.ps1
  3. Crear roles y base (una vez):      psql -U postgres  (CREATE ROLE … / CREATE DATABASE minv …)
- 4. Crear las 96 tablas:               psql -U minv_owner -d minv -f scripts\db_init.sql   (o: minv migrate)
+ 4. Crear las 97 tablas:               psql -U minv_owner -d minv -f scripts\db_init.sql   (o: minv migrate)
  5. Cargar datos:                      minv import-v21 …   (migra la V2.1)   o   minv tenant create …   (empresa nueva)
  6. Contraseñas de los usuarios:       minv user password …
  7. Verificar la base:                 minv verify --codigo DEMO
@@ -24,6 +34,35 @@ ALGORITMO COMPLETO · con PostgreSQL (trabajo real)
 ```
 
 ---
+
+## 0. Base de datos LOCAL con datos de prueba (`tools/bd_local.ps1`)
+
+El script deja un PostgreSQL 16 **portátil** en `%LOCALAPPDATA%\M-INV` (sin instalador ni permisos de administrador,
+escucha solo en `localhost:5432`), crea los roles `minv_owner` (dueño, clave aleatoria) y `minv_app` (el del cliente:
+`minv-dev`, sujeto a Row Level Security), la base `minv` con las **97 tablas en 5FN** (`minv migrate`) y la empresa de
+prueba **MINV · Ferretería El Constructor S.R.L.** (`minv datos-prueba`):
+
+| Acción | Qué hace |
+|---|---|
+| `-Accion instalar -Zip <binarios.zip>` | Extrae PostgreSQL (solo `bin`, `lib`, `share`), crea el clúster (UTF-8, `scram-sha-256`), lo inicia, crea roles y base, migra y carga los datos de prueba. |
+| `-Accion recrear` | Borra la base `minv`, la vuelve a crear, migra y genera datos de prueba nuevos (contraseñas nuevas). |
+| `-Accion iniciar` / `detener` / `estado` | Arranca, detiene o comprueba el servidor. `-Autoiniciar` lo arranca al iniciar sesión en Windows. |
+| `-SinDatos` | Crea la base vacía (sin empresa de prueba). |
+
+**Datos de prueba** (aleatorios pero reproducibles con `--semilla`; todo pasa por los casos de uso reales, con permisos,
+poka-yoke, auditoría y contabilidad): 9 usuarios de los 6 roles, 8 categorías, 8 proveedores, 29 clientes, 24 posiciones
+de almacén, 61 productos **con imagen**, precio (IVA 13 % incluido), costo, mínimo y máximo, y **60 días de operación**:
+dos cajas con apertura, ventas (efectivo, QR, tarjeta, transferencia), arqueo y cierre; anulaciones; mermas; pedidos
+sugeridos aprobados por gerencia y recibidos por bodega; depósitos, sueldos, alquiler, servicios y pagos a proveedores.
+Hoy quedan dos cajas abiertas, órdenes por recibir, un borrador y una toma física en curso para explorar.
+
+Las contraseñas se generan al azar en cada carga, se muestran una vez y se guardan **solo en este equipo**:
+
+- `%LOCALAPPDATA%\M-INV\usuarios-prueba.txt`: empresa, rol, nombre, correo y contraseña de cada usuario.
+- `%LOCALAPPDATA%\M-INV\credenciales-bd-local.txt`: claves de PostgreSQL (`postgres`, `minv_owner`, `minv_app`).
+
+Nunca se versionan. También se puede cargar una empresa de prueba en otra base con
+`minv datos-prueba --conexion "…" [--codigo MINV] [--dias 60] [--semilla 2026] [--credenciales archivo.txt]`.
 
 ## 1. Requisitos
 
@@ -67,7 +106,7 @@ psql -U postgres -c "CREATE DATABASE minv OWNER minv_owner ENCODING 'UTF8' TEMPL
 - `minv_app` es con el que se conecta el cliente: está sujeto a Row Level Security y no puede modificar ni borrar
   movimientos, pagos ni auditoría.
 
-## 4. Crear las 96 tablas
+## 4. Crear las 97 tablas
 
 Opción A (DBA, sin .NET):
 

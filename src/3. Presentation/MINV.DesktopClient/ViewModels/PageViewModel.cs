@@ -20,8 +20,11 @@ public interface INavigator
 /// <summary>Lo que necesita cualquier pantalla. Todas las llamadas a la aplicación pasan por <see cref="SendAsync{T}"/>, que
 /// las ejecuta de a una (el contexto de datos de la sesión no admite consultas simultáneas).</summary>
 public sealed class AppServices(SerialMediator mediator, NotificationService notify, DialogService dialogs, SessionContext session,
-    DataCache data, ThemeService theme, ClientSettings settings, IClock clock)
+    DataCache data, ThemeService theme, ClientSettings settings, IClock clock, ImageCache images)
 {
+    /// <summary>Imágenes de los productos (miniaturas compartidas por todas las pantallas).</summary>
+    public ImageCache Images { get; } = images;
+
     /// <summary>Ahora según el reloj de la aplicación (en la demostración, el día de los datos de la V2.1).</summary>
     public DateTimeOffset Now => clock.UtcNow;
 
@@ -46,6 +49,7 @@ public sealed class AppServices(SerialMediator mediator, NotificationService not
     {
         RequestValidationException v => string.Join(" ", v.Errors),
         DomainException or AccessDeniedException or NotFoundException or ConcurrencyConflictException or AuthenticationFailedException => ex.Message,
+        System.IO.InvalidDataException => ex.Message,
         _ => "Error inesperado: " + ex.GetBaseException().Message,
     };
 

@@ -66,6 +66,14 @@ public sealed class UserCredential : BaseEntity, IConcurrencyAware
         RegisterSuccess();
     }
 
+    /// <summary>El administrador asigna una contraseña (temporal si <paramref name="mustChange"/>) y desbloquea la cuenta.</summary>
+    public void ResetPassword(string passwordHash, string algorithm, int iterations, DateTimeOffset now, bool mustChange)
+    {
+        SetHash(passwordHash, algorithm, iterations, now);
+        MustChangePassword = mustChange;
+        RegisterSuccess();
+    }
+
     private void SetHash(string passwordHash, string algorithm, int iterations, DateTimeOffset changedAt)
     {
         PasswordHash = Guard.Text(passwordHash, "El hash", 512);

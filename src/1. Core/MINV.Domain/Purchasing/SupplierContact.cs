@@ -29,4 +29,11 @@ public sealed class SupplierContact : Entity
     public string? Email { get; private set; }
 
     public bool IsPrimary { get; private set; }
+
+    public void Update(string fullName, string? phone, string? email)
+    {
+        FullName = Guard.Text(fullName, "El nombre", 120);
+        Phone = Guard.OptionalText(phone, "El teléfono", 40);
+        Email = Guard.OptionalEmail(email, "El correo");
+    }
 }

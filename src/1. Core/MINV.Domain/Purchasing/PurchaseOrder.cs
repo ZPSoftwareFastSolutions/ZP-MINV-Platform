@@ -55,6 +55,32 @@ public sealed class PurchaseOrder : Entity, IConcurrencyAware, IAggregateRoot
         return line;
     }
 
+    public decimal Total => Quantities.Round6(_lines.Sum(l => l.Quantity * l.UnitCost));
+
+    /// <summary>Aprueba la orden (ya se puede enviar al proveedor y recibir).</summary>
+    public void Approve()
+    {
+        EnsureDraft();
+        Guard.That(_lines.Count > 0, "purchase.empty", "Una orden de compra necesita al menos una línea.");
+        Status = PurchaseOrderStatus.Approved;
+    }
+
+    /// <summary>Anula la orden si todavía no se recibió nada.</summary>
+    public void Cancel()
+    {
+        Guard.That(Status is PurchaseOrderStatus.Draft or PurchaseOrderStatus.Approved, "purchase.cancel",
+            $"La orden {Number} ya tiene recepciones o está cerrada: no se puede anular.");
+        Status = PurchaseOrderStatus.Cancelled;
+    }
+
+    /// <summary>Registra una recepción: la orden queda recibida en todo o en parte según lo pendiente.</summary>
+    public void RegisterReceipt(bool fullyReceived)
+    {
+        Guard.That(Status is PurchaseOrderStatus.Approved or PurchaseOrderStatus.PartiallyReceived, "purchase.receive",
+            $"La orden {Number} debe estar aprobada para recibirla.");
+        Status = fullyReceived ? PurchaseOrderStatus.Received : PurchaseOrderStatus.PartiallyReceived;
+    }
+
     private void EnsureDraft() => Guard.That(Status == PurchaseOrderStatus.Draft, "document.not_draft",
         "Solo se pueden modificar documentos en borrador.");
 }

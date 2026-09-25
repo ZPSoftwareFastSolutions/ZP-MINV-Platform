@@ -1,0 +1,260 @@
+<UserControl x:Class="MINV.DesktopClient.Views.Pages.PurchaseOrdersView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:MINV.DesktopClient.Controls"
+             xmlns:vm="clr-namespace:MINV.DesktopClient.ViewModels"
+             xmlns:p="clr-namespace:MINV.Application.Purchasing;assembly=MINV.Application"
+             xmlns:cat="clr-namespace:MINV.Application.Catalog;assembly=MINV.Application">
+    <Grid Margin="28,6,28,24">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <DockPanel Grid.ColumnSpan="2" Margin="0,0,0,14">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button Content="Exportar" c:Ui.Icon="{x:Static c:Glyphs.Download}" Command="{Binding Export}" Margin="0,0,8,0" />
+                <Button Style="{StaticResource SoftButton}" Content="Desde el pedido sugerido" c:Ui.Icon="{x:Static c:Glyphs.Sparkle}" Command="{Binding FromSuggestion}"
+                        Margin="0,0,8,0" Visibility="{Binding CanManage, Converter={StaticResource Visible}}" c:Ui.IsBusy="{Binding FromSuggestion.IsRunning}" />
+                <Button Style="{StaticResource PrimaryButton}" Content="Nueva orden" c:Ui.Icon="{x:Static c:Glyphs.Add}" Command="{Binding New}" Margin="0,0,8,0"
+                        Visibility="{Binding CanManage, Converter={StaticResource Visible}}" />
+                <Button Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Refresh}" Command="{Binding Refresh}" ToolTip="Actualizar (F5)" />
+            </StackPanel>
+            <StackPanel>
+                <TextBlock Text="{Binding Title}" Style="{StaticResource H1}" />
+                <TextBlock Text="{Binding Subtitle}" Style="{StaticResource Caption}" FontSize="13" Margin="0,4,0,0" />
+            </StackPanel>
+        </DockPanel>
+
+        <UniformGrid Grid.Row="1" Grid.ColumnSpan="2" Columns="4" Margin="-6,0,-6,10">
+            <ContentControl Content="{Binding DraftKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+            <ContentControl Content="{Binding PendingKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+            <ContentControl Content="{Binding ReceivedKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+            <ContentControl Content="{Binding SuppliersKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+        </UniformGrid>
+
+        <DockPanel Grid.Row="2" Margin="0,0,0,12">
+            <TextBlock DockPanel.Dock="Right" Text="{Binding Summary}" Style="{StaticResource Caption}" VerticalAlignment="Center" />
+            <WrapPanel>
+                <ComboBox Width="240" ItemsSource="{Binding Statuses}" SelectedItem="{Binding Status}" ToolTip="Estado" Margin="0,0,10,0" />
+                <ComboBox Width="300" ItemsSource="{Binding Suppliers}" SelectedItem="{Binding Supplier}" ToolTip="Proveedor" />
+            </WrapPanel>
+        </DockPanel>
+
+        <Border Grid.Row="3" Style="{StaticResource CardFlat}" Padding="4,2,4,4">
+            <Grid>
+                <DataGrid ItemsSource="{Binding Rows}" SelectedItem="{Binding Selected}" RowHeight="54">
+                    <DataGrid.Columns>
+                        <DataGridTemplateColumn Header="ORDEN" Width="112" SortMemberPath="Number" CanUserSort="True">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:PurchaseOrderItem}">
+                                    <Border Style="{StaticResource Pill}" Background="{DynamicResource BrandSoft}">
+                                        <TextBlock Text="{Binding Number}" Style="{StaticResource Mono}" Foreground="{DynamicResource BrandText}" FontWeight="SemiBold" />
+                                    </Border>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTemplateColumn Header="PROVEEDOR" Width="*" MinWidth="170" SortMemberPath="Supplier" CanUserSort="True">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:PurchaseOrderItem}">
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Supplier}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Style="{StaticResource Caption}" FontSize="11.5" TextTrimming="CharacterEllipsis">
+                                            <Run Text="{Binding LinesText, Mode=OneWay}" /><Run Text=" · pedida " /><Run Text="{Binding DateText, Mode=OneWay}" />
+                                        </TextBlock>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTextColumn Header="ENTREGA" Binding="{Binding ExpectedText}" Width="96" SortMemberPath="Row.ExpectedDate" ElementStyle="{StaticResource CellText}" />
+                        <DataGridTextColumn Header="TOTAL" Binding="{Binding TotalText}" Width="116" SortMemberPath="Total" HeaderStyle="{StaticResource HeaderRight}"
+                                            ElementStyle="{StaticResource CellRight}" />
+                        <DataGridTemplateColumn Header="RECIBIDO" Width="104" SortMemberPath="Received" CanUserSort="True">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:PurchaseOrderItem}">
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding ReceivedText}" FontSize="11.5" Foreground="{DynamicResource TextMuted}" />
+                                        <Grid Height="5" Margin="0,4,0,0" Width="90" HorizontalAlignment="Left">
+                                            <Border Background="{DynamicResource ChartTrack}" CornerRadius="3" />
+                                            <Border Background="{DynamicResource Success}" CornerRadius="3" HorizontalAlignment="Left"
+                                                    Width="{Binding Received, Converter={StaticResource ShareWidth}, ConverterParameter=90}" />
+                                        </Grid>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTemplateColumn Header="ESTADO" Width="132" SortMemberPath="Status" CanUserSort="True">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:PurchaseOrderItem}">
+                                    <Border Style="{StaticResource StatusPill}" c:Ui.BrushKey="{Binding StatusSoftBrush}">
+                                        <TextBlock Text="{Binding StatusText}" FontSize="11" FontWeight="SemiBold" c:Ui.BrushKey="{Binding StatusBrush}" />
+                                    </Border>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+                <ContentControl Style="{StaticResource EmptyState}" Tag="{x:Static c:Glyphs.Clipboard}" Visibility="{Binding IsEmpty, Converter={StaticResource Visible}}">
+                    <TextBlock Text="No hay órdenes con esos filtros" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" />
+                </ContentControl>
+            </Grid>
+        </Border>
+
+        <!-- Detalle de la orden -->
+        <Border Grid.Row="2" Grid.RowSpan="2" Grid.Column="1" Style="{StaticResource EditorPanel}" Width="370">
+            <Border.Visibility>
+                <MultiBinding Converter="{StaticResource DetailVisibility}">
+                    <Binding Path="HasSelection" />
+                    <Binding Path="IsEditing" />
+                </MultiBinding>
+            </Border.Visibility>
+            <DockPanel Margin="20,16">
+                <StackPanel DockPanel.Dock="Top">
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Close}" Click="OnCloseDetail" ToolTip="Cerrar" />
+                        <TextBlock Text="{Binding Selected.Number}" Style="{StaticResource H2}" VerticalAlignment="Center" />
+                    </DockPanel>
+                    <TextBlock Text="{Binding Selected.Supplier}" FontWeight="SemiBold" Margin="0,6,0,0" TextWrapping="Wrap" />
+                    <TextBlock Style="{StaticResource Caption}">
+                        <Run Text="Pedida el" /> <Run Text="{Binding Selected.DateText, Mode=OneWay}" /> <Run Text="· entrega" />
+                        <Run Text="{Binding Selected.ExpectedText, Mode=OneWay}" />
+                    </TextBlock>
+                    <Border Style="{StaticResource StatusPill}" c:Ui.BrushKey="{Binding Selected.StatusSoftBrush}" Margin="0,8,0,0">
+                        <TextBlock Text="{Binding Selected.StatusText}" FontSize="11" FontWeight="SemiBold" c:Ui.BrushKey="{Binding Selected.StatusBrush}" />
+                    </Border>
+                    <TextBlock Text="{Binding Selected.Row.Notes}" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,8,0,0"
+                               Visibility="{Binding Selected.Row.Notes, Converter={StaticResource HasValue}}" />
+                </StackPanel>
+                <StackPanel DockPanel.Dock="Bottom">
+                    <Border Height="1" Background="{DynamicResource Border}" Margin="0,10" />
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Right" Text="{Binding Selected.TotalText}" FontSize="22" FontWeight="Bold" />
+                        <TextBlock Text="TOTAL" Style="{StaticResource Overline}" VerticalAlignment="Center" />
+                    </DockPanel>
+                    <TextBlock Text="{Binding ReceiptsText}" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,6,0,0"
+                               Visibility="{Binding ReceiptsText, Converter={StaticResource HasValue}}" />
+                    <UniformGrid Columns="3" Margin="0,14,0,0">
+                        <Button Style="{StaticResource PrimaryButton}" Content="Aprobar" c:Ui.Icon="{x:Static c:Glyphs.CheckCircle}" Command="{Binding Approve}" Margin="0,0,4,0" />
+                        <Button Style="{StaticResource SoftButton}" Content="Recibir" c:Ui.Icon="{x:Static c:Glyphs.Box}" Command="{Binding Receive}" Margin="2,0" />
+                        <Button Content="Anular" c:Ui.Icon="{x:Static c:Glyphs.Error}" Command="{Binding Cancel}" Margin="4,0,0,0" />
+                    </UniformGrid>
+                </StackPanel>
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,14,0,0">
+                    <ItemsControl ItemsSource="{Binding Detail.Lines}" Focusable="False">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type p:PurchaseOrderLineRow}">
+                                <DockPanel Margin="0,6">
+                                    <TextBlock DockPanel.Dock="Right" Text="{Binding Subtotal, StringFormat={}{0:N2}}" FontWeight="SemiBold" />
+                                    <StackPanel Margin="0,0,10,0">
+                                        <TextBlock Text="{Binding Name}" TextWrapping="Wrap" Foreground="{DynamicResource TextPrimary}" />
+                                        <TextBlock Style="{StaticResource Caption}" FontSize="11.5">
+                                            <Run Text="{Binding Sku, Mode=OneWay}" /><Run Text=" · " />
+                                            <Run Text="{Binding Quantity, Mode=OneWay, StringFormat={}{0:0.###}}" /> <Run Text="{Binding Unit, Mode=OneWay}" />
+                                            <Run Text=" × " /><Run Text="{Binding UnitCost, Mode=OneWay, StringFormat={}{0:N2}}" />
+                                            <Run Text=" · recibido " /><Run Text="{Binding Received, Mode=OneWay, StringFormat={}{0:0.###}}" />
+                                        </TextBlock>
+                                    </StackPanel>
+                                </DockPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
+
+        <!-- Orden nueva -->
+        <Border Grid.Row="2" Grid.RowSpan="2" Grid.Column="1" Style="{StaticResource EditorPanel}" Width="480"
+                Visibility="{Binding DataContext.IsEditing, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource Visible}}"
+                DataContext="{Binding Editor}">
+            <DockPanel>
+                <DockPanel DockPanel.Dock="Top" Margin="20,16,12,8">
+                    <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Close}" Command="{Binding Cancel}" />
+                    <TextBlock Text="Nueva orden de compra" Style="{StaticResource H2}" VerticalAlignment="Center" />
+                </DockPanel>
+                <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0" Padding="20,12">
+                    <StackPanel>
+                        <DockPanel Margin="0,0,0,10">
+                            <TextBlock DockPanel.Dock="Right" Text="{Binding TotalText}" FontSize="20" FontWeight="Bold" />
+                            <TextBlock Text="{Binding LinesText}" Style="{StaticResource Caption}" VerticalAlignment="Center" />
+                        </DockPanel>
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Style="{StaticResource PrimaryButton}" Content="Crear en borrador" Command="{Binding Save}" MinWidth="160"
+                                    c:Ui.IsBusy="{Binding Save.IsRunning}" c:Ui.Icon="{x:Static c:Glyphs.Save}" />
+                            <Button Content="Cancelar" Command="{Binding Cancel}" HorizontalAlignment="Left" />
+                        </DockPanel>
+                    </StackPanel>
+                </Border>
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="20,4,20,16">
+                        <TextBlock Text="Proveedor" Style="{StaticResource FieldLabel}" />
+                        <ComboBox ItemsSource="{Binding Suppliers}" SelectedItem="{Binding Supplier}" DisplayMemberPath="Name" />
+                        <TextBlock Text="Entrega esperada" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
+                        <ComboBox ItemsSource="{Binding Dates}" SelectedItem="{Binding Expected}" />
+                        <TextBlock Text="Notas" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
+                        <TextBox Text="{Binding Notes, UpdateSourceTrigger=PropertyChanged}" MaxLength="250" c:Ui.Placeholder="Condiciones, forma de pago, contacto…" />
+
+                        <TextBlock Text="Agregar producto" Style="{StaticResource FieldLabel}" Margin="0,16,0,6" />
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Style="{StaticResource SoftButton}" Content="Agregar" c:Ui.Icon="{x:Static c:Glyphs.Add}" Command="{Binding AddLine}"
+                                    Margin="6,0,0,0" />
+                            <ComboBox ItemsSource="{Binding Products}" SelectedItem="{Binding Product}" IsTextSearchEnabled="True" TextSearch.TextPath="Name">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type cat:CatalogItem}">
+                                        <TextBlock>
+                                            <Run Text="{Binding Name, Mode=OneWay}" /> <Run Text="{Binding Sku, Mode=OneWay}" Foreground="{DynamicResource TextMuted}" />
+                                        </TextBlock>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                        </DockPanel>
+                        <CheckBox Content="Solo productos de este proveedor" IsChecked="{Binding OnlySupplier}" Margin="0,8,0,0" />
+
+                        <ItemsControl ItemsSource="{Binding Lines}" Margin="0,12,0,0" Focusable="False">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:DraftLine}">
+                                    <Border Style="{StaticResource Panel}" Padding="10" Margin="0,0,0,8">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="40" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <c:ProductThumb Width="40" Height="40" Source="{Binding Image}" CornerRadius="8" VerticalAlignment="Top" />
+                                            <StackPanel Grid.Column="1" Margin="10,0,6,0">
+                                                <TextBlock Text="{Binding Product.Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                                    <TextBox Width="80" Height="30" Text="{Binding Quantity, UpdateSourceTrigger=PropertyChanged}" c:Ui.Placeholder="Cant."
+                                                             ToolTip="Cantidad" TextAlignment="Right" />
+                                                    <TextBlock Text="{Binding Product.Unit}" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="6,0,10,0" />
+                                                    <TextBox Width="90" Height="30" Text="{Binding Cost, UpdateSourceTrigger=PropertyChanged}" ToolTip="Costo unitario"
+                                                             TextAlignment="Right" />
+                                                </StackPanel>
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="2" HorizontalAlignment="Right">
+                                                <TextBlock Text="{Binding SubtotalText}" FontWeight="SemiBold" HorizontalAlignment="Right" />
+                                                <Button Style="{StaticResource IconButton}" Width="28" Height="28" FontSize="12" Content="{x:Static c:Glyphs.Delete}"
+                                                        HorizontalAlignment="Right" Margin="0,6,0,0" Foreground="{DynamicResource Danger}"
+                                                        Command="{Binding DataContext.RemoveLine, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                        CommandParameter="{Binding}" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <Border Style="{StaticResource FormError}" Visibility="{Binding Error, Converter={StaticResource HasValue}}">
+                            <TextBlock Text="{Binding Error}" Foreground="{DynamicResource Danger}" TextWrapping="Wrap" />
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
+    </Grid>
+</UserControl>

@@ -21,7 +21,7 @@ public sealed class ModelTests
     {
         var tables = Entities.Select(e => (e.GetSchema(), e.GetTableName())).Distinct().ToList();
         Assert.True(tables.Count >= 80, $"solo {tables.Count} tablas");
-        Assert.Equal(96, tables.Count);
+        Assert.Equal(97, tables.Count);   // 96 de la V3 + catalog.product_images (V3.1)
         Assert.Equal(Schemas.All.OrderBy(s => s), tables.Select(t => t.Item1!).Distinct().OrderBy(s => s));
     }
 

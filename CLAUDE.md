@@ -3,11 +3,13 @@
 M-INV es el sistema de inventarios B2B de Z&P Software Fast Solutions: libros de Excel arquitectados como aplicación
 transaccional inmutable (CQRS, append-only), preparados para migrar a SQL/.NET.
 
-Versión en desarrollo: **3.1.0-alpha.1** en la rama `Inventario-V3.1`: solución .NET 8 (`MINV.sln`, Clean
-Architecture) con PostgreSQL (96 tablas, 5FN, multi-tenant), hardware ESC/POS y el cliente de escritorio completo
-`M-INV.exe` (WPF/MVVM: pantalla de carga, login con demostración en memoria, tablero, registro con poka-yoke, toma
-física, alertas, pedido, ficha con kardex, tema claro/oscuro). Se construyó sobre el modelo de la V2.1 (importador con
-verificación de paridad). Reglas: `.claude/v3-architecture-rules.md`; interfaz: `docs/product/escritorio-v3.1.md`.
+Versión en desarrollo: **3.1.0-alpha.1** en la rama `Inventario-V3.-BaseDeDatosLocal` (sobre `Inventario-V3.1`):
+solución .NET 8 (`MINV.sln`, Clean Architecture) con PostgreSQL (97 tablas, 5FN, multi-tenant; local con
+`tools\bd_local.ps1` y datos de prueba `minv datos-prueba`), hardware ESC/POS y el cliente de escritorio completo
+`M-INV.exe` (WPF/MVVM: pantalla de carga, login con demostración en memoria, tablero, stock y catálogo en galería con
+imágenes, punto de venta, ventas, clientes, compras, proveedores, reportes, contabilidad, usuarios y roles, registro
+con poka-yoke, toma física, alertas, pedido, ficha con kardex, tema claro/oscuro). Se construyó sobre el modelo de la
+V2.1 (importador con verificación de paridad). Reglas: `.claude/v3-architecture-rules.md`; interfaz: `docs/product/escritorio-v3.1.md`.
 
 Versión estable anterior: **2.1.0** en la rama `Inventario-V2.1`: libro **colaborativo** para Microsoft 365 (SharePoint/OneDrive,
 Excel para la web) con Office Scripts (`src/office-scripts/`): portadas por rol (Bodega, Ventas, Gerencia), captura por
@@ -27,6 +29,8 @@ rama `Inventario-V1.2`). Idioma del producto y la documentación: español.
 powershell -ExecutionPolicy Bypass -File tools\build_v3.ps1                  # V3: compilar, probar, migraciones, db_init.sql
 powershell -ExecutionPolicy Bypass -File tools\build_v3.ps1 -Capturas -Publicar # V3.1: + capturas del cliente + M-INV.exe (dist)
 powershell -ExecutionPolicy Bypass -File tools\publicar_escritorio.ps1         # V3.1: solo publicar M-INV.exe
+powershell -ExecutionPolicy Bypass -File tools\bd_local.ps1 -Accion recrear     # PostgreSQL local + datos de prueba
+dotnet run --project "src/4. Tools/MINV.Cli" -- datos-prueba --conexion "…"      # empresa de prueba en otra base
 $env:MINV_TEST_PG = '<cadena postgres>'                                        # V3: activa las pruebas contra PostgreSQL
 dotnet run --project "src/4. Tools/MINV.Cli" -- import-v21 --archivo …          # V3: migrar un libro de la V2.1
 powershell -ExecutionPolicy Bypass -File tools\build_v2.ps1 -Capturas        # V2: ciclo completo (DoD, regla C-12)

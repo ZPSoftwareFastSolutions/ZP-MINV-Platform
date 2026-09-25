@@ -27,34 +27,39 @@ public sealed class ShellViewModel : ObservableObject, INavigator
 
     public ShellViewModel(AppServices app, DashboardViewModel dashboard, StockViewModel stock, MovementViewModel movement,
         PhysicalCountViewModel count, AlertsViewModel alerts, OrderViewModel order, ActivityViewModel activity,
-        SettingsViewModel settings, HelpViewModel help)
+        SettingsViewModel settings, HelpViewModel help, CatalogViewModel catalog, PosViewModel pos, SalesViewModel sales,
+        CustomersViewModel customers, PurchaseOrdersViewModel purchases, SuppliersViewModel suppliers, ReportsViewModel reports,
+        AccountingViewModel accounting, UsersViewModel users)
     {
         _app = app;
         app.Navigator = this;
         var s = app.Session;
-        var inventory = new List<PageViewModel> { stock };
-        if (s.Can(PermissionCodes.MovementsRegisterWarehouse) || s.Can(PermissionCodes.MovementsRegisterSales))
-        {
-            inventory.Add(movement);
-        }
-        if (s.Can(PermissionCodes.PhysicalCountRecord))
-        {
-            inventory.Add(count);
-        }
-        var sections = new List<NavSection>
-        {
-            new("General", [dashboard]),
-            new("Inventario", inventory),
-            new("Reposición", [alerts, order]),
-        };
-        if (s.Can(PermissionCodes.AuditView))
-        {
-            sections.Add(new NavSection("Control", [activity]));
-        }
+        // Cada rol ve solo lo que puede hacer (la tubería vuelve a verificar el permiso en cada caso de uso)
+        var sections = new List<NavSection> { new("General", [dashboard]) };
+        Add(sections, "Ventas",
+            (pos, s.Can(PermissionCodes.PosOperate)),
+            (sales, s.Can(PermissionCodes.SalesView)),
+            (customers, s.Can(PermissionCodes.CustomersManage) || s.Can(PermissionCodes.SalesView)));
+        Add(sections, "Inventario",
+            (stock, true),
+            (catalog, true),
+            (movement, s.Can(PermissionCodes.MovementsRegisterWarehouse) || s.Can(PermissionCodes.MovementsRegisterSales)),
+            (count, s.Can(PermissionCodes.PhysicalCountRecord)));
+        Add(sections, "Compras y reposición",
+            (alerts, true),
+            (order, true),
+            (purchases, s.Can(PermissionCodes.PurchasingManage)),
+            (suppliers, s.Can(PermissionCodes.PurchasingManage)));
+        Add(sections, "Análisis",
+            (reports, s.Can(PermissionCodes.ReportsView)),
+            (accounting, s.Can(PermissionCodes.AccountingManage)));
+        Add(sections, "Administración",
+            (users, s.Can(PermissionCodes.UsersManage)),
+            (activity, s.Can(PermissionCodes.AuditView)));
         Sections = sections;
         Footer = [settings, help];
         AllPages = [.. sections.SelectMany(x => x.Pages), .. Footer];
-        for (var i = 0; i < AllPages.Count - 2; i++)
+        for (var i = 0; i < Math.Min(9, AllPages.Count - 2); i++)
         {
             AllPages[i].Shortcut = $"Ctrl+{i + 1}";
         }
@@ -84,6 +89,21 @@ public sealed class ShellViewModel : ObservableObject, INavigator
     }
 
     public AppServices App => _app;
+
+    private static void Add(List<NavSection> sections, string title, params (PageViewModel Page, bool Allowed)[] pages)
+    {
+        var allowed = pages.Where(p => p.Allowed).Select(p => p.Page).ToList();
+        if (allowed.Count > 0)
+        {
+            sections.Add(new NavSection(title, allowed));
+        }
+    }
+
+    /// <summary>Copia un texto (p. ej. la contraseña temporal del cuadro) al portapapeles.</summary>
+    public RelayCommand<string> CopyText { get; } = new(text =>
+    {
+        _ = ClipboardText.TrySet(text);
+    });
 
     public IReadOnlyList<NavSection> Sections { get; }
 
@@ -200,6 +220,7 @@ public sealed class ShellViewModel : ObservableObject, INavigator
             return;
         }
         IsUserMenuOpen = false;
+        ProductDetail = null;   // cambiar de pantalla cierra la ficha lateral
         foreach (var p in AllPages)
         {
             p.IsSelected = ReferenceEquals(p, page);

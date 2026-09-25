@@ -111,15 +111,15 @@ public sealed class PostgresIntegrationTests(PostgresFixture pg) : IClassFixture
     }
 
     [PostgresFact]
-    public async Task Las_migraciones_crean_96_tablas_triggers_RLS_y_vistas()
+    public async Task Las_migraciones_crean_97_tablas_triggers_RLS_y_vistas()
     {
         await using var provider = pg.Services();
         using var scope = provider.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MINVDbContext>();
         async Task<int> Count(string sql) => await db.Database.SqlQueryRaw<int>(sql).SingleAsync();
-        Assert.Equal(96, await Count("SELECT count(*)::int AS \"Value\" FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema IN ('iam','catalog','warehouse','inventory','purchasing','sales','accounting') AND table_name <> '__ef_migrations_history'"));
+        Assert.Equal(97, await Count("SELECT count(*)::int AS \"Value\" FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema IN ('iam','catalog','warehouse','inventory','purchasing','sales','accounting') AND table_name <> '__ef_migrations_history'"));
         Assert.Equal(7, await Count("SELECT count(*)::int AS \"Value\" FROM pg_trigger WHERE tgname = 'trg_append_only'"));
-        Assert.Equal(94, await Count("SELECT count(*)::int AS \"Value\" FROM pg_policies WHERE policyname = 'tenant_isolation'"));
+        Assert.Equal(95, await Count("SELECT count(*)::int AS \"Value\" FROM pg_policies WHERE policyname = 'tenant_isolation'"));
         Assert.Equal(3, await Count("SELECT count(*)::int AS \"Value\" FROM information_schema.views WHERE table_name IN ('v_stock_by_variant','v_conservation_breaches','v_activity')"));
         Assert.Equal(5, await db.Modules.CountAsync());
     }
@@ -222,5 +222,33 @@ public sealed class PostgresIntegrationTests(PostgresFixture pg) : IClassFixture
         await mediator.Send(new LoginCommand("V21DEMO", "admin@distribuidorademo.example", AdminPassword, "pruebas", "3.0.0"));
         var view = await mediator.Send(new GetStockProjectionQuery());
         Assert.Equal(34, view.Result.Stock.Count);
+    }
+
+    /// <summary>
+    /// <c>minv datos-prueba</c> contra PostgreSQL real: ventas en caja, compras recibidas, anulaciones y asientos respetan
+    /// los CHECK (arcos exclusivos de pedidos y recepciones), los triggers de partida doble y los libros append-only.
+    /// </summary>
+    [PostgresFact]
+    public async Task Los_datos_de_prueba_respetan_todas_las_restricciones_de_PostgreSQL()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<MINV.Infrastructure.Services.DemoClock>();
+        services.AddSingleton<IClock>(sp => sp.GetRequiredService<MINV.Infrastructure.Services.DemoClock>());
+        services.AddMinvApplication();
+        services.AddMinvInfrastructure(pg.ConnectionString);
+        await using var provider = services.BuildServiceProvider();
+        var result = await provider.GetRequiredService<MINV.Infrastructure.Seeding.LocalDataSeeder>()
+            .SeedAsync(new MINV.Infrastructure.Seeding.SeedOptions("SEMILLA", Days: 6, Seed: 11), _ => { });
+        Assert.True(result.Tickets > 10);
+        using var scope = provider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<MINVDbContext>();
+        var breaches = await db.Database.SqlQueryRaw<int>(
+            "SELECT count(*)::int AS \"Value\" FROM inventory.v_conservation_breaches").SingleAsync();
+        Assert.Equal(0, breaches);
+        var unbalanced = await db.Database.SqlQueryRaw<int>(
+            "SELECT count(*)::int AS \"Value\" FROM (SELECT journal_entry_id FROM accounting.journal_lines GROUP BY journal_entry_id " +
+            "HAVING sum(debit) <> sum(credit)) x").SingleAsync();
+        Assert.Equal(0, unbalanced);
+        Assert.Equal(61, await db.Database.SqlQueryRaw<int>("SELECT count(*)::int AS \"Value\" FROM catalog.product_images").SingleAsync());
     }
 }

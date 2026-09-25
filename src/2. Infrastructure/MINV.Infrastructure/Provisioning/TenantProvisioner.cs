@@ -157,13 +157,12 @@ public sealed class TenantProvisioner(MINVDbContext db, ITenantContext tenant, I
         // Contabilidad mínima
         db.Add(new FiscalPeriod(id, (short)today.Year, (short)today.Month));
         db.Add(new CostCenter(id, "CM", r.BranchName, branch.Id));
-        db.AddRange(new Account(id, "1.1.01", "Caja", AccountType.Asset, null, true),
-            new Account(id, "1.1.05", "Inventario de mercaderías", AccountType.Asset, null, true),
-            new Account(id, "4.1.01", "Ventas", AccountType.Revenue, null, true),
-            new Account(id, "5.1.01", "Costo de ventas", AccountType.Expense, null, true),
-            new Account(id, "5.1.09", "Mermas y ajustes de inventario", AccountType.Expense, null, true));
+        db.AddRange(ChartOfAccounts.CreateDefaults(id));
 
-        // Módulos licenciados (por defecto, todos)
+        // Módulos licenciados (por defecto, todos). En PostgreSQL el catálogo de módulos viene de la migración (HasData);
+        // la base en memoria de la demostración no ejecuta migraciones, así que se completa aquí la primera vez.
+        var knownModules = await db.Modules.Select(m => m.Id).ToListAsync(ct);
+        db.AddRange(LicenseModule.Catalog().Where(m => !knownModules.Contains(m.Id)));
         var licensed = r.LicensedModules ?? LicenseModule.Catalog().Select(m => m.Code).ToList();
         foreach (var module in LicenseModule.Catalog().Where(m => licensed.Contains(m.Code)))
         {

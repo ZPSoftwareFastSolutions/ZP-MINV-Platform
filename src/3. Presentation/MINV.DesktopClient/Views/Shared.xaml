@@ -12,6 +12,9 @@
     <v:NotConverter x:Key="Not" />
     <v:StepNumberConverter x:Key="StepNumber" />
     <v:AvatarBrushConverter x:Key="AvatarBrush" />
+    <v:ShareWidthConverter x:Key="ShareWidth" />
+    <v:IndentConverter x:Key="Indent" />
+    <v:DetailVisibilityConverter x:Key="DetailVisibility" />
 
     <!-- Chip de filtro con punto de color y contador -->
     <DataTemplate x:Key="FilterChipTemplate" DataType="{x:Type vm:FilterChip}">
@@ -118,4 +121,88 @@
             </Setter.Value>
         </Setter>
     </Style>
+
+    <!-- Indicador (KPI) de los encabezados de las pantallas nuevas: ícono en burbuja de color, valor y detalle -->
+    <DataTemplate x:Key="KpiTemplate" DataType="{x:Type vm:KpiCard}">
+        <Border Style="{StaticResource CardFlat}" Margin="6" Padding="16,13">
+            <DockPanel>
+                <Border DockPanel.Dock="Left" Width="40" Height="40" CornerRadius="11" c:Ui.BrushKey="{Binding SoftKey}" VerticalAlignment="Top">
+                    <TextBlock Style="{StaticResource Icon}" Text="{Binding Glyph}" FontSize="17" c:Ui.BrushKey="{Binding BrushKey}" />
+                </Border>
+                <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding Title}" Style="{StaticResource Caption}" />
+                    <TextBlock Text="{Binding Value}" FontWeight="SemiBold" FontSize="18" Foreground="{DynamicResource TextPrimary}" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding Detail}" Style="{StaticResource Caption}" FontSize="11.5" TextTrimming="CharacterEllipsis"
+                               Visibility="{Binding Detail, Converter={StaticResource HasValue}}" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+    </DataTemplate>
+
+    <ItemsPanelTemplate x:Key="KpiPanel">
+        <UniformGrid Rows="1" />
+    </ItemsPanelTemplate>
+
+    <!-- Etiqueta de estado con color de la paleta (Tag = clave suave, Foreground por c:Ui.BrushKey del texto) -->
+    <Style x:Key="StatusPill" TargetType="Border">
+        <Setter Property="CornerRadius" Value="9" />
+        <Setter Property="Padding" Value="9,2" />
+        <Setter Property="HorizontalAlignment" Value="Left" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <!-- Encabezado de un panel lateral de edición -->
+    <Style x:Key="EditorPanel" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource Surface}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Border}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="12" />
+        <Setter Property="Effect" Value="{StaticResource CardShadow}" />
+        <Setter Property="Margin" Value="16,0,0,0" />
+    </Style>
+
+    <!-- Mensaje de error de un formulario -->
+    <Style x:Key="FormError" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource DangerSoft}" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Padding" Value="12,8" />
+        <Setter Property="Margin" Value="0,12,0,0" />
+    </Style>
+
+    <!-- Fila de ranking con barra proporcional (reportes) -->
+    <DataTemplate x:Key="RankRowTemplate" DataType="{x:Type vm:RankRow}">
+        <Grid Margin="0,5">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="30" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="90" />
+                <ColumnDefinition Width="120" />
+                <ColumnDefinition Width="110" />
+                <ColumnDefinition Width="70" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="{Binding Rank}" Foreground="{DynamicResource TextMuted}" FontWeight="SemiBold" VerticalAlignment="Center" />
+            <StackPanel Grid.Column="1" Margin="0,0,12,0">
+                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" TextTrimming="CharacterEllipsis" />
+                <Grid Height="6" Margin="0,5,0,0">
+                    <Border Background="{DynamicResource ChartTrack}" CornerRadius="3" />
+                    <Border Background="{DynamicResource Brand}" CornerRadius="3" HorizontalAlignment="Left"
+                            Width="{Binding Share, Converter={StaticResource ShareWidth}, ConverterParameter=320}" />
+                </Grid>
+            </StackPanel>
+            <TextBlock Grid.Column="2" Text="{Binding QuantityText}" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondary}" />
+            <TextBlock Grid.Column="3" Text="{Binding AmountText}" HorizontalAlignment="Right" VerticalAlignment="Center" FontWeight="SemiBold" />
+            <TextBlock Grid.Column="4" Text="{Binding ProfitText}" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="{DynamicResource Success}" />
+            <TextBlock Grid.Column="5" Text="{Binding ShareText}" HorizontalAlignment="Right" VerticalAlignment="Center" Style="{StaticResource Caption}" />
+        </Grid>
+    </DataTemplate>
+
+    <!-- Leyenda de un gráfico de dona -->
+    <DataTemplate x:Key="LegendRowTemplate" DataType="{x:Type vm:LegendRow}">
+        <DockPanel Margin="0,4">
+            <Ellipse DockPanel.Dock="Left" Width="10" Height="10" c:Ui.BrushKey="{Binding BrushKey}" VerticalAlignment="Center" />
+            <TextBlock DockPanel.Dock="Right" Text="{Binding PercentText}" Style="{StaticResource Caption}" Width="44" TextAlignment="Right" VerticalAlignment="Center" />
+            <TextBlock DockPanel.Dock="Right" Text="{Binding AmountText}" FontWeight="SemiBold" Margin="8,0,0,0" VerticalAlignment="Center" />
+            <TextBlock Text="{Binding Label}" Margin="10,0,0,0" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+        </DockPanel>
+    </DataTemplate>
 </ResourceDictionary>

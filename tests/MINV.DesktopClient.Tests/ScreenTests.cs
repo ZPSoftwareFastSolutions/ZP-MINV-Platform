@@ -20,15 +20,17 @@ public sealed class ScreenTests
         var demo = await host.PrepareDemoAsync();
         using var admin = await host.SignInDemoAsync(demo, DemoWorkspace.AdminEmail);
         var shell = admin.Services.GetRequiredService<ShellViewModel>();
-        Assert.Equal(["General", "Inventario", "Reposición", "Control"], shell.Sections.Select(s => s.Title));
-        Assert.Equal(["inicio", "stock", "registro", "conteo", "alertas", "pedido", "actividad", "configuracion", "ayuda"],
+        Assert.Equal(["General", "Ventas", "Inventario", "Compras y reposición", "Análisis", "Administración"], shell.Sections.Select(s => s.Title));
+        Assert.Equal(["inicio", "pos", "ventas", "clientes", "stock", "catalogo", "registro", "conteo", "alertas", "pedido", "compras", "proveedores",
+                "reportes", "contabilidad", "usuarios", "actividad", "configuracion", "ayuda"],
             shell.AllPages.Select(p => p.Key));
         Assert.Equal("Ctrl+1", shell.AllPages[0].Shortcut);
 
         var seller = demo.Users.First(u => u.RoleCode == RoleCodes.Sales);
         using var sales = await host.SignInDemoAsync(demo, seller.Email);
         var salesShell = sales.Services.GetRequiredService<ShellViewModel>();
-        Assert.DoesNotContain(salesShell.AllPages, p => p.Key is "conteo" or "actividad");
+        Assert.DoesNotContain(salesShell.AllPages, p => p.Key is "conteo" or "actividad" or "contabilidad" or "usuarios" or "compras");
+        Assert.Contains(salesShell.AllPages, p => p.Key is "pos");
         salesShell.Navigate("registro");
         var movement = (MovementViewModel)salesShell.Current;
         await movement.EnsureLoadedAsync();

@@ -11,6 +11,8 @@
     5. scripts\db_init.sql                      Se regenera: cabecera + "dotnet ef migrations script --idempotent".
     6. -Capturas                                Cliente de escritorio: M-INV.exe --capturas con la demostracion (V2.1)
                                                 -> docs\product\capturas\v3.1 (claro, oscuro y por rol; regla A-11).
+                                                Si existe la base local de prueba (tools\bd_local.ps1), las pantallas de
+                                                negocio (POS, ventas, compras, reportes, contabilidad) se capturan con ella.
     7. -Publicar                                tools\publicar_escritorio.ps1 -> dist\M-INV-<version>-win-x64\M-INV.exe
     Termina con codigo 1 si falla cualquier paso. Script ASCII a proposito (PowerShell 5.1).
 
@@ -59,7 +61,7 @@ Paso 'Regenerar scripts\db_init.sql' {
         [IO.File]::WriteAllText((Join-Path $root 'scripts\db_init.sql'), $header + $body.Replace("`r`n", "`n"), $utf8)
         Remove-Item $tmp -Force
         $tablas = (Select-String -Path (Join-Path $root 'scripts\db_init.sql') -Pattern 'CREATE TABLE' | Measure-Object).Count
-        Write-Output ('scripts\db_init.sql regenerado: ' + $tablas + ' sentencias CREATE TABLE (96 tablas + historial de migraciones)')
+        Write-Output ('scripts\db_init.sql regenerado: ' + $tablas + ' sentencias CREATE TABLE (97 tablas + historial de migraciones)')
     }
 }
 
@@ -68,8 +70,10 @@ if ($Capturas) {
         $exe = Get-ChildItem ('src\3. Presentation\MINV.DesktopClient\bin\' + $Configuration) -Filter 'M-INV.exe' -Recurse | Select-Object -First 1
         $dir = Join-Path $root 'docs\product\capturas\v3.1'
         if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
+        $usuarios = Join-Path $env:LOCALAPPDATA 'M-INV\usuarios-prueba.txt'
+        if (Test-Path $usuarios) { $env:MINV_CAPTURAS_USUARIOS = $usuarios; Write-Output 'Pantallas de negocio con la base LOCAL de prueba.' }
         $p = Start-Process -FilePath $exe.FullName -ArgumentList '--capturas', ('"' + $dir + '"') -PassThru
-        if (-not $p.WaitForExit(300000)) { Stop-Process -Id $p.Id -Force; Write-Output 'Las capturas no terminaron en 5 minutos.'; $global:LASTEXITCODE = 1 }
+        if (-not $p.WaitForExit(600000)) { Stop-Process -Id $p.Id -Force; Write-Output 'Las capturas no terminaron en 10 minutos.'; $global:LASTEXITCODE = 1 }
         else { $global:LASTEXITCODE = $p.ExitCode; Get-Content (Join-Path $dir 'capturas.log') -Encoding UTF8 | Select-Object -First 1 }
     }
 }

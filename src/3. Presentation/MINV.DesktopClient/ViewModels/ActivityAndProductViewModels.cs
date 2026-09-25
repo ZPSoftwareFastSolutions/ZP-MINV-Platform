@@ -104,6 +104,7 @@ public sealed class ProductDetailViewModel : ObservableObject
     private readonly AppServices _app;
     private readonly string _sku;
     private ProductCard? _card;
+    private System.Windows.Media.ImageSource? _image;
     private bool _loading = true;
     private string? _error;
 
@@ -140,6 +141,25 @@ public sealed class ProductDetailViewModel : ObservableObject
         get => _loading;
         private set => Set(ref _loading, value);
     }
+
+    /// <summary>Imagen del producto (tamaño de ficha) o null.</summary>
+    public System.Windows.Media.ImageSource? Image
+    {
+        get => _image;
+        private set
+        {
+            if (Set(ref _image, value))
+            {
+                OnPropertyChanged(nameof(HasImage));
+            }
+        }
+    }
+
+    public bool HasImage => _image is not null;
+
+    public bool CanEditCatalog => _app.Session.Can(PermissionCodes.CatalogManage);
+
+    public RelayCommand EditInCatalog => new(() => _app.Navigator.Navigate("catalogo", Sku));
 
     public string? Error
     {
@@ -211,6 +231,7 @@ public sealed class ProductDetailViewModel : ObservableObject
         try
         {
             Card = await _app.SendAsync(new GetProductCardQuery(_sku, 300));
+            Image = await _app.Images.LargeAsync(Card.VariantId);
         }
         catch (Exception ex)
         {

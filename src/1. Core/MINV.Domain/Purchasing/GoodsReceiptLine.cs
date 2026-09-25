@@ -30,4 +30,6 @@ public sealed class GoodsReceiptLine : Entity
     public decimal UnitCost { get; private set; }
 
     public Guid? StockMovementId { get; private set; }
+
+    public void LinkMovement(Guid stockMovementId) => StockMovementId = Guard.NotEmpty(stockMovementId, nameof(stockMovementId));
 }

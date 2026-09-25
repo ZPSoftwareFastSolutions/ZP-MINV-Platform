@@ -1,0 +1,210 @@
+<UserControl x:Class="MINV.DesktopClient.Views.Pages.ReportsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:MINV.DesktopClient.Controls"
+             xmlns:vm="clr-namespace:MINV.DesktopClient.ViewModels">
+    <UserControl.Resources>
+        <!-- Encabezado de las columnas del ranking -->
+        <Grid x:Key="RankHeader" x:Shared="False" Margin="0,0,0,6">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="30" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="90" />
+                <ColumnDefinition Width="120" />
+                <ColumnDefinition Width="110" />
+                <ColumnDefinition Width="70" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="#" Style="{StaticResource Overline}" />
+            <TextBlock Grid.Column="1" Text="NOMBRE" Style="{StaticResource Overline}" />
+            <TextBlock Grid.Column="2" Text="CANTIDAD" Style="{StaticResource Overline}" HorizontalAlignment="Right" />
+            <TextBlock Grid.Column="3" Text="MONTO" Style="{StaticResource Overline}" HorizontalAlignment="Right" />
+            <TextBlock Grid.Column="4" Text="UTILIDAD" Style="{StaticResource Overline}" HorizontalAlignment="Right" />
+            <TextBlock Grid.Column="5" Text="%" Style="{StaticResource Overline}" HorizontalAlignment="Right" />
+        </Grid>
+    </UserControl.Resources>
+
+    <Grid Margin="28,6,28,24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <DockPanel Margin="0,0,0,14">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <ComboBox Width="190" ItemsSource="{Binding Periods}" SelectedItem="{Binding Period}" ToolTip="Período" Margin="0,0,8,0" />
+                <Button Content="Exportar" c:Ui.Icon="{x:Static c:Glyphs.Download}" Command="{Binding Export}" Margin="0,0,8,0" />
+                <Button Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Refresh}" Command="{Binding Refresh}" ToolTip="Actualizar (F5)" />
+            </StackPanel>
+            <StackPanel>
+                <TextBlock Text="{Binding Title}" Style="{StaticResource H1}" />
+                <TextBlock Text="{Binding Subtitle}" Style="{StaticResource Caption}" FontSize="13" Margin="0,4,0,0" />
+            </StackPanel>
+        </DockPanel>
+
+        <Border Grid.Row="1" Background="{DynamicResource SurfaceHover}" CornerRadius="10" Padding="2" HorizontalAlignment="Left" Margin="0,0,0,14">
+            <StackPanel Orientation="Horizontal">
+                <RadioButton Style="{StaticResource Segment}" Content="Ventas" c:Ui.Icon="{x:Static c:Glyphs.Money}" IsChecked="{Binding IsSales}" GroupName="reportTab" />
+                <RadioButton Style="{StaticResource Segment}" Content="Compras" c:Ui.Icon="{x:Static c:Glyphs.Clipboard}" IsChecked="{Binding IsPurchases}" GroupName="reportTab" />
+                <RadioButton Style="{StaticResource Segment}" Content="Movimientos" c:Ui.Icon="{x:Static c:Glyphs.Swap}" IsChecked="{Binding IsMovements}" GroupName="reportTab" />
+                <RadioButton Style="{StaticResource Segment}" Content="Inventario" c:Ui.Icon="{x:Static c:Glyphs.Box}" IsChecked="{Binding IsInventory}" GroupName="reportTab" />
+            </StackPanel>
+        </Border>
+
+        <!-- ========================================================================== ventas -->
+        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Visibility="{Binding IsSales, Converter={StaticResource Visible}}">
+            <StackPanel>
+                <UniformGrid Columns="4" Margin="-6,0,-6,10">
+                    <ContentControl Content="{Binding Revenue}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+                    <ContentControl Content="{Binding Profit}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+                    <ContentControl Content="{Binding Tickets}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+                    <ContentControl Content="{Binding Average}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+                </UniformGrid>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="2*" />
+                        <ColumnDefinition Width="16" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Border Style="{StaticResource Card}">
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+                                <TextBlock Text="Ventas por día" Style="{StaticResource H3}" />
+                                <TextBlock Text="Monto facturado con IVA (pase el mouse por una columna para ver el detalle)" Style="{StaticResource Caption}" />
+                            </StackPanel>
+                            <c:ColumnChart Points="{Binding SalesByDay}" Height="240" />
+                        </DockPanel>
+                    </Border>
+                    <Border Grid.Column="2" Style="{StaticResource Card}">
+                        <StackPanel>
+                            <TextBlock Text="Medios de pago" Style="{StaticResource H3}" />
+                            <c:DonutChart Segments="{Binding SalesByMethod}" Stroke="22" Height="150" Width="150" Margin="0,14" />
+                            <ItemsControl ItemsSource="{Binding MethodLegend}" ItemTemplate="{StaticResource LegendRowTemplate}" Focusable="False" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+                <Border Style="{StaticResource Card}" Margin="0,16,0,0">
+                    <StackPanel>
+                        <DockPanel Margin="0,0,0,12">
+                            <ComboBox DockPanel.Dock="Right" Width="210" ItemsSource="{Binding Groupings}" SelectedItem="{Binding GroupBy}" ToolTip="Agrupar" />
+                            <StackPanel>
+                                <TextBlock Text="{Binding RankingTitle}" Style="{StaticResource H3}" />
+                                <TextBlock Text="Los 50 primeros por monto vendido" Style="{StaticResource Caption}" />
+                            </StackPanel>
+                        </DockPanel>
+                        <ContentControl Content="{StaticResource RankHeader}" Focusable="False" />
+                        <ItemsControl ItemsSource="{Binding Ranking}" ItemTemplate="{StaticResource RankRowTemplate}" Focusable="False" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- ========================================================================== compras -->
+        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Visibility="{Binding IsPurchases, Converter={StaticResource Visible}}">
+            <StackPanel>
+                <UniformGrid Columns="3" Margin="-6,0,-6,10">
+                    <ContentControl Content="{Binding Received}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+                    <ContentControl Content="{Binding Receipts}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+                    <ContentControl Content="{Binding OpenOrders}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+                </UniformGrid>
+                <Border Style="{StaticResource Card}">
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+                            <TextBlock Text="Compras recibidas por día" Style="{StaticResource H3}" />
+                            <TextBlock Text="Costo de la mercadería que entró al almacén" Style="{StaticResource Caption}" />
+                        </StackPanel>
+                        <c:ColumnChart Points="{Binding PurchasesByDay}" Height="220" />
+                    </DockPanel>
+                </Border>
+                <Border Style="{StaticResource Card}" Margin="0,16,0,0">
+                    <StackPanel>
+                        <TextBlock Text="Compras por proveedor" Style="{StaticResource H3}" Margin="0,0,0,12" />
+                        <ContentControl Content="{StaticResource RankHeader}" Focusable="False" />
+                        <ItemsControl ItemsSource="{Binding BySupplier}" ItemTemplate="{StaticResource RankRowTemplate}" Focusable="False" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- ========================================================================== movimientos -->
+        <DockPanel Grid.Row="2" Visibility="{Binding IsMovements, Converter={StaticResource Visible}}">
+            <UniformGrid DockPanel.Dock="Top" Columns="4" Margin="-6,0,-6,10">
+                <ContentControl Content="{Binding MovementsKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+                <ContentControl Content="{Binding EntriesKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+                <ContentControl Content="{Binding IssuesKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+                <Border Style="{StaticResource CardFlat}" Margin="6" Padding="16,13">
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="Tipo de movimiento" Style="{StaticResource Caption}" Margin="0,0,0,6" />
+                        <ComboBox ItemsSource="{Binding MovementTypes}" SelectedItem="{Binding MovementType}" />
+                    </StackPanel>
+                </Border>
+            </UniformGrid>
+            <Border Style="{StaticResource CardFlat}" Padding="4,2,4,4">
+                <DataGrid ItemsSource="{Binding Movements}" RowHeight="44">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="FECHA" Binding="{Binding WhenText}" Width="130" SortMemberPath="Row.RecordedAt" ElementStyle="{StaticResource CellText}" />
+                        <DataGridTemplateColumn Header="PRODUCTO" Width="*" MinWidth="220" SortMemberPath="Name" CanUserSort="True">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:MovementReportItem}">
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding Sku}" Style="{StaticResource Caption}" FontSize="11" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTextColumn Header="TIPO" Binding="{Binding TypeName}" Width="160" ElementStyle="{StaticResource CellText}" />
+                        <DataGridTemplateColumn Header="CANTIDAD" Width="120" SortMemberPath="Row.Signed" CanUserSort="True">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:MovementReportItem}">
+                                    <TextBlock x:Name="Q" Text="{Binding QuantityText}" FontWeight="SemiBold" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                               Foreground="{DynamicResource Warning}" />
+                                    <DataTemplate.Triggers>
+                                        <DataTrigger Binding="{Binding IsIn}" Value="True">
+                                            <Setter TargetName="Q" Property="Foreground" Value="{DynamicResource Success}" />
+                                        </DataTrigger>
+                                    </DataTemplate.Triggers>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTextColumn Header="POSICIÓN" Binding="{Binding BinCode}" Width="120" ElementStyle="{StaticResource CellText}" />
+                        <DataGridTextColumn Header="USUARIO" Binding="{Binding User}" Width="160" ElementStyle="{StaticResource CellText}" />
+                        <DataGridTextColumn Header="DOCUMENTO" Binding="{Binding Document}" Width="120" ElementStyle="{StaticResource CellText}" />
+                    </DataGrid.Columns>
+                </DataGrid>
+            </Border>
+        </DockPanel>
+
+        <!-- ========================================================================== inventario -->
+        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Visibility="{Binding IsInventory, Converter={StaticResource Visible}}">
+            <StackPanel>
+                <UniformGrid Columns="3" Margin="-6,0,-6,10">
+                    <ContentControl Content="{Binding InventoryValue}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+                    <ContentControl Content="{Binding InventoryAlerts}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+                    <ContentControl Content="{Binding InventoryRotation}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+                </UniformGrid>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="16" />
+                        <ColumnDefinition Width="2*" />
+                    </Grid.ColumnDefinitions>
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel>
+                            <TextBlock Text="Valor por categoría" Style="{StaticResource H3}" />
+                            <c:DonutChart Segments="{Binding ValueByCategory}" Stroke="24" Height="170" Width="170" Margin="0,14" />
+                            <ItemsControl ItemsSource="{Binding CategoryLegend}" ItemTemplate="{StaticResource LegendRowTemplate}" Focusable="False" />
+                        </StackPanel>
+                    </Border>
+                    <Border Grid.Column="2" Style="{StaticResource Card}">
+                        <StackPanel>
+                            <TextBlock Text="Categorías por valor de inventario" Style="{StaticResource H3}" Margin="0,0,0,12" />
+                            <ContentControl Content="{StaticResource RankHeader}" Focusable="False" />
+                            <ItemsControl ItemsSource="{Binding CategoryRows}" ItemTemplate="{StaticResource RankRowTemplate}" Focusable="False" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

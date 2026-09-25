@@ -32,6 +32,15 @@
         <DataTemplate DataType="{x:Type vm:SettingsViewModel}"><p:SettingsView /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:HelpViewModel}"><p:HelpView /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:ProductDetailViewModel}"><p:ProductDetailView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:CatalogViewModel}"><p:CatalogView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:PosViewModel}"><p:PosView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:SalesViewModel}"><p:SalesView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:CustomersViewModel}"><p:CustomersView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:PurchaseOrdersViewModel}"><p:PurchaseOrdersView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:SuppliersViewModel}"><p:SuppliersView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:ReportsViewModel}"><p:ReportsView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:AccountingViewModel}"><p:AccountingView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:UsersViewModel}"><p:UsersView /></DataTemplate>
 
         <!-- Botón del menú lateral -->
         <Style x:Key="NavButton" TargetType="RadioButton">
@@ -325,6 +334,20 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
+                    </Border>
+                    <StackPanel Margin="0,16,0,0" Visibility="{Binding HasInput, Converter={StaticResource Visible}}">
+                        <TextBlock Text="{Binding InputLabel}" Style="{StaticResource FieldLabel}" />
+                        <ComboBox x:Name="DialogInput" IsEditable="True" ItemsSource="{Binding InputOptions}" MinHeight="42"
+                                  Text="{Binding InputText, UpdateSourceTrigger=PropertyChanged}" c:Ui.Placeholder="{Binding InputPlaceholder}" />
+                    </StackPanel>
+                    <Border Background="{DynamicResource BrandSoft}" CornerRadius="10" Padding="16,12" Margin="0,16,0,0"
+                            Visibility="{Binding HasHighlight, Converter={StaticResource Visible}}">
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Style="{StaticResource SoftButton}" Content="Copiar" c:Ui.Icon="{x:Static c:Glyphs.Copy}"
+                                    Command="{Binding DataContext.CopyText, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding Highlight}" />
+                            <TextBlock Text="{Binding Highlight}" Style="{StaticResource Mono}" FontSize="20" FontWeight="SemiBold" Foreground="{DynamicResource BrandText}"
+                                       VerticalAlignment="Center" TextWrapping="Wrap" />
+                        </DockPanel>
                     </Border>
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,24,0,0">
                         <Button Content="{Binding CancelText}" Command="{Binding Cancel}" IsCancel="True" MinWidth="110" />

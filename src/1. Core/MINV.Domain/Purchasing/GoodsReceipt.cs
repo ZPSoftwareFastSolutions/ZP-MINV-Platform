@@ -54,6 +54,15 @@ public sealed class GoodsReceipt : Entity, IConcurrencyAware, IAggregateRoot
         return line;
     }
 
+    /// <summary>Contabiliza la recepción: cada línea ya tiene su movimiento de entrada.</summary>
+    public void Post()
+    {
+        EnsureDraft();
+        Guard.That(_lines.Count > 0, "receipt.empty", "Una recepción necesita al menos una línea.");
+        Guard.That(_lines.All(l => l.StockMovementId is not null), "receipt.movements", "Cada línea recibida necesita su movimiento de stock.");
+        Status = GoodsReceiptStatus.Posted;
+    }
+
     private void EnsureDraft() => Guard.That(Status == GoodsReceiptStatus.Draft, "document.not_draft",
         "Solo se pueden modificar documentos en borrador.");
 }

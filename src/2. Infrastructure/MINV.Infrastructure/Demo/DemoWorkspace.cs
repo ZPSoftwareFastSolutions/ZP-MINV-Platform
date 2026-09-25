@@ -1,9 +1,12 @@
 using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using MINV.Application.Abstractions;
+using MINV.Domain.Catalog;
 using MINV.Domain.Iam;
+using MINV.Domain.Sales;
 using MINV.Infrastructure.Importing.V21;
 using MINV.Infrastructure.Persistence;
+using MINV.Infrastructure.Seeding;
 using MINV.Infrastructure.Services;
 
 namespace MINV.Infrastructure.Demo;
@@ -80,6 +83,27 @@ public sealed class DemoWorkspace(MINVDbContext db, V21Importer importer, DemoCl
         {
             db.UserCredentials.Add(new UserCredential(user.TenantId, user.Id, hash, hasher.Algorithm, hasher.Iterations, clock.UtcNow,
                 mustChangePassword: false));
+        }
+
+        // La V2.1 no tenía fotos: cada producto recibe la ilustración que corresponde a su nombre (galería del catálogo)
+        var variants = await (from v in db.ProductVariants
+                              join p in db.Products on v.ProductId equals p.Id
+                              select new { v.TenantId, v.Id, p.Name }).ToListAsync(ct);
+        // Tampoco tenía precios de venta: 60 % sobre el costo promedio (IVA incluido) para poder vender en el punto de venta
+        var priceList = await db.PriceLists.FirstAsync(l => l.IsDefault, ct);
+        var costs = (await db.AverageCostHistory.Select(c => new { c.VariantId, c.EffectiveAt, c.AverageCost }).ToListAsync(ct))
+            .GroupBy(c => c.VariantId).ToDictionary(g => g.Key, g => g.OrderByDescending(c => c.EffectiveAt).First().AverageCost);
+        var priced = (await db.PriceListItems.Select(i => i.VariantId).ToListAsync(ct)).ToHashSet();
+        foreach (var v in variants)
+        {
+            db.ProductImages.Add(new ProductImage(v.TenantId, v.Id, ProductImageLibrary.ForProduct(v.Name), "image/png",
+                ProductImageLibrary.KindFor(v.Name) + ".png"));
+            if (!priced.Contains(v.Id))
+            {
+                var cost = costs.GetValueOrDefault(v.Id);
+                db.PriceListItems.Add(new PriceListItem(v.TenantId, priceList.Id, v.Id,
+                    cost > 0 ? decimal.Round(cost * 1.6m, 1, MidpointRounding.AwayFromZero) : 10m));
+            }
         }
         await db.SaveChangesAsync(ct);
 

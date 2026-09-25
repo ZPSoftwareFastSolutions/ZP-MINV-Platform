@@ -2,6 +2,69 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semántico.
 
+## [3.1.0-alpha.1 · base de datos local] · 2026-09-25 · rama `Inventario-V3.-BaseDeDatosLocal`
+
+Tema: **todo funcionando con una base de datos PostgreSQL LOCAL** (97 tablas en 5FN), **datos de prueba** con usuarios
+de cada rol, **muchas más funciones por rol** (punto de venta, ventas, clientes, compras, proveedores, reportes,
+contabilidad, usuarios) e **imágenes de cada producto**. Misma versión 3.1.0-alpha.1, construida sobre `Inventario-V3.1`.
+
+### Agregado
+
+- **`tools/bd_local.ps1`**: PostgreSQL 16 portátil en `%LOCALAPPDATA%\M-INV` sin permisos de administrador (`instalar`,
+  `iniciar`, `detener`, `estado`, `recrear`, `-Autoiniciar`, `-SinDatos`): clúster UTF-8 con `scram-sha-256`, roles
+  `minv_owner` (clave aleatoria) y `minv_app`, base `minv`, migraciones y datos de prueba. Claves solo en el equipo.
+- **`minv datos-prueba`** (`LocalDataSeeder`): empresa **MINV · Ferretería El Constructor S.R.L.**, 9 usuarios de los 6
+  roles con contraseñas aleatorias (archivo `usuarios-prueba.txt`, nunca versionado), 8 categorías con 24 posiciones,
+  8 proveedores, 29 clientes, 61 productos con imagen, precio, costo, mínimo, máximo y código EAN-13, y 60 días de
+  operación simulada con los casos de uso reales: dos cajas (apertura, ventas en 4 medios de pago, arqueo y cierre),
+  anulaciones, mermas, pedido sugerido → aprobación → recepción, depósitos, gastos del mes y pagos a proveedores.
+- **Imágenes de productos**: tabla `catalog.product_images` (bytea PNG/JPEG ≤ 1 MB, RLS, única por variante; migración
+  `ProductImages`), 38 ilustraciones propias (`tools/generar_imagenes_productos.py`, recursos incrustados) asignadas por
+  nombre a los datos de prueba y a la demostración; `SetProductImageCommand`, `RemoveProductImageCommand`,
+  `GetProductImagesQuery`.
+- **Casos de uso nuevos** (con permisos, validación y auditoría): catálogo (`GetCatalogQuery`, `GetCatalogOptionsQuery`,
+  `SaveProductCommand` con posición, `SaveCategoryCommand`); clientes y proveedores (`Get/Save…`); compras
+  (`CreatePurchaseOrderCommand`, `CreateSuggestedPurchaseOrdersCommand`, `Approve…`, `Cancel…`, `ReceivePurchaseOrderCommand`
+  con costo promedio ponderado y asiento); ventas (`GetPosStateQuery`, `GetSellableProductsQuery`, `CheckoutCommand` con
+  factura, IVA incluido, pago y asiento, `GetSalesQuery`, `GetSaleLinesQuery`, `VoidSaleCommand` con devolución y asiento
+  inverso); reportes (`GetSalesReportQuery`, `GetPurchasesReportQuery`, `GetMovementsReportQuery`); contabilidad
+  automática con plan de cuentas jerárquico (`ChartOfAccounts`, `JournalPoster`, `GetChartOfAccountsQuery`,
+  `GetJournalQuery`, `GetIncomeStatementQuery`, `CreateJournalEntryCommand`, `CreateAccountCommand`); administración
+  (`GetUsersQuery`, `SaveUserCommand`, `ResetUserPasswordCommand`, `GetRolesQuery`, `Get/UpdateCompanySettings…`).
+- **Pantallas nuevas del escritorio** (todo lo que viene de una lista, en combos): **Catálogo** en galería con imágenes o
+  lista y editor lateral (imagen, categoría + nueva, unidad, posición, proveedor, costo, precio con combo de margen,
+  mínimo, máximo, código de barras); **Punto de venta** (caja, tarjetas con imagen, carrito con descuentos, cliente y
+  medio de pago, vuelto, referencia, ticket en pantalla o ESC/POS, arqueo); **Ventas** (período, filtros, detalle y
+  anulación con motivo); **Clientes**; **Órdenes de compra** (desde el pedido sugerido, aprobar, recibir, anular);
+  **Proveedores**; **Reportes** (ventas, compras, movimientos, inventario, con gráficos y ranking agrupable);
+  **Contabilidad** (estado de resultados, libro diario, plan de cuentas, asientos con plantillas); **Usuarios y roles**
+  (alta, rol, contraseña temporal, restablecer, matriz de funciones, parámetros de la empresa).
+- **Stock en galería** (tarjeta con la imagen de cada producto) además de la tabla; la ficha del producto muestra la
+  imagen y lleva al editor del catálogo.
+- Menú por secciones (General, Ventas, Inventario, Compras y reposición, Análisis, Administración) según el rol; cuadros
+  con dato a completar (motivo, efectivo contado, documento) y con contraseña para copiar.
+- Pruebas: datos de prueba en memoria (coherencia contable, stock, ventas, compras, permisos por rol), pantallas de
+  negocio con la demostración (POS → cobro → anulación, compras sugeridas → aprobar → recibir, catálogo, reportes,
+  contabilidad, usuarios) y datos de prueba contra PostgreSQL real.
+
+### Cambiado
+
+- Matriz de permisos: nuevos `reports.view`, `sales.customers.manage` y `sales.view`; Gerencia gana contabilidad y
+  compras, Bodega compras y reportes, Ventas y Cajero el punto de venta, clientes y ventas, Consulta los reportes.
+- Cada empresa nueva recibe el plan de cuentas completo (activo, pasivo, patrimonio, ingresos, costos y gastos).
+- La venta de caja se asocia a la sesión y la recepción a su orden (arcos exclusivos `ck_sales_orders_origen` y
+  `ck_goods_receipts_origen` que PostgreSQL exige y la memoria no validaba).
+- La demostración completa el catálogo de módulos licenciados y agrega precios de venta: el punto de venta funciona
+  también sin base de datos.
+- `appsettings.json` propone la empresa `MINV` (la de la base local).
+
+### Verificado
+
+- `tools/build_v3.ps1 -Capturas -Publicar` con `MINV_TEST_PG`: 135 pruebas (7 contra PostgreSQL real), migraciones al
+  día, `scripts/db_init.sql` con 97 tablas, 46 capturas (claro y oscuro) y `M-INV.exe` publicado.
+- `minv verify --codigo MINV`: 97 tablas, 7 libros append-only, RLS en 95 tablas, conservación sin descuadres; partida
+  doble cuadrada en los 900+ asientos de los datos de prueba.
+
 ## [3.1.0-alpha.1] · 2026-09-25 · rama `Inventario-V3.1`
 
 Tema de la versión: **cliente de escritorio completo, bonito e intuitivo**. La interfaz de la V3 (tablas tipo Excel)

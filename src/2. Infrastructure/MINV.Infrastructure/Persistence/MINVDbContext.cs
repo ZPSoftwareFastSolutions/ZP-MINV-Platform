@@ -12,7 +12,7 @@ using MINV.Domain.Warehousing;
 namespace MINV.Infrastructure.Persistence;
 
 /// <summary>
-/// Contexto EF Core de M-INV V3 (PostgreSQL, Code-First). 96 tablas en 7 contextos delimitados (un esquema por
+/// Contexto EF Core de M-INV V3 (PostgreSQL, Code-First). 97 tablas en 7 contextos delimitados (un esquema por
 /// contexto), normalizadas hasta 5FN. Reglas que aplica a todo el modelo (ver <see cref="ModelConventions"/>):
 /// <list type="bullet">
 /// <item>Multi-tenant: toda entidad (salvo Tenant y LicenseModule) tiene TenantId con filtro global de consulta y cada
@@ -51,7 +51,7 @@ public sealed class MINVDbContext : DbContext, IMinvDbContext
     public DbSet<AccessLog> AccessLogs => Set<AccessLog>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
-    // ---- Catálogo y datos maestros · esquema catalog (18 tablas)
+    // ---- Catálogo y datos maestros · esquema catalog (19 tablas)
     public DbSet<Category> Categories => Set<Category>();
     public DbSet<CategoryHierarchy> CategoryHierarchies => Set<CategoryHierarchy>();
     public DbSet<Brand> Brands => Set<Brand>();
@@ -66,6 +66,7 @@ public sealed class MINVDbContext : DbContext, IMinvDbContext
     public DbSet<ProductVariantAttribute> ProductVariantAttributes => Set<ProductVariantAttribute>();
     public DbSet<BarcodeType> BarcodeTypes => Set<BarcodeType>();
     public DbSet<ProductBarcode> ProductBarcodes => Set<ProductBarcode>();
+    public DbSet<ProductImage> ProductImages => Set<ProductImage>();
     public DbSet<Tax> Taxes => Set<Tax>();
     public DbSet<ProductTax> ProductTaxes => Set<ProductTax>();
     public DbSet<ProductSupplier> ProductSuppliers => Set<ProductSupplier>();

@@ -2,15 +2,36 @@
 
 **Sistema de inventarios y punto de venta B2B de Z&P Software Fast Solutions.** La **V3** lleva M-INV de Excel a una
 arquitectura cliente-servidor: solución **.NET 8** en Clean Architecture (dominio rico, CQRS con MediatR), base de datos
-**PostgreSQL** multi-empresa de **96 tablas normalizadas hasta 5FN**, cliente de escritorio **WPF** y módulo de hardware
+**PostgreSQL** multi-empresa de **97 tablas normalizadas hasta 5FN**, cliente de escritorio **WPF** y módulo de hardware
 **ESC/POS**. Se construyó sobre el modelo de la **V2.1**: su importador migra el libro colaborativo y verifica que la V3
 reproduce exactamente su stock, semáforo, alertas y pedido. La V2.1 (Excel en Microsoft 365) y la V1.2 (Excel local)
 siguen en el repositorio.
 
-> **¿Cómo la ejecuto?** Siga [`docs/deployment/inicio-rapido-v3.md`](docs/deployment/inicio-rapido-v3.md): en 3 pasos
-> abre `M-INV.exe` en modo demostración (sin base de datos) o, con PostgreSQL, crea la base, migra la V2.1 y abre el
-> cliente. Interfaz: [`docs/product/escritorio-v3.1.md`](docs/product/escritorio-v3.1.md). Modelo de datos:
+> **¿Cómo la ejecuto?** Siga [`docs/deployment/inicio-rapido-v3.md`](docs/deployment/inicio-rapido-v3.md): con
+> `tools\bd_local.ps1` deja PostgreSQL LOCAL con la base creada y datos de prueba (usuarios de cada rol) y abre
+> `M-INV.exe`; o, en 3 pasos, en modo demostración (sin base de datos). Interfaz: [`docs/product/escritorio-v3.1.md`](docs/product/escritorio-v3.1.md). Modelo de datos:
 > [`docs/database/ERD-MINV-V3.md`](docs/database/ERD-MINV-V3.md).
+
+## M-INV V3.1 · rama `Inventario-V3.-BaseDeDatosLocal` · base de datos local, más funciones e imágenes
+
+![M-INV: punto de venta con imágenes](docs/product/capturas/v3.1/56-punto-de-venta.png)
+
+PostgreSQL **local** con las 97 tablas y una empresa de prueba (**MINV**) con 60 días de operación, 9 usuarios de los 6
+roles y 61 productos **con imagen**. Cada rol tiene su menú: **punto de venta** (caja, carrito, cobro, ticket, arqueo),
+**ventas** con anulación, **clientes**, **catálogo** en galería con editor (combos de categoría, unidad, proveedor,
+posición y margen), **stock en galería**, **órdenes de compra** (pedido sugerido → aprobar → recibir), **proveedores**,
+**reportes** (ventas, utilidad, compras, movimientos, inventario), **contabilidad** automática (estado de resultados,
+libro diario, plan de cuentas, asientos) y **usuarios y roles**.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\bd_local.ps1 -Accion recrear   # base local + datos de prueba nuevos
+Get-Content $env:LOCALAPPDATA\M-INV\usuarios-prueba.txt                      # empresa, correos y contraseñas de prueba
+```
+
+| | |
+|---|---|
+| ![Catálogo](docs/product/capturas/v3.1/41-catalogo-galeria.png) | ![Reportes](docs/product/capturas/v3.1/48-reportes-ventas.png) |
+| ![Contabilidad](docs/product/capturas/v3.1/50-contabilidad-resultados.png) | ![Órdenes de compra](docs/product/capturas/v3.1/46-ordenes-de-compra.png) |
 
 ## M-INV V3.1 · rama `Inventario-V3.1` (3.1.0-alpha.1) · cliente de escritorio completo
 
@@ -39,15 +60,15 @@ powershell -ExecutionPolicy Bypass -File tools\build_v3.ps1 -Capturas -Publicar 
 | Parte | Contenido |
 |---|---|
 | [`MINV.sln`](MINV.sln) | Solución .NET 8 (`Directory.Build.props` y `Directory.Packages.props` centralizan marco y versiones) |
-| `src/1. Core/MINV.Domain` | 96 entidades en 7 contextos (IAM, catálogo, almacén, inventario, compras, ventas/POS, contabilidad); reglas de stock en `StockLevel`, `Product`, `PhysicalCount`…; cero dependencias |
+| `src/1. Core/MINV.Domain` | 97 entidades en 7 contextos (IAM, catálogo, almacén, inventario, compras, ventas/POS, contabilidad); reglas de stock en `StockLevel`, `Product`, `PhysicalCount`…; cero dependencias |
 | `src/1. Core/MINV.Application` | Casos de uso CQRS (MediatR): registrar movimiento con reintento optimista, toma física, stock/alertas/pedido, login, caja POS; tubería validación → RBAC y licencias → auditoría |
 | `src/2. Infrastructure/MINV.Infrastructure` | `MINVDbContext` (EF Core + Npgsql), FK compuestas por tenant, `xmin`, filtros globales, interceptores, migraciones, aprovisionamiento e importador de la V2.1 |
 | `src/2. Infrastructure/MINV.Hardware` | ESC/POS (acentos PC858, CODE128, QR, cajón, corte), impresoras COM/USB/red y lectores de códigos |
 | `src/3. Presentation/MINV.DesktopClient` | Cliente WPF/MVVM `M-INV.exe` (V3.1): pantalla de carga, login y demostración, tablero, stock, registro, toma física, alertas, pedido, ficha, actividad, configuración y ayuda, tema claro/oscuro |
 | `src/4. Tools/MINV.Cli` | `minv`: migrate, tenant create, import-v21, user password, verify |
 | [`scripts/db_init.sql`](scripts/db_init.sql) | Script idempotente de la base completa (generado) |
-| `tests/MINV.*.Tests` | 128 pruebas en la V3.1 (123 sin base de datos, incluidas las pantallas del cliente con la demostración, + 5 contra PostgreSQL real con `MINV_TEST_PG`) y la paridad con la V2.1 |
-| [`.claude/v3-architecture-rules.md`](.claude/v3-architecture-rules.md) · [`.claude/database-migration-guide.md`](.claude/database-migration-guide.md) | Reglas A-01 a A-12 y guía de migraciones (esquema y datos V2.1 → V3) |
+| `tests/MINV.*.Tests` | 135 pruebas (128 sin base de datos, incluidas las pantallas del cliente y los datos de prueba en memoria, + 7 contra PostgreSQL real con `MINV_TEST_PG`) y la paridad con la V2.1 |
+| [`.claude/v3-architecture-rules.md`](.claude/v3-architecture-rules.md) · [`.claude/database-migration-guide.md`](.claude/database-migration-guide.md) | Reglas A-01 a A-13 y guía de migraciones (esquema y datos V2.1 → V3) |
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\build_v3.ps1        # compilar, probar, verificar migraciones, regenerar db_init.sql

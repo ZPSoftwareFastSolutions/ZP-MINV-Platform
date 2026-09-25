@@ -41,6 +41,19 @@ public sealed class ScreenshotRunner(ClientHost host, ClientSettings settings, T
             {
                 await CaptureMainAsync(demo, seller.Email, admin: false);
             }
+            // Pantallas de negocio (catálogo con imágenes, punto de venta, ventas, compras, reportes, contabilidad, usuarios):
+            // con la base LOCAL de datos de prueba si está disponible (MINV_CAPTURAS_USUARIOS = archivo de usuarios de prueba);
+            // si no, con la demostración.
+            if (LocalUsers() is { } local && (await host.ProbeAsync()).IsReady)
+            {
+                using var admin = await host.SignInAsync(local.Tenant, local.Admin.Email, local.Admin.Password);
+                await CaptureBusinessAsync(admin, local.Cashier is { } c ? await host.SignInAsync(local.Tenant, c.Email, c.Password) : null);
+            }
+            else
+            {
+                using var admin = await host.SignInDemoAsync(demo, DemoWorkspace.AdminEmail);
+                await CaptureBusinessAsync(admin, null);
+            }
             File.WriteAllLines(log, _saved.Prepend($"✔ {_saved.Count} capturas · M-INV {App.Version} · {DateTime.Now:dd/MM/yyyy HH:mm}"));
             return 0;
         }
@@ -181,6 +194,154 @@ public sealed class ScreenshotRunner(ClientHost host, ClientSettings settings, T
         await ShowAndCaptureAsync(dialog, "25-cambiar-contrasena.png", 400);
         dialog.Close();
         window.Close();
+    }
+
+    // -------------------------------------------------------------------------------------------- pantallas de negocio
+    private async Task CaptureBusinessAsync(SessionHandle admin, SessionHandle? cashier)
+    {
+        var shell = admin.Services.GetRequiredService<ShellViewModel>();
+        var window = new MainWindow(shell) { Width = 1440, Height = 900 };
+        Place(window);
+        window.Show();
+        await WaitAsync(() => shell.Current.HasLoaded, 30000);
+        await SettleAsync(700);
+        await CaptureAsync(window, "40-inicio-administrador.png");
+
+        await GoAsync(shell, "catalogo");
+        await WaitImagesAsync(shell);
+        await CaptureAsync(window, "41-catalogo-galeria.png");
+        var catalog = (CatalogViewModel)shell.Current;
+        if (catalog.Rows.Cast<CatalogProduct>().FirstOrDefault(p => p.HasImage) is { } product)
+        {
+            catalog.Edit.Execute(product);
+            await WaitAsync(() => catalog.IsEditing, 10000);
+            await SettleAsync(600);
+            await CaptureAsync(window, "42-catalogo-editor.png");
+            catalog.CloseEditor();
+        }
+        catalog.IsList = true;
+        await SettleAsync(500);
+        await CaptureAsync(window, "43-catalogo-lista.png");
+        catalog.IsGallery = true;
+
+        await GoAsync(shell, "ventas");
+        var sales = (SalesViewModel)shell.Current;
+        sales.Selected = sales.Rows.Cast<SaleItem>().FirstOrDefault();
+        await SettleAsync(800);
+        await CaptureAsync(window, "44-ventas.png");
+        await GoAsync(shell, "clientes");
+        await CaptureAsync(window, "45-clientes.png");
+        await GoAsync(shell, "compras");
+        var purchases = (PurchaseOrdersViewModel)shell.Current;
+        purchases.Selected = purchases.Rows.Cast<PurchaseOrderItem>().FirstOrDefault(o => o.Status == MINV.Domain.Purchasing.PurchaseOrderStatus.Approved)
+                             ?? purchases.Rows.Cast<PurchaseOrderItem>().FirstOrDefault();
+        await SettleAsync(800);
+        await CaptureAsync(window, "46-ordenes-de-compra.png");
+        await GoAsync(shell, "proveedores");
+        await CaptureAsync(window, "47-proveedores.png");
+
+        await GoAsync(shell, "reportes");
+        await SettleAsync(500);
+        await CaptureAsync(window, "48-reportes-ventas.png");
+        var reports = (ReportsViewModel)shell.Current;
+        reports.Tab = "inventory";
+        await SettleAsync(300);
+        await WaitAsync(() => !reports.IsBusy, 15000);
+        await SettleAsync(600);
+        await CaptureAsync(window, "49-reportes-inventario.png");
+        reports.Tab = "sales";
+        await WaitAsync(() => !reports.IsBusy, 15000);
+
+        await GoAsync(shell, "contabilidad");
+        await CaptureAsync(window, "50-contabilidad-resultados.png");
+        var accounting = (AccountingViewModel)shell.Current;
+        accounting.Tab = "journal";
+        await SettleAsync(700);
+        await CaptureAsync(window, "51-libro-diario.png");
+        accounting.Tab = "entry";
+        accounting.Template = accounting.Templates[1];
+        await SettleAsync(500);
+        await CaptureAsync(window, "52-nuevo-asiento.png");
+        accounting.Tab = "results";
+
+        await GoAsync(shell, "usuarios");
+        await CaptureAsync(window, "53-usuarios.png");
+        var users = (UsersViewModel)shell.Current;
+        users.Tab = "roles";
+        await SettleAsync(500);
+        await CaptureAsync(window, "54-roles-y-funciones.png");
+        users.Tab = "users";
+
+        await GoAsync(shell, "stock");
+        await WaitImagesAsync(shell);
+        await CaptureAsync(window, "57-stock-galeria.png");
+        var top = (await shell.App.Data.ProjectionAsync()).Result.Stock.Where(r => r.IsActive && r.Stock > 0).OrderByDescending(r => r.Sales30Days).First();
+        shell.OpenProduct(top.Sku);
+        await WaitAsync(() => shell.ProductDetail is { IsLoading: false }, 10000);
+        await SettleAsync(900);
+        await CaptureAsync(window, "55-ficha-con-imagen.png");
+        shell.CloseProduct.Execute(null);
+
+        theme.Apply(ThemeMode.Dark, save: false);
+        await GoAsync(shell, "catalogo");
+        await CaptureAsync(window, "60-oscuro-catalogo.png");
+        await GoAsync(shell, "reportes");
+        await CaptureAsync(window, "61-oscuro-reportes.png");
+        await GoAsync(shell, "contabilidad");
+        await CaptureAsync(window, "62-oscuro-contabilidad.png");
+        theme.Apply(ThemeMode.Light, save: false);
+        window.Close();
+
+        // Punto de venta: con un cajero que tiene la caja abierta (o el administrador)
+        var posShell = cashier is null ? shell : cashier.Services.GetRequiredService<ShellViewModel>();
+        var posWindow = new MainWindow(posShell) { Width = 1440, Height = 900 };
+        Place(posWindow);
+        posWindow.Show();
+        await WaitAsync(() => posShell.Current.HasLoaded, 30000);
+        await GoAsync(posShell, "pos");
+        await WaitImagesAsync(posShell);
+        var pos = (PosViewModel)posShell.Current;
+        foreach (var item in pos.Products.Cast<PosProduct>().Where(p => !p.IsOut && p.Image is not null).Take(3).ToList())
+        {
+            pos.Add.Execute(item);
+        }
+        if (pos.Cart.Count > 1)
+        {
+            pos.Cart[0].Quantity = 2;
+            pos.Cart[1].Discount = 10;
+        }
+        pos.CashReceived = "500";
+        await SettleAsync(700);
+        await CaptureAsync(posWindow, "56-punto-de-venta.png");
+        theme.Apply(ThemeMode.Dark, save: false);
+        await SettleAsync(500);
+        await CaptureAsync(posWindow, "63-oscuro-punto-de-venta.png");
+        theme.Apply(ThemeMode.Light, save: false);
+        pos.Cart.Clear();
+        posWindow.Close();
+        cashier?.Dispose();
+    }
+
+    private static async Task WaitImagesAsync(ShellViewModel shell)
+    {
+        await shell.App.Images.AllAsync();
+        await WaitAsync(() => !shell.Current.IsBusy, 15000);
+        await SettleAsync(900);
+    }
+
+    /// <summary>Empresa y usuarios de la base local de prueba (archivo que escribe <c>minv datos-prueba</c>).</summary>
+    private static (string Tenant, (string Email, string Password) Admin, (string Email, string Password)? Cashier)? LocalUsers()
+    {
+        var file = Environment.GetEnvironmentVariable("MINV_CAPTURAS_USUARIOS");
+        if (file is null || !File.Exists(file))
+        {
+            return null;
+        }
+        var lines = File.ReadAllLines(file);
+        var tenant = lines.Select(l => System.Text.RegularExpressions.Regex.Match(l, @"código de empresa: (\S+)")).FirstOrDefault(m => m.Success)?.Groups[1].Value;
+        (string, string)? Find(string role) => lines.Select(l => System.Text.RegularExpressions.Regex.Split(l.Trim(), @"\s{2,}"))
+            .Where(c => c.Length == 4 && c[0] == role).Select(c => ((string, string)?)(c[2], c[3])).FirstOrDefault();
+        return tenant is not null && Find("Administrador") is { } admin ? (tenant, admin, Find("Cajero")) : null;
     }
 
     // -------------------------------------------------------------------------------------------- utilidades

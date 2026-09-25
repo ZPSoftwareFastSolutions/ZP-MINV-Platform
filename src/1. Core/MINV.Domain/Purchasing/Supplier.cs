@@ -33,4 +33,11 @@ public sealed class Supplier : Entity
     public void Activate() => IsActive = true;
 
     public void Deactivate() => IsActive = false;
+
+    public void Update(string legalName, string? taxId, int leadTimeDays)
+    {
+        LegalName = Guard.Text(legalName, "La razón social", 150);
+        TaxId = Guard.OptionalText(taxId, "El NIT", 30);
+        LeadTimeDays = Guard.NonNegative(leadTimeDays, "Los días de entrega");
+    }
 }
