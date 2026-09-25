@@ -1,0 +1,24 @@
+<Project>
+  <!--
+    M-INV V3 · Propiedades comunes de todos los proyectos .NET (src/ y tests/).
+    El marco de destino se define UNA sola vez: para pasar a .NET 10 LTS basta con cambiar MinvTargetFramework a
+    net10.0 y las versiones de Microsoft.EntityFrameworkCore* / Npgsql* en Directory.Packages.props.
+  -->
+  <PropertyGroup>
+    <MinvTargetFramework>net8.0</MinvTargetFramework>
+    <TargetFramework>$(MinvTargetFramework)</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Deterministic>true</Deterministic>
+    <!-- Ejecutables y pruebas pueden correr sobre un runtime más nuevo si el de .NET 8 no está instalado. -->
+    <RollForward>Major</RollForward>
+    <SatelliteResourceLanguages>es</SatelliteResourceLanguages>
+    <NeutralLanguage>es</NeutralLanguage>
+    <Company>Z&amp;P Software Fast Solutions</Company>
+    <Product>M-INV</Product>
+    <Copyright>© Z&amp;P Software Fast Solutions</Copyright>
+    <Version>3.0.0-alpha.1</Version>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+</Project>

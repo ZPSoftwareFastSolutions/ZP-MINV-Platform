@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Núcleo del negocio: entidades, objetos de valor y reglas. CERO dependencias externas (regla A-01). -->
+  <PropertyGroup>
+    <RootNamespace>MINV.Domain</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="MINV.Domain.Tests" />
+  </ItemGroup>
+</Project>

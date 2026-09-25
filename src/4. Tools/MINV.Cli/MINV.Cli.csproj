@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Herramienta de línea de comandos: aprovisionar tenants, importar la V2.1 y verificar la base de datos. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>MINV.Cli</RootNamespace>
+    <AssemblyName>minv</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\2. Infrastructure\MINV.Infrastructure\MINV.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

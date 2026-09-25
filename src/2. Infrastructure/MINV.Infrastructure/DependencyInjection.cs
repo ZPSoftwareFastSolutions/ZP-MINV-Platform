@@ -1,0 +1,57 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Design;
+using Microsoft.Extensions.DependencyInjection;
+using MINV.Application.Abstractions;
+using MINV.Infrastructure.Importing.V21;
+using MINV.Infrastructure.Persistence;
+using MINV.Infrastructure.Persistence.Interceptors;
+using MINV.Infrastructure.Provisioning;
+using MINV.Infrastructure.Services;
+
+namespace MINV.Infrastructure;
+
+public static class DependencyInjection
+{
+    public const string ConnectionStringVariable = "MINV_DB";
+    public const string DefaultConnectionString =
+        "Host=localhost;Port=5432;Database=minv;Username=minv_app;Password=minv-dev;Include Error Detail=true";
+
+    /// <summary>Registra PostgreSQL (EF Core + Npgsql), el contexto multi-tenant, los interceptores y los servicios.
+    /// Todo es «scoped»: el cliente de escritorio abre un scope por sesión de usuario.</summary>
+    public static IServiceCollection AddMinvInfrastructure(this IServiceCollection services, string connectionString)
+    {
+        services.AddScoped<ITenantContext, TenantContext>();
+        services.AddScoped<ICurrentUser, CurrentUser>();
+        services.AddSingleton<IClock, SystemClock>();
+        services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
+        services.AddScoped<MinvSaveChangesInterceptor>();
+        services.AddScoped<TenantSessionInterceptor>();
+        services.AddDbContextFactory<MINVDbContext>((sp, options) => Configure(options, connectionString)
+            .AddInterceptors(sp.GetRequiredService<MinvSaveChangesInterceptor>(), sp.GetRequiredService<TenantSessionInterceptor>()),
+            ServiceLifetime.Scoped);
+        services.AddScoped(sp => sp.GetRequiredService<IDbContextFactory<MINVDbContext>>().CreateDbContext());
+        services.AddScoped<IMinvDbContext>(sp => sp.GetRequiredService<MINVDbContext>());
+        services.AddScoped<ILicenseService, LicenseService>();
+        services.AddScoped<IAuditTrail, AuditTrail>();
+        services.AddScoped<TenantProvisioner>();
+        services.AddScoped<V21Importer>();
+        return services;
+    }
+
+    internal static DbContextOptionsBuilder Configure(DbContextOptionsBuilder options, string connectionString) =>
+        options.UseNpgsql(connectionString, npgsql => npgsql.MigrationsHistoryTable("__ef_migrations_history", Schemas.Iam));
+}
+
+/// <summary>Fábrica de diseño para <c>dotnet ef</c> (migraciones y script SQL). Cadena: variable MINV_DB o la de
+/// desarrollo.</summary>
+public sealed class MINVDbContextDesignTimeFactory : IDesignTimeDbContextFactory<MINVDbContext>
+{
+    public MINVDbContext CreateDbContext(string[] args)
+    {
+        var cs = Environment.GetEnvironmentVariable(DependencyInjection.ConnectionStringVariable)
+                 ?? DependencyInjection.DefaultConnectionString;
+        var options = new DbContextOptionsBuilder<MINVDbContext>();
+        DependencyInjection.Configure(options, cs);
+        return new MINVDbContext(options.Options, new TenantContext());
+    }
+}

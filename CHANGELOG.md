@@ -2,6 +2,56 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semántico.
 
+## [3.0.0-alpha.1] · 2026-09-25 · rama `Inventario-V3`
+
+Tema de la versión: **fundación de M-INV V3** (escritorio + PostgreSQL). Transición desde Excel (V2.1) a una
+arquitectura cliente-servidor para punto de venta y bodegas de alta concurrencia. Es una versión *alpha*: la base de
+datos, el dominio, los casos de uso de inventario, la migración desde la V2.1 y la infraestructura están completos y
+probados; las pantallas de compras, ventas POS completas y contabilidad llegan en las siguientes iteraciones.
+
+### Agregado
+
+- **Solución .NET 8** `MINV.sln` en Clean Architecture: `MINV.Domain` (sin dependencias), `MINV.Application`
+  (MediatR 12.5, FluentValidation), `MINV.Infrastructure` (EF Core 8 + Npgsql 8), `MINV.Hardware`,
+  `MINV.DesktopClient` (WPF/MVVM) y `MINV.Cli` (`minv`). Versiones centralizadas (`Directory.Packages.props`) y
+  advertencias como errores.
+- **Base de datos PostgreSQL de 96 tablas en 7 esquemas** (iam 14, catalog 18, warehouse 10, inventory 14,
+  purchasing 11, sales 19, accounting 10), normalizada hasta 5FN: árbol de categorías con tabla de clausura, variantes
+  y atributos, códigos de barras múltiples, conversiones de unidades, topología sucursal › almacén › zona › pasillo ›
+  estantería › nivel › posición, lotes con caducidad, series, reservas, tomas físicas, traslados, compras, ventas/POS
+  con direcciones normalizadas (país › estado › ciudad › código postal), pagos, costos promedio, impuestos con vigencia
+  y contabilidad de partida doble.
+- **Multi-tenant**: `TenantId` en toda entidad, filtros globales, FK compuestas `(tenant_id, x_id)` y Row Level
+  Security. **Concurrencia optimista** con `xmin`. **Append-only** en movimientos, auditoría, accesos, caja, pagos,
+  tipos de cambio y costo promedio (EF Core + triggers). **Auditoría** de cada comando con su resultado.
+- **Dominio rico**: `StockLevel` (movimientos, poka-yoke, reservas, ajuste por conteo), `Product`/`ProductVariant`
+  (variantes, EAN con dígito de control, empaques, impuestos), `PhysicalCount` (CF-AAAAMMDD, todo o nada),
+  `PosSession`, `JournalEntry` (cuadre), `UserCredential` (bloqueo por intentos), `StockRules` y `StockProjection`
+  (semáforo, alertas, cobertura, ranking y pedido: tercera implementación de las reglas de la V2.1).
+- **Importador V2.1 → V3** (`minv import-v21`): lector .xlsx sin dependencias, plan de migración a través del
+  dominio, rechazos y actividad a la auditoría, toma física en curso, y **verificación de paridad** con la instantánea
+  de la V2.1 (idéntica en el libro de demostración).
+- **Licencias por módulo comercial** (`iam.modules` sembrado con la matriz de valor: motor de datos Bs 8.500, cliente
+  de escritorio Bs 6.000, POS y hardware Bs 4.500, RBAC Bs 3.000, SLA Bs 800/mes) y `[RequiresModule]`.
+- **Login cifrado** (PBKDF2-SHA256, 600.000 iteraciones), sesiones, equipos autorizados y registro de accesos.
+- **Hardware POS**: documentos ESC/POS, comprobante de venta, impresoras serie, red y USB (cola de Windows en RAW),
+  lector serie y detector de escáner en modo teclado.
+- **Migraciones EF Core** (`InitialCreate`, `GuardsRlsAndViews`) y `scripts/db_init.sql` generado (idempotente).
+- **Pruebas**: 102 (dominio 47, aplicación 10, hardware 8, infraestructura 37 de las cuales 5 requieren PostgreSQL
+  real vía `MINV_TEST_PG`).
+- Documentación: `docs/database/ERD-MINV-V3.md`, `.claude/v3-architecture-rules.md`,
+  `.claude/database-migration-guide.md`, `docs/deployment/inicio-rapido-v3.md`, `tools/build_v3.ps1`.
+
+### Decisiones
+
+- **Marco .NET 8** como pidió la especificación. Aviso: .NET 8 deja de tener soporte el 10 de noviembre de 2026; el
+  marco está centralizado en `Directory.Build.props` para pasar a .NET 10 LTS cambiando una línea (y las versiones de
+  EF Core/Npgsql).
+- **MediatR 12.5.0** (última versión con licencia Apache 2.0; la 13 exige licencia comercial).
+- **`RowVersion` = `xmin`** de PostgreSQL (equivalente al `rowversion` de SQL Server, sin columna extra).
+- **Redundancias controladas y documentadas**: `tenant_id` (aislamiento) y el estado materializado de
+  `stock_levels` (control de concurrencia), verificado por la vista `v_conservation_breaches`.
+
 ## [2.1.0] · 2026-09-25 · rama `Inventario-V2.1`
 
 Tema de la versión: **M-INV colaborativo completo**. Sobre la base de la 2.0 (captura por usuario, bitácoras

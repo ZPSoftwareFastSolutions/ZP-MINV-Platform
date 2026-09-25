@@ -1,0 +1,151 @@
+<Window x:Class="MINV.DesktopClient.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:MINV.DesktopClient.ViewModels"
+        xmlns:views="clr-namespace:MINV.DesktopClient.Views"
+        Title="M-INV · Inventario" Width="1280" Height="760" WindowStartupLocation="CenterScreen">
+    <Window.Resources>
+        <views:StockStatusConverter x:Key="StatusLabel" />
+        <!-- Stock -->
+        <DataTemplate DataType="{x:Type vm:StockViewModel}">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
+                    <TextBox Width="320" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}" ToolTip="Buscar por SKU o nombre" />
+                    <Button Content="Actualizar" Style="{StaticResource PrimaryButton}" Margin="10,0,0,0" Command="{Binding Refresh}" />
+                    <TextBlock Text="{Binding Summary}" Foreground="{StaticResource Muted}" VerticalAlignment="Center" Margin="14,0,0,0" />
+                </StackPanel>
+                <DataGrid ItemsSource="{Binding Rows}">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="SKU" Binding="{Binding Sku}" Width="90" />
+                        <DataGridTextColumn Header="Producto" Binding="{Binding Name}" Width="*" />
+                        <DataGridTextColumn Header="Categoría" Binding="{Binding Category}" Width="140" />
+                        <DataGridTextColumn Header="Unidad" Binding="{Binding Unit}" Width="70" />
+                        <DataGridTextColumn Header="Stock" Binding="{Binding Stock, StringFormat=N2}" Width="90" />
+                        <DataGridTextColumn Header="Mínimo" Binding="{Binding Minimum, StringFormat=N0}" Width="75" />
+                        <DataGridTextColumn Header="Máximo" Binding="{Binding Maximum, StringFormat=N0}" Width="75" />
+                        <DataGridTextColumn Header="Estado" Binding="{Binding Status, Converter={StaticResource StatusLabel}}" Width="110" />
+                        <DataGridTextColumn Header="Salidas 30 d" Binding="{Binding Sales30Days, StringFormat=N0}" Width="95" />
+                        <DataGridTextColumn Header="Cobertura (d)" Binding="{Binding CoverageDays}" Width="100" />
+                        <DataGridTextColumn Header="Valor" Binding="{Binding InventoryValue, StringFormat=N2}" Width="110" />
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+        </DataTemplate>
+
+        <!-- Registrar movimiento -->
+        <DataTemplate DataType="{x:Type vm:MovementViewModel}">
+            <StackPanel MaxWidth="520" HorizontalAlignment="Left">
+                <TextBlock Text="SKU o código de barras (el escáner lo completa)" Foreground="{StaticResource Muted}" />
+                <TextBox Text="{Binding Sku, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,10" FontSize="16" />
+                <TextBlock Text="Posición" Foreground="{StaticResource Muted}" />
+                <TextBox Text="{Binding BinCode, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,10" />
+                <TextBlock Text="Tipo de movimiento" Foreground="{StaticResource Muted}" />
+                <ComboBox ItemsSource="{Binding Types}" SelectedItem="{Binding TypeCode}" Margin="0,4,0,10" />
+                <TextBlock Text="Cantidad" Foreground="{StaticResource Muted}" />
+                <TextBox Text="{Binding Quantity, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,10" FontSize="16" />
+                <TextBlock Text="Documento (factura, remisión…)" Foreground="{StaticResource Muted}" />
+                <TextBox Text="{Binding Document, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,10" MaxLength="30" />
+                <TextBlock Text="Observaciones (obligatorias en los ajustes)" Foreground="{StaticResource Muted}" />
+                <TextBox Text="{Binding Notes, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,16" MaxLength="250" />
+                <Button Content="Registrar" Style="{StaticResource PrimaryButton}" Command="{Binding Register}" HorizontalAlignment="Left" />
+            </StackPanel>
+        </DataTemplate>
+
+        <!-- Alertas y pedido sugerido -->
+        <DataTemplate DataType="{x:Type vm:AlertsViewModel}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <TextBlock Text="Alertas priorizadas" FontWeight="SemiBold" Foreground="{StaticResource Brand}" Margin="0,0,0,6" />
+                <DataGrid Grid.Row="1" ItemsSource="{Binding Alerts}">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="#" Binding="{Binding Position}" Width="40" />
+                        <DataGridTextColumn Header="Estado" Binding="{Binding Status, Converter={StaticResource StatusLabel}}" Width="110" />
+                        <DataGridTextColumn Header="SKU" Binding="{Binding Sku}" Width="90" />
+                        <DataGridTextColumn Header="Producto" Binding="{Binding Name}" Width="*" />
+                        <DataGridTextColumn Header="Stock" Binding="{Binding Stock, StringFormat=N2}" Width="80" />
+                        <DataGridTextColumn Header="Mínimo" Binding="{Binding Minimum, StringFormat=N0}" Width="75" />
+                        <DataGridTextColumn Header="Sugerido" Binding="{Binding SuggestedQuantity, StringFormat=N0}" Width="85" />
+                    </DataGrid.Columns>
+                </DataGrid>
+                <TextBlock Grid.Row="2" Text="Pedido sugerido por proveedor" FontWeight="SemiBold" Foreground="{StaticResource Brand}" Margin="0,12,0,6" />
+                <DataGrid Grid.Row="3" ItemsSource="{Binding Order}">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Proveedor" Binding="{Binding Supplier}" Width="200" />
+                        <DataGridTextColumn Header="SKU" Binding="{Binding Sku}" Width="90" />
+                        <DataGridTextColumn Header="Producto" Binding="{Binding Name}" Width="*" />
+                        <DataGridTextColumn Header="A pedir" Binding="{Binding QuantityToOrder, StringFormat=N0}" Width="80" />
+                        <DataGridTextColumn Header="Subtotal" Binding="{Binding Subtotal, StringFormat=N2}" Width="110" />
+                        <DataGridTextColumn Header="Entrega" Binding="{Binding EstimatedDelivery}" Width="100" />
+                        <DataGridTextColumn Header="Contacto" Binding="{Binding Contact}" Width="140" />
+                    </DataGrid.Columns>
+                </DataGrid>
+            </Grid>
+        </DataTemplate>
+
+        <!-- Actividad (auditoría) -->
+        <DataTemplate DataType="{x:Type vm:ActivityViewModel}">
+            <DataGrid ItemsSource="{Binding Rows}">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Fecha" Binding="{Binding OccurredAt, StringFormat='dd/MM/yyyy HH:mm:ss'}" Width="150" />
+                    <DataGridTextColumn Header="Usuario" Binding="{Binding UserName}" Width="160" />
+                    <DataGridTextColumn Header="Acción" Binding="{Binding Action}" Width="170" />
+                    <DataGridTextColumn Header="Resultado" Binding="{Binding Outcome}" Width="100" />
+                    <DataGridTextColumn Header="Detalle" Binding="{Binding Details}" Width="*" />
+                </DataGrid.Columns>
+            </DataGrid>
+        </DataTemplate>
+    </Window.Resources>
+
+    <DockPanel>
+        <!-- Navegación -->
+        <Border DockPanel.Dock="Left" Width="230" Background="{StaticResource Ink}">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Top" Margin="18,18,18,24">
+                    <TextBlock Text="M-INV" Foreground="White" FontSize="22" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding UserName}" Foreground="#CBD5E1" Margin="0,6,0,0" />
+                    <TextBlock Text="{Binding Roles}" Foreground="#64748B" FontSize="11" />
+                </StackPanel>
+                <TextBlock DockPanel.Dock="Bottom" Text="V3 · Z&amp;P Software Fast Solutions" Foreground="#475569" FontSize="10" Margin="18" />
+                <ItemsControl ItemsSource="{Binding Pages}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Button Style="{StaticResource NavButton}"
+                                    Command="{Binding DataContext.Navigate, RelativeSource={RelativeSource AncestorType=Window}}"
+                                    CommandParameter="{Binding}">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="{Binding Icon}" Width="26" />
+                                    <TextBlock Text="{Binding Title}" />
+                                </StackPanel>
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </DockPanel>
+        </Border>
+        <!-- Barra de estado: ✔ / ✖ del último caso de uso -->
+        <Border DockPanel.Dock="Bottom" Background="White" BorderBrush="{StaticResource Border}" BorderThickness="0,1,0,0" Padding="16,8">
+            <TextBlock Text="{Binding Current.Status.Text}" TextWrapping="Wrap">
+                <TextBlock.Style>
+                    <Style TargetType="TextBlock">
+                        <Setter Property="Foreground" Value="{StaticResource Ok}" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding Current.Status.IsError}" Value="True">
+                                <Setter Property="Foreground" Value="{StaticResource BloodRed}" />
+                                <Setter Property="FontWeight" Value="SemiBold" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBlock.Style>
+            </TextBlock>
+        </Border>
+        <Border DockPanel.Dock="Top" Background="White" BorderBrush="{StaticResource Border}" BorderThickness="0,0,0,1" Padding="20,12">
+            <TextBlock Text="{Binding Current.Title}" FontSize="20" FontWeight="SemiBold" Foreground="{StaticResource Ink}" />
+        </Border>
+        <ContentControl Content="{Binding Current}" Margin="20" />
+    </DockPanel>
+</Window>

@@ -1,16 +1,42 @@
-# ZP-MINV-Platform · M-INV V2.1 (colaborativo)
+# ZP-MINV-Platform · M-INV V3 (escritorio + PostgreSQL) · V2.1 (colaborativo)
 
-**Sistema de inventarios B2B de Z&P Software Fast Solutions.** La **V2** lleva M-INV a la nube: un solo libro en
-SharePoint/OneDrive que Bodega, Ventas y Gerencia usan **al mismo tiempo** desde Excel para la web, sin pisarse, con
-registros auditados por correo de Microsoft 365 y lógica en **Office Scripts** (TypeScript). La **2.1** la completa:
-portada de Gerencia, consulta de producto por usuario, toma física colaborativa, pedido sugerido por proveedor,
-registro de actividad y resumen diario por correo (Power Automate). La edición local **V1.2** (`.xlsx`/`.xlsm`) sigue
-disponible para quien trabaja sin conexión.
+**Sistema de inventarios y punto de venta B2B de Z&P Software Fast Solutions.** La **V3** lleva M-INV de Excel a una
+arquitectura cliente-servidor: solución **.NET 8** en Clean Architecture (dominio rico, CQRS con MediatR), base de datos
+**PostgreSQL** multi-empresa de **96 tablas normalizadas hasta 5FN**, cliente de escritorio **WPF** y módulo de hardware
+**ESC/POS**. Se construyó sobre el modelo de la **V2.1**: su importador migra el libro colaborativo y verifica que la V3
+reproduce exactamente su stock, semáforo, alertas y pedido. La V2.1 (Excel en Microsoft 365) y la V1.2 (Excel local)
+siguen en el repositorio.
 
-> **¿Cómo entro?** Siga [`docs/deployment/inicio-rapido.md`](docs/deployment/inicio-rapido.md): mirar la demo (5 min),
-> demo funcionando en la nube con su cuenta (30 min) o puesta en producción, más el uso diario por rol.
+> **¿Cómo la ejecuto?** Siga [`docs/deployment/inicio-rapido-v3.md`](docs/deployment/inicio-rapido-v3.md) (compilar,
+> crear la base, migrar la V2.1 y abrir el cliente). Modelo de datos: [`docs/database/ERD-MINV-V3.md`](docs/database/ERD-MINV-V3.md).
 
-![Portada de Gerencia · M-INV V2.1 (datos de demostración)](docs/product/capturas/v2/00_PORTADA_GERENCIA.png)
+## M-INV V3 · rama `Inventario-V3` (3.0.0-alpha.1)
+
+| Parte | Contenido |
+|---|---|
+| [`MINV.sln`](MINV.sln) | Solución .NET 8 (`Directory.Build.props` y `Directory.Packages.props` centralizan marco y versiones) |
+| `src/1. Core/MINV.Domain` | 96 entidades en 7 contextos (IAM, catálogo, almacén, inventario, compras, ventas/POS, contabilidad); reglas de stock en `StockLevel`, `Product`, `PhysicalCount`…; cero dependencias |
+| `src/1. Core/MINV.Application` | Casos de uso CQRS (MediatR): registrar movimiento con reintento optimista, toma física, stock/alertas/pedido, login, caja POS; tubería validación → RBAC y licencias → auditoría |
+| `src/2. Infrastructure/MINV.Infrastructure` | `MINVDbContext` (EF Core + Npgsql), FK compuestas por tenant, `xmin`, filtros globales, interceptores, migraciones, aprovisionamiento e importador de la V2.1 |
+| `src/2. Infrastructure/MINV.Hardware` | ESC/POS (acentos PC858, CODE128, QR, cajón, corte), impresoras COM/USB/red y lectores de códigos |
+| `src/3. Presentation/MINV.DesktopClient` | Cliente WPF/MVVM: login, stock virtualizado, registrar movimiento (con escáner), alertas y pedido, actividad |
+| `src/4. Tools/MINV.Cli` | `minv`: migrate, tenant create, import-v21, user password, verify |
+| [`scripts/db_init.sql`](scripts/db_init.sql) | Script idempotente de la base completa (generado) |
+| `tests/MINV.*.Tests` | 102 pruebas (97 sin base de datos + 5 contra PostgreSQL real con `MINV_TEST_PG`), incluida la paridad con la V2.1 |
+| [`.claude/v3-architecture-rules.md`](.claude/v3-architecture-rules.md) · [`.claude/database-migration-guide.md`](.claude/database-migration-guide.md) | Reglas A-01 a A-11 y guía de migraciones (esquema y datos V2.1 → V3) |
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\build_v3.ps1        # compilar, probar, verificar migraciones, regenerar db_init.sql
+```
+
+Garantías de diseño: **multi-tenant** (filtro global + FK compuestas `(tenant_id, x_id)` + Row Level Security),
+**concurrencia optimista** (`xmin`: dos cajas no pueden vender la misma última unidad), **append-only** (movimientos,
+pagos y auditoría inmutables en EF Core y en PostgreSQL), **auditoría** de cada comando (también los rechazados) y
+**licencias** por módulo comercial (motor de datos, cliente de escritorio, POS y hardware, RBAC, SLA).
+
+---
+
+# M-INV V2.1 (colaborativo en Microsoft 365)
 
 ## Entregables de la rama `Inventario-V2.1`
 
@@ -171,8 +197,7 @@ La protección de Excel evita errores, no ataques; la seguridad real es el permi
 ## Hoja de ruta
 
 - **V2.1** ✔ · Gerencia, consulta por usuario, toma física colaborativa, pedido sugerido, actividad y resumen diario.
-- **V3** · Migración a SQL + .NET: las dos bitácoras tienen el mismo esquema y se unen sin transformación
-  (ver los diccionarios de datos); `14_ACTIVIDAD` se convierte en la tabla de auditoría.
+- **V3** · En curso (rama `Inventario-V3`): .NET 8 + PostgreSQL + WPF; ver la sección M-INV V3 al inicio.
 
 ---
-© Z&P Software Fast Solutions · M-INV V2.1.0 (edición local V1.2.0)
+© Z&P Software Fast Solutions · M-INV V3.0.0-alpha.1 · V2.1.0 colaborativa · V1.2.0 local

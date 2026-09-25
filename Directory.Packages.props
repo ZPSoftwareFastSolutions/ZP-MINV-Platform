@@ -1,0 +1,26 @@
+<Project>
+  <!-- M-INV V3 · Versiones centralizadas de paquetes NuGet (Central Package Management). -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+  <ItemGroup Label="Núcleo">
+    <!-- MediatR 12.5 es la última versión con licencia Apache 2.0 (la 13+ exige licencia comercial). -->
+    <PackageVersion Include="MediatR" Version="12.5.0" />
+    <PackageVersion Include="FluentValidation" Version="12.0.0" />
+  </ItemGroup>
+  <ItemGroup Label="Datos">
+    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="8.0.31" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="8.0.31" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.31" />
+    <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.11" />
+  </ItemGroup>
+  <ItemGroup Label="Hosting y hardware">
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
+    <PackageVersion Include="System.IO.Ports" Version="8.0.0" />
+  </ItemGroup>
+  <ItemGroup Label="Pruebas">
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+</Project>

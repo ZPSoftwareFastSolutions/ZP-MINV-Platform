@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Casos de uso (CQRS con MediatR), puertos (interfaces) y proyecciones de lectura. Solo depende del dominio. -->
+  <PropertyGroup>
+    <RootNamespace>MINV.Application</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="MediatR" />
+    <PackageReference Include="FluentValidation" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\MINV.Domain\MINV.Domain.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="MINV.Application.Tests" />
+  </ItemGroup>
+</Project>

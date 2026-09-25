@@ -15,3 +15,11 @@ build/
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# .NET (V3)
+bin/
+obj/
+*.user
+.vs/
+TestResults/
+*.suo

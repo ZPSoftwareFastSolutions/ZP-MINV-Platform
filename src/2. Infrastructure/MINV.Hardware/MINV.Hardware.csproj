@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Periféricos del punto de venta: impresoras ESC/POS (COM, USB por la cola de Windows, red) y lectores. -->
+  <PropertyGroup>
+    <RootNamespace>MINV.Hardware</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="System.IO.Ports" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\1. Core\MINV.Application\MINV.Application.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="MINV.Hardware.Tests" />
+  </ItemGroup>
+</Project>
