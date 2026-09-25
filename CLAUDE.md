@@ -3,9 +3,11 @@
 M-INV es el sistema de inventarios B2B de Z&P Software Fast Solutions: libros de Excel arquitectados como aplicación
 transaccional inmutable (CQRS, append-only), preparados para migrar a SQL/.NET.
 
-Versión en desarrollo: **3.0.0-alpha.1** en la rama `Inventario-V3`: solución .NET 8 (`MINV.sln`, Clean
-Architecture) con PostgreSQL (96 tablas, 5FN, multi-tenant), cliente WPF y hardware ESC/POS; se construyó sobre el
-modelo de la V2.1 (importador con verificación de paridad). Reglas: `.claude/v3-architecture-rules.md`.
+Versión en desarrollo: **3.1.0-alpha.1** en la rama `Inventario-V3.1`: solución .NET 8 (`MINV.sln`, Clean
+Architecture) con PostgreSQL (96 tablas, 5FN, multi-tenant), hardware ESC/POS y el cliente de escritorio completo
+`M-INV.exe` (WPF/MVVM: pantalla de carga, login con demostración en memoria, tablero, registro con poka-yoke, toma
+física, alertas, pedido, ficha con kardex, tema claro/oscuro). Se construyó sobre el modelo de la V2.1 (importador con
+verificación de paridad). Reglas: `.claude/v3-architecture-rules.md`; interfaz: `docs/product/escritorio-v3.1.md`.
 
 Versión estable anterior: **2.1.0** en la rama `Inventario-V2.1`: libro **colaborativo** para Microsoft 365 (SharePoint/OneDrive,
 Excel para la web) con Office Scripts (`src/office-scripts/`): portadas por rol (Bodega, Ventas, Gerencia), captura por
@@ -23,6 +25,8 @@ rama `Inventario-V1.2`). Idioma del producto y la documentación: español.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\build_v3.ps1                  # V3: compilar, probar, migraciones, db_init.sql
+powershell -ExecutionPolicy Bypass -File tools\build_v3.ps1 -Capturas -Publicar # V3.1: + capturas del cliente + M-INV.exe (dist)
+powershell -ExecutionPolicy Bypass -File tools\publicar_escritorio.ps1         # V3.1: solo publicar M-INV.exe
 $env:MINV_TEST_PG = '<cadena postgres>'                                        # V3: activa las pruebas contra PostgreSQL
 dotnet run --project "src/4. Tools/MINV.Cli" -- import-v21 --archivo …          # V3: migrar un libro de la V2.1
 powershell -ExecutionPolicy Bypass -File tools\build_v2.ps1 -Capturas        # V2: ciclo completo (DoD, regla C-12)
@@ -40,6 +44,7 @@ variables); los Office Scripts, TypeScript sin `any` ni sintaxis no borrable.
 
 ## Documentación
 
+- V3.1: interfaz del cliente de escritorio `docs/product/escritorio-v3.1.md` (capturas en `docs/product/capturas/v3.1`)
 - V3: reglas `.claude/v3-architecture-rules.md` · migraciones `.claude/database-migration-guide.md` · ERD
   `docs/database/ERD-MINV-V3.md` · paso a paso `docs/deployment/inicio-rapido-v3.md`
 - Coautoría y fragmentación: `.claude/v2-concurrency-rules.md`

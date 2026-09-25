@@ -6,7 +6,7 @@ namespace MINV.Hardware.Tests;
 
 public sealed class EscPosTests
 {
-    private static int IndexOf(byte[] haystack, byte[] needle)
+    internal static int IndexOf(byte[] haystack, byte[] needle)
     {
         for (var i = 0; i <= haystack.Length - needle.Length; i++)
         {
@@ -105,5 +105,27 @@ public sealed class ScannerTests
         }
         Assert.False(detector.OnKey('\r', t.AddMilliseconds(400)));
         Assert.Equal(["7501031311309"], codes);
+    }
+}
+
+/// <summary>Página de prueba y fábrica de impresoras (pantalla Configuración del cliente).</summary>
+public sealed class PrinterTests
+{
+    [Fact]
+    public void La_pagina_de_prueba_incluye_acentos_codigo_de_barras_QR_y_corte()
+    {
+        var bytes = ReceiptRenderer.RenderTestPage("Distribuidora Demo", "COM3", new DateTimeOffset(2026, 9, 25, 10, 0, 0, TimeSpan.Zero));
+        Assert.True(EscPosTests.IndexOf(bytes, [0xA4]) > 0);                          // ñ en PC858
+        Assert.True(EscPosTests.IndexOf(bytes, [0x1D, (byte)'k', 73]) > 0);           // CODE128
+        Assert.True(EscPosTests.IndexOf(bytes, [0x1D, (byte)'(', (byte)'k']) > 0);     // QR
+        Assert.Equal(new byte[] { 0x1D, (byte)'V', 66, 3 }, bytes[^4..]);  // corte
+    }
+
+    [Fact]
+    public void Sin_destino_no_hay_impresora_y_un_tipo_desconocido_se_rechaza()
+    {
+        Assert.Null(ReceiptPrinters.Create(new HardwareOptions()));
+        Assert.IsType<MINV.Hardware.Printers.NetworkReceiptPrinter>(ReceiptPrinters.Create(new HardwareOptions("network", "10.0.0.5:9100")));
+        Assert.Throws<InvalidOperationException>(() => ReceiptPrinters.Create(new HardwareOptions("usb-magico", "X")));
     }
 }

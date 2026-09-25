@@ -2,6 +2,58 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semántico.
 
+## [3.1.0-alpha.1] · 2026-09-25 · rama `Inventario-V3.1`
+
+Tema de la versión: **cliente de escritorio completo, bonito e intuitivo**. La interfaz de la V3 (tablas tipo Excel)
+se reemplaza por una aplicación de escritorio con sistema visual propio, pensada para el trabajo diario de bodega,
+ventas y gerencia. El modelo de datos, las reglas y la paridad con la V2.1 no cambian.
+
+### Agregado
+
+- **`M-INV.exe`** con ícono propio, **pantalla de carga** (preferencias, tema y comprobación de PostgreSQL en segundos)
+  e **inicio de sesión** rediseñado (estado de la base con «Reintentar», Bloq Mayús, recordar empresa y correo).
+- **Modo demostración** sin base de datos: el libro de la V2.1 se migra a una base en memoria con el mismo importador
+  (reglas, poka-yoke y paridad) y se entra con cualquiera de sus usuarios y roles. Contraseña aleatoria por ejecución;
+  el reloj de la demostración se ubica en el día de los datos de la V2.1.
+- **Ventana principal**: menú lateral por secciones según los permisos del rol (contraíble), búsqueda global de
+  productos con autocompletado sin tildes (`Ctrl+K`), campana de alertas, avisos flotantes, confirmaciones dentro de la
+  ventana, menú de la cuenta, tema **claro/oscuro/según Windows** y atajos de teclado.
+- **Pantallas**: Inicio (indicadores, próximo paso según el rol, entradas y salidas de 14 días, semáforo en dona, alertas
+  urgentes, más vendidos, últimos movimientos, actividad); Stock (chips por estado, categoría, orden, barra de nivel,
+  exportación a Excel); Registrar movimiento (tipo → producto → cantidad, vista previa y **poka-yoke rojo sangre** de la
+  V2.1, Enter para registrar, historial de la sesión); **Toma física** (iniciar, contar, quitar, anular y generar ajustes
+  con confirmación); Alertas; Pedido sugerido por proveedor (copiar para correo o WhatsApp, exportar); **Ficha del
+  producto** con gráfico del saldo y kardex; Actividad con filtros; Configuración (tema, impresora ESC/POS con **página
+  de prueba**, prueba del escáner, sesión, permisos, conexión) y Ayuda (guías, atajos, semáforo).
+- **Cambio de contraseña** (obligatorio si el administrador la asignó) y **cierre de sesión** que vuelve al inicio.
+- Lector de códigos en modo teclado en todas las pantallas (elige el producto o abre su ficha) sin ensuciar los campos.
+- Casos de uso nuevos: `GetWorkspaceQuery`, `GetProductLookupQuery`, `GetBinsQuery`, `GetMovementTypesQuery`,
+  `GetProductCardQuery` (ficha y kardex con saldo acumulado), `GetRecentMovementsQuery`, `GetMovementTrendQuery`,
+  `GetOpenPhysicalCountQuery`, `RemoveCountCommand`, `CancelPhysicalCountCommand`, `ChangePasswordCommand` y
+  `LogoutCommand` (auditados los que escriben).
+- `DatabaseProbe` (comprobación rápida de PostgreSQL sin mostrar la contraseña), `DemoWorkspace` / `DemoClock` y
+  `AddMinvDemoInfrastructure` (EF Core InMemory 8.0.31), `ReceiptPrinters` y `ReceiptRenderer.RenderTestPage`.
+- **`M-INV.exe --capturas <carpeta>`**: recorre todas las pantallas (claro, oscuro y dos roles) y guarda imágenes;
+  `tools/build_v3.ps1 -Capturas` las deja en `docs/product/capturas/v3.1` y `-Publicar` genera el ejecutable con
+  `tools/publicar_escritorio.ps1` (`dist/`, dependiente del runtime o `-Autocontenido`).
+- Guía de la interfaz `docs/product/escritorio-v3.1.md`; generador del ícono `tools/generar_icono_escritorio.py`.
+
+### Cambiado
+
+- El ejecutable se llama `M-INV.exe` (antes `MINV.DesktopClient.exe`); versión 3.1.0-alpha.1.
+- Cada acción de la interfaz es una unidad de trabajo: el contexto de datos descarta lo rastreado y las consultas se
+  envían de a una (`SerialMediator`), así nunca se decide con existencias leídas antes de que otra caja las cambiara.
+- La auditoría clasifica como *Rechazado* (no *Falló*) una credencial incorrecta.
+- `docs/deployment/inicio-rapido-v3.md`: algoritmo rápido de 3 pasos con la demostración y distribución del ejecutable.
+
+### Verificado
+
+- `tools/build_v3.ps1 -Capturas -Publicar` sin fallas: compilación Release sin advertencias; **128 pruebas** (dominio
+  47, aplicación 10, hardware 10, infraestructura 44 con 5 que requieren PostgreSQL, **cliente de escritorio 17** con la
+  demostración real); migraciones al día; `db_init.sql` sin cambios; 24 capturas revisadas; `M-INV.exe` publicado
+  (11,3 MB) y probado hasta el inicio de sesión.
+- Pendiente: probar contra un PostgreSQL real (triggers, RLS y vistas) con `MINV_TEST_PG`.
+
 ## [3.0.0-alpha.1] · 2026-09-25 · rama `Inventario-V3`
 
 Tema de la versión: **fundación de M-INV V3** (escritorio + PostgreSQL). Transición desde Excel (V2.1) a una

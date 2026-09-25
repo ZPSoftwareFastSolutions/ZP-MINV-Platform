@@ -1,0 +1,201 @@
+<UserControl x:Class="MINV.DesktopClient.Views.Pages.SettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:MINV.DesktopClient.Controls">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="28,6,28,28">
+            <StackPanel Margin="0,0,0,18">
+                <TextBlock Text="{Binding Title}" Style="{StaticResource H1}" />
+                <TextBlock Text="{Binding Subtitle}" Style="{StaticResource Caption}" FontSize="13" Margin="0,4,0,0" />
+            </StackPanel>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="18" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel>
+                    <!-- Apariencia -->
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <Border Style="{StaticResource IconBubble}" Width="36" Height="36">
+                                    <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Sun}" />
+                                </Border>
+                                <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                                    <TextBlock Text="Apariencia" Style="{StaticResource H3}" />
+                                    <TextBlock Text="Tema de colores de esta estación" Style="{StaticResource Caption}" />
+                                </StackPanel>
+                            </StackPanel>
+                            <Border Background="{DynamicResource SurfaceHover}" CornerRadius="10" Padding="2" Margin="0,16,0,0" HorizontalAlignment="Left">
+                                <StackPanel Orientation="Horizontal">
+                                    <RadioButton Style="{StaticResource Segment}" Content="Según Windows" c:Ui.Icon="{x:Static c:Glyphs.Monitor}"
+                                                 IsChecked="{Binding IsSystemTheme}" GroupName="theme" />
+                                    <RadioButton Style="{StaticResource Segment}" Content="Claro" c:Ui.Icon="{x:Static c:Glyphs.Sun}"
+                                                 IsChecked="{Binding IsLightTheme}" GroupName="theme" />
+                                    <RadioButton Style="{StaticResource Segment}" Content="Oscuro" c:Ui.Icon="{x:Static c:Glyphs.Moon}"
+                                                 IsChecked="{Binding IsDarkTheme}" GroupName="theme" />
+                                </StackPanel>
+                            </Border>
+                            <TextBlock Text="Atajo: Ctrl+Shift+L cambia entre claro y oscuro en cualquier pantalla." Style="{StaticResource Caption}" Margin="0,10,0,0" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Impresora -->
+                    <Border Style="{StaticResource Card}" Margin="0,16,0,0">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <Border Style="{StaticResource IconBubble}" Width="36" Height="36">
+                                    <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Printer}" />
+                                </Border>
+                                <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                                    <TextBlock Text="Impresora de comprobantes (ESC/POS)" Style="{StaticResource H3}" />
+                                    <TextBlock Text="Térmica de 58 u 80 mm por puerto serie, red o USB" Style="{StaticResource Caption}" />
+                                </StackPanel>
+                            </StackPanel>
+                            <TextBlock Text="Conexión" Style="{StaticResource FieldLabel}" Margin="0,16,0,6" />
+                            <ComboBox ItemsSource="{Binding PrinterKinds}" SelectedItem="{Binding SelectedKind}" DisplayMemberPath="Name" />
+                            <StackPanel Visibility="{Binding HasPrinter, Converter={StaticResource Visible}}">
+                                <TextBlock Text="{Binding TargetLabel}" Style="{StaticResource FieldLabel}" Margin="0,14,0,6" />
+                                <TextBox Text="{Binding PrinterTarget, UpdateSourceTrigger=PropertyChanged}" c:Ui.Placeholder="{Binding TargetHint}" />
+                                <Grid Margin="0,14,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="12" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Visibility="{Binding IsSerial, Converter={StaticResource Visible}}">
+                                        <TextBlock Text="Velocidad (baudios)" Style="{StaticResource FieldLabel}" />
+                                        <ComboBox ItemsSource="{Binding BaudRates}" SelectedItem="{Binding BaudRate}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Text="Ancho (columnas)" Style="{StaticResource FieldLabel}" />
+                                        <ComboBox ItemsSource="{Binding ColumnOptions}" SelectedItem="{Binding Columns}" />
+                                    </StackPanel>
+                                </Grid>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
+                                <Button Style="{StaticResource PrimaryButton}" Content="Guardar" c:Ui.Icon="{x:Static c:Glyphs.Save}" Command="{Binding SavePrinter}" />
+                                <Button Content="Imprimir página de prueba" c:Ui.Icon="{x:Static c:Glyphs.Printer}" Margin="10,0,0,0" Command="{Binding TestPrint}"
+                                        c:Ui.IsBusy="{Binding TestPrint.IsRunning}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Escáner -->
+                    <Border Style="{StaticResource Card}" Margin="0,16,0,0">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <Border Style="{StaticResource IconBubble}" Width="36" Height="36">
+                                    <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Barcode}" />
+                                </Border>
+                                <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                                    <TextBlock Text="Lector de códigos de barras" Style="{StaticResource H3}" />
+                                    <TextBlock Text="Los lectores USB en modo teclado funcionan sin configurar" Style="{StaticResource Caption}" />
+                                </StackPanel>
+                            </StackPanel>
+                            <TextBlock Style="{StaticResource Body}" Margin="0,14,0,10"
+                                       Text="Para probarlo, lea cualquier código ahora: M-INV distingue la ráfaga del lector del tecleo de una persona. En Registrar movimiento y Toma física la lectura elige el producto; en las demás pantallas abre su ficha." />
+                            <Border Style="{StaticResource Panel}">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Barcode}" Foreground="{DynamicResource BrandText}" />
+                                    <TextBlock Text="{Binding LastScan}" Margin="10,0,0,0" Foreground="{DynamicResource TextSecondary}" FontWeight="SemiBold" />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <StackPanel Grid.Column="2">
+                    <!-- Sesión -->
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel>
+                            <DockPanel>
+                                <Border DockPanel.Dock="Left" Width="52" Height="52" CornerRadius="26" Background="{Binding UserName, Converter={StaticResource AvatarBrush}}">
+                                    <TextBlock Text="{Binding Initials}" Foreground="#FFFFFF" FontSize="17" FontWeight="SemiBold" HorizontalAlignment="Center"
+                                               VerticalAlignment="Center" />
+                                </Border>
+                                <Button DockPanel.Dock="Right" Content="Cambiar contraseña" c:Ui.Icon="{x:Static c:Glyphs.Key}" Command="{Binding ChangePassword}"
+                                        VerticalAlignment="Center" />
+                                <StackPanel Margin="14,0,0,0" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding UserName}" Style="{StaticResource H3}" FontSize="16" />
+                                    <TextBlock Text="{Binding UserEmail}" Style="{StaticResource Caption}" />
+                                    <TextBlock Text="{Binding RoleNames}" Foreground="{DynamicResource BrandText}" FontWeight="SemiBold" FontSize="12" Margin="0,3,0,0" />
+                                </StackPanel>
+                            </DockPanel>
+                            <Separator />
+                            <TextBlock Text="{Binding CompanyName}" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" />
+                            <TextBlock Text="{Binding CompanyDetail}" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,2,0,0" />
+                            <TextBlock Text="{Binding SessionStarted}" Style="{StaticResource Caption}" Margin="0,2,0,0" />
+                            <TextBlock Text="Lo que puede hacer con su rol" Style="{StaticResource FieldLabel}" Margin="0,16,0,6" />
+                            <ItemsControl ItemsSource="{Binding Permissions}" Focusable="False">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" Margin="0,3">
+                                            <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Check}" FontSize="12" Foreground="{DynamicResource Success}" />
+                                            <TextBlock Text="{Binding}" Margin="9,0,0,0" Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap" MaxWidth="480" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Conexión -->
+                    <Border Style="{StaticResource Card}" Margin="0,16,0,0">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <Border Style="{StaticResource IconBubble}" Width="36" Height="36">
+                                    <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Globe}" />
+                                </Border>
+                                <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                                    <TextBlock Text="Conexión" Style="{StaticResource H3}" />
+                                    <TextBlock Text="{Binding ConnectionMode}" Style="{StaticResource Caption}" />
+                                </StackPanel>
+                            </StackPanel>
+                            <Grid Margin="0,14,0,0" TextElement.FontSize="13">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="120" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <TextBlock Text="Servidor" Style="{StaticResource Caption}" Margin="0,3" />
+                                <TextBlock Grid.Column="1" Text="{Binding ConnectionServer}" Foreground="{DynamicResource TextPrimary}" Margin="0,3" />
+                                <TextBlock Grid.Row="1" Text="Base de datos" Style="{StaticResource Caption}" Margin="0,3" />
+                                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding ConnectionDatabase}" Foreground="{DynamicResource TextPrimary}" Margin="0,3" />
+                                <TextBlock Grid.Row="2" Text="Usuario" Style="{StaticResource Caption}" Margin="0,3" />
+                                <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding ConnectionUser}" Foreground="{DynamicResource TextPrimary}" Margin="0,3" />
+                            </Grid>
+                            <Border Background="{DynamicResource WarningSoft}" CornerRadius="10" Padding="12,9" Margin="0,14,0,0"
+                                    Visibility="{Binding IsDemo, Converter={StaticResource Visible}}">
+                                <TextBlock Foreground="{DynamicResource Warning}" TextWrapping="Wrap" FontSize="12.5"
+                                           Text="Demostración: los datos viven en la memoria de este equipo y se pierden al cerrar. Para trabajar de verdad, configure PostgreSQL (guía docs/deployment/inicio-rapido-v3.md)." />
+                            </Border>
+                            <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,12,0,0"
+                                       Text="La cadena de conexión se toma de la variable MINV_DB o de appsettings.json junto al ejecutable. La contraseña nunca se muestra." />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Acerca de -->
+                    <Border Style="{StaticResource Card}" Margin="0,16,0,0">
+                        <DockPanel>
+                            <Image DockPanel.Dock="Left" Source="/Assets/minv-256.png" Width="52" Height="52" RenderOptions.BitmapScalingMode="HighQuality" />
+                            <StackPanel Margin="14,0,0,0" VerticalAlignment="Center">
+                                <TextBlock Style="{StaticResource H3}">
+                                    <Run Text="M-INV" /> <Run Text="{Binding Version, Mode=OneWay}" Foreground="{DynamicResource TextMuted}" FontWeight="Normal" />
+                                </TextBlock>
+                                <TextBlock Text="Sistema de inventario · Z&amp;P Software Fast Solutions" Style="{StaticResource Caption}" />
+                                <TextBlock Text="{Binding Runtime}" Style="{StaticResource Caption}" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+                </StackPanel>
+            </Grid>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

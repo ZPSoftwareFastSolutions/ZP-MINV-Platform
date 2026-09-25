@@ -1,0 +1,191 @@
+<UserControl x:Class="MINV.DesktopClient.Views.Pages.ProductDetailView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:MINV.DesktopClient.Controls"
+             xmlns:vm="clr-namespace:MINV.DesktopClient.ViewModels"
+             xmlns:q="clr-namespace:MINV.Application.Inventory.Queries;assembly=MINV.Application">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Encabezado -->
+        <Border Padding="26,22,18,18" BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top">
+                    <Button Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Refresh}" Command="{Binding Refresh}" ToolTip="Actualizar" />
+                    <Button Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Close}" ToolTip="Cerrar (Esc)"
+                            Command="{Binding DataContext.CloseProduct, RelativeSource={RelativeSource AncestorType=Window}}" />
+                </StackPanel>
+                <StackPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <Border Style="{StaticResource Pill}" Background="{DynamicResource BrandSoft}">
+                            <TextBlock Text="{Binding Sku}" Style="{StaticResource Mono}" Foreground="{DynamicResource BrandText}" FontWeight="SemiBold" />
+                        </Border>
+                        <Button Style="{StaticResource IconButton}" Width="26" Height="26" FontSize="12" Content="{x:Static c:Glyphs.Copy}"
+                                ToolTip="Copiar SKU" Command="{Binding CopySku}" Margin="4,0,0,0" />
+                        <c:StatusBadge Status="{Binding Status}" Margin="8,0,0,0" Visibility="{Binding Card, Converter={StaticResource HasValue}}" />
+                    </StackPanel>
+                    <TextBlock Text="{Binding Name}" Style="{StaticResource H2}" FontSize="20" TextWrapping="Wrap" Margin="0,10,0,2" />
+                    <TextBlock Style="{StaticResource Caption}">
+                        <Run Text="{Binding Category, Mode=OneWay}" /><Run Text=" · unidad " /><Run Text="{Binding Unit, Mode=OneWay}" />
+                    </TextBlock>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <c:ProgressRing Grid.Row="1" Width="40" Height="40" IsActive="{Binding IsLoading}" VerticalAlignment="Top" Margin="0,80,0,0" />
+        <Border Grid.Row="1" Background="{DynamicResource DangerSoft}" CornerRadius="10" Padding="14,10" Margin="26,20" VerticalAlignment="Top"
+                Visibility="{Binding Error, Converter={StaticResource HasValue}}">
+            <TextBlock Text="{Binding Error}" Foreground="{DynamicResource Danger}" TextWrapping="Wrap" />
+        </Border>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Visibility="{Binding Card, Converter={StaticResource HasValue}}">
+            <StackPanel Margin="26,18,26,26">
+                <!-- Cifras -->
+                <UniformGrid Columns="3" Margin="-5,0">
+                    <Border Style="{StaticResource Panel}" Margin="5">
+                        <StackPanel>
+                            <TextBlock Text="Stock" Style="{StaticResource Caption}" />
+                            <TextBlock FontSize="22" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}">
+                                <Run Text="{Binding OnHandText, Mode=OneWay}" /> <Run Text="{Binding Unit, Mode=OneWay}" FontSize="12" Foreground="{DynamicResource TextMuted}" />
+                            </TextBlock>
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource Panel}" Margin="5">
+                        <StackPanel>
+                            <TextBlock Text="Disponible" Style="{StaticResource Caption}" />
+                            <TextBlock Text="{Binding AvailableText}" FontSize="16" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" Margin="0,5,0,0" />
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource Panel}" Margin="5">
+                        <StackPanel>
+                            <TextBlock Text="Reservado" Style="{StaticResource Caption}" />
+                            <TextBlock Text="{Binding ReservedText}" FontSize="16" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" Margin="0,5,0,0" />
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource Panel}" Margin="5">
+                        <StackPanel>
+                            <TextBlock Text="Mínimo / máximo" Style="{StaticResource Caption}" />
+                            <TextBlock Text="{Binding MinMaxText}" FontSize="16" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" Margin="0,5,0,0" />
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource Panel}" Margin="5">
+                        <StackPanel>
+                            <TextBlock Text="Costo promedio" Style="{StaticResource Caption}" />
+                            <TextBlock Text="{Binding CostText}" FontSize="16" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" Margin="0,5,0,0" />
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource Panel}" Margin="5">
+                        <StackPanel>
+                            <TextBlock Text="Valor" Style="{StaticResource Caption}" />
+                            <TextBlock Text="{Binding ValueText}" FontSize="16" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" Margin="0,5,0,0" />
+                        </StackPanel>
+                    </Border>
+                </UniformGrid>
+                <c:LevelBar Value="{Binding Level}" Status="{Binding Status}" Height="8" Margin="0,12,0,0" />
+
+                <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                    <Button Style="{StaticResource PrimaryButton}" Content="Registrar entrada" c:Ui.Icon="{x:Static c:Glyphs.Add}" Command="{Binding RegisterEntry}"
+                            Visibility="{Binding CanRegisterEntries, Converter={StaticResource Visible}}" Margin="0,0,8,0" />
+                    <Button Content="Registrar salida" c:Ui.Icon="{x:Static c:Glyphs.Export}" Command="{Binding RegisterIssue}"
+                            Visibility="{Binding CanRegisterIssues, Converter={StaticResource Visible}}" />
+                </StackPanel>
+
+                <!-- Evolución -->
+                <TextBlock Text="Evolución del stock" Style="{StaticResource H3}" Margin="0,24,0,2" />
+                <TextBlock Style="{StaticResource Caption}" Text="Saldo después de cada movimiento · la línea punteada es el mínimo" />
+                <Border Style="{StaticResource Panel}" Margin="0,10,0,0" Padding="10">
+                    <c:LineChart Values="{Binding Balances}" Reference="{Binding MinimumReference}" Height="130" />
+                </Border>
+
+                <!-- Datos -->
+                <Grid Margin="0,20,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="150" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="Proveedor preferido" Style="{StaticResource Caption}" Margin="0,4" />
+                    <TextBlock Grid.Column="1" Text="{Binding SupplierText}" Foreground="{DynamicResource TextPrimary}" Margin="0,4" TextWrapping="Wrap" />
+                    <TextBlock Grid.Row="1" Text="Códigos de barras" Style="{StaticResource Caption}" Margin="0,4" />
+                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding BarcodesText}" Style="{StaticResource Mono}" Margin="0,4" TextWrapping="Wrap" />
+                    <TextBlock Grid.Row="2" Text="Posición principal" Style="{StaticResource Caption}" Margin="0,4" />
+                    <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding PrimaryBinText}" Foreground="{DynamicResource TextPrimary}" Margin="0,4" />
+                </Grid>
+
+                <!-- Existencias por posición -->
+                <TextBlock Text="Existencias por posición y lote" Style="{StaticResource H3}" Margin="0,20,0,8" />
+                <ItemsControl ItemsSource="{Binding Bins}" Focusable="False">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="{x:Type q:ProductBinStock}">
+                            <Border Style="{StaticResource Panel}" Padding="12,9" Margin="0,0,0,6">
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Right" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}">
+                                        <Run Text="{Binding OnHand, Mode=OneWay, StringFormat='#,##0.###'}" />
+                                    </TextBlock>
+                                    <TextBlock DockPanel.Dock="Left" Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Location}" FontSize="13"
+                                               Foreground="{DynamicResource TextMuted}" Margin="0,0,8,0" />
+                                    <TextBlock Foreground="{DynamicResource TextSecondary}">
+                                        <Run Text="{Binding BinCode, Mode=OneWay}" FontWeight="SemiBold" /><Run Text=" · lote " /><Run Text="{Binding LotNumber, Mode=OneWay}" />
+                                    </TextBlock>
+                                </DockPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <!-- Kardex -->
+                <DockPanel Margin="0,20,0,8">
+                    <TextBlock DockPanel.Dock="Right" Text="{Binding MovementsText}" Style="{StaticResource Caption}" VerticalAlignment="Bottom" />
+                    <TextBlock Text="Kardex" Style="{StaticResource H3}" />
+                </DockPanel>
+                <ItemsControl ItemsSource="{Binding Kardex}" Focusable="False">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:KardexItem}">
+                            <Border BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1" Padding="0,10">
+                                <DockPanel>
+                                    <Border x:Name="Bubble" DockPanel.Dock="Left" Width="32" Height="32" CornerRadius="9" Background="{DynamicResource SuccessSoft}"
+                                            VerticalAlignment="Top">
+                                        <TextBlock x:Name="Glyph" Style="{StaticResource Icon}" Text="{Binding Glyph}" FontSize="13" Foreground="{DynamicResource Success}" />
+                                    </Border>
+                                    <StackPanel DockPanel.Dock="Right" Margin="10,0,0,0" MinWidth="86">
+                                        <TextBlock x:Name="Signed" Text="{Binding SignedText}" FontWeight="SemiBold" HorizontalAlignment="Right"
+                                                   Foreground="{DynamicResource Success}" />
+                                        <TextBlock HorizontalAlignment="Right" Style="{StaticResource Caption}">
+                                            <Run Text="saldo" /> <Run Text="{Binding BalanceText, Mode=OneWay}" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondary}" />
+                                        </TextBlock>
+                                    </StackPanel>
+                                    <StackPanel Margin="12,0,0,0">
+                                        <TextBlock>
+                                            <Run Text="{Binding TypeName, Mode=OneWay}" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" />
+                                            <Run Text="{Binding DateText, Mode=OneWay}" Foreground="{DynamicResource TextMuted}" FontSize="12" />
+                                            <Run Text="{Binding TimeText, Mode=OneWay}" Foreground="{DynamicResource TextFaint}" FontSize="12" />
+                                        </TextBlock>
+                                        <TextBlock Text="{Binding Detail}" Style="{StaticResource Caption}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding Notes}" Style="{StaticResource Caption}" FontStyle="Italic" TextWrapping="Wrap"
+                                                   Visibility="{Binding HasNotes, Converter={StaticResource Visible}}" />
+                                    </StackPanel>
+                                </DockPanel>
+                            </Border>
+                            <DataTemplate.Triggers>
+                                <DataTrigger Binding="{Binding IsIn}" Value="False">
+                                    <Setter TargetName="Bubble" Property="Background" Value="{DynamicResource WarningSoft}" />
+                                    <Setter TargetName="Glyph" Property="Foreground" Value="{DynamicResource Warning}" />
+                                    <Setter TargetName="Signed" Property="Foreground" Value="{DynamicResource Warning}" />
+                                </DataTrigger>
+                            </DataTemplate.Triggers>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Text="Este producto todavía no tiene movimientos." Style="{StaticResource Caption}"
+                           Visibility="{Binding HasMovements, Converter={StaticResource Hidden}}" />
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

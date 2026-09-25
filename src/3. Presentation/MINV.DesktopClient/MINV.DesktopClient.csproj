@@ -1,11 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- Cliente de escritorio nativo (WPF / XAML / MVVM). -->
+  <!-- Cliente de escritorio nativo (WPF / XAML / MVVM). El ejecutable se llama M-INV.exe. -->
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>$(MinvTargetFramework)-windows</TargetFramework>
     <UseWPF>true</UseWPF>
     <RootNamespace>MINV.DesktopClient</RootNamespace>
+    <AssemblyName>M-INV</AssemblyName>
     <AssemblyTitle>M-INV · Cliente de escritorio</AssemblyTitle>
+    <ApplicationIcon>Assets\minv.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting" />
@@ -15,6 +18,12 @@
     <ProjectReference Include="..\..\2. Infrastructure\MINV.Hardware\MINV.Hardware.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <Resource Include="Assets\minv.ico" />
+    <Resource Include="Assets\minv-256.png" />
+  </ItemGroup>
+  <ItemGroup>
     <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Modo demostración: el libro colaborativo de la V2.1 se migra a memoria al pulsar «Explorar la demostración». -->
+    <None Include="..\..\M-INV_V2_Colaborativo.xlsx" Link="Demo\M-INV_V2_Colaborativo.xlsx" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

@@ -23,3 +23,5 @@ obj/
 .vs/
 TestResults/
 *.suo
+# Cliente de escritorio publicado (tools/publicar_escritorio.ps1)
+dist/

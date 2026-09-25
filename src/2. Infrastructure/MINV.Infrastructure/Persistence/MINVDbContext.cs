@@ -148,10 +148,11 @@ public sealed class MINVDbContext : DbContext, IMinvDbContext
     public void ClearTracking() => ChangeTracker.Clear();
 
     /// <summary>Si la conexión ya está abierta (p. ej. dentro de una transacción), vuelve a fijar <c>minv.tenant_id</c>
-    /// para que las políticas de Row Level Security vean el tenant actual.</summary>
+    /// para que las políticas de Row Level Security vean el tenant actual (la base en memoria del modo demostración no
+    /// tiene conexión ni RLS).</summary>
     public async Task SyncTenantSessionAsync(CancellationToken cancellationToken = default)
     {
-        if (Database.GetDbConnection().State == System.Data.ConnectionState.Open)
+        if (Database.IsRelational() && Database.GetDbConnection().State == System.Data.ConnectionState.Open)
         {
             var value = CurrentTenantId == Guid.Empty ? string.Empty : CurrentTenantId.ToString();
             await Database.ExecuteSqlRawAsync("SELECT set_config('minv.tenant_id', {0}, false)", [value], cancellationToken);

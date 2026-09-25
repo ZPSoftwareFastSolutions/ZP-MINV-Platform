@@ -1,0 +1,164 @@
+<UserControl x:Class="MINV.DesktopClient.Views.Pages.StockView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:MINV.DesktopClient.Controls"
+             xmlns:vm="clr-namespace:MINV.DesktopClient.ViewModels">
+    <Grid Margin="28,6,28,24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <DockPanel Margin="0,0,0,16">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button Content="Exportar a Excel" c:Ui.Icon="{x:Static c:Glyphs.Download}" Command="{Binding Export}" Margin="0,0,8,0" />
+                <Button Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Refresh}" Command="{Binding Refresh}" ToolTip="Actualizar (F5)" />
+            </StackPanel>
+            <StackPanel>
+                <TextBlock Text="{Binding Title}" Style="{StaticResource H1}" />
+                <TextBlock Text="{Binding Subtitle}" Style="{StaticResource Caption}" FontSize="13" Margin="0,4,0,0" />
+            </StackPanel>
+        </DockPanel>
+
+        <!-- Resumen -->
+        <UniformGrid Grid.Row="1" Columns="4" Margin="-6,0,-6,14">
+            <Border Style="{StaticResource CardFlat}" Margin="6" Padding="16,12">
+                <StackPanel Orientation="Horizontal">
+                    <Border Style="{StaticResource IconBubble}" Width="34" Height="34">
+                        <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Box}" />
+                    </Border>
+                    <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="Productos" Style="{StaticResource Caption}" />
+                        <TextBlock Text="{Binding ProductsText}" FontWeight="SemiBold" FontSize="14" Foreground="{DynamicResource TextPrimary}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource CardFlat}" Margin="6" Padding="16,12">
+                <StackPanel Orientation="Horizontal">
+                    <Border Style="{StaticResource IconBubble}" Width="34" Height="34" Background="{DynamicResource SuccessSoft}">
+                        <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Money}" Foreground="{DynamicResource Success}" />
+                    </Border>
+                    <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="Valor del inventario" Style="{StaticResource Caption}" />
+                        <TextBlock Text="{Binding TotalValueText}" FontWeight="SemiBold" FontSize="14" Foreground="{DynamicResource TextPrimary}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource CardFlat}" Margin="6" Padding="16,12">
+                <StackPanel Orientation="Horizontal">
+                    <Border Style="{StaticResource IconBubble}" Width="34" Height="34" Background="{DynamicResource WarningSoft}">
+                        <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Warning}" Foreground="{DynamicResource Warning}" />
+                    </Border>
+                    <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="Alertas" Style="{StaticResource Caption}" />
+                        <TextBlock Text="{Binding AlertsText}" FontWeight="SemiBold" FontSize="14" Foreground="{DynamicResource TextPrimary}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource CardFlat}" Margin="6" Padding="16,12">
+                <StackPanel Orientation="Horizontal">
+                    <Border Style="{StaticResource IconBubble}" Width="34" Height="34" Background="{DynamicResource InfoSoft}">
+                        <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Pulse}" Foreground="{DynamicResource Info}" />
+                    </Border>
+                    <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="Historia" Style="{StaticResource Caption}" />
+                        <TextBlock Text="{Binding TotalUnitsText}" FontWeight="SemiBold" FontSize="14" Foreground="{DynamicResource TextPrimary}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </UniformGrid>
+
+        <!-- Búsqueda y filtros -->
+        <StackPanel Grid.Row="2">
+            <DockPanel Margin="0,0,0,12">
+                <TextBlock DockPanel.Dock="Right" Text="{Binding Summary}" Style="{StaticResource Caption}" VerticalAlignment="Center" />
+                <TextBox Width="380" HorizontalAlignment="Left" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}"
+                         c:Ui.Icon="{x:Static c:Glyphs.Search}" c:Ui.Placeholder="Buscar por SKU, nombre o proveedor" />
+                <ComboBox Width="230" Margin="10,0,0,0" HorizontalAlignment="Left" ItemsSource="{Binding Categories}"
+                          SelectedItem="{Binding Category}" />
+            </DockPanel>
+            <ItemsControl ItemsSource="{Binding Filters}" ItemTemplate="{StaticResource FilterChipTemplate}"
+                          ItemsPanel="{StaticResource WrapPanelTemplate}" Focusable="False" Margin="0,0,0,6" />
+        </StackPanel>
+
+        <!-- Tabla -->
+        <Border Grid.Row="3" Style="{StaticResource CardFlat}" Padding="4,2,4,4">
+            <Grid>
+                <DataGrid x:Name="Grid" ItemsSource="{Binding Rows}" RowHeight="58" MouseDoubleClick="OnRowDoubleClick">
+                    <DataGrid.Columns>
+                        <DataGridTemplateColumn Header="PRODUCTO" Width="*" MinWidth="240" SortMemberPath="Name" CanUserSort="True">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:StockItem}">
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                        <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
+                                            <Border Style="{StaticResource Pill}" Padding="6,0">
+                                                <TextBlock Text="{Binding Sku}" Style="{StaticResource Mono}" FontSize="11.5" />
+                                            </Border>
+                                            <TextBlock Text="{Binding Category}" Style="{StaticResource Caption}" Margin="8,0,0,0" VerticalAlignment="Center"
+                                                       TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTemplateColumn Header="ESTADO" Width="128" SortMemberPath="StatusOrder" CanUserSort="True">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:StockItem}">
+                                    <c:StatusBadge Status="{Binding Status}" />
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTemplateColumn Header="STOCK" Width="150" SortMemberPath="Stock" CanUserSort="True">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:StockItem}">
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock>
+                                            <Run Text="{Binding StockText, Mode=OneWay}" FontWeight="SemiBold" FontSize="14" />
+                                            <Run Text="{Binding Unit, Mode=OneWay}" Foreground="{DynamicResource TextMuted}" FontSize="11.5" />
+                                        </TextBlock>
+                                        <c:LevelBar Value="{Binding Level}" Status="{Binding Status}" Width="108" HorizontalAlignment="Left" Margin="0,5,0,0" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTextColumn Header="MÍN / MÁX" Binding="{Binding MinMaxText}" Width="100" CanUserSort="False" />
+                        <DataGridTextColumn Header="COBERTURA" Binding="{Binding CoverageText}" Width="104" SortMemberPath="CoverageSort" />
+                        <DataGridTextColumn Header="VENTAS 30 DÍAS" Binding="{Binding Sales30Text}" Width="124" SortMemberPath="Sales30" />
+                        <DataGridTextColumn Header="VALOR" Binding="{Binding ValueText}" Width="140" SortMemberPath="Value"
+                                            HeaderStyle="{StaticResource HeaderRight}" ElementStyle="{StaticResource CellRight}" />
+                        <DataGridTextColumn Header="ÚLTIMO MOV." Binding="{Binding LastMovementText}" Width="128" SortMemberPath="LastMovementSort"
+                                            ElementStyle="{StaticResource CellText}" />
+                        <DataGridTemplateColumn Width="92" CanUserSort="False">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:StockItem}">
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                        <Button Style="{StaticResource IconButton}" Width="32" Height="32" Content="{x:Static c:Glyphs.Eye}" ToolTip="Ver ficha y kardex"
+                                                Command="{Binding DataContext.OpenProduct, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                CommandParameter="{Binding}" />
+                                        <Button Style="{StaticResource IconButton}" Width="32" Height="32" Content="{x:Static c:Glyphs.Add}"
+                                                ToolTip="Registrar un movimiento de este producto"
+                                                Command="{Binding DataContext.RegisterFor, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                CommandParameter="{Binding}"
+                                                Visibility="{Binding DataContext.CanRegister, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource Visible}}" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+                <ContentControl Style="{StaticResource EmptyState}" Tag="{x:Static c:Glyphs.Search}"
+                                Visibility="{Binding IsEmpty, Converter={StaticResource Visible}}">
+                    <StackPanel>
+                        <TextBlock Text="Ningún producto coincide con la búsqueda" FontWeight="SemiBold" HorizontalAlignment="Center"
+                                   Foreground="{DynamicResource TextPrimary}" />
+                        <Button Style="{StaticResource LinkButton}" Content="Limpiar la búsqueda" HorizontalAlignment="Center" Margin="0,8,0,0"
+                                Command="{Binding ClearSearch}" />
+                    </StackPanel>
+                </ContentControl>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

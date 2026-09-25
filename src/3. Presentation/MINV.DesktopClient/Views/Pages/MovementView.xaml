@@ -1,0 +1,309 @@
+<UserControl x:Class="MINV.DesktopClient.Views.Pages.MovementView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:MINV.DesktopClient.Controls"
+             xmlns:v="clr-namespace:MINV.DesktopClient.Views"
+             xmlns:vm="clr-namespace:MINV.DesktopClient.ViewModels">
+    <UserControl.Resources>
+        <!-- Tarjeta de tipo de movimiento -->
+        <Style x:Key="TypeTile" TargetType="RadioButton">
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Width" Value="206" />
+            <Setter Property="Margin" Value="0,0,10,10" />
+            <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="Bd" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Border}" BorderThickness="1.5"
+                                CornerRadius="12" Padding="12,11">
+                            <ContentPresenter />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource TextFaint}" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Brand}" />
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BrandSoft}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <Grid Margin="28,6,28,28">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" MinWidth="560" />
+                <ColumnDefinition Width="18" />
+                <ColumnDefinition Width="400" />
+            </Grid.ColumnDefinitions>
+
+            <DockPanel Grid.ColumnSpan="3" Margin="0,0,0,16">
+                <Button DockPanel.Dock="Right" Style="{StaticResource GhostButton}" Content="Limpiar el formulario" c:Ui.Icon="{x:Static c:Glyphs.Delete}"
+                        Command="{Binding Clear}" VerticalAlignment="Center" />
+                <StackPanel>
+                    <TextBlock Text="{Binding Title}" Style="{StaticResource H1}" />
+                    <TextBlock Text="Elija el tipo, el producto y la cantidad. El escáner funciona en cualquier momento." Style="{StaticResource Caption}"
+                               FontSize="13" Margin="0,4,0,0" />
+                </StackPanel>
+            </DockPanel>
+
+            <!-- ============================================================== formulario -->
+            <StackPanel Grid.Row="1">
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <DockPanel Margin="0,0,0,14">
+                            <Border DockPanel.Dock="Left" Width="26" Height="26" CornerRadius="13" Background="{DynamicResource Brand}">
+                                <TextBlock Text="1" Foreground="#FFFFFF" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <TextBlock Text="¿Qué movimiento va a registrar?" Style="{StaticResource H3}" Margin="10,0,0,0" VerticalAlignment="Center" />
+                        </DockPanel>
+                        <ItemsControl ItemsSource="{Binding Types}" ItemsPanel="{StaticResource WrapPanelTemplate}" Focusable="False">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:MovementTypeOption}">
+                                    <RadioButton Style="{StaticResource TypeTile}" IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                                 Command="{Binding DataContext.SelectType, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                 CommandParameter="{Binding}" ToolTip="{Binding Description}">
+                                        <DockPanel>
+                                            <Border x:Name="Bubble" DockPanel.Dock="Left" Width="36" Height="36" CornerRadius="10"
+                                                    Background="{DynamicResource SuccessSoft}">
+                                                <TextBlock x:Name="Glyph" Style="{StaticResource Icon}" Text="{Binding Glyph}" Foreground="{DynamicResource Success}" />
+                                            </Border>
+                                            <StackPanel Margin="10,0,0,0" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Title}" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" FontSize="13"
+                                                           TextTrimming="CharacterEllipsis" />
+                                                <TextBlock x:Name="Sign" Text="{Binding SignText}" FontSize="11.5" Foreground="{DynamicResource Success}" />
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </RadioButton>
+                                    <DataTemplate.Triggers>
+                                        <DataTrigger Binding="{Binding Increases}" Value="False">
+                                            <Setter TargetName="Bubble" Property="Background" Value="{DynamicResource WarningSoft}" />
+                                            <Setter TargetName="Glyph" Property="Foreground" Value="{DynamicResource Warning}" />
+                                            <Setter TargetName="Sign" Property="Foreground" Value="{DynamicResource Warning}" />
+                                        </DataTrigger>
+                                    </DataTemplate.Triggers>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <Border Style="{StaticResource Panel}" Padding="12,9" Margin="0,4,0,0">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Info}" FontSize="13" Foreground="{DynamicResource TextMuted}" />
+                                <TextBlock Text="{Binding SelectedType.Description}" Style="{StaticResource Caption}" Margin="8,0,0,0" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Card}" Margin="0,16,0,0">
+                    <StackPanel>
+                        <DockPanel Margin="0,0,0,14">
+                            <Border DockPanel.Dock="Left" Width="26" Height="26" CornerRadius="13" Background="{DynamicResource Brand}">
+                                <TextBlock Text="2" Foreground="#FFFFFF" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <TextBlock Text="Producto y posición" Style="{StaticResource H3}" Margin="10,0,0,0" VerticalAlignment="Center" />
+                        </DockPanel>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="14" />
+                                <ColumnDefinition Width="220" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Producto" Style="{StaticResource FieldLabel}" />
+                                <v:ProductSearchBox x:Name="ProductSearch" DataContext="{Binding Picker}" IsLarge="True"
+                                                    Placeholder="Nombre, SKU o código de barras (o léalo con el escáner)" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="Posición" Style="{StaticResource FieldLabel}" />
+                                <ComboBox ItemsSource="{Binding Bins}" Text="{Binding BinCode, UpdateSourceTrigger=PropertyChanged}" IsEditable="True"
+                                          MinHeight="48" FontSize="15" c:Ui.Placeholder="Posición" />
+                            </StackPanel>
+                        </Grid>
+                        <Border Style="{StaticResource Panel}" Margin="0,12,0,0" Padding="12,10"
+                                Visibility="{Binding HasProduct, Converter={StaticResource Visible}}">
+                            <DockPanel>
+                                <Button DockPanel.Dock="Right" Style="{StaticResource LinkButton}" Content="Ver ficha" Command="{Binding OpenProduct}"
+                                        VerticalAlignment="Center" Margin="10,0,0,0" />
+                                <c:StatusBadge DockPanel.Dock="Right" Status="{Binding Status}" />
+                                <StackPanel>
+                                    <TextBlock Text="{Binding ProductName}" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding ProductSku}" Style="{StaticResource Caption}" />
+                                </StackPanel>
+                            </DockPanel>
+                        </Border>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Card}" Margin="0,16,0,0">
+                    <StackPanel>
+                        <DockPanel Margin="0,0,0,14">
+                            <Border DockPanel.Dock="Left" Width="26" Height="26" CornerRadius="13" Background="{DynamicResource Brand}">
+                                <TextBlock Text="3" Foreground="#FFFFFF" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <TextBlock Text="Cantidad y detalle" Style="{StaticResource H3}" Margin="10,0,0,0" VerticalAlignment="Center" />
+                        </DockPanel>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="260" />
+                                <ColumnDefinition Width="14" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Cantidad" Style="{StaticResource FieldLabel}" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="48" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="48" />
+                                    </Grid.ColumnDefinitions>
+                                    <Button Height="48" Padding="0" Content="{x:Static c:Glyphs.Remove}" FontFamily="{StaticResource IconFont}" Command="{Binding Decrement}"
+                                            ToolTip="Restar 1" />
+                                    <TextBox x:Name="QuantityBox" Grid.Column="1" Style="{StaticResource LargeTextBox}" Margin="6,0" TextAlignment="Center"
+                                             Text="{Binding QuantityText, UpdateSourceTrigger=PropertyChanged}" c:Ui.SelectAllOnFocus="True"
+                                             c:Ui.Placeholder="0" FontWeight="SemiBold" c:Ui.HasError="{Binding QuantityError, Converter={StaticResource HasValueBool}}">
+                                        <TextBox.InputBindings>
+                                            <KeyBinding Key="Enter" Command="{Binding Register}" />
+                                        </TextBox.InputBindings>
+                                    </TextBox>
+                                    <Button Grid.Column="2" Height="48" Padding="0" Content="{x:Static c:Glyphs.Add}" FontFamily="{StaticResource IconFont}"
+                                            Command="{Binding Increment}" ToolTip="Sumar 1" />
+                                </Grid>
+                                <TextBlock Text="{Binding QuantityError}" Foreground="{DynamicResource Danger}" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"
+                                           Visibility="{Binding QuantityError, Converter={StaticResource HasValue}}" />
+                                <TextBlock Style="{StaticResource Caption}" Margin="0,6,0,0" Visibility="{Binding HasProduct, Converter={StaticResource Visible}}">
+                                    <Run Text="Unidad:" /> <Run Text="{Binding UnitText, Mode=OneWay}" FontWeight="SemiBold" />
+                                </TextBlock>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="Documento (opcional)" Style="{StaticResource FieldLabel}" />
+                                <TextBox Text="{Binding Document, UpdateSourceTrigger=PropertyChanged}" MaxLength="30" MinHeight="48"
+                                         c:Ui.Placeholder="Factura, remisión, guía…" c:Ui.Icon="{x:Static c:Glyphs.Report}" />
+                            </StackPanel>
+                        </Grid>
+                        <DockPanel Margin="0,14,0,6">
+                            <TextBlock DockPanel.Dock="Right" Text="Obligatorias para este tipo" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource Warning}"
+                                       Visibility="{Binding NotesRequired, Converter={StaticResource Visible}}" />
+                            <TextBlock Text="Observaciones" Style="{StaticResource FieldLabel}" Margin="0" />
+                        </DockPanel>
+                        <TextBox Style="{StaticResource MultilineTextBox}" Text="{Binding Notes, UpdateSourceTrigger=PropertyChanged}" MaxLength="250"
+                                 c:Ui.Placeholder="Motivo del movimiento (en los ajustes y devoluciones es obligatorio)" />
+                        <Button Style="{StaticResource PrimaryButton}" Height="50" FontSize="14.5" Margin="0,18,0,0" Content="{Binding RegisterText}"
+                                Command="{Binding Register}" c:Ui.IsBusy="{Binding Register.IsRunning}" c:Ui.Icon="{x:Static c:Glyphs.CheckCircle}" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <!-- ============================================================== vista previa -->
+            <StackPanel Grid.Row="1" Grid.Column="2">
+                <Border Style="{StaticResource Card}">
+                    <Grid>
+                        <StackPanel Visibility="{Binding HasProduct, Converter={StaticResource Visible}}">
+                            <TextBlock Text="VISTA PREVIA" Style="{StaticResource Overline}" />
+                            <TextBlock Text="{Binding ProductName}" Style="{StaticResource H2}" TextWrapping="Wrap" Margin="0,8,0,2" />
+                            <TextBlock Text="{Binding ProductSku}" Style="{StaticResource Caption}" />
+                            <TextBlock Text="{Binding ProductMeta}" Style="{StaticResource Caption}" TextWrapping="Wrap" />
+                            <DockPanel Margin="0,14,0,6">
+                                <c:StatusBadge DockPanel.Dock="Right" Status="{Binding Status}" />
+                                <TextBlock Text="{Binding MinMaxText}" Style="{StaticResource Caption}" VerticalAlignment="Center" />
+                            </DockPanel>
+                            <c:LevelBar Value="{Binding Level}" Status="{Binding Status}" Height="8" />
+
+                            <Grid Margin="0,18,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="Stock total" Style="{StaticResource Caption}" />
+                                    <TextBlock Text="{Binding TotalStockText}" FontSize="17" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1">
+                                    <TextBlock Style="{StaticResource Caption}">
+                                        <Run Text="En" /> <Run Text="{Binding BinCode, Mode=OneWay}" />
+                                    </TextBlock>
+                                    <TextBlock Text="{Binding BinStockText}" FontSize="17" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" />
+                                </StackPanel>
+                            </Grid>
+
+                            <Border Margin="0,18,0,0" CornerRadius="12" Padding="16,14">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Background" Value="{DynamicResource SurfaceAlt}" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding WouldBeNegative}" Value="True">
+                                                <Setter Property="Background" Value="{DynamicResource BloodRed}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <StackPanel>
+                                    <TextBlock x:Name="AfterLabel" Text="QUEDARÁ EN LA POSICIÓN">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock" BasedOn="{StaticResource Overline}">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding WouldBeNegative}" Value="True">
+                                                        <Setter Property="Foreground" Value="#FFD7D7" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                        <TextBlock Text="{Binding ProjectedText}" FontSize="28" FontWeight="SemiBold">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding WouldBeNegative}" Value="True">
+                                                            <Setter Property="Foreground" Value="#FFFFFF" />
+                                                            <Setter Property="TextDecorations" Value="Strikethrough" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                        <Border Style="{StaticResource Pill}" Margin="12,0,0,0" Background="{DynamicResource Surface}"
+                                                Visibility="{Binding ChangeText, Converter={StaticResource HasValue}}">
+                                            <TextBlock Text="{Binding ChangeText}" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondary}" />
+                                        </Border>
+                                    </StackPanel>
+                                    <TextBlock Foreground="#FFFFFF" TextWrapping="Wrap" Margin="0,10,0,0" FontSize="12.5"
+                                               Visibility="{Binding WouldBeNegative, Converter={StaticResource Visible}}"
+                                               Text="La salida dejaría la posición en negativo: no se puede registrar. Revise la cantidad o la posición." />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                        <ContentControl Style="{StaticResource EmptyState}" Tag="{x:Static c:Glyphs.Box}" Margin="0,30"
+                                        Visibility="{Binding HasProduct, Converter={StaticResource Hidden}}">
+                            <StackPanel MaxWidth="260">
+                                <TextBlock Text="Elija un producto" FontWeight="SemiBold" HorizontalAlignment="Center" Foreground="{DynamicResource TextPrimary}" />
+                                <TextBlock Text="Aquí verá su stock y cuánto quedará después de registrar." TextWrapping="Wrap" TextAlignment="Center"
+                                           Margin="0,4,0,0" />
+                            </StackPanel>
+                        </ContentControl>
+                        <c:ProgressRing Width="30" Height="30" IsActive="{Binding IsLoadingProduct}" VerticalAlignment="Top" HorizontalAlignment="Right" />
+                    </Grid>
+                </Border>
+
+                <Border Style="{StaticResource Card}" Margin="0,16,0,0" Padding="18,18,18,10">
+                    <StackPanel>
+                        <TextBlock Text="Registrados en esta sesión" Style="{StaticResource H3}" />
+                        <TextBlock Text="Para corregir un error, registre un ajuste: los movimientos no se borran." Style="{StaticResource Caption}"
+                                   TextWrapping="Wrap" Margin="0,3,0,6" />
+                        <ItemsControl ItemsSource="{Binding SessionLog}" ItemTemplate="{StaticResource MovementRow}" Focusable="False" />
+                        <TextBlock Text="Todavía no registró movimientos." Style="{StaticResource Caption}" Margin="0,6,0,8"
+                                   Visibility="{Binding SessionLog.Count, Converter={StaticResource NoValue}}" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </Grid>
+    </ScrollViewer>
+</UserControl>

@@ -1,10 +1,17 @@
-# Inicio rápido · M-INV V3 (escritorio + PostgreSQL) · paso a paso
+# Inicio rápido · M-INV V3.1 (escritorio + PostgreSQL) · paso a paso
 
-La V3 es una solución .NET (`MINV.sln`) con base de datos PostgreSQL y cliente de escritorio WPF. Esta guía es el
-«algoritmo» para compilarla, crear la base, cargar los datos de la V2.1 y abrir el cliente.
+La V3 es una solución .NET (`MINV.sln`) con base de datos PostgreSQL y cliente de escritorio WPF (`M-INV.exe`). La
+**V3.1** trae el cliente completo y rediseñado (pantalla de carga, menú por rol, tablero con gráficos, registro guiado,
+toma física, alertas, pedido, ficha con kardex, tema claro/oscuro) y un **modo demostración** que funciona sin base de
+datos. Guía visual de la interfaz: [`docs/product/escritorio-v3.1.md`](../product/escritorio-v3.1.md).
 
 ```text
-ALGORITMO
+ALGORITMO RÁPIDO · probar el sistema en 3 pasos, sin instalar PostgreSQL
+ A. Requisitos: Windows 10/11 y .NET SDK 8 o superior (con el SDK 10 funciona).
+ B. Publicar el ejecutable:            powershell -ExecutionPolicy Bypass -File tools\publicar_escritorio.ps1
+ C. Abrir dist\M-INV-<versión>-win-x64\M-INV.exe  →  pantalla de carga  →  «Explorar la demostración»  →  elegir un rol
+
+ALGORITMO COMPLETO · con PostgreSQL (trabajo real)
  1. Requisitos: Windows 10/11, .NET SDK 8 o superior, PostgreSQL 15+ (16 recomendado).
  2. Compilar y probar:                 tools\build_v3.ps1
  3. Crear roles y base (una vez):      psql -U postgres  (CREATE ROLE … / CREATE DATABASE minv …)
@@ -12,7 +19,8 @@ ALGORITMO
  5. Cargar datos:                      minv import-v21 …   (migra la V2.1)   o   minv tenant create …   (empresa nueva)
  6. Contraseñas de los usuarios:       minv user password …
  7. Verificar la base:                 minv verify --codigo DEMO
- 8. Abrir el cliente:                  MINV.DesktopClient.exe  →  empresa, correo, contraseña
+ 8. Abrir el cliente:                  M-INV.exe  →  empresa, correo, contraseña  (la 1.ª vez, cambiar la contraseña)
+ 9. Distribuir a otras estaciones:     tools\publicar_escritorio.ps1  →  copiar la carpeta dist\M-INV-…
 ```
 
 ---
@@ -107,7 +115,7 @@ necesita una:
 dotnet run --project "src/4. Tools/MINV.Cli" -c Release -- user password --codigo DEMO --correo ana.gomez@distribuidorademo.example
 ```
 
-Queda marcada como «debe cambiarla» (la pantalla de cambio de contraseña del cliente está en la hoja de ruta; mientras tanto la reasigna el administrador con el mismo comando). Tras 5 intentos fallidos la cuenta se bloquea 15 minutos.
+Queda marcada como «debe cambiarla»: al primer ingreso el cliente pide elegir una propia (al menos 8 caracteres, con letras y números). Después se cambia cuando se quiera desde el menú de la cuenta o Configuración › «Cambiar contraseña». Tras 5 intentos fallidos la cuenta se bloquea 15 minutos.
 
 ## 7. Verificar
 
@@ -124,15 +132,32 @@ $env:MINV_DB = 'Host=localhost;Port=5432;Database=minv;Username=minv_app;Passwor
 dotnet run --project "src/3. Presentation/MINV.DesktopClient" -c Release
 ```
 
-(o edite `ConnectionStrings:Minv` en `appsettings.json` junto al ejecutable). Ingrese con el código de la empresa
-(`DEMO`), su correo y su contraseña.
+(o edite `ConnectionStrings:Minv` en `appsettings.json` junto a `M-INV.exe`). Al abrir:
+
+1. **Pantalla de carga**: comprueba en segundos si PostgreSQL responde (y si es 15 o superior).
+2. **Inicio de sesión**: código de la empresa (`DEMO`), correo y contraseña. Si el administrador asignó la contraseña
+   con `minv user password`, se pide cambiarla al entrar. Tras 5 intentos fallidos la cuenta se bloquea 15 minutos.
+3. **Ventana principal**: el menú muestra solo lo que su rol puede usar.
 
 | Pantalla | Qué hace |
 |---|---|
-| ▦ Stock | Stock de cada producto al instante (sin «Recalcular»): semáforo, salidas de 30 días, cobertura y valor. Busque por SKU o nombre; la tabla es virtualizada (100.000+ filas sin demora) |
-| ⇄ Registrar movimiento | SKU o código de barras (el escáner lo completa), posición (p. ej. `ALM01-A-01-01`), tipo, cantidad, documento y observaciones. Una salida mayor que el disponible se bloquea (poka-yoke) |
-| ⚠ Alertas y pedido | Alertas priorizadas y pedido sugerido por proveedor (como 16_ALERTAS y 18_PEDIDO) |
-| ☰ Actividad | Auditoría inmutable: quién hizo qué, cuándo y con qué resultado |
+| Inicio | Indicadores, próximo paso, entradas/salidas de 14 días, semáforo, alertas urgentes, más vendidos, últimos movimientos y actividad |
+| Stock | Al instante (sin «Recalcular»): búsqueda, chips por estado, categoría, orden por columna, exportar a Excel; doble clic abre la ficha |
+| Registrar movimiento | Tipo → producto (buscador o escáner) → cantidad, con vista previa de lo que quedará; una salida que dejaría la posición en negativo se pinta de rojo sangre y no se puede registrar (poka-yoke) |
+| Toma física | Iniciar, contar (escáner incluido), ver sobrantes/faltantes y generar todos los ajustes con confirmación |
+| Alertas · Pedido sugerido | Priorizadas como en la V2.1, con «Registrar entrada» directo; pedido por proveedor para copiar o exportar |
+| Actividad | Auditoría inmutable con búsqueda y filtros por resultado |
+| Configuración · Ayuda | Tema claro/oscuro, impresora ESC/POS con página de prueba, prueba del escáner, sesión y permisos; guías y atajos |
+
+Atajos: `Ctrl+K` buscar producto · `Ctrl+1…7` pantallas · `Ctrl+N` registrar · `F5` actualizar · `Ctrl+B` menú ·
+`Ctrl+Shift+L` tema · `Esc` cerrar · `F1` ayuda.
+
+### Probar sin base de datos (demostración)
+
+En el inicio de sesión pulse **Explorar la demostración**: el cliente migra el libro de la V2.1 que viaja con el
+ejecutable (`Demo\M-INV_V2_Colaborativo.xlsx`) a una base en memoria con el mismo importador y las mismas reglas, y
+permite entrar como Administrador, Bodega, Ventas o Gerencia. Todo lo que haga ahí se pierde al cerrar; la contraseña de
+la demostración es aleatoria en cada ejecución y no se guarda en ningún lado.
 
 **Impresora y escáner** (`appsettings.json`, sección `Hardware`): `PrinterKind` = `serial` (`PrinterTarget` = `COM3`),
 `network` (`192.168.1.50:9100`) o `windows` (nombre de la impresora USB instalada). Los escáneres en modo teclado
@@ -141,16 +166,22 @@ funcionan sin configurar; los de puerto serie usan `SerialBarcodeScanner`.
 ## 9. Distribuir el cliente
 
 ```powershell
-dotnet publish "src/3. Presentation/MINV.DesktopClient" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
+powershell -ExecutionPolicy Bypass -File tools\publicar_escritorio.ps1                 # requiere .NET 8+ Desktop Runtime en la estación
+powershell -ExecutionPolicy Bypass -File tools\publicar_escritorio.ps1 -Autocontenido  # incluye el runtime (descarga ~150 MB la 1.ª vez)
 ```
 
-Genera un ejecutable que no necesita .NET instalado en la estación (carpeta `bin/Release/net8.0-windows/win-x64/publish`).
+Genera `dist\M-INV-<versión>-win-x64\` con `M-INV.exe` (un solo archivo, con su ícono), `appsettings.json` y la carpeta
+`Demo`. Copie la carpeta completa a cada estación, ajuste la cadena de conexión en `appsettings.json` (o la variable
+`MINV_DB`) y cree un acceso directo a `M-INV.exe`. Las preferencias de cada estación (tema, impresora, última empresa y
+correo) se guardan en `%LOCALAPPDATA%\M-INV\cliente.json`.
 
 ## 10. Si algo no funciona
 
 | Síntoma | Solución |
 |---|---|
-| «No se pudo conectar con la base de datos» | Revise `MINV_DB` / `appsettings.json`, que PostgreSQL esté encendido y el puerto 5432 abierto |
+| «Sin conexión con la base de datos» en la pantalla de carga o en el inicio de sesión | Revise `MINV_DB` / `appsettings.json`, que PostgreSQL esté encendido y el puerto 5432 abierto, y pulse «Reintentar»; mientras tanto puede usar la demostración |
+| `M-INV.exe` no abre en otra estación | Instale el *Windows Desktop Runtime* de .NET 8 o superior, o publique con `-Autocontenido` |
+| La impresora no imprime | Configuración › Impresora: tipo (serie, red o Windows), destino y «Imprimir página de prueba»; el aviso dice la causa |
 | «M-INV V3 requiere PostgreSQL 15 o superior» | Actualice PostgreSQL (la base usa `NULLS NOT DISTINCT` y `security_invoker`) |
 | «Empresa, correo o contraseña incorrectos» | Revise el código de la empresa; asigne la contraseña con `minv user password` |
 | «La empresa no tiene licenciado el módulo POS_HARDWARE» | Active el módulo en `iam.tenant_modules` (se activan todos al crear la empresa) |

@@ -1,4 +1,4 @@
-# ZP-MINV-Platform · M-INV V3 (escritorio + PostgreSQL) · V2.1 (colaborativo)
+# ZP-MINV-Platform · M-INV V3.1 (escritorio + PostgreSQL) · V2.1 (colaborativo)
 
 **Sistema de inventarios y punto de venta B2B de Z&P Software Fast Solutions.** La **V3** lleva M-INV de Excel a una
 arquitectura cliente-servidor: solución **.NET 8** en Clean Architecture (dominio rico, CQRS con MediatR), base de datos
@@ -7,8 +7,32 @@ arquitectura cliente-servidor: solución **.NET 8** en Clean Architecture (domin
 reproduce exactamente su stock, semáforo, alertas y pedido. La V2.1 (Excel en Microsoft 365) y la V1.2 (Excel local)
 siguen en el repositorio.
 
-> **¿Cómo la ejecuto?** Siga [`docs/deployment/inicio-rapido-v3.md`](docs/deployment/inicio-rapido-v3.md) (compilar,
-> crear la base, migrar la V2.1 y abrir el cliente). Modelo de datos: [`docs/database/ERD-MINV-V3.md`](docs/database/ERD-MINV-V3.md).
+> **¿Cómo la ejecuto?** Siga [`docs/deployment/inicio-rapido-v3.md`](docs/deployment/inicio-rapido-v3.md): en 3 pasos
+> abre `M-INV.exe` en modo demostración (sin base de datos) o, con PostgreSQL, crea la base, migra la V2.1 y abre el
+> cliente. Interfaz: [`docs/product/escritorio-v3.1.md`](docs/product/escritorio-v3.1.md). Modelo de datos:
+> [`docs/database/ERD-MINV-V3.md`](docs/database/ERD-MINV-V3.md).
+
+## M-INV V3.1 · rama `Inventario-V3.1` (3.1.0-alpha.1) · cliente de escritorio completo
+
+![M-INV V3.1: tablero de inicio](docs/product/capturas/v3.1/04-inicio.png)
+
+`M-INV.exe` deja de parecer una hoja de cálculo: **pantalla de carga** que comprueba la base de datos, **inicio de
+sesión** con demostración y elección de rol, **menú lateral** según los permisos, **tablero** con indicadores y gráficos,
+**stock** con chips por estado y exportación a Excel, **registro guiado** con vista previa y el **poka-yoke** rojo sangre
+de la V2.1, **toma física** con confirmación, **alertas** y **pedido sugerido** por proveedor, **ficha del producto** con
+kardex y gráfico, **actividad**, **configuración** (tema, impresora con página de prueba, escáner) y **ayuda**; tema
+**claro y oscuro**, atajos de teclado y lector de códigos en todas las pantallas. Guía con todas las capturas:
+[`docs/product/escritorio-v3.1.md`](docs/product/escritorio-v3.1.md).
+
+| | |
+|---|---|
+| ![Registrar movimiento](docs/product/capturas/v3.1/06-registrar-movimiento.png) | ![Poka-yoke](docs/product/capturas/v3.1/08-poka-yoke-salida-bloqueada.png) |
+| ![Stock](docs/product/capturas/v3.1/05-stock.png) | ![Tema oscuro](docs/product/capturas/v3.1/20-oscuro-inicio.png) |
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\publicar_escritorio.ps1          # dist\M-INV-<versión>-win-x64\M-INV.exe
+powershell -ExecutionPolicy Bypass -File tools\build_v3.ps1 -Capturas -Publicar # ciclo completo + capturas + ejecutable
+```
 
 ## M-INV V3 · rama `Inventario-V3` (3.0.0-alpha.1)
 
@@ -19,11 +43,11 @@ siguen en el repositorio.
 | `src/1. Core/MINV.Application` | Casos de uso CQRS (MediatR): registrar movimiento con reintento optimista, toma física, stock/alertas/pedido, login, caja POS; tubería validación → RBAC y licencias → auditoría |
 | `src/2. Infrastructure/MINV.Infrastructure` | `MINVDbContext` (EF Core + Npgsql), FK compuestas por tenant, `xmin`, filtros globales, interceptores, migraciones, aprovisionamiento e importador de la V2.1 |
 | `src/2. Infrastructure/MINV.Hardware` | ESC/POS (acentos PC858, CODE128, QR, cajón, corte), impresoras COM/USB/red y lectores de códigos |
-| `src/3. Presentation/MINV.DesktopClient` | Cliente WPF/MVVM: login, stock virtualizado, registrar movimiento (con escáner), alertas y pedido, actividad |
+| `src/3. Presentation/MINV.DesktopClient` | Cliente WPF/MVVM `M-INV.exe` (V3.1): pantalla de carga, login y demostración, tablero, stock, registro, toma física, alertas, pedido, ficha, actividad, configuración y ayuda, tema claro/oscuro |
 | `src/4. Tools/MINV.Cli` | `minv`: migrate, tenant create, import-v21, user password, verify |
 | [`scripts/db_init.sql`](scripts/db_init.sql) | Script idempotente de la base completa (generado) |
-| `tests/MINV.*.Tests` | 102 pruebas (97 sin base de datos + 5 contra PostgreSQL real con `MINV_TEST_PG`), incluida la paridad con la V2.1 |
-| [`.claude/v3-architecture-rules.md`](.claude/v3-architecture-rules.md) · [`.claude/database-migration-guide.md`](.claude/database-migration-guide.md) | Reglas A-01 a A-11 y guía de migraciones (esquema y datos V2.1 → V3) |
+| `tests/MINV.*.Tests` | 128 pruebas en la V3.1 (123 sin base de datos, incluidas las pantallas del cliente con la demostración, + 5 contra PostgreSQL real con `MINV_TEST_PG`) y la paridad con la V2.1 |
+| [`.claude/v3-architecture-rules.md`](.claude/v3-architecture-rules.md) · [`.claude/database-migration-guide.md`](.claude/database-migration-guide.md) | Reglas A-01 a A-12 y guía de migraciones (esquema y datos V2.1 → V3) |
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\build_v3.ps1        # compilar, probar, verificar migraciones, regenerar db_init.sql

@@ -80,7 +80,7 @@ public sealed class AuditBehavior<TRequest, TResponse>(IAuditTrail trail) : IPip
             return response;
         }
         catch (Exception ex) when (ex is DomainException or RequestValidationException or AccessDeniedException
-                                       or NotFoundException or ConcurrencyConflictException)
+                                       or NotFoundException or ConcurrencyConflictException or AuthenticationFailedException)
         {
             await Write(action, AuditOutcome.Rejected, auditable, null, ex.Message, correlation, cancellationToken);
             throw;

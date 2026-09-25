@@ -91,6 +91,71 @@ public sealed class LoginHandler(IMinvDbContext db, ITenantContext tenant, ICurr
     }
 }
 
+// ------------------------------------------------------------------------------------------------ contraseña
+/// <summary>Cambio de contraseña del usuario de la sesión (obligatorio cuando el administrador la asignó con
+/// «debe cambiarla»). Un intento con la contraseña actual incorrecta cuenta para el bloqueo por intentos fallidos.</summary>
+public sealed record ChangePasswordCommand(string CurrentPassword, string NewPassword) : IRequest<bool>, IAuditableRequest
+{
+    public object AuditDetails => new { Operacion = "cambio de contraseña" };
+}
+
+public sealed class ChangePasswordValidator : AbstractValidator<ChangePasswordCommand>
+{
+    public ChangePasswordValidator()
+    {
+        RuleFor(x => x.CurrentPassword).NotEmpty().WithMessage("Indique su contraseña actual.");
+        RuleFor(x => x.NewPassword).NotEmpty().WithMessage("Indique la nueva contraseña.")
+            .MinimumLength(8).WithMessage("La nueva contraseña debe tener al menos 8 caracteres.")
+            .MaximumLength(128).WithMessage("La nueva contraseña supera 128 caracteres.")
+            .Must(p => p.Any(char.IsLetter) && p.Any(char.IsDigit)).WithMessage("La nueva contraseña debe combinar letras y números.");
+        RuleFor(x => x).Must(x => x.NewPassword != x.CurrentPassword).WithMessage("La nueva contraseña debe ser distinta de la actual.");
+    }
+}
+
+public sealed class ChangePasswordHandler(IMinvDbContext db, ICurrentUser user, IPasswordHasher hasher, IClock clock)
+    : IRequestHandler<ChangePasswordCommand, bool>
+{
+    public async Task<bool> Handle(ChangePasswordCommand request, CancellationToken ct)
+    {
+        var userId = user.UserId ?? throw new AccessDeniedException("Inicie sesión para cambiar su contraseña.");
+        var credential = await db.Set<UserCredential>().FirstOrDefaultAsync(c => c.UserId == userId, ct)
+                         ?? throw new NotFoundException("Su usuario no tiene credencial: pídala al administrador.");
+        var now = clock.UtcNow;
+        if (!hasher.Verify(request.CurrentPassword, credential.PasswordHash, credential.Iterations))
+        {
+            credential.RegisterFailure(now);
+            await db.SaveChangesAsync(ct);
+            throw new AuthenticationFailedException("La contraseña actual no es correcta.");
+        }
+        credential.ChangePassword(hasher.Hash(request.NewPassword), hasher.Algorithm, hasher.Iterations, now);
+        await db.SaveChangesAsync(ct);
+        return true;
+    }
+}
+
+// ------------------------------------------------------------------------------------------------ cerrar sesión
+/// <summary>Cierra la sesión: la marca como terminada (Sessions) y queda en la auditoría. El cliente descarta después su
+/// contexto de sesión (usuario, datos y pantallas), por eso el usuario sigue identificado al auditar.</summary>
+public sealed record LogoutCommand(Guid SessionId) : IRequest<bool>, IAuditableRequest
+{
+    public object AuditDetails => new { SessionId };
+}
+
+public sealed class LogoutHandler(IMinvDbContext db, ICurrentUser user, IClock clock) : IRequestHandler<LogoutCommand, bool>
+{
+    public async Task<bool> Handle(LogoutCommand request, CancellationToken ct)
+    {
+        var session = await db.Set<Session>().FirstOrDefaultAsync(s => s.Id == request.SessionId, ct);
+        if (session is not { IsOpen: true } || session.UserId != user.UserId)
+        {
+            return false;
+        }
+        session.End(clock.UtcNow);
+        await db.SaveChangesAsync(ct);
+        return true;
+    }
+}
+
 // ------------------------------------------------------------------------------------------------ actividad
 /// <summary>Actividad reciente (en la V2.1: 14_ACTIVIDAD): quién hizo qué, cuándo y con qué resultado.</summary>
 [RequiresPermission(PermissionCodes.AuditView)]

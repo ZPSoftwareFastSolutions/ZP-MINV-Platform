@@ -1,0 +1,48 @@
+<UserControl x:Class="MINV.DesktopClient.Views.Pages.ActivityView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:MINV.DesktopClient.Controls">
+    <Grid Margin="28,6,28,20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <DockPanel Margin="0,0,0,16">
+            <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Refresh}" Command="{Binding Refresh}"
+                    ToolTip="Actualizar (F5)" VerticalAlignment="Center" />
+            <StackPanel>
+                <TextBlock Text="{Binding Title}" Style="{StaticResource H1}" />
+                <TextBlock Text="Registro inmutable: cada operación queda guardada con su resultado, también las rechazadas (como 14_ACTIVIDAD de la V2.1)"
+                           Style="{StaticResource Caption}" FontSize="13" Margin="0,4,0,0" />
+            </StackPanel>
+        </DockPanel>
+
+        <DockPanel Grid.Row="1" Margin="0,0,0,10">
+            <TextBlock DockPanel.Dock="Right" Style="{StaticResource Caption}" VerticalAlignment="Center">
+                <Run Text="{Binding VisibleCount, Mode=OneWay}" /> <Run Text="registros" />
+            </TextBlock>
+            <TextBox Width="380" HorizontalAlignment="Left" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}"
+                     c:Ui.Icon="{x:Static c:Glyphs.Search}" c:Ui.Placeholder="Buscar por persona, acción o detalle" Margin="0,0,14,0" />
+            <ItemsControl ItemsSource="{Binding Filters}" ItemTemplate="{StaticResource FilterChipTemplate}" ItemsPanel="{StaticResource WrapPanelTemplate}"
+                          Focusable="False" VerticalAlignment="Center" Margin="0,8,0,0" />
+        </DockPanel>
+
+        <Border Grid.Row="2" Style="{StaticResource CardFlat}" Padding="8,6,4,6">
+            <Grid>
+                <ListBox ItemsSource="{Binding Rows}" Style="{StaticResource PlainList}" ItemTemplate="{StaticResource ActivityRow}"
+                         VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling" VirtualizingPanel.ScrollUnit="Pixel">
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                            <Setter Property="Cursor" Value="Arrow" />
+                            <Setter Property="Padding" Value="12,4" />
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+                </ListBox>
+                <ContentControl Style="{StaticResource EmptyState}" Tag="{x:Static c:Glyphs.History}" Content="No hay registros con ese filtro"
+                                Visibility="{Binding IsEmpty, Converter={StaticResource Visible}}" />
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

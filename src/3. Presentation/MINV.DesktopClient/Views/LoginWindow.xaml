@@ -1,24 +1,261 @@
 <Window x:Class="MINV.DesktopClient.Views.LoginWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="M-INV · Iniciar sesión" Width="420" SizeToContent="Height" ResizeMode="NoResize"
-        WindowStartupLocation="CenterScreen">
-    <StackPanel>
-        <Border Background="{StaticResource Ink}" Padding="24,20">
-            <StackPanel>
-                <TextBlock Text="M-INV" Foreground="White" FontSize="26" FontWeight="SemiBold" />
-                <TextBlock Text="Inventario y punto de venta · V3" Foreground="#94A3B8" />
-            </StackPanel>
-        </Border>
-        <StackPanel Margin="24,20,24,24">
-            <TextBlock Text="Empresa" Foreground="{StaticResource Muted}" />
-            <TextBox Text="{Binding TenantCode, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,12" CharacterCasing="Upper" />
-            <TextBlock Text="Correo" Foreground="{StaticResource Muted}" />
-            <TextBox x:Name="EmailBox" Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,12" />
-            <TextBlock Text="Contraseña" Foreground="{StaticResource Muted}" />
-            <PasswordBox x:Name="PasswordBox" Margin="0,4,0,16" Padding="6,4" />
-            <TextBlock Text="{Binding Error}" Foreground="{StaticResource Danger}" TextWrapping="Wrap" Margin="0,0,0,12" />
-            <Button Content="Ingresar" Style="{StaticResource PrimaryButton}" Click="OnLogin" IsDefault="True" />
-        </StackPanel>
-    </StackPanel>
+        xmlns:c="clr-namespace:MINV.DesktopClient.Controls"
+        xmlns:v="clr-namespace:MINV.DesktopClient.Views"
+        xmlns:vm="clr-namespace:MINV.DesktopClient.ViewModels"
+        xmlns:app="clr-namespace:MINV.DesktopClient"
+        Title="M-INV · Iniciar sesión" Width="1040" Height="680" WindowStyle="None" AllowsTransparency="True"
+        Background="Transparent" ResizeMode="CanMinimize" WindowStartupLocation="CenterScreen" Icon="/Assets/minv.ico"
+        FontFamily="{StaticResource UiFont}" FontSize="13.5" Opacity="0">
+    <Window.Resources>
+        <v:BoolToVisibilityConverter x:Key="Visible" />
+        <v:BoolToVisibilityConverter x:Key="Hidden" Invert="True" />
+        <v:AvatarBrushConverter x:Key="AvatarBrush" />
+        <v:HasValueToVisibilityConverter x:Key="HasValue" />
+    </Window.Resources>
+    <Window.Triggers>
+        <EventTrigger RoutedEvent="Loaded">
+            <BeginStoryboard>
+                <Storyboard>
+                    <DoubleAnimation Storyboard.TargetProperty="Opacity" From="0" To="1" Duration="0:0:0.3" />
+                </Storyboard>
+            </BeginStoryboard>
+        </EventTrigger>
+    </Window.Triggers>
+
+    <Border Margin="20" CornerRadius="18" Background="{DynamicResource Surface}" Effect="{StaticResource PopupShadow}">
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="430" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- ======================================================================= panel de marca -->
+            <Border CornerRadius="18,0,0,18" Background="{DynamicResource BrandGradient}" MouseLeftButtonDown="OnDrag">
+                <Grid ClipToBounds="True">
+                    <Ellipse Width="420" Height="420" Fill="#FFFFFF" Opacity="0.06" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-200,-210,0" />
+                    <Ellipse Width="260" Height="260" Fill="#FFFFFF" Opacity="0.05" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="-120,0,0,-110" />
+                    <Grid Margin="44,40,44,34">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <StackPanel Orientation="Horizontal">
+                            <Border Width="46" Height="46" CornerRadius="12" Background="#26FFFFFF">
+                                <Image Source="/Assets/minv-256.png" Width="34" Height="34" RenderOptions.BitmapScalingMode="HighQuality" />
+                            </Border>
+                            <TextBlock Text="M-INV" Foreground="#FFFFFF" FontSize="24" FontWeight="Bold" VerticalAlignment="Center" Margin="14,0,0,0" />
+                        </StackPanel>
+
+                        <StackPanel Grid.Row="1" VerticalAlignment="Center">
+                            <TextBlock Text="Su inventario, claro y al día." Foreground="#FFFFFF" FontSize="30" FontWeight="SemiBold"
+                                       TextWrapping="Wrap" LineHeight="38" />
+                            <TextBlock Text="Stock, alertas, pedidos y tomas físicas en un solo lugar, con la misma lógica probada de la versión colaborativa."
+                                       Foreground="#D6E6FF" FontSize="14" TextWrapping="Wrap" Margin="0,14,0,30" LineHeight="21" />
+                            <ItemsControl Focusable="False" ItemsSource="{Binding Features}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:HelpEntry}">
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                                            <Border Width="38" Height="38" CornerRadius="10" Background="#24FFFFFF">
+                                                <TextBlock Style="{StaticResource Icon}" Text="{Binding Glyph}" Foreground="#FFFFFF" FontSize="16" />
+                                            </Border>
+                                            <StackPanel Margin="14,0,0,0" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Title}" Foreground="#FFFFFF" FontWeight="SemiBold" FontSize="14" />
+                                                <TextBlock Text="{Binding Text}" Foreground="#C4DBFA" FontSize="12.5" />
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+
+                        <TextBlock Grid.Row="2" Foreground="#9FC3F5" FontSize="11.5">
+                            <Run Text="Versión" /> <Run Text="{x:Static app:App.Version}" /> <Run Text="· Z&amp;P Software Fast Solutions" />
+                        </TextBlock>
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <!-- ======================================================================= formulario -->
+            <Grid Grid.Column="1">
+                <Border Background="Transparent" MouseLeftButtonDown="OnDrag" />
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,8,10,0">
+                    <Button Style="{StaticResource ChromeButton}" Content="{x:Static c:Glyphs.Remove}" ToolTip="Minimizar" Click="OnMinimize" />
+                    <Button Style="{StaticResource ChromeCloseButton}" Content="{x:Static c:Glyphs.Close}" ToolTip="Cerrar" Click="OnClose" />
+                </StackPanel>
+
+                <StackPanel Width="380" VerticalAlignment="Center" Visibility="{Binding IsDemoOpen, Converter={StaticResource Hidden}}">
+                    <TextBlock Text="Bienvenido" Style="{StaticResource H1}" FontSize="28" />
+                    <TextBlock Text="Ingrese con el código de su empresa, su correo y su contraseña." Style="{StaticResource Body}"
+                               Foreground="{DynamicResource TextMuted}" Margin="0,6,0,18" />
+
+                    <!-- Estado de la base de datos -->
+                    <Border CornerRadius="10" Padding="12,9" Margin="0,0,0,20">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="{DynamicResource SurfaceAlt}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding DbReady}" Value="True">
+                                        <Setter Property="Background" Value="{DynamicResource SuccessSoft}" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding DbProblem}" Value="True">
+                                        <Setter Property="Background" Value="{DynamicResource WarningSoft}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <DockPanel>
+                            <Grid DockPanel.Dock="Left" Width="20" Margin="0,0,10,0" VerticalAlignment="Top">
+                                <c:ProgressRing Width="16" Height="16" IsActive="{Binding IsCheckingDb}" />
+                                <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.CheckCircle}" Foreground="{DynamicResource Success}"
+                                           Visibility="{Binding DbReady, Converter={StaticResource Visible}}" />
+                                <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Warning}" Foreground="{DynamicResource Warning}"
+                                           Visibility="{Binding DbProblem, Converter={StaticResource Visible}}" />
+                            </Grid>
+                            <Button DockPanel.Dock="Right" Style="{StaticResource LinkButton}" Content="Reintentar" Command="{Binding RetryDb}"
+                                    VerticalAlignment="Top" Margin="8,1,0,0" Visibility="{Binding DbProblem, Converter={StaticResource Visible}}" />
+                            <StackPanel>
+                                <TextBlock Text="{Binding DbText}" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" FontSize="12.5" />
+                                <TextBlock Text="{Binding DbDetail}" Foreground="{DynamicResource TextMuted}" FontSize="11.5" TextWrapping="Wrap"
+                                           Margin="0,2,0,0" />
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+
+                    <TextBlock Text="Empresa" Style="{StaticResource FieldLabel}" />
+                    <TextBox x:Name="TenantBox" Text="{Binding TenantCode, UpdateSourceTrigger=PropertyChanged}" CharacterCasing="Upper"
+                             c:Ui.Icon="{x:Static c:Glyphs.Briefcase}" c:Ui.Placeholder="Código de la empresa (p. ej. DEMO)" Margin="0,0,0,14" />
+                    <TextBlock Text="Correo" Style="{StaticResource FieldLabel}" />
+                    <TextBox x:Name="EmailBox" Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}" c:Ui.Icon="{x:Static c:Glyphs.Mail}"
+                             c:Ui.Placeholder="nombre@empresa.com" Margin="0,0,0,14" />
+                    <TextBlock Text="Contraseña" Style="{StaticResource FieldLabel}" />
+                    <PasswordBox x:Name="PasswordBox" c:Ui.Icon="{x:Static c:Glyphs.Lock}" c:Ui.Placeholder="Su contraseña" />
+                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0" Visibility="{Binding CapsLockOn, Converter={StaticResource Visible}}">
+                        <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Warning}" FontSize="12" Foreground="{DynamicResource Warning}" />
+                        <TextBlock Text="Bloq Mayús está activado" Foreground="{DynamicResource Warning}" FontSize="12" Margin="6,0,0,0" />
+                    </StackPanel>
+                    <CheckBox Content="Recordar empresa y correo en este equipo" IsChecked="{Binding Remember}" Margin="0,14,0,16" />
+
+                    <Border CornerRadius="10" Background="{DynamicResource DangerSoft}" Padding="12,10" Margin="0,0,0,14"
+                            Visibility="{Binding HasError, Converter={StaticResource Visible}}">
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Left" Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Error}" Foreground="{DynamicResource Danger}"
+                                       VerticalAlignment="Top" Margin="0,1,10,0" />
+                            <TextBlock Text="{Binding Error}" Foreground="{DynamicResource Danger}" TextWrapping="Wrap" FontSize="12.5" />
+                        </DockPanel>
+                    </Border>
+
+                    <Button x:Name="LoginButton" Style="{StaticResource PrimaryButton}" Content="Ingresar" Height="44" FontSize="14"
+                            IsDefault="True" Click="OnLogin" c:Ui.IsBusy="{Binding IsBusy}" c:Ui.Icon="{x:Static c:Glyphs.ChevronRight}" />
+
+                    <Grid Margin="0,20">
+                        <Separator Margin="0" VerticalAlignment="Center" />
+                        <Border Background="{DynamicResource Surface}" HorizontalAlignment="Center" Padding="10,0">
+                            <TextBlock Text="¿Quiere conocer M-INV?" Style="{StaticResource Caption}" />
+                        </Border>
+                    </Grid>
+                    <Button Style="{StaticResource SoftButton}" Height="44" Command="{Binding OpenDemo}" c:Ui.Icon="{x:Static c:Glyphs.Sparkle}">
+                        <TextBlock>
+                            <Run Text="Explorar la demostración" FontWeight="SemiBold" />
+                            <Run Text="· sin instalar nada" FontWeight="Normal" />
+                        </TextBlock>
+                    </Button>
+                </StackPanel>
+
+                <!-- ======================================================================= demostración -->
+                <Grid Margin="44,56,44,30" Visibility="{Binding IsDemoOpen, Converter={StaticResource Visible}}">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <StackPanel>
+                        <Button Style="{StaticResource GhostButton}" Content="Volver al inicio de sesión" HorizontalAlignment="Left" Padding="8,0"
+                                Command="{Binding CloseDemo}" c:Ui.Icon="{x:Static c:Glyphs.ChevronLeft}" Margin="-8,0,0,10" />
+                        <TextBlock Text="Demostración" Style="{StaticResource H1}" />
+                        <TextBlock Style="{StaticResource Body}" Foreground="{DynamicResource TextMuted}" Margin="0,6,0,0"
+                                   Text="Los datos reales del libro colaborativo de la V2.1, migrados a la V3 en este equipo. Elija con qué rol quiere entrar: la aplicación se adapta a los permisos de cada uno." />
+                        <Border Style="{StaticResource Panel}" Margin="0,16,0,6" Padding="12,10"
+                                Visibility="{Binding DemoCompany, Converter={StaticResource HasValue}}">
+                            <StackPanel>
+                                <TextBlock Text="{Binding DemoCompany}" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" />
+                                <TextBlock Text="{Binding DemoSummary}" Style="{StaticResource Caption}" Margin="0,2,0,0" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center"
+                                Visibility="{Binding IsDemoBusy, Converter={StaticResource Visible}}">
+                        <c:ProgressRing Width="44" Height="44" />
+                        <TextBlock Text="Preparando la demostración…" Style="{StaticResource H3}" HorizontalAlignment="Center" Margin="0,16,0,4" />
+                        <TextBlock Text="{Binding DemoStatus}" Style="{StaticResource Caption}" TextAlignment="Center" TextWrapping="Wrap" MaxWidth="360" />
+                    </StackPanel>
+
+                    <ScrollViewer Grid.Row="1" Margin="0,8,0,0" VerticalScrollBarVisibility="Auto"
+                                  Visibility="{Binding IsDemoBusy, Converter={StaticResource Hidden}}">
+                        <StackPanel>
+                            <TextBlock Text="{Binding DemoStatus}" Foreground="{DynamicResource Danger}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                            <ItemsControl ItemsSource="{Binding DemoUsers}" Focusable="False">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:DemoUserOption}">
+                                        <Button Command="{Binding DataContext.EnterDemo, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                CommandParameter="{Binding}" Height="Auto" Padding="12,10" Margin="0,0,0,8"
+                                                HorizontalContentAlignment="Stretch" FontWeight="Normal">
+                                            <DockPanel>
+                                                <TextBlock DockPanel.Dock="Right" Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.ChevronRight}"
+                                                           Foreground="{DynamicResource TextFaint}" FontSize="12" Margin="10,0,0,0" />
+                                                <Border DockPanel.Dock="Left" Width="38" Height="38" CornerRadius="19"
+                                                        Background="{Binding Name, Converter={StaticResource AvatarBrush}}">
+                                                    <TextBlock Text="{Binding Initials}" Foreground="#FFFFFF" FontWeight="SemiBold" HorizontalAlignment="Center"
+                                                               VerticalAlignment="Center" />
+                                                </Border>
+                                                <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                                                    <TextBlock>
+                                                        <Run Text="{Binding Name, Mode=OneWay}" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" />
+                                                        <Run Text="  " />
+                                                        <Run Text="{Binding RoleName, Mode=OneWay}" Foreground="{DynamicResource BrandText}" FontWeight="SemiBold" FontSize="12" />
+                                                    </TextBlock>
+                                                    <TextBlock Text="{Binding Description}" Style="{StaticResource Caption}" Margin="0,2,0,0" />
+                                                </StackPanel>
+                                            </DockPanel>
+                                        </Button>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,12,0,0">
+                        <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Info}" FontSize="13" Foreground="{DynamicResource TextMuted}" />
+                        <TextBlock Text="Todo lo que haga en la demostración vive en la memoria de este equipo y se pierde al cerrar."
+                                   Style="{StaticResource Caption}" Margin="8,0,0,0" TextWrapping="Wrap" MaxWidth="400" />
+                    </StackPanel>
+                </Grid>
+
+                <!-- Ingresando a la demostración -->
+                <Border Background="{DynamicResource Surface}" CornerRadius="0,18,18,0">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding IsBusy}" Value="True" />
+                                        <Condition Binding="{Binding IsDemoOpen}" Value="True" />
+                                    </MultiDataTrigger.Conditions>
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </MultiDataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                        <c:ProgressRing Width="40" Height="40" />
+                        <TextBlock Text="Preparando su espacio de trabajo…" Style="{StaticResource H3}" Margin="0,14,0,0" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Grid>
+    </Border>
 </Window>

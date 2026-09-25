@@ -49,11 +49,29 @@ public sealed class SystemClock : IClock
 {
     public DateTimeOffset UtcNow => DateTimeOffset.UtcNow;
 
-    public DateOnly TodayIn(string timeZoneId)
+    public DateOnly TodayIn(string timeZoneId) => DateIn(UtcNow, timeZoneId);
+
+    internal static DateOnly DateIn(DateTimeOffset instant, string timeZoneId)
     {
         var zone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
-        return DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(UtcNow, zone).DateTime);
+        return DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(instant, zone).DateTime);
     }
+}
+
+/// <summary>
+/// Reloj del modo demostración: avanza como el del sistema, pero desplazado para que «hoy» sea el día en que la V2.1
+/// calculó su última instantánea. Así la demostración muestra las mismas alertas, cobertura y pedido que el libro.
+/// </summary>
+public sealed class DemoClock : IClock
+{
+    private TimeSpan _offset;
+
+    public DateTimeOffset UtcNow => DateTimeOffset.UtcNow + _offset;
+
+    public DateOnly TodayIn(string timeZoneId) => SystemClock.DateIn(UtcNow, timeZoneId);
+
+    /// <summary>Desde ahora el reloj marca <paramref name="instant"/> y sigue corriendo.</summary>
+    public void StartAt(DateTimeOffset instant) => _offset = instant - DateTimeOffset.UtcNow;
 }
 
 /// <summary>PBKDF2-HMAC-SHA256 con sal aleatoria de 16 bytes y 600.000 iteraciones (recomendación OWASP 2023).

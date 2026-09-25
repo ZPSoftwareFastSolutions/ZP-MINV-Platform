@@ -1,0 +1,231 @@
+<UserControl x:Class="MINV.DesktopClient.Views.Pages.PhysicalCountView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:MINV.DesktopClient.Controls"
+             xmlns:v="clr-namespace:MINV.DesktopClient.Views"
+             xmlns:vm="clr-namespace:MINV.DesktopClient.ViewModels">
+    <Grid Margin="28,6,28,24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <DockPanel Margin="0,0,0,16">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center"
+                        Visibility="{Binding HasOpenCount, Converter={StaticResource Visible}}">
+                <Button Style="{StaticResource GhostButton}" Content="Anular toma" c:Ui.Icon="{x:Static c:Glyphs.Delete}" Command="{Binding Cancel}"
+                        Foreground="{DynamicResource Danger}" Visibility="{Binding CanPost, Converter={StaticResource Visible}}" Margin="0,0,8,0" />
+                <Button Style="{StaticResource PrimaryButton}" Content="Generar ajustes" c:Ui.Icon="{x:Static c:Glyphs.CheckCircle}" Command="{Binding Post}"
+                        c:Ui.IsBusy="{Binding Post.IsRunning}" Visibility="{Binding CanPost, Converter={StaticResource Visible}}" Margin="0,0,8,0" />
+                <Button Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Refresh}" Command="{Binding Refresh}" ToolTip="Actualizar (F5)" />
+            </StackPanel>
+            <StackPanel>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="{Binding Title}" Style="{StaticResource H1}" />
+                    <Border Style="{StaticResource Pill}" Background="{DynamicResource BrandSoft}" Margin="12,4,0,0"
+                            Visibility="{Binding HasOpenCount, Converter={StaticResource Visible}}">
+                        <TextBlock Text="{Binding Number}" FontWeight="SemiBold" Foreground="{DynamicResource BrandText}" />
+                    </Border>
+                </StackPanel>
+                <TextBlock Text="{Binding CountInfo}" Style="{StaticResource Caption}" FontSize="13" Margin="0,4,0,0" />
+            </StackPanel>
+        </DockPanel>
+
+        <!-- ================================================================ sin toma abierta -->
+        <Border Grid.Row="1" Style="{StaticResource Card}" Width="620" VerticalAlignment="Top" HorizontalAlignment="Left" Padding="30"
+                Visibility="{Binding HasNoCount, Converter={StaticResource Visible}}">
+            <StackPanel>
+                <Border Style="{StaticResource IconBubble}" Width="52" Height="52" CornerRadius="14" HorizontalAlignment="Left">
+                    <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Checklist}" FontSize="22" />
+                </Border>
+                <TextBlock Text="No hay una toma física en curso" Style="{StaticResource H2}" Margin="0,16,0,6" />
+                <TextBlock Style="{StaticResource Body}"
+                           Text="Una toma física compara lo que hay en los estantes con lo que dice el sistema y corrige las diferencias con ajustes, como en la V2.1." />
+                <StackPanel Margin="0,16,0,0">
+                    <StackPanel Orientation="Horizontal" Margin="0,4">
+                        <Border Width="22" Height="22" CornerRadius="11" Background="{DynamicResource BrandSoft}">
+                            <TextBlock Text="1" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource BrandText}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <TextBlock Text="Inicie la toma: queda abierta para todo el equipo." Margin="10,0,0,0" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextSecondary}" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,4">
+                        <Border Width="22" Height="22" CornerRadius="11" Background="{DynamicResource BrandSoft}">
+                            <TextBlock Text="2" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource BrandText}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <TextBlock Text="Cuente cada producto y registre la cantidad (a mano o con el escáner)." Margin="10,0,0,0" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextSecondary}" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,4">
+                        <Border Width="22" Height="22" CornerRadius="11" Background="{DynamicResource BrandSoft}">
+                            <TextBlock Text="3" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource BrandText}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <TextBlock Text="Revise las diferencias y genere los ajustes en una sola operación." Margin="10,0,0,0" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextSecondary}" />
+                    </StackPanel>
+                </StackPanel>
+                <TextBlock Text="Observación (opcional)" Style="{StaticResource FieldLabel}" Margin="0,20,0,6" />
+                <TextBox Text="{Binding NewCountNotes, UpdateSourceTrigger=PropertyChanged}" MaxLength="250"
+                         c:Ui.Placeholder="Por ejemplo: conteo mensual de septiembre" />
+                <Button Style="{StaticResource PrimaryButton}" Content="Iniciar toma física" c:Ui.Icon="{x:Static c:Glyphs.Checklist}" HorizontalAlignment="Left"
+                        Margin="0,18,0,0" Height="44" Command="{Binding Start}" c:Ui.IsBusy="{Binding Start.IsRunning}" />
+            </StackPanel>
+        </Border>
+
+        <!-- ================================================================ toma abierta -->
+        <Grid Grid.Row="1" Visibility="{Binding HasOpenCount, Converter={StaticResource Visible}}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="400" />
+                <ColumnDefinition Width="18" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <UniformGrid Grid.ColumnSpan="3" Columns="4" Margin="-6,0,-6,12">
+                <Border Style="{StaticResource CardFlat}" Margin="6" Padding="16,12">
+                    <StackPanel>
+                        <TextBlock Text="Contados" Style="{StaticResource Caption}" />
+                        <TextBlock Text="{Binding LineCount}" FontSize="22" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" />
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource CardFlat}" Margin="6" Padding="16,12">
+                    <StackPanel>
+                        <TextBlock Text="Sobrantes → AJUSTE (+)" Style="{StaticResource Caption}" />
+                        <TextBlock Text="{Binding Surpluses}" FontSize="22" FontWeight="SemiBold" Foreground="{DynamicResource Success}" />
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource CardFlat}" Margin="6" Padding="16,12">
+                    <StackPanel>
+                        <TextBlock Text="Faltantes → AJUSTE (−)" Style="{StaticResource Caption}" />
+                        <TextBlock Text="{Binding Shortages}" FontSize="22" FontWeight="SemiBold" Foreground="{DynamicResource Danger}" />
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource CardFlat}" Margin="6" Padding="16,12">
+                    <StackPanel>
+                        <TextBlock Text="Cuadran" Style="{StaticResource Caption}" />
+                        <TextBlock Text="{Binding Matches}" FontSize="22" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" />
+                    </StackPanel>
+                </Border>
+            </UniformGrid>
+
+            <!-- Registrar conteo -->
+            <Border Grid.Row="1" Style="{StaticResource Card}" VerticalAlignment="Top">
+                <StackPanel>
+                    <TextBlock Text="Registrar conteo" Style="{StaticResource H3}" />
+                    <TextBlock Text="Si el producto ya se contó en esa posición, se corrige." Style="{StaticResource Caption}" Margin="0,3,0,14" />
+                    <TextBlock Text="Producto" Style="{StaticResource FieldLabel}" />
+                    <v:ProductSearchBox x:Name="ProductSearch" DataContext="{Binding Picker}" Placeholder="Nombre, SKU o escanee el código" />
+                    <TextBlock Text="Posición" Style="{StaticResource FieldLabel}" Margin="0,14,0,6" />
+                    <ComboBox ItemsSource="{Binding Bins}" Text="{Binding BinCode, UpdateSourceTrigger=PropertyChanged}" IsEditable="True" />
+                    <Grid Margin="0,14,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Cantidad contada" Style="{StaticResource FieldLabel}" />
+                            <TextBox x:Name="CountedBox" Style="{StaticResource LargeTextBox}" Text="{Binding CountedText, UpdateSourceTrigger=PropertyChanged}"
+                                     c:Ui.SelectAllOnFocus="True" c:Ui.Placeholder="0" FontWeight="SemiBold">
+                                <TextBox.InputBindings>
+                                    <KeyBinding Key="Enter" Command="{Binding Record}" />
+                                </TextBox.InputBindings>
+                            </TextBox>
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="En el sistema" Style="{StaticResource FieldLabel}" />
+                            <Border Style="{StaticResource Panel}" MinHeight="48" Padding="12,0">
+                                <TextBlock Text="{Binding SystemText}" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"
+                                           Foreground="{DynamicResource TextSecondary}" />
+                            </Border>
+                        </StackPanel>
+                    </Grid>
+                    <DockPanel Margin="0,12,0,0" Visibility="{Binding HasProduct, Converter={StaticResource Visible}}">
+                        <TextBlock Text="Diferencia:" Style="{StaticResource Caption}" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding DifferenceText}" FontWeight="SemiBold" Margin="8,0,0,0">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding DifferenceKind}" Value="1">
+                                            <Setter Property="Foreground" Value="{DynamicResource Success}" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding DifferenceKind}" Value="-1">
+                                            <Setter Property="Foreground" Value="{DynamicResource Danger}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </DockPanel>
+                    <Button Style="{StaticResource PrimaryButton}" Content="Registrar conteo" Height="46" Margin="0,16,0,0" Command="{Binding Record}"
+                            c:Ui.IsBusy="{Binding Record.IsRunning}" c:Ui.Icon="{x:Static c:Glyphs.Check}" />
+                </StackPanel>
+            </Border>
+
+            <!-- Planilla -->
+            <Border Grid.Row="1" Grid.Column="2" Style="{StaticResource CardFlat}" Padding="4,2,4,4">
+                <Grid>
+                    <DataGrid ItemsSource="{Binding Lines}" RowHeight="56">
+                        <DataGrid.Columns>
+                            <DataGridTemplateColumn Header="PRODUCTO" Width="*" MinWidth="200" SortMemberPath="Name">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate DataType="{x:Type vm:CountLineItem}">
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Style="{StaticResource Caption}">
+                                                <Run Text="{Binding Sku, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding CountedBy, Mode=OneWay}" />
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="POSICIÓN" Binding="{Binding BinCode}" Width="130" />
+                            <DataGridTextColumn Header="SISTEMA" Binding="{Binding SystemText}" Width="100" />
+                            <DataGridTextColumn Header="CONTADO" Binding="{Binding CountedText}" Width="100" />
+                            <DataGridTemplateColumn Header="DIFERENCIA" Width="120" SortMemberPath="Kind">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate DataType="{x:Type vm:CountLineItem}">
+                                        <Border x:Name="Pill" Style="{StaticResource Pill}">
+                                            <TextBlock x:Name="Text" Text="{Binding DifferenceText}" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondary}" />
+                                        </Border>
+                                        <DataTemplate.Triggers>
+                                            <DataTrigger Binding="{Binding Kind}" Value="1">
+                                                <Setter TargetName="Pill" Property="Background" Value="{DynamicResource SuccessSoft}" />
+                                                <Setter TargetName="Text" Property="Foreground" Value="{DynamicResource Success}" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Kind}" Value="-1">
+                                                <Setter TargetName="Pill" Property="Background" Value="{DynamicResource DangerSoft}" />
+                                                <Setter TargetName="Text" Property="Foreground" Value="{DynamicResource Danger}" />
+                                            </DataTrigger>
+                                        </DataTemplate.Triggers>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Width="56">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate DataType="{x:Type vm:CountLineItem}">
+                                        <Button Style="{StaticResource IconButton}" Width="32" Height="32" Content="{x:Static c:Glyphs.Delete}" ToolTip="Quitar este conteo"
+                                                Command="{Binding DataContext.RemoveLine, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                CommandParameter="{Binding}" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <ContentControl Style="{StaticResource EmptyState}" Tag="{x:Static c:Glyphs.Clipboard}"
+                                    Visibility="{Binding IsSheetEmpty, Converter={StaticResource Visible}}">
+                        <StackPanel MaxWidth="320">
+                            <TextBlock Text="Todavía no hay conteos" FontWeight="SemiBold" HorizontalAlignment="Center" Foreground="{DynamicResource TextPrimary}" />
+                            <TextBlock Text="Registre lo contado a la izquierda: aquí verá la diferencia contra el sistema." TextWrapping="Wrap"
+                                       TextAlignment="Center" Margin="0,4,0,0" />
+                        </StackPanel>
+                    </ContentControl>
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>

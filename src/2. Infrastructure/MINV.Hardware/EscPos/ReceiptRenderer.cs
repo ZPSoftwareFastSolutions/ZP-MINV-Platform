@@ -45,4 +45,29 @@ public static class ReceiptRenderer
         }
         return doc.Cut().ToArray();
     }
+
+    /// <summary>Página de prueba de la impresora (pantalla Configuración del cliente): acentos, negrita, tamaños,
+    /// código de barras, QR y corte. Si sale completa, la impresora y la página de códigos están bien configuradas.</summary>
+    public static byte[] RenderTestPage(string companyName, string printerName, DateTimeOffset printedAt, int columns = 48)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(companyName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(printerName);
+        return new EscPosDocument(columns)
+            .Align(TextAlign.Center).Bold(true).Size(2, 2).Line("M-INV").Size(1, 1).Bold(false)
+            .Line("Prueba de impresión")
+            .Line(companyName)
+            .Align(TextAlign.Left).Separator()
+            .Columns2("Impresora", printerName)
+            .Columns2("Fecha", printedAt.ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture))
+            .Columns2("Columnas", columns.ToString(CultureInfo.InvariantCulture))
+            .Separator()
+            .Line("Acentos: áéíóú ÁÉÍÓÚ ñÑ ü ¿? ¡!")
+            .Bold(true).Line("Negrita").Bold(false)
+            .Size(1, 2).Line("Doble alto").Size(1, 1)
+            .Columns2("Importe", EscPosDocument.Money(1234.5m))
+            .Feed(1).Align(TextAlign.Center).Code128("MINV-PRUEBA").Feed(1)
+            .Qr("M-INV · prueba de impresión").Feed(1)
+            .Line("Si lee todo esto, la impresora está lista.").Feed(3)
+            .Cut().ToArray();
+    }
 }

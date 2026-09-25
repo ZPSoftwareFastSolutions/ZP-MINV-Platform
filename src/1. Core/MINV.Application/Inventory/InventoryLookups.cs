@@ -54,6 +54,23 @@ public sealed class InventoryLookups(IMinvDbContext db)
                ?? throw new NotFoundException($"El almacén {c} no existe.");
     }
 
+    /// <summary>Almacén indicado o, si no se indica, el almacén por defecto de la empresa (el primero si no hay).</summary>
+    public async Task<Warehouse> WarehouseAsync(string? code, TenantConfig config, CancellationToken ct) =>
+        code is { Length: > 0 }
+            ? await WarehouseByCodeAsync(code, ct)
+            : await db.Set<Warehouse>().Where(w => config.DefaultWarehouseId == null || w.Id == config.DefaultWarehouseId)
+                  .OrderBy(w => w.Id).FirstOrDefaultAsync(ct) ?? throw new NotFoundException("La empresa no tiene almacenes.");
+
+    /// <summary>Posiciones de un almacén (posición › nivel › estantería › pasillo › zona › almacén), para filtrar en SQL.</summary>
+    public IQueryable<Guid> BinIdsOf(Guid warehouseId) =>
+        from bin in db.Set<Bin>()
+        join s in db.Set<Shelf>() on bin.ShelfId equals s.Id
+        join r in db.Set<Rack>() on s.RackId equals r.Id
+        join a in db.Set<Aisle>() on r.AisleId equals a.Id
+        join z in db.Set<Zone>() on a.ZoneId equals z.Id
+        where z.WarehouseId == warehouseId
+        select bin.Id;
+
     /// <summary>Lote indicado o, si no se indica, el lote por defecto de la variante (se crea si falta).</summary>
     public async Task<Batch> BatchAsync(ProductVariant variant, string? lotNumber, CancellationToken ct)
     {

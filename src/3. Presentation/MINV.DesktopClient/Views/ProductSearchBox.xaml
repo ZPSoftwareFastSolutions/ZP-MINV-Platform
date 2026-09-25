@@ -1,0 +1,57 @@
+<UserControl x:Class="MINV.DesktopClient.Views.ProductSearchBox"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:MINV.DesktopClient.Controls"
+             xmlns:q="clr-namespace:MINV.Application.Inventory.Queries;assembly=MINV.Application"
+             xmlns:v="clr-namespace:MINV.DesktopClient.Views"
+             x:Name="Root">
+    <UserControl.Resources>
+        <v:HasValueToVisibilityConverter x:Key="HasValue" />
+        <v:BoolToVisibilityConverter x:Key="Visible" />
+    </UserControl.Resources>
+    <Grid>
+        <TextBox x:Name="Box" Text="{Binding Query, UpdateSourceTrigger=PropertyChanged}" c:Ui.Icon="{x:Static c:Glyphs.Search}"
+                 c:Ui.Placeholder="{Binding Placeholder, ElementName=Root}" PreviewKeyDown="OnKeyDown" Padding="12,0,40,0"
+                 c:Ui.SelectAllOnFocus="True" />
+        <Button Style="{StaticResource IconButton}" Width="30" Height="30" HorizontalAlignment="Right" Margin="0,0,5,0" FontSize="11"
+                Content="{x:Static c:Glyphs.Close}" ToolTip="Limpiar" Click="OnClear" Focusable="False"
+                Visibility="{Binding Query, Converter={StaticResource HasValue}}" />
+        <Popup x:Name="Suggest" IsOpen="{Binding IsOpen, Mode=TwoWay}" PlacementTarget="{Binding ElementName=Box}" Placement="Bottom"
+               StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade" Focusable="False"
+               Width="{Binding ActualWidth, ElementName=Box}" MinWidth="380">
+            <Border Margin="0,6,12,14" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Border}" BorderThickness="1"
+                    CornerRadius="12" Padding="6" Effect="{StaticResource PopupShadow}">
+                <Grid>
+                    <ListBox x:Name="List" ItemsSource="{Binding Suggestions}" SelectedItem="{Binding Highlighted}" Style="{StaticResource PlainList}"
+                             MaxHeight="380" Focusable="False" PreviewMouseLeftButtonUp="OnPick">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate DataType="{x:Type q:ProductLookupItem}">
+                                <DockPanel>
+                                    <Border DockPanel.Dock="Left" Background="{DynamicResource BrandSoft}" CornerRadius="6" Padding="7,3"
+                                            VerticalAlignment="Center" MinWidth="74" Margin="0,0,12,0">
+                                        <TextBlock Text="{Binding Sku}" Style="{StaticResource Mono}" Foreground="{DynamicResource BrandText}"
+                                                   FontWeight="SemiBold" HorizontalAlignment="Center" />
+                                    </Border>
+                                    <TextBlock DockPanel.Dock="Right" Text="{Binding Unit}" Style="{StaticResource Caption}" VerticalAlignment="Center"
+                                               Margin="10,0,0,0" />
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Name}" Foreground="{DynamicResource TextPrimary}" FontWeight="SemiBold"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Style="{StaticResource Caption}" TextTrimming="CharacterEllipsis">
+                                            <Run Text="{Binding Category, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding PrimaryBin, Mode=OneWay}" />
+                                        </TextBlock>
+                                    </StackPanel>
+                                </DockPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    <StackPanel Margin="12,14" Orientation="Horizontal" Visibility="{Binding HasNoResults, Converter={StaticResource Visible}}">
+                        <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Search}" Foreground="{DynamicResource TextFaint}" />
+                        <TextBlock Text="Ningún producto coincide. Pruebe con parte del nombre, el SKU o el código de barras." Style="{StaticResource Caption}"
+                                   Margin="10,0,0,0" TextWrapping="Wrap" MaxWidth="320" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Popup>
+    </Grid>
+</UserControl>

@@ -1,5 +1,8 @@
 # Guía UX/UI · M-INV V1.2 ("App-like Excel")
 
+> **Cliente de escritorio (V3.1):** su sistema visual, pantallas y atajos están en
+> [`escritorio-v3.1.md`](escritorio-v3.1.md). Esta guía describe los libros de Excel (V1.2 y V2.x).
+
 Objetivo: que un operador sin conocimientos técnicos perciba M-INV como **software nativo**, no como una hoja de
 cálculo, y que le resulte **imposible romper el sistema por accidente**. Todo lo descrito aquí está implementado en
 `tools/build_minv.py` (paquete `tools/minv/`, tokens en `base.py`); si cambia un token, cambie ambos.

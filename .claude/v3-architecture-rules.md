@@ -79,9 +79,15 @@ transaccional multi-empresa con cliente de escritorio y punto de venta.
 
 ### A-09 · Presentación y hardware
 - WPF con MVVM: las vistas no contienen lógica de negocio; las tablas grandes usan virtualización (`Recycling`).
-- Las contraseñas no se enlazan a propiedades (se leen del `PasswordBox` solo al ingresar).
+- Las contraseñas no se enlazan a propiedades (se leen del `PasswordBox` solo al ingresar o guardar y se borran).
 - El hardware recibe documentos ya codificados (ESC/POS) a través de `IReceiptPrinter`; el escáner entrega códigos
   que la aplicación resuelve por SKU o por código de barras.
+- Sistema visual (V3.1): los colores salen SIEMPRE de la paleta (`Theme/Palette.*.xaml`) con `DynamicResource` (o
+  `Ui.BrushKey` desde código); NO DEBEN escribirse colores fijos en las vistas salvo sobre el degradado de marca. Los
+  estilos viven en `Theme/Controls.xaml` y los textos visibles están en español (`Services/Formats.cs`).
+- Las pantallas envían los casos de uso por `AppServices.SendAsync` (de a uno, con el rastreo limpio) y muestran los
+  errores como avisos, nunca como cuadros técnicos. Un color o mensaje de estado en la vista (p. ej. el poka-yoke
+  rojo sangre) es solo guía: la validación que manda es la del dominio.
 
 ### A-10 · Licencias comerciales
 - Los módulos vendibles (`iam.modules`: DATA_ENGINE, DESKTOP_CLIENT, POS_HARDWARE, RBAC, SLA_SUPPORT) se habilitan por
@@ -94,6 +100,15 @@ Un cambio en la V3 está terminado solo si:
    pruebas (y las de PostgreSQL si `MINV_TEST_PG` está definida), verifica que no falten migraciones y regenera
    `scripts/db_init.sql`.
 2. La documentación refleja el cambio (este documento, el ERD, la guía de migración, `CHANGELOG.md`).
+3. Si cambió el cliente de escritorio: `tools/build_v3.ps1 -Capturas` regenera `docs/product/capturas/v3.1`, las
+   capturas se revisaron (tema claro y oscuro) y `docs/product/escritorio-v3.1.md` está al día.
+
+### A-12 · Modo demostración
+- La demostración vive solo en memoria (EF Core InMemory) y se llena con el importador de la V2.1: NO DEBE escribir en
+  disco ni en PostgreSQL, y su contraseña es aleatoria en cada ejecución (nunca versionada ni mostrada).
+- Usa los mismos casos de uso, la misma tubería y las mismas guardas que producción; lo que no existe en memoria (Row
+  Level Security, triggers, transacciones reales) se prueba contra PostgreSQL con `MINV_TEST_PG`.
+- La interfaz DEBE mostrar siempre que se está en la demostración (distintivo en la barra superior).
 
 ## 2. Checklist para agentes
 
@@ -104,3 +119,4 @@ Un cambio en la V3 está terminado solo si:
 - [ ] ¿Una columna nueva se puede derivar de otras? → quitarla o documentar la redundancia (A-06).
 - [ ] ¿Cambió el modelo sin migración o sin regenerar `db_init.sql`? → `tools/build_v3.ps1` (A-07).
 - [ ] ¿Cambió el semáforo, la cobertura o el pedido? → paridad con la V2.1 (A-08).
+- [ ] ¿Una vista con un color fijo o un texto técnico? → paleta y `Formats` (A-09); ¿cambió la interfaz? → capturas (A-11).

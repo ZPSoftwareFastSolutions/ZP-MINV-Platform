@@ -106,3 +106,30 @@ public sealed class ServicesTests
         Assert.InRange(tokyo.DayNumber - laPaz.DayNumber, 0, 1);
     }
 }
+
+/// <summary>Comprobación rápida de la base de datos (pantalla de carga e inicio de sesión del cliente).</summary>
+public sealed class DatabaseProbeTests
+{
+    [Fact]
+    public async Task Sin_servidor_responde_rapido_y_sin_mostrar_la_contrasena()
+    {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var status = await DatabaseProbe.CheckAsync("Host=127.0.0.1;Port=1;Database=minv;Username=minv_app;Password=secreta-123",
+            TimeSpan.FromSeconds(2));
+        Assert.False(status.IsReachable);
+        Assert.False(status.IsReady);
+        Assert.Equal("127.0.0.1:1", status.Server);
+        Assert.Equal("minv", status.Database);
+        Assert.StartsWith("Sin conexión con 127.0.0.1:1", status.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("secreta-123", status.Message, StringComparison.Ordinal);
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public async Task Una_cadena_invalida_se_informa_sin_excepcion()
+    {
+        var status = await DatabaseProbe.CheckAsync("Host=localhost;Opcion desconocida=1", TimeSpan.FromSeconds(1));
+        Assert.False(status.IsReady);
+        Assert.StartsWith("La cadena de conexión no es válida", status.Message, StringComparison.Ordinal);
+    }
+}

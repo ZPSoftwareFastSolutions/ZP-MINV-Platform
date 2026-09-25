@@ -5,7 +5,10 @@
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
-                <ResourceDictionary Source="Theme/Theme.xaml" />
+                <!-- La paleta (posición 0) se reemplaza al cambiar el tema: ThemeService -->
+                <ResourceDictionary Source="Theme/Palette.Light.xaml" />
+                <ResourceDictionary Source="Theme/Controls.xaml" />
+                <ResourceDictionary Source="Views/Shared.xaml" />
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
     </Application.Resources>

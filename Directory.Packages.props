@@ -13,6 +13,8 @@
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="8.0.31" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.31" />
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.11" />
+    <!-- Modo demostración del cliente de escritorio (base en memoria, sin PostgreSQL) y pruebas de los casos de uso. -->
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.InMemory" Version="8.0.31" />
   </ItemGroup>
   <ItemGroup Label="Hosting y hardware">
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="8.0.1" />

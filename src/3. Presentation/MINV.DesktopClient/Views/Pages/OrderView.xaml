@@ -1,0 +1,148 @@
+<UserControl x:Class="MINV.DesktopClient.Views.Pages.OrderView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:MINV.DesktopClient.Controls"
+             xmlns:vm="clr-namespace:MINV.DesktopClient.ViewModels">
+    <Grid Margin="28,6,28,20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <DockPanel Margin="0,0,0,16">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button Content="Copiar todo" c:Ui.Icon="{x:Static c:Glyphs.Copy}" Command="{Binding CopyAll}" Margin="0,0,8,0" />
+                <Button Content="Exportar a Excel" c:Ui.Icon="{x:Static c:Glyphs.Download}" Command="{Binding Export}" Margin="0,0,8,0" />
+                <Button Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Refresh}" Command="{Binding Refresh}" ToolTip="Actualizar (F5)" />
+            </StackPanel>
+            <StackPanel>
+                <TextBlock Text="{Binding Title}" Style="{StaticResource H1}" />
+                <TextBlock Text="{Binding Subtitle}" Style="{StaticResource Caption}" FontSize="13" Margin="0,4,0,0" />
+            </StackPanel>
+        </DockPanel>
+
+        <Border Grid.Row="1" CornerRadius="12" Padding="22,16" Margin="0,0,0,14" Background="{DynamicResource BrandGradient}">
+            <DockPanel>
+                <Border DockPanel.Dock="Left" Width="44" Height="44" CornerRadius="12" Background="#26FFFFFF">
+                    <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Cart}" FontSize="20" Foreground="#FFFFFF" />
+                </Border>
+                <TextBlock DockPanel.Dock="Right" Text="{Binding TotalText}" FontSize="28" FontWeight="SemiBold" Foreground="#FFFFFF" VerticalAlignment="Center" />
+                <StackPanel Margin="16,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="Total del pedido sugerido" Foreground="#FFFFFF" FontWeight="SemiBold" FontSize="15" />
+                    <TextBlock Text="{Binding Summary}" Foreground="#D6E6FF" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <Grid Grid.Row="2">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <ItemsControl ItemsSource="{Binding Groups}" Focusable="False" Margin="0,0,4,0">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:SupplierGroup}">
+                            <Border Style="{StaticResource CardFlat}" Margin="0,0,0,14" Padding="0">
+                                <StackPanel>
+                                    <DockPanel Margin="20,16,20,12">
+                                        <Border DockPanel.Dock="Left" Width="44" Height="44" CornerRadius="12"
+                                                Background="{Binding Name, Converter={StaticResource AvatarBrush}}">
+                                            <TextBlock Text="{Binding Initials}" Foreground="#FFFFFF" FontWeight="SemiBold" FontSize="15" HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center" />
+                                        </Border>
+                                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <StackPanel Margin="0,0,16,0" HorizontalAlignment="Right">
+                                                <TextBlock Text="{Binding SubtotalText}" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Right"
+                                                           Foreground="{DynamicResource TextPrimary}" />
+                                                <TextBlock Text="{Binding CountText}" Style="{StaticResource Caption}" HorizontalAlignment="Right" />
+                                            </StackPanel>
+                                            <Button Content="Copiar" c:Ui.Icon="{x:Static c:Glyphs.Copy}" Height="34"
+                                                    Command="{Binding DataContext.CopyGroup, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}" ToolTip="Copiar el pedido de este proveedor (correo o WhatsApp)" />
+                                        </StackPanel>
+                                        <StackPanel Margin="14,0,0,0" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Name}" Style="{StaticResource H3}" FontSize="15.5" />
+                                            <WrapPanel Margin="0,4,0,0">
+                                                <StackPanel Orientation="Horizontal" Margin="0,0,14,0">
+                                                    <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Person}" FontSize="12" Foreground="{DynamicResource TextMuted}" />
+                                                    <TextBlock Text="{Binding Contact}" Style="{StaticResource Caption}" Margin="5,0,0,0" />
+                                                </StackPanel>
+                                                <StackPanel Orientation="Horizontal" Margin="0,0,14,0" Visibility="{Binding HasPhone, Converter={StaticResource Visible}}">
+                                                    <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Phone}" FontSize="12" Foreground="{DynamicResource TextMuted}" />
+                                                    <TextBlock Text="{Binding Phone}" Style="{StaticResource Caption}" Margin="5,0,0,0" />
+                                                </StackPanel>
+                                                <StackPanel Orientation="Horizontal" Margin="0,0,14,0" Visibility="{Binding HasEmail, Converter={StaticResource Visible}}">
+                                                    <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Mail}" FontSize="12" Foreground="{DynamicResource TextMuted}" />
+                                                    <TextBlock Text="{Binding Email}" Style="{StaticResource Caption}" Margin="5,0,0,0" />
+                                                </StackPanel>
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Calendar}" FontSize="12" Foreground="{DynamicResource TextMuted}" />
+                                                    <TextBlock Style="{StaticResource Caption}" Margin="5,0,0,0" Text="{Binding DeliveryLine}" />
+                                                </StackPanel>
+                                            </WrapPanel>
+                                        </StackPanel>
+                                    </DockPanel>
+                                    <!-- Líneas -->
+                                    <Grid Margin="20,0,20,4" TextElement.FontSize="11.5" TextElement.FontWeight="SemiBold">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="100" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="120" />
+                                            <ColumnDefinition Width="110" />
+                                            <ColumnDefinition Width="110" />
+                                            <ColumnDefinition Width="110" />
+                                            <ColumnDefinition Width="120" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="SKU" Foreground="{DynamicResource TextMuted}" />
+                                        <TextBlock Grid.Column="1" Text="PRODUCTO" Foreground="{DynamicResource TextMuted}" />
+                                        <TextBlock Grid.Column="2" Text="ESTADO" Foreground="{DynamicResource TextMuted}" />
+                                        <TextBlock Grid.Column="3" Text="STOCK" Foreground="{DynamicResource TextMuted}" />
+                                        <TextBlock Grid.Column="4" Text="A PEDIR" Foreground="{DynamicResource TextMuted}" />
+                                        <TextBlock Grid.Column="5" Text="COSTO" Foreground="{DynamicResource TextMuted}" HorizontalAlignment="Right" />
+                                        <TextBlock Grid.Column="6" Text="SUBTOTAL" Foreground="{DynamicResource TextMuted}" HorizontalAlignment="Right" />
+                                    </Grid>
+                                    <ItemsControl ItemsSource="{Binding Lines}" Focusable="False" Margin="12,0,12,10">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type vm:OrderLineItem}">
+                                                <Button Style="{StaticResource RowButton}" Padding="8,8"
+                                                        Command="{Binding DataContext.OpenProduct, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                        CommandParameter="{Binding}">
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="100" />
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="120" />
+                                                            <ColumnDefinition Width="110" />
+                                                            <ColumnDefinition Width="110" />
+                                                            <ColumnDefinition Width="110" />
+                                                            <ColumnDefinition Width="120" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <TextBlock Text="{Binding Sku}" Style="{StaticResource Mono}" VerticalAlignment="Center" />
+                                                        <TextBlock Grid.Column="1" Text="{Binding Name}" Foreground="{DynamicResource TextPrimary}" TextTrimming="CharacterEllipsis"
+                                                                   VerticalAlignment="Center" Margin="0,0,10,0" />
+                                                        <c:StatusBadge Grid.Column="2" Status="{Binding Status}" />
+                                                        <TextBlock Grid.Column="3" Text="{Binding StockText}" Foreground="{DynamicResource TextSecondary}" VerticalAlignment="Center" />
+                                                        <TextBlock Grid.Column="4" Text="{Binding QuantityText}" FontWeight="SemiBold" Foreground="{DynamicResource BrandText}"
+                                                                   VerticalAlignment="Center" />
+                                                        <TextBlock Grid.Column="5" Text="{Binding UnitCostText}" Foreground="{DynamicResource TextSecondary}"
+                                                                   HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                                        <TextBlock Grid.Column="6" Text="{Binding SubtotalText}" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}"
+                                                                   HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                                    </Grid>
+                                                </Button>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+            <ContentControl Style="{StaticResource EmptyState}" Tag="{x:Static c:Glyphs.CheckCircle}" Visibility="{Binding IsEmpty, Converter={StaticResource Visible}}">
+                <StackPanel>
+                    <TextBlock Text="No hay nada que reponer" FontWeight="SemiBold" FontSize="15" HorizontalAlignment="Center" Foreground="{DynamicResource TextPrimary}" />
+                    <TextBlock Text="Todos los productos están por encima de su mínimo." HorizontalAlignment="Center" Margin="0,4,0,0" />
+                </StackPanel>
+            </ContentControl>
+        </Grid>
+    </Grid>
+</UserControl>

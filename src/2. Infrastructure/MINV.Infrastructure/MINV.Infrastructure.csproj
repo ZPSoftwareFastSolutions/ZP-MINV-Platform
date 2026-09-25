@@ -1,11 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- Persistencia PostgreSQL (EF Core Code-First + Npgsql), multi-tenant, auditoría e importación desde la V2.1. -->
+  <!-- Persistencia PostgreSQL (EF Core Code-First + Npgsql), multi-tenant, auditoría, importación desde la V2.1 y modo
+       demostración en memoria. -->
   <PropertyGroup>
     <RootNamespace>MINV.Infrastructure</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

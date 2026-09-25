@@ -1,0 +1,121 @@
+<!-- Convertidores y plantillas compartidas por todas las pantallas. -->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:c="clr-namespace:MINV.DesktopClient.Controls"
+                    xmlns:v="clr-namespace:MINV.DesktopClient.Views"
+                    xmlns:vm="clr-namespace:MINV.DesktopClient.ViewModels">
+    <v:BoolToVisibilityConverter x:Key="Visible" />
+    <v:BoolToVisibilityConverter x:Key="Hidden" Invert="True" />
+    <v:HasValueToVisibilityConverter x:Key="HasValue" />
+    <v:HasValueToVisibilityConverter x:Key="NoValue" Invert="True" />
+    <v:HasValueToBoolConverter x:Key="HasValueBool" />
+    <v:NotConverter x:Key="Not" />
+    <v:StepNumberConverter x:Key="StepNumber" />
+    <v:AvatarBrushConverter x:Key="AvatarBrush" />
+
+    <!-- Chip de filtro con punto de color y contador -->
+    <DataTemplate x:Key="FilterChipTemplate" DataType="{x:Type vm:FilterChip}">
+        <RadioButton Style="{StaticResource Chip}" IsChecked="{Binding IsSelected, Mode=OneWay}"
+                     Command="{Binding DataContext.SelectFilter, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                     CommandParameter="{Binding}">
+            <StackPanel Orientation="Horizontal">
+                <Ellipse Width="8" Height="8" Margin="0,0,7,0" VerticalAlignment="Center" c:Ui.BrushKey="{Binding BrushKey}"
+                         Visibility="{Binding HasColor, Converter={StaticResource Visible}}" />
+                <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />
+                <Border Background="{DynamicResource SurfaceHover}" CornerRadius="8" Padding="6,0" Margin="8,0,0,0" MinWidth="22">
+                    <TextBlock Text="{Binding Count}" FontSize="11" HorizontalAlignment="Center" Foreground="{DynamicResource TextMuted}" />
+                </Border>
+            </StackPanel>
+        </RadioButton>
+    </DataTemplate>
+
+    <ItemsPanelTemplate x:Key="WrapPanelTemplate">
+        <WrapPanel />
+    </ItemsPanelTemplate>
+
+    <!-- Movimiento (tablero, registro y sesión) -->
+    <DataTemplate x:Key="MovementRow" DataType="{x:Type vm:MovementItem}">
+        <DockPanel Margin="0,6">
+            <Border x:Name="Bubble" DockPanel.Dock="Left" Width="34" Height="34" CornerRadius="9" Background="{DynamicResource SuccessSoft}">
+                <TextBlock x:Name="Glyph" Style="{StaticResource Icon}" Text="{Binding Glyph}" FontSize="14" Foreground="{DynamicResource Success}" />
+            </Border>
+            <StackPanel DockPanel.Dock="Right" Margin="10,0,0,0" HorizontalAlignment="Right">
+                <TextBlock x:Name="Qty" Text="{Binding QuantityText}" FontWeight="SemiBold" HorizontalAlignment="Right" Foreground="{DynamicResource Success}" />
+                <TextBlock Text="{Binding WhenText}" Style="{StaticResource Caption}" HorizontalAlignment="Right" FontSize="11.5" />
+            </StackPanel>
+            <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                <TextBlock Text="{Binding Name}" Foreground="{DynamicResource TextPrimary}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                <TextBlock Style="{StaticResource Caption}" TextTrimming="CharacterEllipsis">
+                    <Run Text="{Binding TypeName, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding Detail, Mode=OneWay}" />
+                </TextBlock>
+            </StackPanel>
+        </DockPanel>
+        <DataTemplate.Triggers>
+            <DataTrigger Binding="{Binding IsIn}" Value="False">
+                <Setter TargetName="Bubble" Property="Background" Value="{DynamicResource WarningSoft}" />
+                <Setter TargetName="Glyph" Property="Foreground" Value="{DynamicResource Warning}" />
+                <Setter TargetName="Qty" Property="Foreground" Value="{DynamicResource Warning}" />
+            </DataTrigger>
+        </DataTemplate.Triggers>
+    </DataTemplate>
+
+    <!-- Registro de actividad -->
+    <DataTemplate x:Key="ActivityRow" DataType="{x:Type vm:ActivityItem}">
+        <DockPanel Margin="0,7">
+            <Border DockPanel.Dock="Left" Width="34" Height="34" CornerRadius="17" VerticalAlignment="Top"
+                    Background="{Binding UserName, Converter={StaticResource AvatarBrush}}">
+                <TextBlock Text="{Binding Initials}" Foreground="#FFFFFF" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Center"
+                           VerticalAlignment="Center" />
+            </Border>
+            <StackPanel DockPanel.Dock="Right" Margin="12,0,0,0" HorizontalAlignment="Right" ToolTip="{Binding ExactTime}">
+                <Border x:Name="Pill" CornerRadius="9" Padding="8,2" HorizontalAlignment="Right" Background="{DynamicResource SuccessSoft}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock x:Name="PillGlyph" Style="{StaticResource Icon}" Text="{Binding Glyph}" FontSize="11" Foreground="{DynamicResource Success}" />
+                        <TextBlock x:Name="PillText" Text="{Binding OutcomeText}" FontSize="11" FontWeight="SemiBold" Margin="5,0,0,0"
+                                   Foreground="{DynamicResource Success}" />
+                    </StackPanel>
+                </Border>
+                <TextBlock Text="{Binding WhenText}" Style="{StaticResource Caption}" FontSize="11.5" HorizontalAlignment="Right" Margin="0,4,0,0" />
+            </StackPanel>
+            <StackPanel Margin="12,0,0,0">
+                <TextBlock TextTrimming="CharacterEllipsis">
+                    <Run Text="{Binding UserName, Mode=OneWay}" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" />
+                    <Run Text="{Binding ActionText, Mode=OneWay}" Foreground="{DynamicResource TextSecondary}" />
+                </TextBlock>
+                <TextBlock Text="{Binding Details}" Style="{StaticResource Caption}" TextWrapping="Wrap" MaxHeight="36" TextTrimming="CharacterEllipsis"
+                           Margin="0,2,0,0" Visibility="{Binding HasDetails, Converter={StaticResource Visible}}" />
+            </StackPanel>
+        </DockPanel>
+        <DataTemplate.Triggers>
+            <DataTrigger Binding="{Binding Outcome}" Value="Rejected">
+                <Setter TargetName="Pill" Property="Background" Value="{DynamicResource WarningSoft}" />
+                <Setter TargetName="PillGlyph" Property="Foreground" Value="{DynamicResource Warning}" />
+                <Setter TargetName="PillText" Property="Foreground" Value="{DynamicResource Warning}" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding Outcome}" Value="Failed">
+                <Setter TargetName="Pill" Property="Background" Value="{DynamicResource DangerSoft}" />
+                <Setter TargetName="PillGlyph" Property="Foreground" Value="{DynamicResource Danger}" />
+                <Setter TargetName="PillText" Property="Foreground" Value="{DynamicResource Danger}" />
+            </DataTrigger>
+        </DataTemplate.Triggers>
+    </DataTemplate>
+
+    <!-- Estado vacío genérico: Tag = ícono, Content = título, ToolTip no se usa -->
+    <Style x:Key="EmptyState" TargetType="ContentControl">
+        <Setter Property="HorizontalAlignment" Value="Center" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ContentControl">
+                    <StackPanel Margin="24">
+                        <Border Width="64" Height="64" CornerRadius="32" Background="{DynamicResource SurfaceHover}" HorizontalAlignment="Center">
+                            <TextBlock Style="{StaticResource Icon}" Text="{TemplateBinding Tag}" FontSize="26" Foreground="{DynamicResource TextFaint}" />
+                        </Border>
+                        <ContentPresenter HorizontalAlignment="Center" Margin="0,14,0,0" TextElement.Foreground="{DynamicResource TextMuted}" />
+                    </StackPanel>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+</ResourceDictionary>

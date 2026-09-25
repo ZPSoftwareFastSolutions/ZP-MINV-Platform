@@ -28,20 +28,10 @@ public sealed class GetStockProjectionHandler(IMinvDbContext db, IClock clock)
         var lookups = new InventoryLookups(db);
         var config = await lookups.ConfigAsync(ct);
         var today = clock.TodayIn(config.TimeZoneId);
-        var warehouse = request.WarehouseCode is { Length: > 0 } code
-            ? await lookups.WarehouseByCodeAsync(code, ct)
-            : await db.Set<Warehouse>().Where(w => config.DefaultWarehouseId == null || w.Id == config.DefaultWarehouseId)
-                  .OrderBy(w => w.Id).FirstOrDefaultAsync(ct) ?? throw new NotFoundException("La empresa no tiene almacenes.");
+        var warehouse = await lookups.WarehouseAsync(request.WarehouseCode, config, ct);
         var wid = warehouse.Id;
         var salesFrom = today.AddDays(-(StockProjection.SalesWindowDays - 1));
-
-        var warehouseBins = from bin in db.Set<Bin>()
-                            join s in db.Set<Shelf>() on bin.ShelfId equals s.Id
-                            join r in db.Set<Rack>() on s.RackId equals r.Id
-                            join a in db.Set<Aisle>() on r.AisleId equals a.Id
-                            join z in db.Set<Zone>() on a.ZoneId equals z.Id
-                            where z.WarehouseId == wid
-                            select bin.Id;
+        var warehouseBins = lookups.BinIdsOf(wid);
 
         var aggregates = await (from m in db.Set<StockMovement>()
                                 join t in db.Set<MovementType>() on m.MovementTypeId equals t.Id

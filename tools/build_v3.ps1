@@ -9,13 +9,16 @@
                                                 Con MINV_TEST_PG definida, tambien las pruebas contra PostgreSQL real.
     4. dotnet ef migrations has-pending-model-changes   El modelo no puede tener cambios sin migracion.
     5. scripts\db_init.sql                      Se regenera: cabecera + "dotnet ef migrations script --idempotent".
+    6. -Capturas                                Cliente de escritorio: M-INV.exe --capturas con la demostracion (V2.1)
+                                                -> docs\product\capturas\v3.1 (claro, oscuro y por rol; regla A-11).
+    7. -Publicar                                tools\publicar_escritorio.ps1 -> dist\M-INV-<version>-win-x64\M-INV.exe
     Termina con codigo 1 si falla cualquier paso. Script ASCII a proposito (PowerShell 5.1).
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File tools\build_v3.ps1
     $env:MINV_TEST_PG = 'Host=localhost;Username=postgres;Password=postgres;Database=postgres'; powershell -File tools\build_v3.ps1
 #>
-param([string]$Configuration = 'Release')
+param([string]$Configuration = 'Release', [switch]$Capturas, [switch]$Publicar)
 $ErrorActionPreference = 'Continue'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $root = Split-Path $PSScriptRoot -Parent
@@ -38,7 +41,7 @@ Paso ('Compilar MINV.sln (' + $Configuration + ', advertencias como errores)') {
 if ($script:fallas.Count -gt 0) { Write-Output 'RESULTADO: la compilacion fallo; no se continua.'; exit 1 }
 
 if (-not $env:MINV_TEST_PG) { Write-Output '[aviso]   MINV_TEST_PG no definida: se omiten las pruebas contra PostgreSQL real.' }
-Paso 'Pruebas (dominio, aplicacion, hardware, infraestructura y paridad V2.1)' {
+Paso 'Pruebas (dominio, aplicacion, hardware, infraestructura, cliente de escritorio y paridad V2.1)' {
     dotnet test MINV.sln -c $Configuration --no-build -nologo -v q
 }
 
@@ -58,6 +61,21 @@ Paso 'Regenerar scripts\db_init.sql' {
         $tablas = (Select-String -Path (Join-Path $root 'scripts\db_init.sql') -Pattern 'CREATE TABLE' | Measure-Object).Count
         Write-Output ('scripts\db_init.sql regenerado: ' + $tablas + ' sentencias CREATE TABLE (96 tablas + historial de migraciones)')
     }
+}
+
+if ($Capturas) {
+    Paso 'Capturas del cliente de escritorio (docs\product\capturas\v3.1)' {
+        $exe = Get-ChildItem ('src\3. Presentation\MINV.DesktopClient\bin\' + $Configuration) -Filter 'M-INV.exe' -Recurse | Select-Object -First 1
+        $dir = Join-Path $root 'docs\product\capturas\v3.1'
+        if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
+        $p = Start-Process -FilePath $exe.FullName -ArgumentList '--capturas', ('"' + $dir + '"') -PassThru
+        if (-not $p.WaitForExit(300000)) { Stop-Process -Id $p.Id -Force; Write-Output 'Las capturas no terminaron en 5 minutos.'; $global:LASTEXITCODE = 1 }
+        else { $global:LASTEXITCODE = $p.ExitCode; Get-Content (Join-Path $dir 'capturas.log') -Encoding UTF8 | Select-Object -First 1 }
+    }
+}
+
+if ($Publicar) {
+    Paso 'Publicar el cliente de escritorio (dist)' { & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'publicar_escritorio.ps1') }
 }
 
 Write-Output ''
