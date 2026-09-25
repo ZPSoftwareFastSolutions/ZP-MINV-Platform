@@ -238,7 +238,7 @@ public sealed class PostgresIntegrationTests(PostgresFixture pg) : IClassFixture
         services.AddMinvInfrastructure(pg.ConnectionString);
         await using var provider = services.BuildServiceProvider();
         var result = await provider.GetRequiredService<MINV.Infrastructure.Seeding.LocalDataSeeder>()
-            .SeedAsync(new MINV.Infrastructure.Seeding.SeedOptions("SEMILLA", Days: 6, Seed: 11), _ => { });
+            .SeedAsync(new MINV.Infrastructure.Seeding.SeedOptions("SEMILLA", Days: 20, Seed: 11), _ => { });
         Assert.True(result.Tickets > 10);
         using var scope = provider.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MINVDbContext>();
@@ -250,5 +250,35 @@ public sealed class PostgresIntegrationTests(PostgresFixture pg) : IClassFixture
             "HAVING sum(debit) <> sum(credit)) x").SingleAsync();
         Assert.Equal(0, unbalanced);
         Assert.Equal(61, await db.Database.SqlQueryRaw<int>("SELECT count(*)::int AS \"Value\" FROM catalog.product_images").SingleAsync());
+
+        // Todas las consultas de las pantallas con el administrador: PostgreSQL devuelve numéricos de hasta 1000 cifras y
+        // System.Decimal solo admite 28-29; un cálculo con división hecho en SQL no debe llegar sin redondear al cliente.
+        var admin = result.Users.First(u => u.RoleCode == RoleCodes.Admin);
+        using var session = provider.CreateScope();
+        var m = session.ServiceProvider.GetRequiredService<IMediator>();
+        await m.Send(new LoginCommand("SEMILLA", admin.Email, admin.Password, "pruebas", "3.1.0"));
+        var (from, to) = (result.From, result.To);
+        Assert.NotEmpty((await m.Send(new MINV.Application.Partners.GetCustomersQuery())).Customers);
+        Assert.NotEmpty(await m.Send(new MINV.Application.Partners.GetSuppliersQuery()));
+        Assert.NotEmpty(await m.Send(new MINV.Application.Catalog.GetCatalogQuery()));
+        Assert.NotNull(await m.Send(new MINV.Application.Catalog.GetCatalogOptionsQuery()));
+        Assert.NotEmpty(await m.Send(new MINV.Application.Catalog.GetProductImagesQuery()));
+        Assert.NotEmpty(await m.Send(new MINV.Application.Sales.GetSellableProductsQuery()));
+        Assert.NotNull(await m.Send(new MINV.Application.Sales.GetPosStateQuery()));
+        var sales = await m.Send(new MINV.Application.Sales.GetSalesQuery(from, to));
+        Assert.NotEmpty(await m.Send(new MINV.Application.Sales.GetSaleLinesQuery(sales[0].InvoiceNumber)));
+        Assert.True((await m.Send(new MINV.Application.Reports.GetSalesReportQuery(from, to))).Revenue > 0);
+        Assert.NotNull(await m.Send(new MINV.Application.Reports.GetPurchasesReportQuery(from, to)));
+        Assert.NotEmpty(await m.Send(new MINV.Application.Reports.GetMovementsReportQuery(from, to)));
+        var orders = await m.Send(new MINV.Application.Purchasing.GetPurchaseOrdersQuery());
+        Assert.NotNull(await m.Send(new MINV.Application.Purchasing.GetPurchaseOrderQuery(orders[0].Id)));
+        Assert.NotEmpty(await m.Send(new MINV.Application.Accounting.GetChartOfAccountsQuery()));
+        Assert.NotEmpty(await m.Send(new MINV.Application.Accounting.GetJournalQuery(from, to)));
+        Assert.True((await m.Send(new MINV.Application.Accounting.GetIncomeStatementQuery(from, to))).TotalRevenue > 0);
+        Assert.NotEmpty(await m.Send(new MINV.Application.Iam.GetUsersQuery()));
+        Assert.NotEmpty((await m.Send(new MINV.Application.Iam.GetRolesQuery())).Roles);
+        Assert.NotNull(await m.Send(new MINV.Application.Iam.GetCompanySettingsQuery()));
+        Assert.NotEmpty((await m.Send(new GetStockProjectionQuery())).Result.Stock);
+        Assert.NotEmpty(await m.Send(new GetActivityQuery()));
     }
 }

@@ -58,6 +58,13 @@ contabilidad, usuarios) e **imágenes de cada producto**. Misma versión 3.1.0-a
   también sin base de datos.
 - `appsettings.json` propone la empresa `MINV` (la de la base local).
 
+### Corregido
+
+- **Clientes** no cargaba con PostgreSQL («Numeric value does not fit in a System.Decimal»): el total por cliente se
+  calculaba en SQL como `cantidad × precio × (1 − descuento / 100)` y la división dejaba numéricos de 34 cifras (el
+  máximo de .NET es 28). Ahora suma los pagos de las facturas emitidas. La prueba contra PostgreSQL recorre todas las
+  consultas de las pantallas con 20 días de datos para que no vuelva a pasar.
+
 ### Verificado
 
 - `tools/build_v3.ps1 -Capturas -Publicar` con `MINV_TEST_PG`: 135 pruebas (7 contra PostgreSQL real), migraciones al

@@ -118,10 +118,13 @@ public sealed class GetCustomersHandler(IMinvDbContext db) : IRequestHandler<Get
     {
         var categories = await db.Set<CustomerCategory>().OrderBy(c => c.Name).ToListAsync(ct);
         var customers = await db.Set<Customer>().OrderBy(c => c.Name).ToListAsync(ct);
+        // El total de cada venta es su pago (lo que se cobró). Calcular «cantidad × precio × (1 − descuento / 100)» dentro de
+        // PostgreSQL da numéricos con más de 28 cifras (la división agrega 20 decimales) que no caben en System.Decimal.
         var sales = (await (from so in db.Set<SalesOrder>()
                             join i in db.Set<Invoice>() on so.Id equals i.SalesOrderId
+                            join p in db.Set<Payment>() on i.Id equals p.InvoiceId
                             where i.Status == InvoiceStatus.Issued
-                            select new { so.CustomerId, so.OrderDate, Amount = so.Lines.Sum(l => l.Quantity * l.UnitPrice * (1 - l.DiscountPercent / 100m)) })
+                            select new { so.CustomerId, so.OrderDate, p.Amount })
                 .ToListAsync(ct))
             .GroupBy(x => x.CustomerId).ToDictionary(g => g.Key, g => (N: g.Count(), Total: g.Sum(x => x.Amount), Last: g.Max(x => x.OrderDate)));
         var byId = categories.ToDictionary(c => c.Id);
