@@ -68,7 +68,7 @@ tablas en 8 esquemas. Construida sobre `Inventario-V3.-BaseDeDatosLocal`. Arquit
   caja `EA-CAJA1`) y SC (Santa Cruz, `ALMSC`, caja `SC-CAJA1`); 12 usuarios asignados por sucursal; reposición semanal
   con faltantes ocasionales; pedidos del e-commerce por la API Key «Tienda en línea»; al final, una transferencia en
   tránsito a SC y una pendiente a EA.
-- **Escritorio**: selector de conexión en el inicio de sesión («Base local», «Nube (servidor M-INV)» con dirección
+- **Escritorio**: selector de conexión en el inicio de sesión («Base local», «Nube» (servidor M-INV) con dirección
   https —http solo para `localhost`— y la demostración), selector de sucursal en la barra superior («Todas las
   sucursales» para la gerencia global) y pantallas **Sucursales**, **Transferencias** e **Integraciones** (API Keys,
   webhooks, entregas). En modo nube el token vive solo en memoria y los comandos se reintentan con el mismo id.

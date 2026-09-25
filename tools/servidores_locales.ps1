@@ -109,7 +109,7 @@ function Iniciar {
     if (-not (Estado)) { throw ('Algun servidor no respondio. Revise ' + (Join-Path $base 'servidor-nube.log') + ' y api-gateway.log') }
     $token = Leer $claves 'MINV_API_KEY'
     Write-Output ''
-    Write-Output ('Escritorio: abra M-INV.exe, elija "Nube (servidor M-INV)" y use el servidor http://localhost:' + $PuertoNube)
+    Write-Output ('Escritorio: abra M-INV.exe, elija "Nube" y use el servidor http://localhost:' + $PuertoNube)
     Write-Output ('API B2B:    documentacion en http://localhost:' + $PuertoApi + '/docs')
     if ($token) {
         Write-Output ('            curl.exe -H "Authorization: Bearer <MINV_API_KEY de ' + $claves + '>" http://localhost:' + $PuertoApi + '/v1/catalog?pageSize=5')
