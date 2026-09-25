@@ -1,32 +1,37 @@
 # ZP-MINV-Platform · Contexto para agentes
 
-M-INV es el sistema de inventarios B2B de Z&P Software Fast Solutions: un libro de **Excel local** arquitectado
-como aplicación transaccional inmutable (CQRS, append-only), preparado para migrar a SQL/.NET.
+M-INV es el sistema de inventarios B2B de Z&P Software Fast Solutions: libros de Excel arquitectados como aplicación
+transaccional inmutable (CQRS, append-only), preparados para migrar a SQL/.NET.
 
-Versión actual: **1.2.0** (rama `Inventario-V1.2`; la V1.0/1.1 vive en `Inventario-V1`). Dos ediciones desde el
-mismo generador: **Estándar** (`.xlsx`, sin macros) y **Plus** (`.xlsm`, VBA de `src/macros/`).
-Idioma del producto y la documentación: español.
+Versión actual: **2.0.0** en la rama `Inventario-V2`: libro **colaborativo** para Microsoft 365 (SharePoint/OneDrive,
+Excel para la web) con Office Scripts (`src/office-scripts/`). La edición local V1.2 (Estándar `.xlsx` y Plus `.xlsm`)
+sigue en el repositorio (`tools/build_minv.py`, rama `Inventario-V1.2`). Idioma del producto y la documentación: español.
 
 ## Reglas obligatorias
 
 @.claude/excel-architecture-rules.md
+@.claude/v2-concurrency-rules.md
 
 ## Comandos
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools\build_all.ps1 -Capturas                     # ciclo completo (DoD)
-.venv\Scripts\python tools\build_minv.py                                                   # solo generar
-powershell -ExecutionPolicy Bypass -File tools\build_xlsm.ps1                              # edición Plus + pruebas VBA
-powershell -ExecutionPolicy Bypass -File tools\verify_minv.ps1 -Path src\M-INV_V1_Core.xlsx  # verificar un libro
+powershell -ExecutionPolicy Bypass -File tools\build_v2.ps1 -Capturas        # V2: ciclo completo (DoD, regla C-12)
+.venv\Scripts\python tools\build_minv_v2.py                                   # V2: solo generar
+.venv\Scripts\python tools\office_scripts.py sync                             # copiar lib/comun.ts en cada script
+node tests\office-scripts\pruebas.mts                                         # pruebas de los Office Scripts
+powershell -ExecutionPolicy Bypass -File tools\build_all.ps1 -Capturas        # V1.2 local: ciclo completo
 ```
 
-Los libros de `src/` y `releases/` son artefactos generados: los cambios se hacen en `tools/minv/` (o en
-`src/macros/` para el VBA) y se verifican con `tools/build_all.ps1` antes de dar una tarea por terminada (regla R-12).
-Los scripts `.ps1` deben ser ASCII (PowerShell 5.1); los fuentes VBA, UTF-8 compatible con Windows-1252.
+Los libros de `src/` y `releases/` son artefactos generados: los cambios se hacen en `tools/minv2/` (V2), `tools/minv/`
+(V1.2 y componentes compartidos) o `src/office-scripts/lib/comun.ts`, y se verifican antes de dar una tarea por
+terminada. Los scripts `.ps1` deben ser ASCII (PowerShell 5.1, que además no distingue mayúsculas en nombres de
+variables); los Office Scripts, TypeScript sin `any` ni sintaxis no borrable.
 
 ## Documentación
 
-- Modelo de datos: `docs/architecture/data-dictionary.md`
+- Coautoría y fragmentación: `.claude/v2-concurrency-rules.md`
+- Despliegue y roles: `docs/deployment/sharepoint-rbac-policies.md`
+- Modelo de datos: `docs/architecture/data-dictionary-v2.md` (V2) y `docs/architecture/data-dictionary.md` (V1.2)
 - Sistema visual y UX: `docs/product/ux-ui-guidelines.md`
-- VBA de la edición Plus: `src/macros/README.md`
+- Office Scripts: `src/office-scripts/README.md` · VBA V1.2: `src/macros/README.md`
 - Historial: `CHANGELOG.md`

@@ -75,12 +75,25 @@ def _guard_rules(part: str, xml: str):
                              f"(use un nombre definido): {m.group(0)[:160]}")
 
 
+FORMULA_RE = re.compile(r'<c r="([A-Z]+\d+)"[^>]*><f[^>]*>(.*?)</f>', re.S)
+STRING_RE = re.compile(r'"(?:[^"]|"")*"')
+
+
+def _guard_formulas(part: str, xml: str):
+    """Una fórmula con llaves o paréntesis desbalanceados hace que Excel rechace el libro completo."""
+    for ref, f in FORMULA_RE.findall(xml):
+        f = STRING_RE.sub('""', f.replace("&quot;", '"'))
+        if f.count("(") != f.count(")") or f.count("{") != f.count("}"):
+            raise ValueError(f"{part} {ref}: fórmula con paréntesis o llaves desbalanceados: {f[:160]}")
+
+
 def postprocess(src: Path, dst: Path, lock_password: str | None):
     with zipfile.ZipFile(src) as zin, zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as zout:
         for item in zin.infolist():
             data = zin.read(item.filename)
             if item.filename.startswith("xl/worksheets/sheet"):
                 _guard_rules(item.filename, data.decode("utf-8"))
+                _guard_formulas(item.filename, data.decode("utf-8"))
             if item.filename.startswith("xl/drawings/drawing") and item.filename.endswith(".xml"):
                 data = _fix_drawing(data.decode("utf-8")).encode("utf-8")
             elif item.filename == "xl/workbook.xml" and lock_password:

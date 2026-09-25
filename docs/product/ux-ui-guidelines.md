@@ -191,3 +191,25 @@ desprotegida). Regenerar los activos: `python tools/make_assets.py`.
 | Formulario de captura | Un formulario de celdas no puede "enviar" sin VBA | Edición Plus: botón REGISTRAR (VBA) que escribe en la bitácora y comprueba su `Estado`; en Estándar se registra en la bitácora |
 | Búsqueda en listas desplegables | La validación de datos no filtra mientras se escribe | Campo `Buscar` que filtra la lista (`lfForm`, `lfKardex`) al pulsar Enter |
 | Referencias a tablas en formatos condicionales | Excel rechaza el libro completo | Nombres definidos; el generador bloquea el build si aparece una (regla R-08) |
+
+## 12. Libro colaborativo (V2) en Excel para la web
+
+La V2 conserva la paleta, la tipografía y los principios de esta guía, con estas diferencias para la web y la coautoría
+(detalle normativo en `.claude/v2-concurrency-rules.md`):
+
+| Tema | V1.2 (escritorio) | V2 (Microsoft 365) |
+|---|---|---|
+| Botones y navegación | Formas con hipervínculo e iconos PNG | **Celdas** con hipervínculo interno (o `HIPERVINCULO`); iconos como caracteres (⌂ ⇩ ⇧ ▦ ⚠ ☰) |
+| Tarjetas e indicadores | Cuadros de texto vinculados a celdas | Celdas combinadas con fórmula (formato grande y barra de color superior) |
+| Botones de acción | VBA (edición Plus) | Botones de **Office Script** que agrega Excel sobre los recuadros amarillos punteados `⚙` |
+| Portadas | Una portada general | **Por rol**: Bodega (entradas, ajustes, alertas críticas) y Ventas (salidas, disponibilidad) |
+| Registro | Siguiente fila libre o formulario | **Fila de captura propia** por usuario (su nombre en la primera columna) y columna *Resultado* que escribe el script |
+| Error de stock | Validación `✖ Stock insuficiente` | Además: **rojo sangre `#8A0303` con texto blanco tachado** en la cantidad (poka-yoke) |
+| Stock | Proyección en vivo | Instantánea con barra de frescura: «Calculado el … por …» y «⚠ N movimiento(s) nuevo(s): recalcule» |
+
+- Barra de navegación: fila 5, fondo `ink2`; la hoja activa se marca en blanco. Las píldoras ocupan columnas completas
+  (mínimo ~80 px) porque una celda no puede partirse.
+- Los recuadros `⚙` indican dónde va cada botón de script y explican qué hacer si aún no está instalado.
+- Nada de formas con vínculo, imágenes clicables ni cuadros vinculados: en la web no son fiables. Los gráficos nativos
+  sí se usan (dona de salud del inventario, columnas de unidades despachadas).
+

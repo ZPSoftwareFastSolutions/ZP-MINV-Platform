@@ -45,13 +45,26 @@ def proveedores_cols() -> list[Col]:
 
 
 def build_proveedores(ctx: Ctx):
+    """Hoja completa de la V1: tabla + franja, navegación y botones con formas."""
     ws, st = ctx.sheets[S_PROV], ctx.st
-    cols = proveedores_cols()
+    cols = ctx.tables.get("tblProveedores") or proveedores_cols()
     widths = [16] + [c.width for c in cols] + [16]
     app_sheet(ws, widths, zoom=90)
     band(ctx, ws, "Proveedores", "Datos maestros · Quién le vende cada producto y en cuántos días entrega",
          None, widths=widths)
     toolbar_row(ws, st)
+    proveedores_tabla(ctx, ws, cols)
+
+    chip(ws, 16, 190, textlink=ctx.kref("txtProveedores"), desc="Contador de proveedores")
+    action_button(ws, "＋  Registrar nuevo proveedor", 216, 240, url="internal:irFilaLibreProv",
+                  tip="Ir a la siguiente fila libre")
+    x = legend_pills(ws, 472)
+    note(ws, "Asigne un proveedor a cada producto en 05_PRODUCTOS para agrupar el pedido sugerido.", x + 16, 560)
+
+
+def proveedores_tabla(ctx: Ctx, ws, cols: list[Col]):
+    """Tabla, validaciones, formatos y datos demo. La V2 (Excel para la web) la reutiliza con su interfaz de celdas."""
+    st = ctx.st
     build_table(ctx, ws, "tblProveedores", cols, MAX_PROV)
     L = {c.name: ctx.col("tblProveedores", c.name) for c in cols}
     rng = lambda n: f"{L[n]}{FIRST}:{L[n]}{LAST_PROV}"  # noqa: E731
@@ -81,12 +94,6 @@ def build_proveedores(ctx: Ctx):
     status_cf(ws, st, rng("Validación"), f"${L['Validación']}{FIRST}")
     ws.conditional_format(rng("EnAlerta"), {"type": "cell", "criteria": ">", "value": 0,
                                             "format": st.cf(font_color=C["red"], bold=True)})
-
-    chip(ws, 16, 190, textlink=ctx.kref("txtProveedores"), desc="Contador de proveedores")
-    action_button(ws, "＋  Registrar nuevo proveedor", 216, 240, url="internal:irFilaLibreProv",
-                  tip="Ir a la siguiente fila libre")
-    x = legend_pills(ws, 472)
-    note(ws, "Asigne un proveedor a cada producto en 05_PRODUCTOS para agrupar el pedido sugerido.", x + 16, 560)
 
     if ctx.demo:
         fmts = {c.name: ctx.st.cell("in", c.fmt) for c in cols if c.kind == "in"}
@@ -148,14 +155,30 @@ def productos_cols() -> list[Col]:
 
 
 def build_productos(ctx: Ctx):
+    """Hoja completa de la V1: tabla + franja, navegación y botones con formas."""
     ws, st = ctx.sheets[S_PROD], ctx.st
-    cols = productos_cols()
+    cols = ctx.tables.get("tblProductos") or productos_cols()
     widths = [16] + [c.width for c in cols] + [16]
     app_sheet(ws, widths, zoom=90)
     band(ctx, ws, "Catálogo de productos",
          "Datos maestros · Cada producto se registra una sola vez · Nunca borre filas (use Activo = NO)",
          None, widths=widths)
     toolbar_row(ws, st)
+    productos_tabla(ctx, ws, cols)
+
+    chip(ws, 16, 210, textlink=ctx.kref("txtProductos"), desc="Contador de productos")
+    action_button(ws, "＋  Registrar nuevo producto", 236, 230, url="internal:irFilaLibreProd",
+                  tip="Ir a la siguiente fila libre del catálogo")
+    action_button(ws, "Proveedores  ➜", 476, 150, url=f"internal:{q(S_PROV)}!A1", fill=C["slate"],
+                  tip="Administrar proveedores")
+    x = legend_pills(ws, 642)
+    note(ws, "Para descontinuar escriba NO en Activo. Nunca borre filas ni cambie un SKU con movimientos.",
+         x + 16, 560)
+
+
+def productos_tabla(ctx: Ctx, ws, cols: list[Col]):
+    """Tabla, validaciones, formatos y datos demo. La V2 (Excel para la web) la reutiliza con su interfaz de celdas."""
+    st = ctx.st
     build_table(ctx, ws, "tblProductos", cols, MAX_PROD)
     L = {c.name: ctx.col("tblProductos", c.name) for c in cols}
     rng = lambda n: f"{L[n]}{FIRST}:{L[n]}{LAST_PROD}"  # noqa: E731
@@ -209,15 +232,6 @@ def build_productos(ctx: Ctx):
     status_cf(ws, st, rng("Validación"), f"${L['Validación']}{FIRST}")
     for n in ("StockMin", "StockMax"):
         decimals_cf(ws, st, rng(n), f"{L[n]}{FIRST}", "#,##0.00")
-
-    chip(ws, 16, 210, textlink=ctx.kref("txtProductos"), desc="Contador de productos")
-    action_button(ws, "＋  Registrar nuevo producto", 236, 230, url="internal:irFilaLibreProd",
-                  tip="Ir a la siguiente fila libre del catálogo")
-    action_button(ws, "Proveedores  ➜", 476, 150, url=f"internal:{q(S_PROV)}!A1", fill=C["slate"],
-                  tip="Administrar proveedores")
-    x = legend_pills(ws, 642)
-    note(ws, "Para descontinuar escriba NO en Activo. Nunca borre filas ni cambie un SKU con movimientos.",
-         x + 16, 560)
 
     if ctx.demo:
         fmts = {c.name: st.cell("in", c.fmt) for c in cols if c.kind == "in"}

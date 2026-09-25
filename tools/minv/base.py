@@ -99,6 +99,7 @@ class Styles:
 
     def __init__(self, wb: xlsxwriter.Workbook, hide_formulas: bool):
         self.wb, self.hide, self._cache, self._cf = wb, hide_formulas, {}, {}
+        self.lock_inputs = False   # V2: los maestros y usuarios solo los edita el ADMIN (celdas ✎ bloqueadas)
 
     def __call__(self, **p):
         props = {"font_name": FONT, "font_size": 10, "font_color": C["text"], "valign": "vcenter"}
@@ -124,7 +125,7 @@ class Styles:
     def cell(self, kind: str, fmt: str, view: bool = False):
         p = dict(FMT[fmt])
         if kind == "in":
-            p.update(bg_color=C["white"], border=1, border_color=C["input_border"], locked=False)
+            p.update(bg_color=C["white"], border=1, border_color=C["input_border"], locked=self.lock_inputs)
         elif view:
             p.update(formula=True)
         else:

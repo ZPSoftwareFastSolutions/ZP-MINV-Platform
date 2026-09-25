@@ -3,6 +3,8 @@
 > **Documento normativo.** Aplica a personas y agentes (Claude Code) que trabajen en `ZP-MINV-Platform`.
 > **DEBE** = obligatorio · **NO DEBE** = prohibido · **PUEDE** = permitido.
 > Si una solicitud contradice estas reglas, el agente DEBE señalarlo antes de ejecutar.
+> **Libro colaborativo (V2):** `.claude/v2-concurrency-rules.md` complementa este documento y prevalece en
+> `src/M-INV_V2_Colaborativo.xlsx` (bitácoras fragmentadas 10A/10B, instantáneas 15/16 a demanda, Office Scripts).
 
 ## 0. Principio rector
 
