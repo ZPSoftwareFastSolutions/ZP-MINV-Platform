@@ -3,7 +3,7 @@ using MINV.Domain.Common;
 namespace MINV.Domain.Purchasing;
 
 /// <summary>Recepción de mercancía.</summary>
-public sealed class GoodsReceipt : Entity, IConcurrencyAware, IAggregateRoot
+public sealed class GoodsReceipt : Entity, IConcurrencyAware, IAggregateRoot, IBranchScoped
 {
     private readonly List<GoodsReceiptLine> _lines = new();
 
@@ -11,9 +11,13 @@ public sealed class GoodsReceipt : Entity, IConcurrencyAware, IAggregateRoot
     {
     }
 
-    public GoodsReceipt(Guid tenantId, string number, Guid? purchaseOrderId, Guid? supplierId, Guid warehouseId, DateTimeOffset receivedAt, Guid receivedByUserId, string? supplierDocument)
+    /// <summary>V4 · Sucursal dueña de la fila (redundancia controlada; la FK compuesta con el padre la mantiene coherente).</summary>
+    public Guid BranchId { get; private set; }
+
+    public GoodsReceipt(Guid tenantId, Guid branchId, string number, Guid? purchaseOrderId, Guid? supplierId, Guid warehouseId, DateTimeOffset receivedAt, Guid receivedByUserId, string? supplierDocument)
         : base(tenantId)
     {
+        BranchId = Guard.NotEmpty(branchId, nameof(branchId));
         Number = Guard.Text(number, "El número", 30);
         PurchaseOrderId = Guard.NotEmptyIfPresent(purchaseOrderId, nameof(purchaseOrderId));
         SupplierId = Guard.NotEmptyIfPresent(supplierId, nameof(supplierId));
@@ -49,7 +53,7 @@ public sealed class GoodsReceipt : Entity, IConcurrencyAware, IAggregateRoot
     public GoodsReceiptLine AddLine(Guid? purchaseOrderLineId, Guid stockLevelId, decimal quantity, decimal unitCost)
     {
         EnsureDraft();
-        var line = new GoodsReceiptLine(TenantId, Id, purchaseOrderLineId, stockLevelId, quantity, unitCost);
+        var line = new GoodsReceiptLine(TenantId, BranchId, Id, purchaseOrderLineId, stockLevelId, quantity, unitCost);
         _lines.Add(line);
         return line;
     }

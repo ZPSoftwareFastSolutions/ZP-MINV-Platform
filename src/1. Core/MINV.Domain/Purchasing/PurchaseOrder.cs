@@ -4,7 +4,7 @@ namespace MINV.Domain.Purchasing;
 
 /// <summary>Orden de compra.</summary>
 /// <remarks>Origen en la V2.1: 18_PEDIDO (tblPedido) → orden de compra real.</remarks>
-public sealed class PurchaseOrder : Entity, IConcurrencyAware, IAggregateRoot
+public sealed class PurchaseOrder : Entity, IConcurrencyAware, IAggregateRoot, IBranchScoped
 {
     private readonly List<PurchaseOrderLine> _lines = new();
 
@@ -12,9 +12,13 @@ public sealed class PurchaseOrder : Entity, IConcurrencyAware, IAggregateRoot
     {
     }
 
-    public PurchaseOrder(Guid tenantId, string number, Guid supplierId, Guid warehouseId, Guid currencyId, DateOnly orderDate, DateOnly? expectedDate, string? notes)
+    /// <summary>V4 · Sucursal dueña de la fila (redundancia controlada; la FK compuesta con el padre la mantiene coherente).</summary>
+    public Guid BranchId { get; private set; }
+
+    public PurchaseOrder(Guid tenantId, Guid branchId, string number, Guid supplierId, Guid warehouseId, Guid currencyId, DateOnly orderDate, DateOnly? expectedDate, string? notes)
         : base(tenantId)
     {
+        BranchId = Guard.NotEmpty(branchId, nameof(branchId));
         Number = Guard.Text(number, "El número", 30);
         SupplierId = Guard.NotEmpty(supplierId, nameof(supplierId));
         WarehouseId = Guard.NotEmpty(warehouseId, nameof(warehouseId));
@@ -50,7 +54,7 @@ public sealed class PurchaseOrder : Entity, IConcurrencyAware, IAggregateRoot
     public PurchaseOrderLine AddLine(Guid variantId, Guid unitId, decimal quantity, decimal unitCost)
     {
         EnsureDraft();
-        var line = new PurchaseOrderLine(TenantId, Id, variantId, unitId, quantity, unitCost);
+        var line = new PurchaseOrderLine(TenantId, BranchId, Id, variantId, unitId, quantity, unitCost);
         _lines.Add(line);
         return line;
     }

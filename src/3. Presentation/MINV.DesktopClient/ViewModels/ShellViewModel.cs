@@ -11,6 +11,9 @@ namespace MINV.DesktopClient.ViewModels;
 /// <summary>Grupo del menú lateral («Inventario», «Reposición»…).</summary>
 public sealed record NavSection(string Title, IReadOnlyList<PageViewModel> Pages);
 
+/// <summary>V4 · Opción del selector de sucursal de la barra superior (null = todas, solo gerencia global).</summary>
+public sealed record BranchOption(Guid? Id, string Code, string Label);
+
 /// <summary>
 /// Ventana principal: menú lateral según los permisos del rol, navegación, búsqueda global de productos (Ctrl+K), ficha
 /// del producto en panel lateral, avisos, confirmaciones, tema y cierre de sesión.
@@ -24,12 +27,15 @@ public sealed class ShellViewModel : ObservableObject, INavigator
     private bool _compact;
     private bool _userMenuOpen;
     private string _clockText = string.Empty;
+    private BranchOption? _branch;
+    private bool _changingBranch;
 
     public ShellViewModel(AppServices app, DashboardViewModel dashboard, StockViewModel stock, MovementViewModel movement,
         PhysicalCountViewModel count, AlertsViewModel alerts, OrderViewModel order, ActivityViewModel activity,
         SettingsViewModel settings, HelpViewModel help, CatalogViewModel catalog, PosViewModel pos, SalesViewModel sales,
         CustomersViewModel customers, PurchaseOrdersViewModel purchases, SuppliersViewModel suppliers, ReportsViewModel reports,
-        AccountingViewModel accounting, UsersViewModel users)
+        AccountingViewModel accounting, UsersViewModel users, BranchesViewModel branches, TransfersViewModel transfers,
+        IntegrationsViewModel integrations)
     {
         _app = app;
         app.Navigator = this;
@@ -50,11 +56,16 @@ public sealed class ShellViewModel : ObservableObject, INavigator
             (order, true),
             (purchases, s.Can(PermissionCodes.PurchasingManage)),
             (suppliers, s.Can(PermissionCodes.PurchasingManage)));
+        // V4 · Multi-sucursal: tablero corporativo y mercadería entre sucursales
+        Add(sections, "Sucursales",
+            (branches, s.Can(PermissionCodes.ReportsView) || s.Can(PermissionCodes.BranchesManage) || s.Can(PermissionCodes.BranchesAll)),
+            (transfers, s.Can(PermissionCodes.TransfersManage) || s.Can(PermissionCodes.BranchesAll)));
         Add(sections, "Análisis",
             (reports, s.Can(PermissionCodes.ReportsView)),
             (accounting, s.Can(PermissionCodes.AccountingManage)));
         Add(sections, "Administración",
             (users, s.Can(PermissionCodes.UsersManage)),
+            (integrations, s.Can(PermissionCodes.IntegrationManage)),
             (activity, s.Can(PermissionCodes.AuditView)));
         Sections = sections;
         Footer = [settings, help];
@@ -82,6 +93,8 @@ public sealed class ShellViewModel : ObservableObject, INavigator
         Logout = new AsyncRelayCommand(LogoutAsync);
         ChangePassword = new RelayCommand(RequestChangePassword);
         app.Data.Changed += async (_, _) => await UpdateBadgesAsync();
+        BranchOptions = BuildBranchOptions(s);
+        _branch = BranchOptions.FirstOrDefault(o => o.Id == s.Access.ActiveBranchId) ?? BranchOptions.FirstOrDefault();
         app.Theme.Changed += (_, _) => OnPropertyChanged(nameof(IsDark));
         _clock.Tick += (_, _) => UpdateClock();
         UpdateClock();
@@ -134,6 +147,36 @@ public sealed class ShellViewModel : ObservableObject, INavigator
     public string WarehouseText => $"{Session.Workspace.WarehouseCode} · {Session.Workspace.WarehouseName}";
 
     public bool IsDemo => Session.IsDemo;
+
+    /// <summary>V4 · Conectado por el servidor M-INV en la nube.</summary>
+    public bool IsCloud => Session.IsCloud;
+
+    /// <summary>V4 · Sucursales entre las que puede cambiar (la gerencia global además ve «Todas»).</summary>
+    public IReadOnlyList<BranchOption> BranchOptions { get; }
+
+    public bool ShowBranchSelector => BranchOptions.Count > 1;
+
+    public string BranchText => Session.BranchText;
+
+    /// <summary>V4 · Sucursal activa: al cambiarla, el servidor recalcula el alcance y las pantallas recargan.</summary>
+    public BranchOption? SelectedBranch
+    {
+        get => _branch;
+        set
+        {
+            if (value is null || _changingBranch || Equals(value, _branch))
+            {
+                return;
+            }
+            _ = ChangeBranchAsync(value);
+        }
+    }
+
+    public bool IsChangingBranch
+    {
+        get => _changingBranch;
+        private set => Set(ref _changingBranch, value);
+    }
 
     public string ConnectionText => Session.Connection.Description;
 
@@ -283,6 +326,43 @@ public sealed class ShellViewModel : ObservableObject, INavigator
             }
             _clock.Stop();
             LogoutRequested?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    private static List<BranchOption> BuildBranchOptions(SessionContext s)
+    {
+        var options = s.Access.Branches.Select(b => new BranchOption(b.Id, b.Code, $"{b.Code} · {b.Name}")).ToList();
+        if (s.Access.AllBranches && options.Count > 1)
+        {
+            options.Insert(0, new BranchOption(null, "*", "Todas las sucursales"));
+        }
+        return options;
+    }
+
+    private async Task ChangeBranchAsync(BranchOption option)
+    {
+        var previous = _branch;
+        IsChangingBranch = true;
+        try
+        {
+            _branch = option;
+            OnPropertyChanged(nameof(SelectedBranch));
+            await _app.SelectBranchAsync(option.Id);
+            OnPropertiesChanged(nameof(BranchText), nameof(WarehouseText));
+            _app.Notify.Success("Sucursal activa", option.Id is null
+                ? "Vista consolidada de todas las sucursales (para vender o mover stock, elija una sucursal)."
+                : $"Ahora trabaja en {option.Label}: caja, movimientos y compras se registran aquí.");
+            await Current.LoadAsync(force: true);
+        }
+        catch (Exception ex)
+        {
+            _branch = previous;
+            OnPropertyChanged(nameof(SelectedBranch));
+            _app.Notify.Error("No se pudo cambiar de sucursal", AppServices.Describe(ex));
+        }
+        finally
+        {
+            IsChangingBranch = false;
         }
     }
 

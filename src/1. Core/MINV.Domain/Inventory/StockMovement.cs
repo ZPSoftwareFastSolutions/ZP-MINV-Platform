@@ -8,15 +8,19 @@ namespace MINV.Domain.Inventory;
 /// No guarda la cantidad con signo: el signo lo da el tipo de movimiento (sin dependencias transitivas).
 /// </summary>
 /// <remarks>Origen en la V2.1: 10A_ENTRADAS y 10B_SALIDAS (tblEntradas, tblSalidas).</remarks>
-public sealed class StockMovement : Entity, IAppendOnly
+public sealed class StockMovement : Entity, IAppendOnly, IBranchScoped
 {
     private StockMovement()
     {
     }
 
-    internal StockMovement(Guid tenantId, Guid stockLevelId, Guid movementTypeId, decimal quantity, MovementContext context)
+    /// <summary>V4 · Sucursal dueña de la fila (redundancia controlada; la FK compuesta con el padre la mantiene coherente).</summary>
+    public Guid BranchId { get; private set; }
+
+    internal StockMovement(Guid tenantId, Guid branchId, Guid stockLevelId, Guid movementTypeId, decimal quantity, MovementContext context)
         : base(tenantId)
     {
+        BranchId = Guard.NotEmpty(branchId, nameof(branchId));
         ArgumentNullException.ThrowIfNull(context);
         Id = UuidV7.NewGuid(context.RecordedAt);
         StockLevelId = Guard.NotEmpty(stockLevelId, nameof(stockLevelId));

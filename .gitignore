@@ -25,3 +25,6 @@ TestResults/
 *.suo
 # Cliente de escritorio publicado (tools/publicar_escritorio.ps1)
 dist/
+
+# V4 · Variables reales de los servidores (deploy/.env.example es la plantilla)
+deploy/.env

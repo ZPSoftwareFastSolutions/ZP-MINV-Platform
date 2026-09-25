@@ -29,8 +29,8 @@ internal sealed class SalesOrderLineConfiguration : IEntityTypeConfiguration<Sal
             .HasPrincipalKey(p => new { p.TenantId, p.Id })
             .OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<StockMovement>().WithMany()
-            .HasForeignKey(x => new { x.TenantId, x.StockMovementId })
-            .HasPrincipalKey(p => new { p.TenantId, p.Id })
+            .HasForeignKey(x => new { x.TenantId, x.BranchId, x.StockMovementId })
+            .HasPrincipalKey(p => new { p.TenantId, p.BranchId, p.Id })
             .OnDelete(DeleteBehavior.Restrict);
         builder.HasIndex(x => x.StockMovementId).IsUnique().HasFilter("stock_movement_id IS NOT NULL");
     }

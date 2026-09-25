@@ -8,10 +8,13 @@ using MINV.Application.Abstractions;
 using MINV.Application.Accounting;
 using MINV.Application.Catalog;
 using MINV.Application.Common;
+using MINV.Application.Corporate;
 using MINV.Application.Iam;
+using MINV.Application.Integration;
 using MINV.Application.Inventory.Movements;
 using MINV.Application.Inventory.PhysicalCounts;
 using MINV.Application.Inventory.Queries;
+using MINV.Application.Inventory.Transfers;
 using MINV.Application.Partners;
 using MINV.Application.Purchasing;
 using MINV.Application.Sales;
@@ -19,10 +22,12 @@ using MINV.Domain.Accounting;
 using MINV.Domain.Catalog;
 using MINV.Domain.Common;
 using MINV.Domain.Iam;
+using MINV.Domain.Integration;
 using MINV.Domain.Inventory;
 using MINV.Domain.Purchasing;
 using MINV.Domain.Sales;
 using MINV.Domain.Warehousing;
+using MINV.Infrastructure.Integration;
 using MINV.Infrastructure.Persistence;
 using MINV.Infrastructure.Provisioning;
 using MINV.Infrastructure.Services;
@@ -32,17 +37,20 @@ namespace MINV.Infrastructure.Seeding;
 public sealed record SeedOptions(string TenantCode = "MINV", string CompanyName = "Ferretería El Constructor S.R.L.", string TaxId = "1029384756",
     string Domain = "elconstructor.example", int Days = 60, int Seed = 2026, string TimeZoneId = "America/La_Paz");
 
-public sealed record SeedUser(string RoleCode, string RoleName, string Name, string Email, string Password);
+public sealed record SeedUser(string RoleCode, string RoleName, string Name, string Email, string Password, string Branches = "");
 
 public sealed record SeedResult(string TenantCode, string CompanyName, IReadOnlyList<SeedUser> Users, int Products, int Suppliers, int Customers,
-    int Tickets, int PurchaseOrders, int Movements, int JournalEntries, DateOnly From, DateOnly To);
+    int Tickets, int PurchaseOrders, int Movements, int JournalEntries, DateOnly From, DateOnly To, IReadOnlyList<string> Branches, int Transfers,
+    int ExternalOrders, string ApiKeyName, string ApiKeyToken, string? WebhookSecret);
 
 /// <summary>
-/// Datos de prueba aleatorios (reproducibles con la semilla) para la base LOCAL: empresa, usuarios de cada rol con
-/// contraseña, categorías, posiciones, proveedores, clientes, catálogo con imágenes y precios, y N días de operación
-/// simulada: ventas en dos cajas (con facturas, IVA y cierres de caja), compras sugeridas aprobadas y recibidas,
-/// mermas, anulaciones, depósitos, gastos y pagos a proveedores. TODO pasa por los mismos casos de uso de la
-/// aplicación (validación, permisos, poka-yoke, auditoría y contabilidad): los datos son coherentes por construcción.
+/// Datos de prueba aleatorios (reproducibles con la semilla) para la base LOCAL o la de la NUBE: empresa, usuarios de cada
+/// rol con contraseña y sucursales asignadas, categorías, posiciones, proveedores, clientes, catálogo con imágenes y
+/// precios, y N días de operación simulada. V4: tres sucursales (casa matriz, El Alto y Santa Cruz) con su caja; la casa
+/// matriz compra y repone a las otras con transferencias semanales (despacho → mercadería en tránsito → recepción, con
+/// faltantes ocasionales), cada sucursal vende en su caja, el e-commerce registra pedidos por la API (API Key) y quedan
+/// transferencias pendientes y en tránsito para explorar. TODO pasa por los mismos casos de uso de la aplicación
+/// (validación, permisos, alcance por sucursal, poka-yoke, auditoría y contabilidad): coherente por construcción.
 /// </summary>
 public sealed class LocalDataSeeder(IServiceProvider services, DemoClock clock)
 {
@@ -120,6 +128,11 @@ public sealed class LocalDataSeeder(IServiceProvider services, DemoClock clock)
         ("HEL", "Sierra caladora 500 W", "UND", 420m, 1, 6, 1),
     ];
 
+    /// <summary>V4 · Sucursales de la empresa de prueba (la casa matriz la crea el aprovisionamiento).</summary>
+    public const string BranchMain = "CM";
+    public const string BranchElAlto = "EA";
+    public const string BranchSantaCruz = "SC";
+
     private Random _rng = new(2026);
 
     public async Task<SeedResult> SeedAsync(SeedOptions o, Action<string> log, CancellationToken ct = default)
@@ -136,7 +149,7 @@ public sealed class LocalDataSeeder(IServiceProvider services, DemoClock clock)
         At(start.AddDays(-1), 8, 0);
         var users = new List<SeedUser>();
         var adminPassword = NewPassword();
-        users.Add(new SeedUser(RoleCodes.Admin, "Administrador", "Administrador General", $"admin@{o.Domain}", adminPassword));
+        users.Add(new SeedUser(RoleCodes.Admin, "Administrador", "Administrador General", $"admin@{o.Domain}", adminPassword, "Todas"));
         using (var scope = services.CreateScope())
         {
             await scope.ServiceProvider.GetRequiredService<TenantProvisioner>().ProvisionAsync(new ProvisionTenantRequest(o.TenantCode, o.CompanyName,
@@ -147,55 +160,62 @@ public sealed class LocalDataSeeder(IServiceProvider services, DemoClock clock)
 
         using var admin = await SignInAsync(o.TenantCode, users[0].Email, adminPassword, ct);
 
-        // ------------------------------------------------------------------------------------ usuarios por rol
-        var plan = new (string Role, string RoleName, int Count)[]
+        // ------------------------------------------------------------------------------------ V4 · sucursales
+        await admin.Send(new CreateBranchCommand(BranchElAlto, "Sucursal El Alto", "ALMEA", "Almacén El Alto"), ct);
+        await admin.Send(new CreateBranchCommand(BranchSantaCruz, "Sucursal Santa Cruz", "ALMSC", "Almacén Santa Cruz"), ct);
+        log("3 sucursales: CM · Casa matriz (almacén central), EA · El Alto y SC · Santa Cruz, cada una con su caja.");
+
+        // ------------------------------------------------------------------------------------ usuarios por rol y sucursal
+        var plan = new (string Role, string RoleName, string[] Branches)[]
         {
-            (RoleCodes.Management, "Gerencia", 1), (RoleCodes.Warehouse, "Bodega", 2), (RoleCodes.Sales, "Ventas", 2),
-            (RoleCodes.Cashier, "Cajero", 2), (RoleCodes.ReadOnly, "Consulta", 1),
+            (RoleCodes.Management, "Gerencia", [BranchMain]),
+            (RoleCodes.Warehouse, "Bodega", [BranchMain]), (RoleCodes.Warehouse, "Bodega", [BranchElAlto]), (RoleCodes.Warehouse, "Bodega", [BranchSantaCruz]),
+            (RoleCodes.Sales, "Ventas", [BranchMain]), (RoleCodes.Sales, "Ventas", [BranchSantaCruz]),
+            (RoleCodes.Cashier, "Cajero", [BranchMain]), (RoleCodes.Cashier, "Cajero", [BranchMain]), (RoleCodes.Cashier, "Cajero", [BranchElAlto]),
+            (RoleCodes.Cashier, "Cajero", [BranchSantaCruz]),
+            (RoleCodes.ReadOnly, "Consulta", [BranchMain, BranchElAlto, BranchSantaCruz]),
         };
         var usedNames = new HashSet<string>();
-        foreach (var (role, roleName, count) in plan)
+        foreach (var (role, roleName, branches) in plan)
         {
-            for (var i = 0; i < count; i++)
+            string name;
+            do
             {
-                string name;
-                do
-                {
-                    name = $"{Pick(FirstNames)} {Pick(LastNames)}";
-                }
-                while (!usedNames.Add(name));
-                var email = $"{Slug(name)}@{o.Domain}";
-                var password = NewPassword();
-                await admin.Send(new SaveUserCommand(null, email, name, role, true, password), ct);
-                await admin.Send(new ResetUserPasswordCommand(email, password, MustChange: false), ct);
-                users.Add(new SeedUser(role, roleName, name, email, password));
+                name = $"{Pick(FirstNames)} {Pick(LastNames)}";
             }
+            while (!usedNames.Add(name));
+            var email = $"{Slug(name)}@{o.Domain}";
+            var password = NewPassword();
+            await admin.Send(new SaveUserCommand(null, email, name, role, true, password, branches), ct);
+            await admin.Send(new ResetUserPasswordCommand(email, password, MustChange: false), ct);
+            users.Add(new SeedUser(role, roleName, name, email, password,
+                role == RoleCodes.Management ? "Todas (gerencia global)" : string.Join(", ", branches)));
         }
-        log($"{users.Count} usuarios creados (uno o más por rol).");
+        log($"{users.Count} usuarios creados (uno o más por rol, asignados a sus sucursales).");
 
         // ------------------------------------------------------------------------------------ datos maestros
-        var db = admin.Scope.ServiceProvider.GetRequiredService<MINVDbContext>();
+        var db = admin.Scope.ServiceProvider.GetRequiredService<MinvWriteDbContext>();
         var tenantId = admin.Scope.ServiceProvider.GetRequiredService<ITenantContext>().TenantId;
-        var warehouse = await db.Warehouses.FirstAsync(ct);
+        var warehouse = await db.Warehouses.FirstAsync(w => w.Code == TenantProvisioner.WarehouseCode, ct);
         var picking = await db.LocationTypes.FirstAsync(t => t.Code == "PICKING", ct);
         var priceList = await db.PriceLists.FirstAsync(p => p.IsDefault, ct);
         db.CustomerCategories.AddRange(new CustomerCategory(tenantId, "MAYORISTA", "Mayorista", priceList.Id),
             new CustomerCategory(tenantId, "EMPRESA", "Empresa / constructora", priceList.Id));
-        db.POSRegisters.AddRange(new PosRegister(tenantId, warehouse.Id, "CAJA02", "Caja 2", null),
-            new PosRegister(tenantId, warehouse.Id, "CAJA03", "Caja 3 (mostrador)", null));
+        db.POSRegisters.AddRange(new PosRegister(tenantId, warehouse.BranchId, warehouse.Id, "CAJA02", "Caja 2", null),
+            new PosRegister(tenantId, warehouse.BranchId, warehouse.Id, "CAJA03", "Caja 3 (mostrador)", null));
         var binsByCategory = new Dictionary<string, List<string>>();
         foreach (var (code, name, zoneCode) in Categories)
         {
-            var z = new Zone(tenantId, warehouse.Id, zoneCode, name, picking.Id);
-            var aisle = new Aisle(tenantId, z.Id, "01");
+            var z = new Zone(tenantId, warehouse.BranchId, warehouse.Id, zoneCode, name, picking.Id);
+            var aisle = new Aisle(tenantId, warehouse.BranchId, z.Id, "01");
             db.AddRange(z, aisle);
             var list = new List<string>();
             for (var r = 1; r <= 3; r++)
             {
-                var rack = new Rack(tenantId, aisle.Id, r.ToString("00", CultureInfo.InvariantCulture));
-                var shelf = new Shelf(tenantId, rack.Id, "01");
+                var rack = new Rack(tenantId, warehouse.BranchId, aisle.Id, r.ToString("00", CultureInfo.InvariantCulture));
+                var shelf = new Shelf(tenantId, warehouse.BranchId, rack.Id, "01");
                 var binCode = $"{warehouse.Code}-{zoneCode}-01-{r:00}";
-                db.AddRange(rack, shelf, new Bin(tenantId, shelf.Id, binCode, picking.Id, list.Count + 1));
+                db.AddRange(rack, shelf, new Bin(tenantId, warehouse.BranchId, shelf.Id, binCode, picking.Id, list.Count + 1));
                 list.Add(binCode);
             }
             binsByCategory[code] = list;
@@ -252,7 +272,8 @@ public sealed class LocalDataSeeder(IServiceProvider services, DemoClock clock)
         {
             // Algunos productos arrancan bajos o agotados para que haya alertas y pedido sugerido
             var roll = _rng.NextDouble();
-            var quantity = roll < 0.06 ? 0 : roll < 0.18 ? Math.Max(1, min * 0.7) : max * (0.45 + _rng.NextDouble() * 0.45);
+            // La casa matriz abastece también a las sucursales: arranca con más existencia
+            var quantity = roll < 0.06 ? 0 : roll < 0.18 ? Math.Max(1, min * 0.7) : max * (0.9 + _rng.NextDouble() * 0.9);
             var q = Qty(unit, (decimal)quantity);
             if (q <= 0)
             {
@@ -271,19 +292,85 @@ public sealed class LocalDataSeeder(IServiceProvider services, DemoClock clock)
         ]), ct);
         log($"{catalog.Count} productos con imagen, precio y saldo inicial (Bs {opening:N2} en inventario).");
 
+        // V4 · API Key del e-commerce (el token se entrega una sola vez; queda en el archivo local de credenciales)
+        var apiKey = await admin.Send(new CreateApiKeyCommand("Tienda en línea", [ApiScopes.CatalogRead, ApiScopes.StockRead, ApiScopes.OrdersWrite],
+            BranchMain), ct);
+
         // ------------------------------------------------------------------------------------ operación diaria simulada
-        var cashier1 = users.First(u => u.RoleCode == RoleCodes.Cashier);
-        var cashier2 = users.Last(u => u.RoleCode == RoleCodes.Cashier);
-        var keeper = users.First(u => u.RoleCode == RoleCodes.Warehouse);
+        var cashiers = users.Where(u => u.RoleCode == RoleCodes.Cashier).ToList();
+        var keepers = users.Where(u => u.RoleCode == RoleCodes.Warehouse).ToList();
         var manager = users.First(u => u.RoleCode == RoleCodes.Management);
-        using var s1 = await SignInAsync(o.TenantCode, cashier1.Email, cashier1.Password, ct);
-        using var s2 = await SignInAsync(o.TenantCode, cashier2.Email, cashier2.Password, ct);
-        using var bodega = await SignInAsync(o.TenantCode, keeper.Email, keeper.Password, ct);
+        using var s1 = await SignInAsync(o.TenantCode, cashiers[0].Email, cashiers[0].Password, ct);
+        using var s2 = await SignInAsync(o.TenantCode, cashiers[1].Email, cashiers[1].Password, ct);
+        using var sEa = await SignInAsync(o.TenantCode, cashiers[2].Email, cashiers[2].Password, ct);
+        using var sSc = await SignInAsync(o.TenantCode, cashiers[3].Email, cashiers[3].Password, ct);
+        using var bodega = await SignInAsync(o.TenantCode, keepers[0].Email, keepers[0].Password, ct);
+        using var bodegaEa = await SignInAsync(o.TenantCode, keepers[1].Email, keepers[1].Password, ct);
+        using var bodegaSc = await SignInAsync(o.TenantCode, keepers[2].Email, keepers[2].Password, ct);
         using var gerencia = await SignInAsync(o.TenantCode, manager.Email, manager.Password, ct);
-        var registers = new[] { (Session: s1, Register: "CAJA01"), (Session: s2, Register: "CAJA02") };
+        using var tienda = await ApiSignInAsync(apiKey.Token, ct);
+        var registers = new[]
+        {
+            (Session: s1, Register: "CAJA01", Branch: BranchMain), (Session: s2, Register: "CAJA02", Branch: BranchMain),
+            (Session: sEa, Register: $"{BranchElAlto}-CAJA1", Branch: BranchElAlto), (Session: sSc, Register: $"{BranchSantaCruz}-CAJA1", Branch: BranchSantaCruz),
+        };
         var weighted = catalog.SelectMany(c => Enumerable.Repeat(c, c.Pop * c.Pop)).ToList();
         var tickets = 0;
+        var transfers = 0;
+        var webOrders = 0;
         var lastInvoice = (string?)null;
+
+        // Reposición de una sucursal: la casa matriz arma la transferencia con lo que tiene disponible y la despacha;
+        // la sucursal la recibe (a veces con un faltante que se registra como merma en tránsito)
+        async Task<TransferRef?> ShipAsync(string warehouseCode, int items, double share)
+        {
+            var lines = new List<TransferLineInput>();
+            foreach (var item in weighted.OrderBy(_ => _rng.Next()).DistinctBy(x => x.Sku).Take(items * 2))
+            {
+                var available = await AvailableAsync(db, item.Sku, warehouse.Id, ct);
+                var qty = Qty(item.Unit, Math.Max(item.Unit is "KG" or "MT" or "LT" or "GL" ? 1 : 2, (decimal)(item.Max * share)));
+                if (available >= qty * 2 && lines.Count < items)
+                {
+                    lines.Add(new TransferLineInput(item.Sku, qty));
+                }
+            }
+            if (lines.Count == 0)
+            {
+                return null;
+            }
+            var created = await bodega.Send(new CreateTransferCommand(warehouseCode, lines, "Reposición semanal de la sucursal"), ct);
+            await bodega.Send(new DispatchTransferCommand(created.Id), ct);
+            transfers++;
+            return created;
+        }
+
+        async Task ReceiveAsync(SignedIn receiver, Guid transferId)
+        {
+            var detail = await receiver.Send(new GetTransferQuery(transferId), ct);
+            var receipt = new List<TransferReceiptInput>();
+            if (_rng.NextDouble() < 0.25)
+            {
+                var line = detail.Lines[_rng.Next(detail.Lines.Count)];
+                receipt.Add(new TransferReceiptInput(line.Sku, Math.Max(0, line.Quantity - 1),
+                    Pick(["Caja dañada en el camión", "Faltante detectado al contar la recepción", "Producto roto en el traslado"])));
+            }
+            await receiver.Send(new ReceiveTransferCommand(transferId, receipt), ct);
+        }
+
+        // Primera distribución: la casa matriz abastece a El Alto y Santa Cruz el día de apertura
+        At(start, 9, 0);
+        var firstEa = await ShipAsync("ALMEA", 30, 0.35);
+        var firstSc = await ShipAsync("ALMSC", 30, 0.35);
+        At(start, 16, 30);
+        if (firstEa is not null)
+        {
+            await ReceiveAsync(bodegaEa, firstEa.Id);
+        }
+        if (firstSc is not null)
+        {
+            await ReceiveAsync(bodegaSc, firstSc.Id);
+        }
+        var pendingReceipts = new List<(DateOnly Day, SignedIn Receiver, Guid Id)>();
         for (var day = start.AddDays(1); day <= today; day = day.AddDays(1))
         {
             if (day.DayOfWeek == DayOfWeek.Sunday)
@@ -300,6 +387,45 @@ public sealed class LocalDataSeeder(IServiceProvider services, DemoClock clock)
                 if (order.ExpectedDate <= day)
                 {
                     await bodega.Send(new ReceivePurchaseOrderCommand(order.Id, $"FAC-{_rng.Next(10000, 99999)}"), ct);
+                }
+            }
+
+            // V4 · Recepciones de transferencias despachadas el día anterior (la mercadería estuvo en tránsito)
+            At(day, 8, 50);
+            foreach (var pending in pendingReceipts.Where(x => x.Day <= day).ToList())
+            {
+                await ReceiveAsync(pending.Receiver, pending.Id);
+                pendingReceipts.Remove(pending);
+            }
+            // V4 · Reposición semanal: lunes a El Alto, miércoles a Santa Cruz (llegan al día siguiente)
+            if (!isToday && day.DayOfWeek is DayOfWeek.Monday or DayOfWeek.Wednesday)
+            {
+                At(day, 15, 0);
+                var toEa = day.DayOfWeek == DayOfWeek.Monday;
+                var shipped = await ShipAsync(toEa ? "ALMEA" : "ALMSC", _rng.Next(6, 11), 0.2);
+                if (shipped is not null)
+                {
+                    pendingReceipts.Add((day.AddDays(1), toEa ? bodegaEa : bodegaSc, shipped.Id));
+                }
+            }
+            // V4 · Pedidos del e-commerce por la API (martes y viernes), despachados desde la casa matriz
+            if (day.DayOfWeek is DayOfWeek.Tuesday or DayOfWeek.Friday)
+            {
+                for (var n = _rng.Next(1, 4); n > 0; n--)
+                {
+                    At(day, _rng.Next(10, 18), _rng.Next(0, 59));
+                    var lines = Enumerable.Range(0, _rng.Next(1, 4)).Select(_ => weighted[_rng.Next(weighted.Count)]).DistinctBy(x => x.Sku)
+                        .Select(x => new SaleLineInput(x.Sku, SaleQty(x.Unit, x.Pop))).ToList();
+                    try
+                    {
+                        await tienda.Send(new CreateExternalOrderCommand($"WEB-{day:yyyyMMdd}-{n}", customers[_rng.Next(1, customers.Count)], "QR", lines,
+                            $"QR-{_rng.Next(100000, 999999)}"), ct);
+                        webOrders++;
+                    }
+                    catch (DomainException)
+                    {
+                        // sin stock: la tienda recibe el rechazo (poka-yoke) y el pedido no se registra
+                    }
                 }
             }
 
@@ -325,10 +451,10 @@ public sealed class LocalDataSeeder(IServiceProvider services, DemoClock clock)
             // Ventas en dos cajas, en orden cronológico (la numeración de facturas sigue la hora real de cada venta)
             At(day, 8, 30);
             var schedule = new List<(int Minute, SignedIn Session)>();
-            foreach (var (session, register) in registers)
+            foreach (var (session, register, branch) in registers)
             {
                 await session.Send(new OpenPosSessionCommand(register, 500m), ct);
-                var count = _rng.Next(6, 12) + (day.DayOfWeek == DayOfWeek.Saturday ? 4 : 0);
+                var count = (branch == BranchMain ? _rng.Next(6, 12) : _rng.Next(3, 7)) + (day.DayOfWeek == DayOfWeek.Saturday ? 3 : 0);
                 if (isToday)
                 {
                     count = Math.Max(2, count * (lastHour - 8) / 11);
@@ -358,7 +484,7 @@ public sealed class LocalDataSeeder(IServiceProvider services, DemoClock clock)
             if (!isToday)
             {
                 At(day, 19, 45);
-                foreach (var (session, _) in registers)
+                foreach (var (session, _, _) in registers)
                 {
                     var state = await session.Send(new GetPosStateQuery(), ct);
                     var counted = state.Session!.ExpectedCash + (_rng.NextDouble() < 0.15 ? _rng.Next(-8, 6) : 0);
@@ -448,15 +574,46 @@ public sealed class LocalDataSeeder(IServiceProvider services, DemoClock clock)
         await bodega.Send(new CreatePurchaseOrderCommand(supplierByCategory["HEL"], today.AddDays(7), "Reposición de herramientas eléctricas (borrador)",
             extra.Select(e => new PurchaseLineInput(e.Sku, 3, e.Cost)).ToList()), ct);
 
+        // V4 · Para explorar: una transferencia a Santa Cruz EN TRÁNSITO (despachada hoy) y una a El Alto PENDIENTE
+        foreach (var pending in pendingReceipts)
+        {
+            await ReceiveAsync(pending.Receiver, pending.Id);
+        }
+        await ShipAsync("ALMSC", 5, 0.15);
+        var popular = weighted.DistinctBy(x => x.Sku).Take(4).ToList();
+        await bodega.Send(new CreateTransferCommand("ALMEA", popular.Select(x => new TransferLineInput(x.Sku, Qty(x.Unit, Math.Max(2, x.Max * 0.1m)))).ToList(),
+            "Pedido de El Alto para el fin de semana (pendiente de despacho)"), ct);
+        transfers++;
+
+        // V4 · Webhook de la tienda (solo si este equipo tiene la clave maestra de integraciones)
+        string? webhookSecret = null;
+        try
+        {
+            webhookSecret = (await admin.Send(new CreateWebhookCommand("https://tienda.elconstructor.example/webhooks/minv",
+                [IntegrationEvents.SaleCompleted, IntegrationEvents.TransferDispatched, IntegrationEvents.TransferReceived], "Tienda en línea (prueba)"), ct)).Secret;
+        }
+        catch (AccessDeniedException)
+        {
+            log("Webhook de prueba omitido: falta la clave maestra de integraciones (MINV_INTEGRATION_KEYS) en este equipo.");
+        }
+
+        if (db.Database.IsRelational())
+        {
+            // Carga masiva recién hecha: estadísticas para el planificador (si no, las consultas de las pantallas son lentas
+            // hasta que pasa el autovacuum)
+            await db.Database.ExecuteSqlRawAsync(PostgresMaintenance.AnalyzeSql, ct);
+        }
         var stats = new
         {
             Movements = await db.StockMovements.CountAsync(ct),
             Journal = await db.JournalEntries.CountAsync(ct),
             Orders = await db.PurchaseOrders.CountAsync(ct),
         };
-        log($"Listo: {stats.Movements} movimientos, {stats.Orders} órdenes de compra y {stats.Journal} asientos contables.");
+        log($"Listo: {stats.Movements} movimientos, {stats.Orders} órdenes de compra, {transfers} transferencias, {webOrders} pedidos web y " +
+            $"{stats.Journal} asientos contables.");
         return new SeedResult(o.TenantCode, o.CompanyName, users, catalog.Count, Suppliers.Length, customers.Count, tickets, stats.Orders,
-            stats.Movements, stats.Journal, start, today);
+            stats.Movements, stats.Journal, start, today, [BranchMain, BranchElAlto, BranchSantaCruz], transfers, webOrders, apiKey.Name, apiKey.Token,
+            webhookSecret);
     }
 
     // ---------------------------------------------------------------------------------------------- utilidades
@@ -483,7 +640,28 @@ public sealed class LocalDataSeeder(IServiceProvider services, DemoClock clock)
         return new SignedIn(scope);
     }
 
-    private static async Task<string> BinOfAsync(MINVDbContext db, string sku, CancellationToken ct) =>
+    /// <summary>Como el API Gateway: la API Key deja el contexto de la petición (empresa, dueño, alcances, canal api).</summary>
+    private async Task<SignedIn> ApiSignInAsync(string token, CancellationToken ct)
+    {
+        var scope = services.CreateScope();
+        _ = await scope.ServiceProvider.GetRequiredService<ApiKeyAuthenticator>().AuthenticateAsync(token, ct)
+            ?? throw new InvalidOperationException("La API Key de prueba no se pudo autenticar.");
+        return new SignedIn(scope);
+    }
+
+    /// <summary>Disponible de un producto en un almacén (todas sus posiciones y lotes).</summary>
+    private static async Task<decimal> AvailableAsync(MinvWriteDbContext db, string sku, Guid warehouseId, CancellationToken ct)
+    {
+        db.ChangeTracker.Clear();
+        var bins = new Application.Inventory.InventoryLookups(db).BinIdsOf(warehouseId);
+        return await (from l in db.StockLevels
+                      join b in db.Batches on l.BatchId equals b.Id
+                      join v in db.ProductVariants on b.VariantId equals v.Id
+                      where v.Sku == sku && bins.Contains(l.BinId)
+                      select (decimal?)(l.QuantityOnHand - l.QuantityReserved)).SumAsync(ct) ?? 0m;
+    }
+
+    private static async Task<string> BinOfAsync(MinvWriteDbContext db, string sku, CancellationToken ct) =>
         await (from v in db.ProductVariants
                join a in db.BinAssignments on v.Id equals a.VariantId
                join b in db.Bins on a.BinId equals b.Id

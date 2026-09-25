@@ -5,15 +5,19 @@ namespace MINV.Domain.Catalog;
 
 /// <summary>Mínimo y máximo de una variante en un almacén: alimentan el semáforo y el pedido sugerido.</summary>
 /// <remarks>Origen en la V2.1: tblProductos (StockMin, StockMax).</remarks>
-public sealed class ProductStockPolicy : Entity, IConcurrencyAware
+public sealed class ProductStockPolicy : Entity, IConcurrencyAware, IBranchScoped
 {
     private ProductStockPolicy()
     {
     }
 
-    public ProductStockPolicy(Guid tenantId, Guid variantId, Guid warehouseId, decimal minQuantity, decimal maxQuantity)
+    /// <summary>V4 · Sucursal dueña de la fila (redundancia controlada; la FK compuesta con el padre la mantiene coherente).</summary>
+    public Guid BranchId { get; private set; }
+
+    public ProductStockPolicy(Guid tenantId, Guid branchId, Guid variantId, Guid warehouseId, decimal minQuantity, decimal maxQuantity)
         : base(tenantId)
     {
+        BranchId = Guard.NotEmpty(branchId, nameof(branchId));
         VariantId = Guard.NotEmpty(variantId, nameof(variantId));
         WarehouseId = Guard.NotEmpty(warehouseId, nameof(warehouseId));
         Define(minQuantity, maxQuantity);

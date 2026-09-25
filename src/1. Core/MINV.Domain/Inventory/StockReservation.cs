@@ -4,16 +4,20 @@ namespace MINV.Domain.Inventory;
 
 /// <summary>Reserva temporal de stock (bloqueo del POS mientras se cobra, o de un pedido). La crea y cierra
 /// <see cref="StockLevel"/>, que mantiene la suma reservada.</summary>
-public sealed class StockReservation : Entity, IConcurrencyAware
+public sealed class StockReservation : Entity, IConcurrencyAware, IBranchScoped
 {
     private StockReservation()
     {
     }
 
-    internal StockReservation(Guid tenantId, Guid stockLevelId, decimal quantity, DateTimeOffset expiresAt,
+    /// <summary>V4 · Sucursal dueña de la fila (redundancia controlada; la FK compuesta con el padre la mantiene coherente).</summary>
+    public Guid BranchId { get; private set; }
+
+    internal StockReservation(Guid tenantId, Guid branchId, Guid stockLevelId, decimal quantity, DateTimeOffset expiresAt,
         Guid? posSessionId, Guid? salesOrderLineId)
         : base(tenantId)
     {
+        BranchId = Guard.NotEmpty(branchId, nameof(branchId));
         StockLevelId = Guard.NotEmpty(stockLevelId, nameof(stockLevelId));
         Quantity = Quantities.Round6(Guard.Positive(quantity, "La cantidad"));
         ExpiresAt = expiresAt.ToUniversalTime();

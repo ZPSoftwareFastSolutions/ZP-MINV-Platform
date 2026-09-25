@@ -24,7 +24,7 @@ public sealed class PhysicalCountTests
         var shortage = _t.Level(26);
         var fresh = _t.Level();
         var same = _t.Level(10);
-        var count = PhysicalCount.Open(_t.Tenant, Guid.NewGuid(), _t.Today);
+        var count = PhysicalCount.Open(_t.Tenant, _t.Branch, Guid.NewGuid(), _t.Today);
         count.RecordCount(surplus.Id, 28, _t.User, _t.Now);
         count.RecordCount(shortage.Id, 20, _t.User, _t.Now);
         count.RecordCount(shortage.Id, 25, _t.User, _t.Now);   // recuento: corrige la línea
@@ -58,7 +58,7 @@ public sealed class PhysicalCountTests
     {
         var a = _t.Level(10);
         var b = _t.Level(10);
-        var count = PhysicalCount.Open(_t.Tenant, Guid.NewGuid(), _t.Today);
+        var count = PhysicalCount.Open(_t.Tenant, _t.Branch, Guid.NewGuid(), _t.Today);
         count.RecordCount(a.Id, 12, _t.User, _t.Now);
         count.RecordCount(b.Id, 2.5m, _t.User, _t.Now);
         var ex = Assert.Throws<DomainException>(() => count.Post(new[] { a, b }.ToDictionary(l => l.Id),
@@ -137,7 +137,7 @@ public sealed class CatalogTests
     [Fact]
     public void Politica_de_stock_minimo_maximo_y_cantidad_a_pedir()
     {
-        var policy = new ProductStockPolicy(_t.Tenant, Guid.NewGuid(), Guid.NewGuid(), 20, 120);
+        var policy = new ProductStockPolicy(_t.Tenant, _t.Branch, Guid.NewGuid(), Guid.NewGuid(), 20, 120);
         Assert.Equal(98, policy.SuggestedOrderQuantity(22));
         Assert.Equal(120, policy.SuggestedOrderQuantity(-5));
         Assert.Equal("policy.range", Assert.Throws<DomainException>(() => policy.Define(30, 10)).Code);
@@ -163,7 +163,7 @@ public sealed class SalesAndAccountingTests
     [Fact]
     public void Turno_de_caja_abre_registra_efectivo_y_cierra_con_arqueo()
     {
-        var session = PosSession.Open(_t.Tenant, Guid.NewGuid(), _t.User, 500, _t.Now);
+        var session = PosSession.Open(_t.Tenant, _t.Branch, Guid.NewGuid(), _t.User, 500, _t.Now);
         var cashIn = session.RegisterCash(CashDirection.In, 100, "Cambio", _t.User, _t.Now);
         Assert.Equal(100, cashIn.Amount);
         session.Close(_t.User, 1_850, _t.Now.AddHours(8));
@@ -175,7 +175,7 @@ public sealed class SalesAndAccountingTests
     [Fact]
     public void Un_asiento_solo_se_contabiliza_si_cuadra_y_luego_es_inmutable()
     {
-        var entry = new JournalEntry(_t.Tenant, "AS-0001", Guid.NewGuid(), _t.Today, "Ajuste de inventario", Guid.NewGuid());
+        var entry = new JournalEntry(_t.Tenant, _t.Branch, "AS-0001", Guid.NewGuid(), _t.Today, "Ajuste de inventario", Guid.NewGuid());
         entry.Debit(Guid.NewGuid(), 100);
         entry.Credit(Guid.NewGuid(), 90);
         Assert.Equal("journal.unbalanced", Assert.Throws<DomainException>(() => entry.Post(_t.User, _t.Now)).Code);

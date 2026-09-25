@@ -164,7 +164,7 @@ public sealed class SaveProductHandler(IMinvDbContext db, IClock clock) : IReque
             Guard.That(bin is not null || string.IsNullOrWhiteSpace(r.BinCode), "bin.missing", $"La posición {binCode} no existe.");
             if (bin is not null)
             {
-                db.Set<BinAssignment>().Add(new BinAssignment(product.TenantId, bin.Id, variant.Id, isPrimaryPick: true));
+                db.Set<BinAssignment>().Add(new BinAssignment(product.TenantId, bin.BranchId, bin.Id, variant.Id, isPrimaryPick: true));
             }
         }
         else
@@ -179,11 +179,12 @@ public sealed class SaveProductHandler(IMinvDbContext db, IClock clock) : IReque
             {
                 // Nueva posición principal: las asignaciones anteriores se reemplazan (el stock existente no se mueve)
                 var bin = await lookups.BinByCodeAsync(r.BinCode, ct);
-                var assignments = await db.Set<BinAssignment>().Where(a => a.VariantId == variant.Id).ToListAsync(ct);
+                // Solo se reemplaza la posición en la sucursal de esa posición (cada sucursal tiene la suya)
+                var assignments = await db.Set<BinAssignment>().Where(a => a.VariantId == variant.Id && a.BranchId == bin.BranchId).ToListAsync(ct);
                 if (assignments.All(a => a.BinId != bin.Id))
                 {
                     db.Set<BinAssignment>().RemoveRange(assignments);
-                    db.Set<BinAssignment>().Add(new BinAssignment(product.TenantId, bin.Id, variant.Id, isPrimaryPick: true));
+                    db.Set<BinAssignment>().Add(new BinAssignment(product.TenantId, bin.BranchId, bin.Id, variant.Id, isPrimaryPick: true));
                 }
             }
         }
@@ -201,7 +202,7 @@ public sealed class SaveProductHandler(IMinvDbContext db, IClock clock) : IReque
         var policy = await db.Set<ProductStockPolicy>().FirstOrDefaultAsync(x => x.VariantId == variant.Id && x.WarehouseId == warehouse.Id, ct);
         if (policy is null)
         {
-            db.Set<ProductStockPolicy>().Add(new ProductStockPolicy(product.TenantId, variant.Id, warehouse.Id, r.Minimum, r.Maximum));
+            db.Set<ProductStockPolicy>().Add(new ProductStockPolicy(product.TenantId, warehouse.BranchId, variant.Id, warehouse.Id, r.Minimum, r.Maximum));
         }
         else
         {
@@ -225,7 +226,7 @@ public sealed class SaveProductHandler(IMinvDbContext db, IClock clock) : IReque
         var currentCost = await AverageCosts.CurrentAsync(db, variant.Id, warehouse.Id, ct);
         if (r.UnitCost != currentCost && r.UnitCost > 0)
         {
-            db.Set<AverageCostHistory>().Add(new AverageCostHistory(product.TenantId, variant.Id, warehouse.Id, now, r.UnitCost, null));
+            await AverageCosts.RecordAsync(db, product.TenantId, warehouse.BranchId, variant.Id, warehouse.Id, now, r.UnitCost, null, ct);
         }
 
         // Proveedor preferido

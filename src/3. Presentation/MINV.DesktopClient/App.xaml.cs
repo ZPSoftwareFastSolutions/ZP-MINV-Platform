@@ -69,12 +69,22 @@ public partial class App
         splash.Progress = 40;
         await Task.Delay(250);
         splash.Complete(1, text: $"Preferencias cargadas · tema {ThemeService.Name(_theme.Mode)}");
-        splash.Begin(2, "Comprobando la base de datos…");
         splash.Progress = 55;
-        _lastStatus = await _host.ProbeAsync();
-        splash.Complete(2, !_lastStatus.IsReady, _lastStatus.IsReady
-            ? $"Base de datos conectada · PostgreSQL {_lastStatus.Version}"
-            : "Sin base de datos: puede usar la demostración");
+        if (_settings.ConnectionMode == "nube")
+        {
+            // V4 · Modo nube: se comprueba el servidor M-INV (el equipo no tiene credenciales de la base de datos)
+            splash.Begin(2, "Comprobando el servidor en la nube…");
+            var server = await ClientHost.ProbeCloudAsync(_settings.ServerUrl);
+            splash.Complete(2, !server.IsReady, server.IsReady ? $"Servidor M-INV {server.Version} disponible · {server.Server}" : server.Message);
+        }
+        else
+        {
+            splash.Begin(2, "Comprobando la base de datos…");
+            _lastStatus = await _host.ProbeAsync();
+            splash.Complete(2, !_lastStatus.IsReady, _lastStatus.IsReady
+                ? $"Base de datos conectada · PostgreSQL {_lastStatus.Version}"
+                : "Sin base de datos: puede usar la demostración");
+        }
         splash.Progress = 90;
         splash.Begin(3, "Listo");
         var elapsed = DateTime.UtcNow - started;
@@ -123,6 +133,23 @@ public partial class App
             ShowLogin();
         };
         shell.ChangePasswordRequested += (_, _) => ChangePassword(window, session, mandatory: false);
+        if (session.Connection.IsCloud)
+        {
+            // V4 · La sesión venció o la cerraron en el servidor: se vuelve al inicio de sesión (sin perder nada: todo está en la nube)
+            session.Services.GetRequiredService<CloudConnection>().SessionExpired += (_, _) => window.Dispatcher.BeginInvoke(() =>
+            {
+                if (loggingOut)
+                {
+                    return;
+                }
+                loggingOut = true;
+                MessageBox.Show(window, "Su sesión en el servidor venció o fue cerrada. Vuelva a ingresar para continuar.", "M-INV",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+                window.Close();
+                session.Dispose();
+                ShowLogin();
+            });
+        }
         window.Closed += (_, _) =>
         {
             if (!loggingOut)

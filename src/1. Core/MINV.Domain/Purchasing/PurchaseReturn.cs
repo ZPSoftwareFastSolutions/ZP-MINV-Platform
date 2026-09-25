@@ -3,7 +3,7 @@ using MINV.Domain.Common;
 namespace MINV.Domain.Purchasing;
 
 /// <summary>Devolución a proveedor.</summary>
-public sealed class PurchaseReturn : Entity, IConcurrencyAware, IAggregateRoot
+public sealed class PurchaseReturn : Entity, IConcurrencyAware, IAggregateRoot, IBranchScoped
 {
     private readonly List<PurchaseReturnLine> _lines = new();
 
@@ -11,9 +11,13 @@ public sealed class PurchaseReturn : Entity, IConcurrencyAware, IAggregateRoot
     {
     }
 
-    public PurchaseReturn(Guid tenantId, string number, Guid supplierId, DateOnly returnDate, string reason)
+    /// <summary>V4 · Sucursal dueña de la fila (redundancia controlada; la FK compuesta con el padre la mantiene coherente).</summary>
+    public Guid BranchId { get; private set; }
+
+    public PurchaseReturn(Guid tenantId, Guid branchId, string number, Guid supplierId, DateOnly returnDate, string reason)
         : base(tenantId)
     {
+        BranchId = Guard.NotEmpty(branchId, nameof(branchId));
         Number = Guard.Text(number, "El número", 30);
         SupplierId = Guard.NotEmpty(supplierId, nameof(supplierId));
         ReturnDate = returnDate;
@@ -40,7 +44,7 @@ public sealed class PurchaseReturn : Entity, IConcurrencyAware, IAggregateRoot
     public PurchaseReturnLine AddLine(Guid stockLevelId, Guid? goodsReceiptLineId, decimal quantity)
     {
         EnsureDraft();
-        var line = new PurchaseReturnLine(TenantId, Id, stockLevelId, goodsReceiptLineId, quantity);
+        var line = new PurchaseReturnLine(TenantId, BranchId, Id, stockLevelId, goodsReceiptLineId, quantity);
         _lines.Add(line);
         return line;
     }

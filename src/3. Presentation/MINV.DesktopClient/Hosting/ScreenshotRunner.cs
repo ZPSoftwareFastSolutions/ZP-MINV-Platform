@@ -88,6 +88,12 @@ public sealed class ScreenshotRunner(ClientHost host, ClientSettings settings, T
         };
         var window = new LoginWindow(vm);
         await ShowAndCaptureAsync(window, "02-inicio-de-sesion.png", 600);
+        // V4 · Modo nube: el escritorio solo conoce la dirección del servidor M-INV (sin credenciales de la base)
+        vm.ShowCloud("https://minv.elconstructor.example", new ServerStatus(true, "minv.elconstructor.example", "4.0.0-alpha.1", "Servidor M-INV disponible"));
+        vm.TenantCode = "MINV";
+        vm.Email = "admin@elconstructor.example";
+        await SettleAsync(500);
+        await CaptureAsync(window, "04-inicio-de-sesion-nube.png");
         await vm.OpenDemo.ExecuteAsync();
         await CaptureAsync(window, "03-demostracion-elegir-rol.png");
         window.Close();
@@ -272,6 +278,45 @@ public sealed class ScreenshotRunner(ClientHost host, ClientSettings settings, T
         await CaptureAsync(window, "54-roles-y-funciones.png");
         users.Tab = "users";
 
+        // V4 · Sucursales, transferencias e integraciones (con la base de prueba multi-sucursal)
+        await GoAsync(shell, "sucursales");
+        await WaitAsync(() => !shell.Current.IsBusy, 20000);
+        await SettleAsync(700);
+        await CaptureAsync(window, "63-sucursales.png");
+        await GoAsync(shell, "transferencias");
+        var transfers = (TransfersViewModel)shell.Current;
+        transfers.Selected = transfers.Rows.Cast<TransferItem>().FirstOrDefault(t => t.Status == MINV.Domain.Inventory.TransferStatus.Dispatched)
+                             ?? transfers.Rows.Cast<TransferItem>().FirstOrDefault();
+        await WaitAsync(() => transfers.Detail is not null || transfers.Selected is null, 10000);
+        await SettleAsync(800);
+        await CaptureAsync(window, "64-transferencias.png");
+        if (transfers.Receive.CanExecute(null))
+        {
+            transfers.Receive.Execute(null);
+            await SettleAsync(600);
+            await CaptureAsync(window, "65-recibir-transferencia.png");
+            transfers.CloseEditors();
+        }
+        await GoAsync(shell, "integraciones");
+        await WaitAsync(() => !shell.Current.IsBusy, 15000);
+        await SettleAsync(600);
+        await CaptureAsync(window, "66-integraciones-api-keys.png");
+        var integrations = (IntegrationsViewModel)shell.Current;
+        integrations.Tab = 1;
+        await SettleAsync(500);
+        await CaptureAsync(window, "67-integraciones-webhooks.png");
+        integrations.Tab = 0;
+        if (shell.ShowBranchSelector)
+        {
+            shell.SelectedBranch = shell.BranchOptions.FirstOrDefault(b => b.Code == "EA") ?? shell.BranchOptions.Last();
+            await WaitAsync(() => !shell.IsChangingBranch, 15000);
+            await GoAsync(shell, "inicio");
+            await SettleAsync(900);
+            await CaptureAsync(window, "68-sucursal-el-alto.png");
+            shell.SelectedBranch = shell.BranchOptions.First(b => b.Code == "CM");
+            await WaitAsync(() => !shell.IsChangingBranch, 15000);
+        }
+
         await GoAsync(shell, "stock");
         await WaitImagesAsync(shell);
         await CaptureAsync(window, "57-stock-galeria.png");
@@ -340,7 +385,7 @@ public sealed class ScreenshotRunner(ClientHost host, ClientSettings settings, T
         var lines = File.ReadAllLines(file);
         var tenant = lines.Select(l => System.Text.RegularExpressions.Regex.Match(l, @"código de empresa: (\S+)")).FirstOrDefault(m => m.Success)?.Groups[1].Value;
         (string, string)? Find(string role) => lines.Select(l => System.Text.RegularExpressions.Regex.Split(l.Trim(), @"\s{2,}"))
-            .Where(c => c.Length == 4 && c[0] == role).Select(c => ((string, string)?)(c[2], c[3])).FirstOrDefault();
+            .Where(c => c.Length >= 4 && c[0] == role).Select(c => ((string, string)?)(c[2], c[3])).FirstOrDefault();
         return tenant is not null && Find("Administrador") is { } admin ? (tenant, admin, Find("Cajero")) : null;
     }
 

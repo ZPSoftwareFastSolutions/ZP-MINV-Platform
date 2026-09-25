@@ -41,6 +41,9 @@
         <DataTemplate DataType="{x:Type vm:ReportsViewModel}"><p:ReportsView /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:AccountingViewModel}"><p:AccountingView /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:UsersViewModel}"><p:UsersView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:BranchesViewModel}"><p:BranchesView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:TransfersViewModel}"><p:TransfersView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:IntegrationsViewModel}"><p:IntegrationsView /></DataTemplate>
 
         <!-- Botón del menú lateral -->
         <Style x:Key="NavButton" TargetType="RadioButton">
@@ -173,6 +176,30 @@
                     <Button Style="{StaticResource ChromeCloseButton}" Content="{x:Static c:Glyphs.Close}" ToolTip="Cerrar" Click="OnClose" />
                 </StackPanel>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,14,0">
+                    <!-- V4 · Sucursal activa (la gerencia global puede ver todas) -->
+                    <StackPanel Orientation="Horizontal" Margin="0,0,12,0" VerticalAlignment="Center" WindowChrome.IsHitTestVisibleInChrome="True"
+                                Visibility="{Binding ShowBranchSelector, Converter={StaticResource Visible}}">
+                        <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Branch}" FontSize="14" Foreground="{DynamicResource TextMuted}"
+                                   Margin="0,0,6,0" />
+                        <ComboBox ItemsSource="{Binding BranchOptions}" SelectedItem="{Binding SelectedBranch, Mode=TwoWay}" DisplayMemberPath="Label"
+                                  MinWidth="200" IsEnabled="{Binding IsChangingBranch, Converter={StaticResource Not}}"
+                                  ToolTip="Sucursal en la que trabaja: caja, movimientos y compras se registran en ella" AutomationProperties.Name="Sucursal" />
+                    </StackPanel>
+                    <Border Background="{DynamicResource SurfaceAlt}" CornerRadius="12" Padding="10,4" Margin="0,0,12,0" VerticalAlignment="Center"
+                            Visibility="{Binding ShowBranchSelector, Converter={StaticResource Hidden}}" ToolTip="Sucursal en la que trabaja">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Branch}" FontSize="12" Foreground="{DynamicResource TextMuted}" />
+                            <TextBlock Text="{Binding BranchText}" FontSize="11.5" Foreground="{DynamicResource TextSecondary}" Margin="6,0,0,0" />
+                        </StackPanel>
+                    </Border>
+                    <Border Background="{DynamicResource InfoSoft}" CornerRadius="12" Padding="10,4" Margin="0,0,12,0" VerticalAlignment="Center"
+                            Visibility="{Binding IsCloud, Converter={StaticResource Visible}}"
+                            ToolTip="{Binding ConnectionText}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Cloud}" FontSize="12" Foreground="{DynamicResource Info}" />
+                            <TextBlock Text="NUBE" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource Info}" Margin="6,0,0,0" />
+                        </StackPanel>
+                    </Border>
                     <Border Background="{DynamicResource WarningSoft}" CornerRadius="12" Padding="10,4" Margin="0,0,12,0" VerticalAlignment="Center"
                             Visibility="{Binding IsDemo, Converter={StaticResource Visible}}"
                             ToolTip="Modo demostración: los datos viven en la memoria de este equipo y se pierden al cerrar.">

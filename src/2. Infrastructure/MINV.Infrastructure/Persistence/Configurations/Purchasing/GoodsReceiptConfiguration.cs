@@ -19,24 +19,24 @@ internal sealed class GoodsReceiptConfiguration : IEntityTypeConfiguration<Goods
         builder.Property(x => x.SupplierDocument).HasMaxLength(40);
         builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
         builder.HasOne<PurchaseOrder>().WithMany()
-            .HasForeignKey(x => new { x.TenantId, x.PurchaseOrderId })
-            .HasPrincipalKey(p => new { p.TenantId, p.Id })
+            .HasForeignKey(x => new { x.TenantId, x.BranchId, x.PurchaseOrderId })
+            .HasPrincipalKey(p => new { p.TenantId, p.BranchId, p.Id })
             .OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<Supplier>().WithMany()
             .HasForeignKey(x => new { x.TenantId, x.SupplierId })
             .HasPrincipalKey(p => new { p.TenantId, p.Id })
             .OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<Warehouse>().WithMany()
-            .HasForeignKey(x => new { x.TenantId, x.WarehouseId })
-            .HasPrincipalKey(p => new { p.TenantId, p.Id })
+            .HasForeignKey(x => new { x.TenantId, x.BranchId, x.WarehouseId })
+            .HasPrincipalKey(p => new { p.TenantId, p.BranchId, p.Id })
             .OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<User>().WithMany()
             .HasForeignKey(x => new { x.TenantId, x.ReceivedByUserId })
             .HasPrincipalKey(p => new { p.TenantId, p.Id })
             .OnDelete(DeleteBehavior.Restrict);
         builder.HasMany(x => x.Lines).WithOne()
-            .HasForeignKey(c => new { c.TenantId, c.GoodsReceiptId })
-            .HasPrincipalKey(p => new { p.TenantId, p.Id })
+            .HasForeignKey(c => new { c.TenantId, c.BranchId, c.GoodsReceiptId })
+            .HasPrincipalKey(p => new { p.TenantId, p.BranchId, p.Id })
             .OnDelete(DeleteBehavior.Cascade);
         builder.Navigation(x => x.Lines).UsePropertyAccessMode(PropertyAccessMode.Field);
         builder.HasIndex(x => new { x.TenantId, x.Number }).IsUnique();

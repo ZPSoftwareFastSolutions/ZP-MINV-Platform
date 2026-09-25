@@ -35,6 +35,12 @@ public static class PermissionCodes
     public const string CustomersManage = "sales.customers.manage";
     public const string SalesView = "sales.view";
 
+    // V4 · multi-sucursal e integraciones
+    public const string BranchesAll = "corporate.branches.all";
+    public const string BranchesManage = "corporate.branches.manage";
+    public const string TransfersManage = "inventory.transfers.manage";
+    public const string IntegrationManage = "integration.manage";
+
     public static readonly IReadOnlyList<(string Code, string Description)> All =
     [
         (CatalogManage, "Crear y modificar productos, categorías, unidades y proveedores"),
@@ -51,6 +57,10 @@ public static class PermissionCodes
         (ReportsView, "Consultar reportes de ventas, compras, inventario y rentabilidad"),
         (CustomersManage, "Crear y modificar clientes"),
         (SalesView, "Consultar el historial de ventas y facturas"),
+        (BranchesAll, "Ver y operar todas las sucursales (gerencia global)"),
+        (BranchesManage, "Crear y modificar sucursales y asignar usuarios a sucursales"),
+        (TransfersManage, "Crear, despachar y recibir transferencias entre sucursales"),
+        (IntegrationManage, "Administrar API Keys y webhooks de integración B2B"),
     ];
 
     /// <summary>Matriz rol → permisos (RBAC por defecto de un tenant nuevo). V3.1: cada rol suma las funciones de su
@@ -58,10 +68,12 @@ public static class PermissionCodes
     public static IReadOnlyList<string> ForRole(string roleCode) => roleCode switch
     {
         RoleCodes.Admin => All.Select(p => p.Code).ToList(),
-        RoleCodes.Warehouse => [MovementsRegisterWarehouse, StockView, PhysicalCountRecord, PhysicalCountPost, PurchasingManage, ReportsView],
+        RoleCodes.Warehouse => [MovementsRegisterWarehouse, StockView, PhysicalCountRecord, PhysicalCountPost, PurchasingManage, ReportsView,
+            TransfersManage],
         RoleCodes.Sales => [MovementsRegisterSales, StockView, PosOperate, CustomersManage, SalesView, ReportsView],
         RoleCodes.Cashier => [PosOperate, MovementsRegisterSales, StockView, CustomersManage, SalesView],
-        RoleCodes.Management => [StockView, AuditView, AccountingManage, ReportsView, SalesView, PurchasingManage],
+        RoleCodes.Management => [StockView, AuditView, AccountingManage, ReportsView, SalesView, PurchasingManage, BranchesAll,
+            TransfersManage],
         RoleCodes.ReadOnly => [StockView, ReportsView],
         _ => [],
     };

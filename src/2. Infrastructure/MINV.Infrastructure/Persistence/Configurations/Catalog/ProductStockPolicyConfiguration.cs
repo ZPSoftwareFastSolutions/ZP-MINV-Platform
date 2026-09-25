@@ -22,8 +22,8 @@ internal sealed class ProductStockPolicyConfiguration : IEntityTypeConfiguration
             .HasPrincipalKey(p => new { p.TenantId, p.Id })
             .OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<Warehouse>().WithMany()
-            .HasForeignKey(x => new { x.TenantId, x.WarehouseId })
-            .HasPrincipalKey(p => new { p.TenantId, p.Id })
+            .HasForeignKey(x => new { x.TenantId, x.BranchId, x.WarehouseId })
+            .HasPrincipalKey(p => new { p.TenantId, p.BranchId, p.Id })
             .OnDelete(DeleteBehavior.Restrict);
         builder.HasIndex(x => new { x.VariantId, x.WarehouseId }).IsUnique();
     }

@@ -12,8 +12,8 @@ internal sealed class RackConfiguration : IEntityTypeConfiguration<Rack>
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Code).HasMaxLength(20);
         builder.HasOne<Aisle>().WithMany()
-            .HasForeignKey(x => new { x.TenantId, x.AisleId })
-            .HasPrincipalKey(p => new { p.TenantId, p.Id })
+            .HasForeignKey(x => new { x.TenantId, x.BranchId, x.AisleId })
+            .HasPrincipalKey(p => new { p.TenantId, p.BranchId, p.Id })
             .OnDelete(DeleteBehavior.Restrict);
         builder.HasIndex(x => new { x.AisleId, x.Code }).IsUnique();
     }

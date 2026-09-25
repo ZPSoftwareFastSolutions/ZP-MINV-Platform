@@ -19,8 +19,12 @@ public static class Schemas
     public const string Purchasing = "purchasing";
     public const string Sales = "sales";
     public const string Accounting = "accounting";
+    public const string Integration = "integration";
 
-    public static readonly IReadOnlyList<string> All = [Iam, Catalog, Warehousing, Inventory, Purchasing, Sales, Accounting];
+    /// <summary>Vistas materializadas y vistas de seguridad del modelo de lectura (no son tablas del modelo EF).</summary>
+    public const string Reporting = "reporting";
+
+    public static readonly IReadOnlyList<string> All = [Iam, Catalog, Warehousing, Inventory, Purchasing, Sales, Accounting, Integration];
 }
 
 /// <summary>Reglas transversales del modelo (se aplican después de las configuraciones de cada entidad).</summary>
@@ -35,7 +39,13 @@ internal static partial class ModelConventions
     private static readonly MethodInfo FilterMethod =
         typeof(ModelConventions).GetMethod(nameof(SetTenantFilter), BindingFlags.NonPublic | BindingFlags.Static)!;
 
-    public static void Apply(ModelBuilder modelBuilder, MINVDbContext context)
+    private static readonly MethodInfo BranchFilterMethod =
+        typeof(ModelConventions).GetMethod(nameof(SetBranchFilter), BindingFlags.NonPublic | BindingFlags.Static)!;
+
+    private static readonly MethodInfo InterBranchFilterMethod =
+        typeof(ModelConventions).GetMethod(nameof(SetInterBranchFilter), BindingFlags.NonPublic | BindingFlags.Static)!;
+
+    public static void Apply(ModelBuilder modelBuilder, MinvWriteDbContext context)
     {
         foreach (var entityType in modelBuilder.Model.GetEntityTypes().ToList())
         {
@@ -45,13 +55,23 @@ internal static partial class ModelConventions
             {
                 // Toda fila pertenece a un tenant existente y solo se ve dentro de su tenant.
                 builder.HasOne(typeof(Tenant)).WithMany().HasForeignKey(nameof(ITenantScoped.TenantId)).OnDelete(DeleteBehavior.Restrict);
-                FilterMethod.MakeGenericMethod(clr).Invoke(null, [modelBuilder, context]);
+                // V4 · Un solo filtro por entidad (EF Core admite uno): empresa y, si corresponde, sucursal.
+                var method = typeof(IBranchScoped).IsAssignableFrom(clr) ? BranchFilterMethod
+                    : typeof(IInterBranch).IsAssignableFrom(clr) ? InterBranchFilterMethod
+                    : FilterMethod;
+                method.MakeGenericMethod(clr).Invoke(null, [modelBuilder, context]);
             }
             if (typeof(Entity).IsAssignableFrom(clr))
             {
                 // Clave alterna (tenant_id, id): destino de las FK compuestas que impiden mezclar empresas.
                 builder.HasAlternateKey(nameof(ITenantScoped.TenantId), nameof(Entity.Id));
                 builder.Property(nameof(Entity.Id)).ValueGeneratedNever();
+                if (typeof(IBranchScoped).IsAssignableFrom(clr))
+                {
+                    // V4 · Clave alterna (tenant_id, branch_id, id): destino de las FK compuestas con sucursal, que impiden
+                    // que un hijo (línea, movimiento, posición) tenga otra sucursal que su padre.
+                    builder.HasAlternateKey(nameof(ITenantScoped.TenantId), nameof(IBranchScoped.BranchId), nameof(Entity.Id));
+                }
             }
             if (typeof(PlatformEntity).IsAssignableFrom(clr))
             {
@@ -74,8 +94,19 @@ internal static partial class ModelConventions
         ApplySnakeCaseNames(modelBuilder.Model);
     }
 
-    private static void SetTenantFilter<T>(ModelBuilder modelBuilder, MINVDbContext context) where T : class, ITenantScoped =>
+    private static void SetTenantFilter<T>(ModelBuilder modelBuilder, MinvWriteDbContext context) where T : class, ITenantScoped =>
         modelBuilder.Entity<T>().HasQueryFilter(e => e.TenantId == context.CurrentTenantId);
+
+    /// <summary>V4 · Fila de una sucursal: visible si la sesión ve todas o si su sucursal está en el alcance.</summary>
+    private static void SetBranchFilter<T>(ModelBuilder modelBuilder, MinvWriteDbContext context) where T : class, IBranchScoped =>
+        modelBuilder.Entity<T>().HasQueryFilter(e => e.TenantId == context.CurrentTenantId
+                                                     && (context.AllBranches || context.BranchIds.Contains(e.BranchId)));
+
+    /// <summary>V4 · Documento entre sucursales: lo ven el origen y el destino.</summary>
+    private static void SetInterBranchFilter<T>(ModelBuilder modelBuilder, MinvWriteDbContext context) where T : class, IInterBranch =>
+        modelBuilder.Entity<T>().HasQueryFilter(e => e.TenantId == context.CurrentTenantId
+                                                     && (context.AllBranches || context.BranchIds.Contains(e.FromBranchId)
+                                                         || context.BranchIds.Contains(e.ToBranchId)));
 
     /// <summary>Nombres de PostgreSQL en snake_case y restricciones con prefijos estables (pk_, ak_, fk_, ux_, ix_).</summary>
     private static void ApplySnakeCaseNames(IMutableModel model)

@@ -11,7 +11,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 namespace MINV.Infrastructure.Persistence.Migrations
 {
-    [DbContext(typeof(MINVDbContext))]
+    [DbContext(typeof(MinvWriteDbContext))]
     [Migration("20260925184331_ProductImages")]
     partial class ProductImages
     {

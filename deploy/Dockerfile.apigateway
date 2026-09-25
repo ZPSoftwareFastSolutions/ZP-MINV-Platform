@@ -1,0 +1,15 @@
+# M-INV V4 · API Gateway B2B (MINV.ApiGateway)
+# Construcción: docker build -f deploy/Dockerfile.apigateway -t minv-apigateway:4.0.0-alpha.1 .
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /src
+COPY . .
+RUN dotnet publish "src/3. Presentation/MINV.ApiGateway/MINV.ApiGateway.csproj" -c Release -o /app /p:UseAppHost=false
+
+FROM mcr.microsoft.com/dotnet/aspnet:8.0
+WORKDIR /app
+COPY --from=build /app .
+USER app
+ENV ASPNETCORE_URLS=http://+:8080 \
+    DOTNET_CLI_TELEMETRY_OPTOUT=1
+EXPOSE 8080
+ENTRYPOINT ["dotnet", "MINV.ApiGateway.dll"]

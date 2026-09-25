@@ -70,6 +70,12 @@ public static class Glyphs
     public const string Phone = "";
     public const string Sparkle = "";
     public const string Monitor = "";
+
+    // V4 · Nube, sucursales, transferencias e integraciones
+    public const string Cloud = "";
+    public const string Branch = "";
+    public const string Transfer = "";
+    public const string Link = "";
 }
 
 /// <summary>

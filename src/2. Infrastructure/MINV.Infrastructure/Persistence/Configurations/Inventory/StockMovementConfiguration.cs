@@ -19,8 +19,8 @@ internal sealed class StockMovementConfiguration : IEntityTypeConfiguration<Stoc
         builder.Property(x => x.Notes).HasMaxLength(250);
         builder.Property(x => x.LegacyReference).HasMaxLength(40);
         builder.HasOne<StockLevel>().WithMany()
-            .HasForeignKey(x => new { x.TenantId, x.StockLevelId })
-            .HasPrincipalKey(p => new { p.TenantId, p.Id })
+            .HasForeignKey(x => new { x.TenantId, x.BranchId, x.StockLevelId })
+            .HasPrincipalKey(p => new { p.TenantId, p.BranchId, p.Id })
             .OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<MovementType>().WithMany()
             .HasForeignKey(x => new { x.TenantId, x.MovementTypeId })

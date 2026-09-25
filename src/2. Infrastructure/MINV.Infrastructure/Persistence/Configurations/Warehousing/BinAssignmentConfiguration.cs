@@ -12,8 +12,8 @@ internal sealed class BinAssignmentConfiguration : IEntityTypeConfiguration<BinA
         builder.ToTable("bin_assignments", Schemas.Warehousing);
         builder.HasKey(x => new { x.BinId, x.VariantId });
         builder.HasOne<Bin>().WithMany()
-            .HasForeignKey(x => new { x.TenantId, x.BinId })
-            .HasPrincipalKey(p => new { p.TenantId, p.Id })
+            .HasForeignKey(x => new { x.TenantId, x.BranchId, x.BinId })
+            .HasPrincipalKey(p => new { p.TenantId, p.BranchId, p.Id })
             .OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<ProductVariant>().WithMany()
             .HasForeignKey(x => new { x.TenantId, x.VariantId })

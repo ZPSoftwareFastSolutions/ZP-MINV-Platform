@@ -45,7 +45,7 @@ public sealed record ProvisionedTenant(
 /// simbologías, medios de pago, impuesto), lista de precios, cliente «consumidor final», período contable y los módulos
 /// licenciados. Los catálogos base son los de la V2.1 (unidades, tipos, estados y roles) más los propios de la V3.
 /// </summary>
-public sealed class TenantProvisioner(MINVDbContext db, ITenantContext tenant, IPasswordHasher hasher, IClock clock)
+public sealed class TenantProvisioner(MinvWriteDbContext db, ITenantContext tenant, IPasswordHasher hasher, IClock clock)
 {
     public const string WarehouseCode = "ALM01";
     public const string DefaultBinSuffix = "GENERAL";
@@ -102,11 +102,11 @@ public sealed class TenantProvisioner(MINVDbContext db, ITenantContext tenant, I
             new LocationType(id, "DESPACHO", "Despacho", false, false, false),
             new LocationType(id, "POS", "Góndola del punto de venta", true, false, true),
         };
-        var zone = new Zone(id, warehouse.Id, "GEN", "General", locationTypes[0].Id);
-        var aisle = new Aisle(id, zone.Id, "00");
-        var rack = new Rack(id, aisle.Id, "00");
-        var shelf = new Shelf(id, rack.Id, "00");
-        var bin = new Bin(id, shelf.Id, $"{WarehouseCode}-{DefaultBinSuffix}", locationTypes[0].Id, 0);
+        var zone = new Zone(id, branch.Id, warehouse.Id, "GEN", "General", locationTypes[0].Id);
+        var aisle = new Aisle(id, branch.Id, zone.Id, "00");
+        var rack = new Rack(id, branch.Id, aisle.Id, "00");
+        var shelf = new Shelf(id, branch.Id, rack.Id, "00");
+        var bin = new Bin(id, branch.Id, shelf.Id, $"{WarehouseCode}-{DefaultBinSuffix}", locationTypes[0].Id, 0);
         db.AddRange(branch, warehouse);
         db.AddRange(locationTypes);
         db.AddRange(zone, aisle, rack, shelf, bin);
@@ -152,7 +152,7 @@ public sealed class TenantProvisioner(MINVDbContext db, ITenantContext tenant, I
         var priceList = new PriceList(id, "GENERAL", currency.Id, new DateOnly(today.Year, 1, 1), null, isDefault: true);
         var customerCategory = new CustomerCategory(id, "GENERAL", "General", priceList.Id);
         db.AddRange(priceList, customerCategory, new Customer(id, "CF", "Consumidor final", null, null, null, customerCategory.Id));
-        db.Add(new PosRegister(id, warehouse.Id, "CAJA01", "Caja 1", null));
+        db.Add(new PosRegister(id, branch.Id, warehouse.Id, "CAJA01", "Caja 1", null));
 
         // Contabilidad mínima
         db.Add(new FiscalPeriod(id, (short)today.Year, (short)today.Month));

@@ -20,9 +20,9 @@ public sealed class ScreenTests
         var demo = await host.PrepareDemoAsync();
         using var admin = await host.SignInDemoAsync(demo, DemoWorkspace.AdminEmail);
         var shell = admin.Services.GetRequiredService<ShellViewModel>();
-        Assert.Equal(["General", "Ventas", "Inventario", "Compras y reposición", "Análisis", "Administración"], shell.Sections.Select(s => s.Title));
+        Assert.Equal(["General", "Ventas", "Inventario", "Compras y reposición", "Sucursales", "Análisis", "Administración"], shell.Sections.Select(s => s.Title));
         Assert.Equal(["inicio", "pos", "ventas", "clientes", "stock", "catalogo", "registro", "conteo", "alertas", "pedido", "compras", "proveedores",
-                "reportes", "contabilidad", "usuarios", "actividad", "configuracion", "ayuda"],
+                "sucursales", "transferencias", "reportes", "contabilidad", "usuarios", "integraciones", "actividad", "configuracion", "ayuda"],
             shell.AllPages.Select(p => p.Key));
         Assert.Equal("Ctrl+1", shell.AllPages[0].Shortcut);
 
@@ -40,6 +40,30 @@ public sealed class ScreenTests
         salesShell.Navigate("actividad");   // sin permiso: no cambia de pantalla y avisa
         Assert.Same(movement, salesShell.Current);
         Assert.Contains(salesShell.Notifications.Items, t => t.Kind == ToastKind.Warning);
+    });
+
+    [Fact]
+    public void V4_las_pantallas_de_sucursales_transferencias_e_integraciones_cargan() => Wpf.Run(async () =>
+    {
+        using var host = Wpf.NewHost();
+        var demo = await host.PrepareDemoAsync();
+        using var admin = await host.SignInDemoAsync(demo, DemoWorkspace.AdminEmail);
+        var shell = admin.Services.GetRequiredService<ShellViewModel>();
+        await shell.StartAsync();
+        Assert.False(shell.ShowBranchSelector);   // la demostración de la V2.1 tiene una sola sucursal
+        Assert.Contains("·", shell.BranchText, StringComparison.Ordinal);
+        foreach (var key in new[] { "sucursales", "transferencias", "integraciones" })
+        {
+            shell.Navigate(key);
+            await shell.Current.LoadAsync(force: true);
+            Assert.True(shell.Current.HasLoaded, key);
+            Assert.False(shell.Current.HasError, $"{key}: {shell.Current.ErrorMessage}");
+        }
+        var branches = (BranchesViewModel)shell.AllPages.First(p => p.Key == "sucursales");
+        Assert.Single(branches.Cards);
+        Assert.NotEmpty(branches.Stock);
+        var transfers = (TransfersViewModel)shell.AllPages.First(p => p.Key == "transferencias");
+        Assert.True(transfers.IsEmpty);
     });
 
     [Fact]

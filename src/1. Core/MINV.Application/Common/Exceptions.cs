@@ -24,3 +24,7 @@ public sealed class RequestValidationException(IReadOnlyList<string> errors)
 
 /// <summary>Credenciales incorrectas (mensaje genérico: no revela si el correo existe).</summary>
 public sealed class AuthenticationFailedException(string message) : Exception(message);
+
+/// <summary>V4 · Se repitió una petición idempotente (mismo id) con OTRO contenido: se rechaza (HTTP 422) en lugar de
+/// registrar dos veces.</summary>
+public sealed class IdempotencyConflictException(string message) : Exception(message);

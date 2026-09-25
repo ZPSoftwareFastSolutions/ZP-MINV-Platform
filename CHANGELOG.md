@@ -2,6 +2,123 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semántico.
 
+## [4.0.0-alpha.1 · base de datos en la nube] · 2026-09-25 · rama `Inventario-V4.-BaseDeDatosNube`
+
+Tema: **M-INV multi-sucursal en la nube**. Cada sucursal ve y opera solo lo suyo, la mercadería viaja entre
+sucursales con **transferencias en tránsito**, el escritorio trabaja **por internet contra un servidor M-INV** (sin
+credenciales de la base) y terceros se integran por un **API Gateway B2B** con API Keys y **webhooks firmados**. 110
+tablas en 8 esquemas. Construida sobre `Inventario-V3.-BaseDeDatosLocal`. Arquitectura:
+`docs/architecture/arquitectura-v4.md` · reglas B-01 a B-17: `.claude/v4-architecture-rules.md`.
+
+### Agregado
+
+- **Multi-sucursal**: `IBranchScoped` (`branch_id`, 35 tablas) e `IInterBranch` (`from_branch_id`/`to_branch_id`, 5
+  tablas); `BranchScope` (todas, asignadas y activa) calculado en el servidor al iniciar sesión (`UserAccess`): el permiso
+  `corporate.branches.all` da la vista de gerencia global y `warehouse.branch_users` las sucursales de cada usuario;
+  `SelectBranchCommand` cambia la sucursal activa. Cuatro barreras: filtros globales de EF Core, guardas de escritura
+  (`branch.outside_scope`, `branch.immutable`), FK compuestas `(tenant_id, branch_id, padre)` y RLS **RESTRICTIVA**
+  `branch_isolation` con `iam.branch_visible()` y la variable de sesión `minv.branch_ids`. Directorio corporativo
+  (sucursales, almacenes, catálogo) sin filtro. Numeración por sucursal (`F-CM-000001`, `TR-EA-000003`).
+- **Transferencias entre sucursales** (`StockTransfer`): `Pending → Dispatched (en tránsito) → Received`, o `Cancelled`;
+  el origen crea, despacha y anula, el destino recibe. Despacho completo por lote con manifiesto
+  (`stock_transfer_line_batches`), recepción con los mismos lotes y **faltantes con motivo** como deltas compensatorios
+  (`stock_transfer_discrepancies`), vínculos a los movimientos (`stock_transfer_movements`) y bitácora append-only
+  (`stock_transfer_events`). Una transacción explícita con reintento optimista ×3. Contabilidad: despacho Debe 1.1.06
+  «Mercadería enviada a sucursales» / Haber 1.1.05; recepción Debe 1.1.05 + 5.1.09 (faltante) / Haber 2.1.04
+  «Mercadería recibida de sucursales»; en el consolidado 1.1.06 − 2.1.04 = valor en tránsito. Casos de uso
+  `Get/CreateTransfer…`, `DispatchTransferCommand`, `ReceiveTransferCommand`, `CancelTransferCommand`; vista de
+  conservación `inventory.v_transfer_breaches`.
+- **Sucursales** (`Application/Corporate`): `GetBranchesQuery`, `CreateBranchCommand` (almacén, topología mínima y
+  caja), `UpdateBranchCommand`, `AssignUserBranchesCommand`, `ConsolidatedStockQuery` (stock por sucursal + en tránsito,
+  contado una vez) y `GetBranchReportQuery` (tablero gerencial desde el modelo de lectura).
+- **Servidor en la nube `MINV.CloudServer`**: `POST /api/v1/session/login` (token `mses_…` guardado como hash, 12 h de
+  vencimiento deslizante), `POST /api/v1/rpc` (los mismos comandos y consultas de MediatR, catálogo acotado a
+  `MINV.Application`, permisos y alcance recalculados en cada petición), `POST /api/v1/session/logout`,
+  `GET /api/v1/health`; exige la misma versión mayor del cliente (`X-MINV-Client-Version`); límites de tasa por IP y por
+  sesión; contrato y mapeo de errores en `Application/Remote/RpcContract.cs`.
+- **API Gateway `MINV.ApiGateway`** (solo B2B): API Keys `minv_<prefijo>_<secreto>` (SHA-256, alcances
+  `catalog:read`, `stock:read`, `orders:write`, `transfers:read`, `transfers:write`, `webhooks:manage`, `reports:read`
+  intersectados con los permisos del dueño, sucursal opcional); rutas `/v1` de catálogo, sucursales, stock, stock
+  consolidado, pedidos, transferencias, webhooks, entregas y reportes; ProblemDetails; límites (120/min por IP y cubeta
+  por llave); OpenAPI en `/docs`; servicios en segundo plano (webhooks y refresco del modelo de lectura).
+- **Outbox transaccional y webhooks**: eventos de dominio (`sale.completed`, `sale.voided`, `purchase.received`,
+  `transfer.dispatched`, `transfer.received`, `transfer.discrepancy`) guardados en `integration.outbox_events` en la
+  MISMA transacción; despachador con `FOR UPDATE SKIP LOCKED` (`integration.claim_deliveries`), firma
+  `X-MINV-Signature: t=<unix>,v1=<hex>` (HMAC-SHA256, doble firma 24 h al rotar), cabeceras `X-MINV-Event` y
+  `X-MINV-Delivery`, cliente HTTP protegido contra SSRF, 8 intentos (1 min, 5 min, 30 min, 2 h, 6 h, 12 h, 24 h) y
+  cada intento en `webhook_deliveries`. Secretos aleatorios cifrados con AES-256-GCM y claves maestras de
+  `MINV_INTEGRATION_KEYS`; verificación de referencia `ApiKeyTokens.Verify`.
+- **Idempotencia**: pedidos externos por (API Key, `externalId`) con hash del contenido (`sales.external_orders`:
+  repetir devuelve la venta original, otro contenido → 422); comandos del escritorio en la nube por `requestId`
+  (`iam.processed_requests`, misma transacción que el comando).
+- **Modelo de lectura** (OLAP): `MinvReadDbContext`, `IReportingReader`, esquema `reporting` con vistas materializadas
+  (`mv_branch_stock`, `mv_branch_daily_sales`) y vistas `security_barrier` filtradas; réplica opcional `MINV_DB_READ`;
+  `reporting.refresh_all()` cada 5 minutos.
+- **Base de datos**: migración `V4MultiBranchCloud` (97 → 110 tablas, esquema `integration`): relleno de `branch_id` por
+  la jerarquía con triggers pausados solo durante el relleno, políticas por empresa (108) y por sucursal (40) desde
+  listas explícitas, 15 libros append-only, funciones SECURITY DEFINER con `search_path` fijo y EXECUTE solo para
+  `minv_server` (`integration.resolve_api_key`, `iam.resolve_session`, `integration.claim_deliveries`,
+  `reporting.refresh_all`), permisos y cuentas V4 para las empresas existentes. Rol **`minv_server`** (NOBYPASSRLS, no
+  dueño); los servidores se niegan a arrancar con un rol que pueda saltarse RLS (`MINV_ALLOW_PRIVILEGED_ROLE=1` solo en
+  desarrollo).
+- **Módulos comerciales**: `CLOUD_HA` Infraestructura Cloud HA (Bs 12.000 + 1.500/mes), `MULTI_BRANCH` Topología
+  multi-sucursal (8.000 + 500), `API_INTEGRATIONS` Integraciones API B2B (6.000 + 400), `GLOBAL_AUDIT` Auditoría global
+  con réplicas de lectura (5.000 + 300).
+- **Datos de prueba multi-sucursal** (`minv datos-prueba`): sucursales CM (Casa matriz, `ALM01`), EA (El Alto, `ALMEA`,
+  caja `EA-CAJA1`) y SC (Santa Cruz, `ALMSC`, caja `SC-CAJA1`); 12 usuarios asignados por sucursal; reposición semanal
+  con faltantes ocasionales; pedidos del e-commerce por la API Key «Tienda en línea»; al final, una transferencia en
+  tránsito a SC y una pendiente a EA.
+- **Escritorio**: selector de conexión en el inicio de sesión («Base local», «Nube (servidor M-INV)» con dirección
+  https —http solo para `localhost`— y la demostración), selector de sucursal en la barra superior («Todas las
+  sucursales» para la gerencia global) y pantallas **Sucursales**, **Transferencias** e **Integraciones** (API Keys,
+  webhooks, entregas). En modo nube el token vive solo en memoria y los comandos se reintentan con el mismo id.
+- **Herramientas**: `tools\bd_local.ps1 -Accion recrear` (V4: rol `minv_server`, claves maestras y archivos
+  `usuarios-prueba.txt`, `credenciales-bd-local.txt`, `claves-integracion.txt`), `tools\servidores_locales.ps1`
+  (`iniciar`, `detener`, `estado`: servidor en `http://localhost:5080` y gateway en `http://localhost:5090`),
+  `tools\bd_nube.ps1` (`preparar`, `estado`: PostgreSQL gestionado de DigitalOcean, AWS RDS o Supabase) y `deploy/`
+  (Docker Compose y Dockerfiles de ambos servidores).
+- **Pruebas** `tests/MINV.Integration.Tests`: servidor en la nube y gateway reales (Kestrel en loopback) sobre la base en
+  memoria con la empresa multi-sucursal: versión del cliente, alcance decidido por el servidor, idempotencia de
+  comandos y pedidos, errores con su código, serialización del catálogo RPC completo, 401/403 por llave y alcance,
+  OpenAPI y webhooks firmados.
+- **Documentación**: `docs/architecture/arquitectura-v4.md`, `docs/deployment/despliegue-nube-v4.md`,
+  `docs/deployment/inicio-rapido-v4.md`, `docs/integration/api-gateway-v1.md`, `docs/product/escritorio-v4.md` (con
+  capturas en `docs/product/capturas/v4`), `.claude/v4-architecture-rules.md`; ERD y guía de migraciones actualizados.
+- **Herramientas**: `tools\bd_local.ps1` (rol `minv_server`, claves de integración, datos multi-sucursal),
+  `tools\servidores_locales.ps1` (nube simulada en el equipo), `tools\bd_nube.ps1` (PostgreSQL gestionado),
+  `minv roles` y `minv verify` con aislamiento por sucursal y conservación de transferencias, `deploy\` (Dockerfiles y
+  docker compose).
+- **Migración adicional `V4BranchHeaderKeys`**: FK (tenant_id, branch_id) a sucursales en asientos, facturas de
+  proveedor y devoluciones a proveedor.
+- **Mantenimiento**: `ANALYZE` de las tablas de M-INV al final de la carga de datos de prueba y de la migración V4 (sin
+  estadísticas, el reporte de movimientos tardaba 61 s en una base recién cargada; con ellas, 0,17 s).
+
+### Cambiado
+
+- `MINVDbContext` pasa a llamarse **`MinvWriteDbContext`** (y su fábrica `MinvWriteDbContextDesignTimeFactory`); con dos
+  contextos, toda orden `dotnet ef` lleva `--context MinvWriteDbContext`.
+- `inventory.stock_transfers` y `inventory.stock_transfer_lines` rediseñadas (sucursales, solicitante, costo, variante;
+  estados `Pending`/`Dispatched`/`Received`/`Cancelled`).
+- `accounting.average_cost_history`: sucursal y `sequence` con índice único (el costo vigente es el de mayor secuencia;
+  dos recepciones concurrentes chocan y reintentan).
+- `iam.sessions`: sucursal activa, hash del token y vencimiento; `iam.audit_logs`: canal (`desktop`, `cloud`, `api`),
+  API Key y sucursal activa.
+- `LoginCommand` calcula permisos y alcance por sucursal antes de abrir la sesión (`LoginResult.Access`); un usuario
+  sin sucursales asignadas no puede entrar.
+- Matriz de permisos: nuevos `corporate.branches.all`, `corporate.branches.manage`, `inventory.transfers.manage` e
+  `integration.manage`; GERENCIA gana todas las sucursales y transferencias, BODEGA transferencias, ADMIN todo.
+- Plan de cuentas: `1.1.06` Mercadería enviada a sucursales y `2.1.04` Mercadería recibida de sucursales.
+- La venta (caja o API) comparte `SaleWriter` y publica `sale.completed`; la recepción de compras publica
+  `purchase.received`; la anulación, `sale.voided`.
+- Errores de PostgreSQL traducidos: unicidad, serialización e interbloqueo → conflicto (409); FK, CHECK y triggers →
+  regla de negocio (422); RLS → acceso denegado (403).
+- Versión 4.0.0-alpha.1.
+
+### Verificado
+
+- Migración `V4MultiBranchCloud` aplicada sobre una copia de la base local de la V3: 110 tablas, 108 políticas por
+  empresa, 40 por sucursal, 15 triggers append-only y 0 descuadres de conservación.
+
 ## [3.1.0-alpha.1 · base de datos local] · 2026-09-25 · rama `Inventario-V3.-BaseDeDatosLocal`
 
 Tema: **todo funcionando con una base de datos PostgreSQL LOCAL** (97 tablas en 5FN), **datos de prueba** con usuarios

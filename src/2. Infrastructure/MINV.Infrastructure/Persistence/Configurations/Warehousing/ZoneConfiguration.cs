@@ -13,8 +13,8 @@ internal sealed class ZoneConfiguration : IEntityTypeConfiguration<Zone>
         builder.Property(x => x.Code).HasMaxLength(20);
         builder.Property(x => x.Name).HasMaxLength(80);
         builder.HasOne<Warehouse>().WithMany()
-            .HasForeignKey(x => new { x.TenantId, x.WarehouseId })
-            .HasPrincipalKey(p => new { p.TenantId, p.Id })
+            .HasForeignKey(x => new { x.TenantId, x.BranchId, x.WarehouseId })
+            .HasPrincipalKey(p => new { p.TenantId, p.BranchId, p.Id })
             .OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<LocationType>().WithMany()
             .HasForeignKey(x => new { x.TenantId, x.LocationTypeId })

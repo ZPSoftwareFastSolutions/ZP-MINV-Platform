@@ -3,15 +3,19 @@ using MINV.Domain.Common;
 namespace MINV.Domain.Accounting;
 
 /// <summary>Línea de un asiento (debe o haber).</summary>
-public sealed class JournalLine : Entity
+public sealed class JournalLine : Entity, IBranchScoped
 {
     private JournalLine()
     {
     }
 
-    public JournalLine(Guid tenantId, Guid journalEntryId, Guid accountId, Guid? costCenterId, decimal debit, decimal credit, string? memo)
+    /// <summary>V4 · Sucursal dueña de la fila (redundancia controlada; la FK compuesta con el padre la mantiene coherente).</summary>
+    public Guid BranchId { get; private set; }
+
+    public JournalLine(Guid tenantId, Guid branchId, Guid journalEntryId, Guid accountId, Guid? costCenterId, decimal debit, decimal credit, string? memo)
         : base(tenantId)
     {
+        BranchId = Guard.NotEmpty(branchId, nameof(branchId));
         JournalEntryId = Guard.NotEmpty(journalEntryId, nameof(journalEntryId));
         AccountId = Guard.NotEmpty(accountId, nameof(accountId));
         CostCenterId = Guard.NotEmptyIfPresent(costCenterId, nameof(costCenterId));

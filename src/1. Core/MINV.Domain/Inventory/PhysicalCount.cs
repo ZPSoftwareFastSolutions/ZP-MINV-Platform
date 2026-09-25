@@ -9,7 +9,7 @@ namespace MINV.Domain.Inventory;
 /// </summary>
 /// <remarks>Origen en la V2.1: 13_CONTEO + GenerarAjustesConteo.ts (documento CF-AAAAMMDD, observación «Toma física
 /// del dd/mm/aaaa: sistema S, contado C (diferencia ±D)»).</remarks>
-public sealed class PhysicalCount : Entity, IConcurrencyAware, IAggregateRoot
+public sealed class PhysicalCount : Entity, IConcurrencyAware, IAggregateRoot, IBranchScoped
 {
     private readonly List<PhysicalCountLine> _lines = new();
 
@@ -17,9 +17,13 @@ public sealed class PhysicalCount : Entity, IConcurrencyAware, IAggregateRoot
     {
     }
 
-    private PhysicalCount(Guid tenantId, string number, Guid warehouseId, DateOnly countDate, string? notes)
+    /// <summary>V4 · Sucursal dueña de la fila (redundancia controlada; la FK compuesta con el padre la mantiene coherente).</summary>
+    public Guid BranchId { get; private set; }
+
+    private PhysicalCount(Guid tenantId, Guid branchId, string number, Guid warehouseId, DateOnly countDate, string? notes)
         : base(tenantId)
     {
+        BranchId = Guard.NotEmpty(branchId, nameof(branchId));
         Number = Guard.Text(number, "El número", 30);
         WarehouseId = Guard.NotEmpty(warehouseId, nameof(warehouseId));
         CountDate = countDate;
@@ -46,8 +50,8 @@ public sealed class PhysicalCount : Entity, IConcurrencyAware, IAggregateRoot
     public IReadOnlyCollection<PhysicalCountLine> Lines => _lines;
 
     /// <summary>Abre una toma física. Solo puede haber una abierta por almacén (índice único parcial).</summary>
-    public static PhysicalCount Open(Guid tenantId, Guid warehouseId, DateOnly countDate, int sequenceOfDay = 1, string? notes = null) =>
-        new(tenantId, NumberFor(countDate, sequenceOfDay), warehouseId, countDate, notes);
+    public static PhysicalCount Open(Guid tenantId, Guid branchId, Guid warehouseId, DateOnly countDate, int sequenceOfDay = 1, string? notes = null) =>
+        new(tenantId, branchId, NumberFor(countDate, sequenceOfDay), warehouseId, countDate, notes);
 
     /// <summary>Número del documento: <c>CF-AAAAMMDD</c> (y <c>-n</c> si hay más de una toma el mismo día).</summary>
     public static string NumberFor(DateOnly date, int sequenceOfDay)
@@ -65,7 +69,7 @@ public sealed class PhysicalCount : Entity, IConcurrencyAware, IAggregateRoot
         var line = _lines.FirstOrDefault(l => l.StockLevelId == stockLevelId);
         if (line is null)
         {
-            line = new PhysicalCountLine(TenantId, Id, stockLevelId, countedQuantity, countedByUserId, countedAt);
+            line = new PhysicalCountLine(TenantId, BranchId, Id, stockLevelId, countedQuantity, countedByUserId, countedAt);
             _lines.Add(line);
         }
         else

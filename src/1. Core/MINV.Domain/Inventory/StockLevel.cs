@@ -9,15 +9,19 @@ namespace MINV.Domain.Inventory;
 /// dejar el stock en negativo; la segunda transacción se aborta y se reintenta con el valor real.
 /// </summary>
 /// <remarks>En la V2.1 el stock era una instantánea (15_STOCK) recalculada a demanda; en la V3 es transaccional.</remarks>
-public sealed class StockLevel : Entity, IConcurrencyAware, IAggregateRoot
+public sealed class StockLevel : Entity, IConcurrencyAware, IAggregateRoot, IBranchScoped
 {
     private StockLevel()
     {
     }
 
-    private StockLevel(Guid tenantId, Guid binId, Guid batchId)
+    /// <summary>V4 · Sucursal dueña de la fila (redundancia controlada; la FK compuesta con el padre la mantiene coherente).</summary>
+    public Guid BranchId { get; private set; }
+
+    private StockLevel(Guid tenantId, Guid branchId, Guid binId, Guid batchId)
         : base(tenantId)
     {
+        BranchId = Guard.NotEmpty(branchId, nameof(branchId));
         BinId = Guard.NotEmpty(binId, nameof(binId));
         BatchId = Guard.NotEmpty(batchId, nameof(batchId));
     }
@@ -36,7 +40,7 @@ public sealed class StockLevel : Entity, IConcurrencyAware, IAggregateRoot
     public decimal Available => Quantities.Round6(QuantityOnHand - QuantityReserved);
 
     /// <summary>Abre una existencia vacía de un lote en una posición.</summary>
-    public static StockLevel Open(Guid tenantId, Guid binId, Guid batchId) => new(tenantId, binId, batchId);
+    public static StockLevel Open(Guid tenantId, Guid branchId, Guid binId, Guid batchId) => new(tenantId, branchId, binId, batchId);
 
     /// <summary>
     /// Registra un movimiento. Reglas (las mismas de la captura y de los Office Scripts de la V2.1):
@@ -60,7 +64,7 @@ public sealed class StockLevel : Entity, IConcurrencyAware, IAggregateRoot
             throw new InsufficientStockException(Available, q);
         }
         QuantityOnHand = Quantities.Round6(QuantityOnHand + type.Signed(q));
-        return new StockMovement(TenantId, Id, type.Id, q, context);
+        return new StockMovement(TenantId, BranchId, Id, type.Id, q, context);
     }
 
     /// <summary>El SALDO INICIAL se admite una sola vez: en una existencia sin movimientos.</summary>
@@ -85,7 +89,7 @@ public sealed class StockLevel : Entity, IConcurrencyAware, IAggregateRoot
             throw new InsufficientStockException(Available, q);
         }
         QuantityReserved = Quantities.Round6(QuantityReserved + q);
-        return new StockReservation(TenantId, Id, q, expiresAt, posSessionId, salesOrderLineId);
+        return new StockReservation(TenantId, BranchId, Id, q, expiresAt, posSessionId, salesOrderLineId);
     }
 
     public void Release(StockReservation reservation)

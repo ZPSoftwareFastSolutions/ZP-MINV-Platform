@@ -4,15 +4,19 @@ namespace MINV.Domain.Warehousing;
 
 /// <summary>Posición fija de picking de una variante.</summary>
 /// <remarks>Origen en la V2.1: tblProductos: Ubicación.</remarks>
-public sealed class BinAssignment : BaseEntity
+public sealed class BinAssignment : BaseEntity, IBranchScoped
 {
     private BinAssignment()
     {
     }
 
-    public BinAssignment(Guid tenantId, Guid binId, Guid variantId, bool isPrimaryPick)
+    /// <summary>V4 · Sucursal dueña de la fila (redundancia controlada; la FK compuesta con el padre la mantiene coherente).</summary>
+    public Guid BranchId { get; private set; }
+
+    public BinAssignment(Guid tenantId, Guid branchId, Guid binId, Guid variantId, bool isPrimaryPick)
         : base(tenantId)
     {
+        BranchId = Guard.NotEmpty(branchId, nameof(branchId));
         BinId = Guard.NotEmpty(binId, nameof(binId));
         VariantId = Guard.NotEmpty(variantId, nameof(variantId));
         IsPrimaryPick = isPrimaryPick;

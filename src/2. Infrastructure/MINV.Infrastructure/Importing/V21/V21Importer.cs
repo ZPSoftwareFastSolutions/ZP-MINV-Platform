@@ -109,7 +109,7 @@ public sealed class V21ImportException(IReadOnlyList<string> errors)
 }
 
 /// <summary>Migra un libro colaborativo de la V2.1 a PostgreSQL en UNA transacción (todo o nada).</summary>
-public sealed class V21Importer(MINVDbContext db, TenantProvisioner provisioner, IClock clock)
+public sealed class V21Importer(MinvWriteDbContext db, TenantProvisioner provisioner, IClock clock)
 {
     public async Task<V21ImportResult> ImportAsync(V21ImportRequest request, CancellationToken ct = default)
     {

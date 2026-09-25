@@ -24,6 +24,47 @@ public interface IAggregateRoot
 {
 }
 
+/// <summary>
+/// V4 · Fila que pertenece a UNA sucursal (inventario, documentos, cajas, asientos). La infraestructura la filtra según
+/// el alcance del usuario (sucursales asignadas o todas para la gerencia global), valida que las filas nuevas caigan
+/// dentro de ese alcance y PostgreSQL lo refuerza con Row Level Security restrictiva. <c>BranchId</c> es redundancia
+/// controlada (como <c>TenantId</c>): las FK compuestas (tenant_id, branch_id, padre) impiden que un hijo tenga otra
+/// sucursal que su padre.
+/// </summary>
+public interface IBranchScoped : ITenantScoped
+{
+    Guid BranchId { get; }
+}
+
+/// <summary>V4 · Documento entre dos sucursales (transferencias): lo ven ambas.</summary>
+public interface IInterBranch : ITenantScoped
+{
+    Guid FromBranchId { get; }
+
+    Guid ToBranchId { get; }
+}
+
+/// <summary>V4 · Hecho del negocio que interesa fuera del agregado (webhooks, integraciones). El dominio solo lo
+/// describe; la infraestructura lo guarda en el outbox en la MISMA transacción que el cambio que lo produjo.</summary>
+public interface IDomainEvent
+{
+    /// <summary>Nombre estable del evento para integraciones (p. ej. <c>transfer.dispatched</c>).</summary>
+    string EventType { get; }
+
+    DateTimeOffset OccurredAt { get; }
+
+    /// <summary>Sucursal donde ocurrió (null si es de toda la empresa).</summary>
+    Guid? BranchId { get; }
+}
+
+/// <summary>Agregado que acumula eventos de dominio hasta que se guardan.</summary>
+public interface IHasDomainEvents
+{
+    IReadOnlyCollection<IDomainEvent> DomainEvents { get; }
+
+    void ClearDomainEvents();
+}
+
 /// <summary>Base de toda entidad del dominio: aislamiento multi-tenant (regla A-04).</summary>
 public abstract class BaseEntity : ITenantScoped
 {

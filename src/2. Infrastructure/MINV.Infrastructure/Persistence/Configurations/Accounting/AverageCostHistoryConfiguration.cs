@@ -14,6 +14,7 @@ internal sealed class AverageCostHistoryConfiguration : IEntityTypeConfiguration
         builder.ToTable("average_cost_history", Schemas.Accounting, t =>
         {
             t.HasCheckConstraint("ck_average_cost_history_costo", "average_cost >= 0");
+            t.HasCheckConstraint("ck_average_cost_history_secuencia", "sequence >= 1");
         });
         builder.HasKey(x => x.Id);
         builder.Property(x => x.AverageCost).HasPrecision(19, 4);
@@ -22,13 +23,15 @@ internal sealed class AverageCostHistoryConfiguration : IEntityTypeConfiguration
             .HasPrincipalKey(p => new { p.TenantId, p.Id })
             .OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<Warehouse>().WithMany()
-            .HasForeignKey(x => new { x.TenantId, x.WarehouseId })
-            .HasPrincipalKey(p => new { p.TenantId, p.Id })
+            .HasForeignKey(x => new { x.TenantId, x.BranchId, x.WarehouseId })
+            .HasPrincipalKey(p => new { p.TenantId, p.BranchId, p.Id })
             .OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<StockMovement>().WithMany()
-            .HasForeignKey(x => new { x.TenantId, x.StockMovementId })
-            .HasPrincipalKey(p => new { p.TenantId, p.Id })
+            .HasForeignKey(x => new { x.TenantId, x.BranchId, x.StockMovementId })
+            .HasPrincipalKey(p => new { p.TenantId, p.BranchId, p.Id })
             .OnDelete(DeleteBehavior.Restrict);
         builder.HasIndex(x => new { x.VariantId, x.WarehouseId, x.EffectiveAt });
+        // V4 · OCC del costo promedio: dos recepciones concurrentes no pueden escribir la misma secuencia
+        builder.HasIndex(x => new { x.TenantId, x.VariantId, x.WarehouseId, x.Sequence }).IsUnique();
     }
 }

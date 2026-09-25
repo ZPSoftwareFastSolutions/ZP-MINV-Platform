@@ -1,0 +1,247 @@
+<UserControl x:Class="MINV.DesktopClient.Views.Pages.IntegrationsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:MINV.DesktopClient.Controls"
+             xmlns:vm="clr-namespace:MINV.DesktopClient.ViewModels">
+    <!-- V4 · Integraciones B2B: API Keys, webhooks firmados y entregas -->
+    <Grid Margin="28,6,28,24">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <DockPanel Grid.ColumnSpan="2" Margin="0,0,0,14">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button Content="Nuevo webhook" c:Ui.Icon="{x:Static c:Glyphs.Link}" Command="{Binding NewHook}" Margin="0,0,8,0"
+                        c:Ui.IsBusy="{Binding NewHook.IsRunning}" />
+                <Button Style="{StaticResource PrimaryButton}" Content="Nueva API Key" c:Ui.Icon="{x:Static c:Glyphs.Key}" Command="{Binding NewKey}" Margin="0,0,8,0"
+                        c:Ui.IsBusy="{Binding NewKey.IsRunning}" />
+                <Button Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Refresh}" Command="{Binding Refresh}" ToolTip="Actualizar (F5)" />
+            </StackPanel>
+            <StackPanel>
+                <TextBlock Text="{Binding Title}" Style="{StaticResource H1}" />
+                <TextBlock Text="{Binding Subtitle}" Style="{StaticResource Caption}" FontSize="13" Margin="0,4,0,0" />
+            </StackPanel>
+        </DockPanel>
+
+        <UniformGrid Grid.Row="1" Grid.ColumnSpan="2" Columns="4" Margin="-6,0,-6,10">
+            <ContentControl Content="{Binding KeysKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+            <ContentControl Content="{Binding HooksKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+            <ContentControl Content="{Binding DeliveredKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+            <ContentControl Content="{Binding FailedKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+        </UniformGrid>
+
+        <DockPanel Grid.Row="2" Margin="0,0,0,12">
+            <Border DockPanel.Dock="Left" Background="{DynamicResource SurfaceAlt}" CornerRadius="10" Padding="3">
+                <StackPanel Orientation="Horizontal">
+                    <RadioButton Style="{StaticResource Segment}" GroupName="IntegracionesTab" IsChecked="{Binding IsKeysTab}" Content="API Keys" MinWidth="120" />
+                    <RadioButton Style="{StaticResource Segment}" GroupName="IntegracionesTab" IsChecked="{Binding IsHooksTab}" Content="Webhooks" MinWidth="120" />
+                    <RadioButton Style="{StaticResource Segment}" GroupName="IntegracionesTab" IsChecked="{Binding IsDeliveriesTab}" Content="Entregas" MinWidth="120" />
+                </StackPanel>
+            </Border>
+            <TextBlock Text="{Binding GatewayHint}" Style="{StaticResource Caption}" TextWrapping="Wrap" VerticalAlignment="Center" Margin="16,0,0,0" />
+        </DockPanel>
+
+        <!-- API Keys -->
+        <Border Grid.Row="3" Style="{StaticResource CardFlat}" Padding="4,2,4,4" Visibility="{Binding IsKeysTab, Converter={StaticResource Visible}}">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="10,8">
+                    <Button Content="Revocar la llave elegida" c:Ui.Icon="{x:Static c:Glyphs.Error}" Command="{Binding Revoke}" />
+                </StackPanel>
+                <DataGrid ItemsSource="{Binding Keys}" SelectedItem="{Binding SelectedKey}" RowHeight="52">
+                    <DataGrid.Columns>
+                        <DataGridTemplateColumn Header="LLAVE" Width="*" MinWidth="220">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:ApiKeyItem}">
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Row.Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding PrefixText}" Style="{StaticResource Mono}" FontSize="11.5" Foreground="{DynamicResource TextMuted}" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTextColumn Header="ALCANCES" Binding="{Binding ScopesText}" Width="260" ElementStyle="{StaticResource CellText}" />
+                        <DataGridTextColumn Header="SUCURSAL" Binding="{Binding BranchText}" Width="150" ElementStyle="{StaticResource CellText}" />
+                        <DataGridTextColumn Header="DUEÑO" Binding="{Binding Row.Owner}" Width="190" ElementStyle="{StaticResource CellText}" />
+                        <DataGridTextColumn Header="ÚLTIMO USO" Binding="{Binding LastUsedText}" Width="130" ElementStyle="{StaticResource CellText}" />
+                        <DataGridTemplateColumn Header="ESTADO" Width="104">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:ApiKeyItem}">
+                                    <Border Style="{StaticResource StatusPill}" c:Ui.BrushKey="{Binding StatusSoftBrush}">
+                                        <TextBlock Text="{Binding StatusText}" FontSize="11" FontWeight="SemiBold" c:Ui.BrushKey="{Binding StatusBrush}" />
+                                    </Border>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+        </Border>
+
+        <!-- Webhooks -->
+        <Border Grid.Row="3" Style="{StaticResource CardFlat}" Padding="4,2,4,4" Visibility="{Binding IsHooksTab, Converter={StaticResource Visible}}">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="10,8">
+                    <Button Content="Rotar secreto" c:Ui.Icon="{x:Static c:Glyphs.Key}" Command="{Binding Rotate}" Margin="0,0,8,0" />
+                    <Button Content="Desactivar" c:Ui.Icon="{x:Static c:Glyphs.Error}" Command="{Binding Disable}" />
+                </StackPanel>
+                <DataGrid ItemsSource="{Binding Hooks}" SelectedItem="{Binding SelectedHook}" RowHeight="56">
+                    <DataGrid.Columns>
+                        <DataGridTemplateColumn Header="DESTINO" Width="*" MinWidth="260">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:WebhookItem}">
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Row.Url}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Style="{StaticResource Mono}" />
+                                        <TextBlock Text="{Binding EventsText}" Style="{StaticResource Caption}" FontSize="11.5" TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTemplateColumn Header="ENTREGAS" Width="260">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:WebhookItem}">
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding DeliveriesText}" FontSize="12" />
+                                        <TextBlock Text="{Binding Row.LastError}" FontSize="11" Foreground="{DynamicResource Danger}" TextTrimming="CharacterEllipsis"
+                                                   Visibility="{Binding Row.LastError, Converter={StaticResource HasValue}}" />
+                                        <TextBlock Text="{Binding LastText}" Style="{StaticResource Caption}" FontSize="11"
+                                                   Visibility="{Binding Row.LastError, Converter={StaticResource NoValue}}" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTextColumn Header="SECRETO" Binding="{Binding Row.SecretVersion, StringFormat='v{0}'}" Width="80" ElementStyle="{StaticResource CellText}" />
+                        <DataGridTemplateColumn Header="ESTADO" Width="110">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:WebhookItem}">
+                                    <Border Style="{StaticResource StatusPill}" c:Ui.BrushKey="{Binding StatusSoftBrush}">
+                                        <TextBlock Text="{Binding StatusText}" FontSize="11" FontWeight="SemiBold" c:Ui.BrushKey="{Binding StatusBrush}" />
+                                    </Border>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+        </Border>
+
+        <!-- Entregas -->
+        <Border Grid.Row="3" Style="{StaticResource CardFlat}" Padding="4,2,4,4" Visibility="{Binding IsDeliveriesTab, Converter={StaticResource Visible}}">
+            <DataGrid ItemsSource="{Binding Deliveries}" RowHeight="40">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="MOMENTO" Binding="{Binding AtText}" Width="140" ElementStyle="{StaticResource CellText}" />
+                    <DataGridTextColumn Header="EVENTO" Binding="{Binding Row.EventType}" Width="170" ElementStyle="{StaticResource CellText}" />
+                    <DataGridTextColumn Header="DESTINO" Binding="{Binding Row.Url}" Width="*" ElementStyle="{StaticResource CellText}" />
+                    <DataGridTextColumn Header="INTENTO" Binding="{Binding Row.Attempt}" Width="80" HeaderStyle="{StaticResource HeaderRight}"
+                                        ElementStyle="{StaticResource CellRight}" />
+                    <DataGridTemplateColumn Header="RESULTADO" Width="130">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate DataType="{x:Type vm:DeliveryItem}">
+                                <TextBlock Text="{Binding ResultText}" FontWeight="SemiBold" VerticalAlignment="Center" c:Ui.BrushKey="{Binding ResultBrush}"
+                                           ToolTip="{Binding Row.Error}" />
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTextColumn Header="DURACIÓN" Binding="{Binding DurationText}" Width="96" HeaderStyle="{StaticResource HeaderRight}"
+                                        ElementStyle="{StaticResource CellRight}" />
+                </DataGrid.Columns>
+            </DataGrid>
+        </Border>
+
+        <!-- API Key nueva -->
+        <Border Grid.Row="2" Grid.RowSpan="2" Grid.Column="1" Style="{StaticResource EditorPanel}" Width="420"
+                Visibility="{Binding DataContext.IsEditingKey, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource Visible}}" DataContext="{Binding KeyEditor}">
+            <DockPanel>
+                <DockPanel DockPanel.Dock="Top" Margin="20,16,12,8">
+                    <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Close}" Command="{Binding Cancel}" />
+                    <TextBlock Text="Nueva API Key" Style="{StaticResource H2}" VerticalAlignment="Center" />
+                </DockPanel>
+                <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0" Padding="20,12">
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Style="{StaticResource PrimaryButton}" Content="Crear llave" Command="{Binding Save}" MinWidth="140"
+                                c:Ui.IsBusy="{Binding Save.IsRunning}" c:Ui.Icon="{x:Static c:Glyphs.Key}" />
+                        <Button Content="Cancelar" Command="{Binding Cancel}" HorizontalAlignment="Left" />
+                    </DockPanel>
+                </Border>
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="20,4,20,16">
+                        <TextBlock Text="Para qué es" Style="{StaticResource FieldLabel}" />
+                        <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" MaxLength="100" />
+                        <TextBlock Text="Alcances (qué puede hacer)" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
+                        <ItemsControl ItemsSource="{Binding Scopes}" Focusable="False">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:OptionCheck}">
+                                    <CheckBox IsChecked="{Binding IsChecked}" Margin="0,3">
+                                        <TextBlock TextWrapping="Wrap">
+                                            <Run Text="{Binding Code, Mode=OneWay}" FontWeight="SemiBold" /><Run Text=" · " /><Run Text="{Binding Description, Mode=OneWay}" />
+                                        </TextBlock>
+                                    </CheckBox>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Text="Sucursal" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
+                        <ComboBox ItemsSource="{Binding Branches}" SelectedItem="{Binding Branch}" />
+                        <TextBlock Text="Vencimiento" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
+                        <ComboBox ItemsSource="{Binding Expiries}" SelectedItem="{Binding Expiry}" />
+                        <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,12,0,0"
+                                   Text="La llave actúa en su nombre con sus permisos recortados por los alcances elegidos. El token se muestra una sola vez." />
+                        <Border Style="{StaticResource FormError}" Visibility="{Binding Error, Converter={StaticResource HasValue}}">
+                            <TextBlock Text="{Binding Error}" Foreground="{DynamicResource Danger}" TextWrapping="Wrap" />
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
+
+        <!-- Webhook nuevo -->
+        <Border Grid.Row="2" Grid.RowSpan="2" Grid.Column="1" Style="{StaticResource EditorPanel}" Width="420"
+                Visibility="{Binding DataContext.IsEditingHook, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource Visible}}" DataContext="{Binding HookEditor}">
+            <DockPanel>
+                <DockPanel DockPanel.Dock="Top" Margin="20,16,12,8">
+                    <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Close}" Command="{Binding Cancel}" />
+                    <TextBlock Text="Nuevo webhook" Style="{StaticResource H2}" VerticalAlignment="Center" />
+                </DockPanel>
+                <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0" Padding="20,12">
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Style="{StaticResource PrimaryButton}" Content="Registrar" Command="{Binding Save}" MinWidth="140"
+                                c:Ui.IsBusy="{Binding Save.IsRunning}" c:Ui.Icon="{x:Static c:Glyphs.Link}" />
+                        <Button Content="Cancelar" Command="{Binding Cancel}" HorizontalAlignment="Left" />
+                    </DockPanel>
+                </Border>
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="20,4,20,16">
+                        <TextBlock Text="URL (https)" Style="{StaticResource FieldLabel}" />
+                        <TextBox Text="{Binding Url, UpdateSourceTrigger=PropertyChanged}" MaxLength="500" c:Ui.Icon="{x:Static c:Glyphs.Globe}" />
+                        <TextBlock Text="Descripción" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
+                        <TextBox Text="{Binding Description, UpdateSourceTrigger=PropertyChanged}" MaxLength="200" c:Ui.Placeholder="Tienda en línea, ERP contable…" />
+                        <TextBlock Text="Eventos" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
+                        <ItemsControl ItemsSource="{Binding Events}" Focusable="False">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:OptionCheck}">
+                                    <CheckBox IsChecked="{Binding IsChecked}" Margin="0,3">
+                                        <TextBlock TextWrapping="Wrap">
+                                            <Run Text="{Binding Code, Mode=OneWay}" FontWeight="SemiBold" /><Run Text=" · " /><Run Text="{Binding Description, Mode=OneWay}" />
+                                        </TextBlock>
+                                    </CheckBox>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Text="Sucursal" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
+                        <ComboBox ItemsSource="{Binding Branches}" SelectedItem="{Binding Branch}" />
+                        <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,12,0,0"
+                                   Text="Cada entrega va firmada (X-MINV-Signature, HMAC-SHA256) y se reintenta hasta 8 veces con espera creciente. El secreto se muestra una sola vez." />
+                        <Border Style="{StaticResource FormError}" Visibility="{Binding Error, Converter={StaticResource HasValue}}">
+                            <TextBlock Text="{Binding Error}" Foreground="{DynamicResource Danger}" TextWrapping="Wrap" />
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
+    </Grid>
+</UserControl>

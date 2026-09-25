@@ -3,15 +3,19 @@ using MINV.Domain.Common;
 namespace MINV.Domain.Purchasing;
 
 /// <summary>Línea de factura de proveedor.</summary>
-public sealed class SupplierInvoiceLine : Entity
+public sealed class SupplierInvoiceLine : Entity, IBranchScoped
 {
     private SupplierInvoiceLine()
     {
     }
 
-    public SupplierInvoiceLine(Guid tenantId, Guid supplierInvoiceId, Guid? goodsReceiptLineId, string? description, decimal quantity, decimal unitCost, Guid? taxRateId)
+    /// <summary>V4 · Sucursal dueña de la fila (redundancia controlada; la FK compuesta con el padre la mantiene coherente).</summary>
+    public Guid BranchId { get; private set; }
+
+    public SupplierInvoiceLine(Guid tenantId, Guid branchId, Guid supplierInvoiceId, Guid? goodsReceiptLineId, string? description, decimal quantity, decimal unitCost, Guid? taxRateId)
         : base(tenantId)
     {
+        BranchId = Guard.NotEmpty(branchId, nameof(branchId));
         SupplierInvoiceId = Guard.NotEmpty(supplierInvoiceId, nameof(supplierInvoiceId));
         GoodsReceiptLineId = Guard.NotEmptyIfPresent(goodsReceiptLineId, nameof(goodsReceiptLineId));
         Description = Guard.OptionalText(description, "La descripción", 200);

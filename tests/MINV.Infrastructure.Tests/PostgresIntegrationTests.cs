@@ -59,7 +59,7 @@ public sealed class PostgresFixture : IAsyncLifetime
         ConnectionString = new NpgsqlConnectionStringBuilder(_admin) { Database = Database, IncludeErrorDetail = true }.ConnectionString;
         await using var provider = Services();
         await using var scope = provider.CreateAsyncScope();
-        await scope.ServiceProvider.GetRequiredService<MINVDbContext>().Database.MigrateAsync();
+        await scope.ServiceProvider.GetRequiredService<MinvWriteDbContext>().Database.MigrateAsync();
     }
 
     public ServiceProvider Services()
@@ -101,27 +101,37 @@ public sealed class PostgresIntegrationTests(PostgresFixture pg) : IClassFixture
 
     private static async Task<Guid> ProductAsync(IServiceProvider sp, ProvisionedTenant tenant, string sku)
     {
-        var db = sp.GetRequiredService<MINVDbContext>();
+        var db = sp.GetRequiredService<MinvWriteDbContext>();
         var category = new Domain.Catalog.Category(tenant.TenantId, "GEN" + sku[..3], "General " + sku);
         var product = Domain.Catalog.Product.Create(tenant.TenantId, sku, "Producto " + sku, category.Id, tenant.Units["UND"]);
         db.AddRange(category, product, Batch.CreateDefault(tenant.TenantId, product.DefaultVariant.Id),
-            new Domain.Catalog.ProductStockPolicy(tenant.TenantId, product.DefaultVariant.Id, tenant.WarehouseId, 5, 50));
+            new Domain.Catalog.ProductStockPolicy(tenant.TenantId, tenant.BranchId, product.DefaultVariant.Id, tenant.WarehouseId, 5, 50));
         await db.SaveChangesAsync();
         return product.DefaultVariant.Id;
     }
 
     [PostgresFact]
-    public async Task Las_migraciones_crean_97_tablas_triggers_RLS_y_vistas()
+    public async Task Las_migraciones_crean_110_tablas_triggers_RLS_por_sucursal_y_vistas()
     {
         await using var provider = pg.Services();
         using var scope = provider.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<MINVDbContext>();
+        var db = scope.ServiceProvider.GetRequiredService<MinvWriteDbContext>();
         async Task<int> Count(string sql) => await db.Database.SqlQueryRaw<int>(sql).SingleAsync();
-        Assert.Equal(97, await Count("SELECT count(*)::int AS \"Value\" FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema IN ('iam','catalog','warehouse','inventory','purchasing','sales','accounting') AND table_name <> '__ef_migrations_history'"));
-        Assert.Equal(7, await Count("SELECT count(*)::int AS \"Value\" FROM pg_trigger WHERE tgname = 'trg_append_only'"));
-        Assert.Equal(95, await Count("SELECT count(*)::int AS \"Value\" FROM pg_policies WHERE policyname = 'tenant_isolation'"));
-        Assert.Equal(3, await Count("SELECT count(*)::int AS \"Value\" FROM information_schema.views WHERE table_name IN ('v_stock_by_variant','v_conservation_breaches','v_activity')"));
-        Assert.Equal(5, await db.Modules.CountAsync());
+        Assert.Equal(110, await Count("SELECT count(*)::int AS \"Value\" FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema IN ('iam','catalog','warehouse','inventory','purchasing','sales','accounting','integration') AND table_name <> '__ef_migrations_history'"));
+        Assert.Equal(15, await Count("SELECT count(*)::int AS \"Value\" FROM pg_trigger WHERE tgname = 'trg_append_only'"));
+        Assert.Equal(108, await Count("SELECT count(*)::int AS \"Value\" FROM pg_policies WHERE policyname = 'tenant_isolation'"));
+        Assert.Equal(40, await Count("SELECT count(*)::int AS \"Value\" FROM pg_policies WHERE policyname = 'branch_isolation' AND permissive = 'RESTRICTIVE'"));
+        Assert.Equal(4, await Count("SELECT count(*)::int AS \"Value\" FROM information_schema.views WHERE table_name IN ('v_stock_by_variant','v_conservation_breaches','v_activity','v_transfer_breaches')"));
+        Assert.Equal(2, await Count("SELECT count(*)::int AS \"Value\" FROM pg_matviews WHERE schemaname = 'reporting'"));
+        Assert.Equal(4, await Count("SELECT count(*)::int AS \"Value\" FROM pg_proc WHERE prosecdef AND proname IN ('resolve_api_key','resolve_session','claim_deliveries','refresh_all')"));
+        Assert.Equal(9, await db.Modules.CountAsync());
+        // Las listas de la migración coinciden con el modelo (una tabla nueva por sucursal no puede quedar sin política)
+        var model = db.Model.GetEntityTypes().Where(e => !e.IsOwned()).ToList();
+        string Name(Microsoft.EntityFrameworkCore.Metadata.IEntityType e) => $"{e.GetSchema()}.{e.GetTableName()}";
+        Assert.Equal(model.Where(e => typeof(IBranchScoped).IsAssignableFrom(e.ClrType)).Select(Name).Order(),
+            Persistence.Migrations.V4MultiBranchCloud.BranchTables.Order());
+        Assert.Equal(model.Where(e => typeof(IInterBranch).IsAssignableFrom(e.ClrType)).Select(Name).Order(),
+            Persistence.Migrations.V4MultiBranchCloud.InterBranchTables.Order());
     }
 
     [PostgresFact]
@@ -144,7 +154,7 @@ public sealed class PostgresIntegrationTests(PostgresFixture pg) : IClassFixture
             var row = Assert.Single(view.Result.Stock);
             Assert.Equal(12, row.Stock);
             Assert.Equal(8, row.Sales30Days);
-            var db = sp.GetRequiredService<MINVDbContext>();
+            var db = sp.GetRequiredService<MinvWriteDbContext>();
             var outcomes = await db.AuditLogs.Select(a => a.Outcome).ToListAsync();
             Assert.Equal(2, outcomes.Count(o => o == AuditOutcome.Succeeded));
             Assert.Equal(1, outcomes.Count(o => o == AuditOutcome.Rejected));
@@ -163,7 +173,7 @@ public sealed class PostgresIntegrationTests(PostgresFixture pg) : IClassFixture
             await ProductAsync(sp, tenant, "PLO-001");
             await sp.GetRequiredService<IMediator>().Send(
                 new RegisterMovementCommand("PLO-001", $"{tenant.WarehouseCode}-GENERAL", MovementTypeCodes.Receipt, 3));
-            var db = sp.GetRequiredService<MINVDbContext>();
+            var db = sp.GetRequiredService<MinvWriteDbContext>();
             var update = await Assert.ThrowsAsync<PostgresException>(() =>
                 db.Database.ExecuteSqlRawAsync("UPDATE inventory.stock_movements SET quantity = 999"));
             Assert.Contains("append-only", update.MessageText);
@@ -192,10 +202,10 @@ public sealed class PostgresIntegrationTests(PostgresFixture pg) : IClassFixture
             await db1.SaveChangesAsync();
             await Assert.ThrowsAsync<ConcurrencyConflictException>(() => db2.SaveChangesAsync());
 
-            (MINVDbContext, StockLevel, MovementType) Session(IServiceProvider sp)
+            (MinvWriteDbContext, StockLevel, MovementType) Session(IServiceProvider sp)
             {
                 sp.GetRequiredService<ITenantContext>().Set(tenant.TenantId);
-                var db = sp.GetRequiredService<MINVDbContext>();
+                var db = sp.GetRequiredService<MinvWriteDbContext>();
                 var batch = db.Batches.Single(b => b.VariantId == variant);
                 return (db, db.StockLevels.Single(l => l.BatchId == batch.Id), db.MovementTypes.Single(t => t.Code == MovementTypeCodes.Issue));
             }
@@ -213,7 +223,7 @@ public sealed class PostgresIntegrationTests(PostgresFixture pg) : IClassFixture
             "admin@distribuidorademo.example", "Administrador M-INV", AdminPassword, "America/Bogota", "COP", "CO", "Colombia"));
         Assert.True(result.Parity.Ok, string.Join(Environment.NewLine, result.Parity.Differences));
         Assert.Equal(473, result.Report.Movements);
-        var db = sp.GetRequiredService<MINVDbContext>();
+        var db = sp.GetRequiredService<MinvWriteDbContext>();
         Assert.Equal(473, await db.StockMovements.CountAsync());
         var breaches = await db.Database.SqlQueryRaw<int>(
             "SELECT count(*)::int AS \"Value\" FROM inventory.v_conservation_breaches").SingleAsync();
@@ -241,7 +251,7 @@ public sealed class PostgresIntegrationTests(PostgresFixture pg) : IClassFixture
             .SeedAsync(new MINV.Infrastructure.Seeding.SeedOptions("SEMILLA", Days: 20, Seed: 11), _ => { });
         Assert.True(result.Tickets > 10);
         using var scope = provider.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<MINVDbContext>();
+        var db = scope.ServiceProvider.GetRequiredService<MinvWriteDbContext>();
         var breaches = await db.Database.SqlQueryRaw<int>(
             "SELECT count(*)::int AS \"Value\" FROM inventory.v_conservation_breaches").SingleAsync();
         Assert.Equal(0, breaches);
@@ -256,7 +266,7 @@ public sealed class PostgresIntegrationTests(PostgresFixture pg) : IClassFixture
         var admin = result.Users.First(u => u.RoleCode == RoleCodes.Admin);
         using var session = provider.CreateScope();
         var m = session.ServiceProvider.GetRequiredService<IMediator>();
-        await m.Send(new LoginCommand("SEMILLA", admin.Email, admin.Password, "pruebas", "3.1.0"));
+        await m.Send(new LoginCommand("SEMILLA", admin.Email, admin.Password, "pruebas", "4.0.0"));
         var (from, to) = (result.From, result.To);
         Assert.NotEmpty((await m.Send(new MINV.Application.Partners.GetCustomersQuery())).Customers);
         Assert.NotEmpty(await m.Send(new MINV.Application.Partners.GetSuppliersQuery()));
@@ -280,5 +290,120 @@ public sealed class PostgresIntegrationTests(PostgresFixture pg) : IClassFixture
         Assert.NotNull(await m.Send(new MINV.Application.Iam.GetCompanySettingsQuery()));
         Assert.NotEmpty((await m.Send(new GetStockProjectionQuery())).Result.Stock);
         Assert.NotEmpty(await m.Send(new GetActivityQuery()));
+
+        // V4 · Sucursales, transferencias, integraciones y modelo de lectura sobre PostgreSQL real
+        Assert.Equal(0, await db.Database.SqlQueryRaw<int>("SELECT count(*)::int AS \"Value\" FROM inventory.v_transfer_breaches").SingleAsync());
+        Assert.True(await db.Database.SqlQueryRaw<bool>("SELECT reporting.refresh_all() AS \"Value\"").SingleAsync());
+        Assert.Equal(3, (await m.Send(new MINV.Application.Corporate.GetBranchesQuery())).Count);
+        var consolidated = await m.Send(new MINV.Application.Corporate.ConsolidatedStockQuery());
+        Assert.True(consolidated.InTransitValue > 0);
+        var report = await m.Send(new MINV.Application.Corporate.GetBranchReportQuery(from, to));
+        Assert.Equal(3, report.Branches.Count);
+        Assert.True(report.TotalRevenue > 0 && report.RefreshedAt is not null);
+        var transfers = await m.Send(new MINV.Application.Inventory.Transfers.GetTransfersQuery());
+        Assert.NotNull(await m.Send(new MINV.Application.Inventory.Transfers.GetTransferQuery(transfers[0].Id)));
+        Assert.NotEmpty(await m.Send(new MINV.Application.Integration.GetApiKeysQuery()));
+        Assert.NotNull(await m.Send(new MINV.Application.Integration.GetWebhooksQuery()));
+        Assert.NotNull(await m.Send(new MINV.Application.Integration.GetWebhookDeliveriesQuery()));
+        Assert.Equal(61, (await m.Send(new MINV.Application.Integration.GetApiCatalogQuery(1, 500))).Total);
+        Assert.NotEmpty((await m.Send(new MINV.Application.Integration.GetApiStockQuery())).Items);
+    }
+
+    /// <summary>
+    /// V4 · Con un rol que NO es dueño ni tiene BYPASSRLS (como minv_server en la nube), la base misma aísla empresas y
+    /// sucursales aunque el código olvidara un filtro: otra sucursal ve cero filas y no puede escribir en una ajena. Las
+    /// funciones SECURITY DEFINER son la única vía para resolver una API Key antes de conocer la empresa.
+    /// </summary>
+    [PostgresFact]
+    public async Task Con_un_rol_sin_privilegios_la_base_aisla_las_sucursales()
+    {
+        var role = "minv_rls_" + Guid.NewGuid().ToString("N")[..8];
+        const string password = "Rls-Prueba-2026-x";
+        var services = new ServiceCollection();
+        services.AddSingleton<MINV.Infrastructure.Services.DemoClock>();
+        services.AddSingleton<IClock>(sp => sp.GetRequiredService<MINV.Infrastructure.Services.DemoClock>());
+        services.AddMinvApplication();
+        services.AddMinvInfrastructure(pg.ConnectionString);
+        await using var provider = services.BuildServiceProvider();
+        var seed = await provider.GetRequiredService<MINV.Infrastructure.Seeding.LocalDataSeeder>()
+            .SeedAsync(new MINV.Infrastructure.Seeding.SeedOptions("RLS", Days: 3, Seed: 5), _ => { });
+        await using (var owner = new NpgsqlConnection(pg.ConnectionString))
+        {
+            await owner.OpenAsync();
+            var sql = $"""
+                CREATE ROLE {role} LOGIN NOBYPASSRLS PASSWORD '{password}';
+                GRANT CONNECT ON DATABASE {pg.Database} TO {role};
+                GRANT USAGE ON SCHEMA iam, catalog, warehouse, inventory, purchasing, sales, accounting, integration, reporting TO {role};
+                GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA iam, catalog, warehouse, inventory, purchasing, sales, accounting, integration TO {role};
+                GRANT SELECT ON reporting.v_branch_stock, reporting.v_branch_daily_sales TO {role};
+                GRANT EXECUTE ON FUNCTION integration.resolve_api_key(text), iam.resolve_session(text), integration.claim_deliveries(integer, integer) TO {role};
+                """;
+            await using var cmd = new NpgsqlCommand(sql, owner);
+            await cmd.ExecuteNonQueryAsync();
+        }
+        try
+        {
+            var limited = new NpgsqlConnectionStringBuilder(pg.ConnectionString) { Username = role, Password = password }.ConnectionString;
+            await using var conn = new NpgsqlConnection(limited);
+            await conn.OpenAsync();
+            async Task<long> Scalar(string text)
+            {
+                await using var c = new NpgsqlCommand(text, conn);
+                return Convert.ToInt64(await c.ExecuteScalarAsync());
+            }
+            var tenant = (Guid)(await new NpgsqlCommand("SELECT (SELECT id FROM iam.tenants WHERE code = 'RLS')", conn).ExecuteScalarAsync())!;
+            // Sin empresa en la sesión: nada visible
+            Assert.Equal(0, await Scalar("SELECT count(*) FROM inventory.stock_movements"));
+            await new NpgsqlCommand($"SELECT set_config('minv.tenant_id', '{tenant}', false), set_config('minv.branch_ids', '*', false)", conn).ExecuteNonQueryAsync();
+            var all = await Scalar("SELECT count(*) FROM inventory.stock_movements");
+            var ea = (Guid)(await new NpgsqlCommand("SELECT id FROM warehouse.branches WHERE code = 'EA'", conn).ExecuteScalarAsync())!;
+            await new NpgsqlCommand($"SELECT set_config('minv.branch_ids', '{ea}', false)", conn).ExecuteNonQueryAsync();
+            var onlyEa = await Scalar("SELECT count(*) FROM inventory.stock_movements");
+            Assert.True(all > onlyEa && onlyEa > 0, $"todas {all}, El Alto {onlyEa}");
+            Assert.Equal(0, await Scalar($"SELECT count(*) FROM inventory.stock_movements WHERE branch_id <> '{ea}'"));
+            Assert.Equal(3, await Scalar("SELECT count(*) FROM warehouse.branches"));   // el directorio es de la empresa
+            Assert.True(await Scalar("SELECT count(*) FROM inventory.stock_transfers") > 0);   // las que salen o llegan a El Alto
+            // Escribir en otra sucursal lo rechaza la política restrictiva (WITH CHECK)
+            var cm = (Guid)(await new NpgsqlCommand($"SELECT branch_id FROM warehouse.warehouses WHERE code = 'ALM01'", conn).ExecuteScalarAsync())!;
+            var error = await Assert.ThrowsAsync<PostgresException>(async () => await new NpgsqlCommand(
+                $"UPDATE sales.pos_registers SET name = name WHERE branch_id = '{ea}'; INSERT INTO warehouse.zones (id, tenant_id, branch_id, warehouse_id, code, name) " +
+                $"SELECT gen_random_uuid(), '{tenant}', '{cm}', id, 'ZX', 'Zona ajena' FROM warehouse.warehouses WHERE code = 'ALM01'", conn).ExecuteNonQueryAsync());
+            Assert.Equal("42501", error.SqlState);
+            // La API Key solo se puede resolver con la función SECURITY DEFINER (antes de conocer la empresa)
+            await new NpgsqlCommand("SELECT set_config('minv.tenant_id', '', false)", conn).ExecuteNonQueryAsync();
+            Assert.Equal(0, await Scalar("SELECT count(*) FROM integration.api_keys"));
+            var prefix = MINV.Application.Integration.ApiKeyTokens.PrefixOf(seed.ApiKeyToken)!;
+            Assert.Equal(1, await Scalar($"SELECT count(*) FROM integration.resolve_api_key('{prefix}')"));
+
+            // El arranque del servidor acepta este rol y el servidor completo funciona con él (login, alcance, consultas)
+            var server = new ServiceCollection();
+            server.AddMinvApplication();
+            server.AddMinvInfrastructure(limited);
+            await using var sp = server.BuildServiceProvider();
+            await MINV.Infrastructure.Hosting.ServerHosting.VerifyDatabaseAsync(sp);
+            using var scope = sp.CreateScope();
+            var principal = await scope.ServiceProvider.GetRequiredService<MINV.Infrastructure.Integration.ApiKeyAuthenticator>()
+                .AuthenticateAsync(seed.ApiKeyToken, default);
+            Assert.NotNull(principal);
+            var stock = await scope.ServiceProvider.GetRequiredService<IMediator>().Send(new MINV.Application.Integration.GetApiStockQuery(PageSize: 500));
+            Assert.All(stock.Items, i => Assert.Equal("CM", i.BranchCode));
+        }
+        finally
+        {
+            NpgsqlConnection.ClearAllPools();
+            await using var owner = new NpgsqlConnection(pg.ConnectionString);
+            await owner.OpenAsync();
+            await using var cmd = new NpgsqlCommand($"DROP OWNED BY {role}; DROP ROLE IF EXISTS {role};", owner);
+            await cmd.ExecuteNonQueryAsync();
+        }
+    }
+
+    /// <summary>V4 · El arranque del servidor rechaza un rol que puede saltarse la seguridad por filas (el dueño).</summary>
+    [PostgresFact]
+    public async Task El_servidor_no_arranca_con_un_rol_que_salta_la_seguridad_por_filas()
+    {
+        await using var provider = pg.Services();
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => MINV.Infrastructure.Hosting.ServerHosting.VerifyDatabaseAsync(provider));
+        Assert.Contains("seguridad por filas", error.Message, StringComparison.Ordinal);
     }
 }

@@ -54,12 +54,28 @@ public sealed class InventoryLookups(IMinvDbContext db)
                ?? throw new NotFoundException($"El almacén {c} no existe.");
     }
 
-    /// <summary>Almacén indicado o, si no se indica, el almacén por defecto de la empresa (el primero si no hay).</summary>
-    public async Task<Warehouse> WarehouseAsync(string? code, TenantConfig config, CancellationToken ct) =>
-        code is { Length: > 0 }
-            ? await WarehouseByCodeAsync(code, ct)
-            : await db.Set<Warehouse>().Where(w => config.DefaultWarehouseId == null || w.Id == config.DefaultWarehouseId)
-                  .OrderBy(w => w.Id).FirstOrDefaultAsync(ct) ?? throw new NotFoundException("La empresa no tiene almacenes.");
+    /// <summary>
+    /// Almacén indicado o, si no se indica, el de trabajo: V4 · el almacén de la sucursal ACTIVA de la sesión (el por
+    /// defecto de la empresa si es de esa sucursal); sin sucursal activa (procesos de plataforma), el por defecto de la
+    /// empresa. Las consultas ya están filtradas por las sucursales visibles.
+    /// </summary>
+    public async Task<Warehouse> WarehouseAsync(string? code, TenantConfig config, CancellationToken ct)
+    {
+        if (code is { Length: > 0 })
+        {
+            return await WarehouseByCodeAsync(code, ct);
+        }
+        var active = db.Branches.ActiveBranchId;
+        var candidates = db.Set<Warehouse>().Where(w => w.IsActive && (active == null || w.BranchId == active));
+        return await candidates.Where(w => w.Id == config.DefaultWarehouseId).FirstOrDefaultAsync(ct)
+               ?? await candidates.OrderBy(w => w.Code).FirstOrDefaultAsync(ct)
+               ?? throw new NotFoundException(active is null ? "La empresa no tiene almacenes." : "La sucursal activa no tiene almacenes.");
+    }
+
+    /// <summary>Sucursal de un almacén.</summary>
+    public async Task<Guid> BranchOfWarehouseAsync(Guid warehouseId, CancellationToken ct) =>
+        db.Set<Warehouse>().Local.FirstOrDefault(w => w.Id == warehouseId)?.BranchId
+        ?? await db.Set<Warehouse>().Where(w => w.Id == warehouseId).Select(w => w.BranchId).FirstAsync(ct);
 
     /// <summary>Posiciones de un almacén (posición › nivel › estantería › pasillo › zona › almacén), para filtrar en SQL.</summary>
     public IQueryable<Guid> BinIdsOf(Guid warehouseId) =>
@@ -89,15 +105,18 @@ public sealed class InventoryLookups(IMinvDbContext db)
         return batch;
     }
 
-    /// <summary>Existencia (posición + lote); si no existe se abre vacía.</summary>
+    /// <summary>Existencia (posición + lote); si no existe se abre vacía (en la sucursal de la posición).</summary>
     public async Task<(StockLevel Level, bool IsNew)> StockLevelAsync(Guid tenantId, Guid binId, Guid batchId, CancellationToken ct)
     {
-        var level = await db.Set<StockLevel>().FirstOrDefaultAsync(l => l.BinId == binId && l.BatchId == batchId, ct);
+        var level = db.Set<StockLevel>().Local.FirstOrDefault(l => l.BinId == binId && l.BatchId == batchId)
+                    ?? await db.Set<StockLevel>().FirstOrDefaultAsync(l => l.BinId == binId && l.BatchId == batchId, ct);
         if (level is not null)
         {
             return (level, false);
         }
-        level = StockLevel.Open(tenantId, binId, batchId);
+        var branchId = db.Set<Bin>().Local.FirstOrDefault(b => b.Id == binId)?.BranchId
+                       ?? await db.Set<Bin>().Where(b => b.Id == binId).Select(b => b.BranchId).FirstAsync(ct);
+        level = StockLevel.Open(tenantId, branchId, binId, batchId);
         db.Set<StockLevel>().Add(level);
         return (level, true);
     }

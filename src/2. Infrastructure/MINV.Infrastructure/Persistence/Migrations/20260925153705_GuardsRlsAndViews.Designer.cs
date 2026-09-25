@@ -11,7 +11,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 namespace MINV.Infrastructure.Persistence.Migrations
 {
-    [DbContext(typeof(MINVDbContext))]
+    [DbContext(typeof(MinvWriteDbContext))]
     [Migration("20260925153705_GuardsRlsAndViews")]
     partial class GuardsRlsAndViews
     {

@@ -36,7 +36,7 @@ public sealed class OpenPhysicalCountHandler(IMinvDbContext db, IClock clock)
             "count.already_open", $"Ya hay una toma física abierta en {warehouse.Code}.");
         var prefix = PhysicalCount.NumberFor(date, 1);
         var sameDay = await db.Set<PhysicalCount>().CountAsync(c => c.Number.StartsWith(prefix), ct);
-        var count = PhysicalCount.Open(warehouse.TenantId, warehouse.Id, date, sameDay + 1, request.Notes);
+        var count = PhysicalCount.Open(warehouse.TenantId, warehouse.BranchId, warehouse.Id, date, sameDay + 1, request.Notes);
         db.Set<PhysicalCount>().Add(count);
         await db.SaveChangesAsync(ct);
         return new OpenPhysicalCountResult(count.Id, count.Number);

@@ -15,6 +15,12 @@ public sealed class ClientSettings
 
     public string? Email { get; set; }
 
+    /// <summary>V4 · «local» (PostgreSQL directo) o «nube» (servidor M-INV).</summary>
+    public string ConnectionMode { get; set; } = "local";
+
+    /// <summary>V4 · Dirección del servidor M-INV en la nube (https).</summary>
+    public string? ServerUrl { get; set; }
+
     public bool Remember { get; set; } = true;
 
     /// <summary>«sistema», «claro» u «oscuro».</summary>

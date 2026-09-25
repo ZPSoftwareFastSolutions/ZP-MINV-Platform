@@ -33,7 +33,7 @@ public sealed class DemoState
 /// Prepara el modo demostración: migra el libro colaborativo de la V2.1 a la base en memoria con el mismo importador
 /// que <c>minv import-v21</c> (reglas del dominio, poka-yoke y paridad incluidos) y habilita el ingreso de sus usuarios.
 /// </summary>
-public sealed class DemoWorkspace(MINVDbContext db, V21Importer importer, DemoClock clock, IPasswordHasher hasher, DemoState state)
+public sealed class DemoWorkspace(MinvWriteDbContext db, V21Importer importer, DemoClock clock, IPasswordHasher hasher, DemoState state)
 {
     public const string TenantCode = "DEMO";
     public const string AdminEmail = "admin@distribuidorademo.example";

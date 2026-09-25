@@ -17,6 +17,7 @@ namespace MINV.Infrastructure;
 public static class DependencyInjection
 {
     public const string ConnectionStringVariable = "MINV_DB";
+    public const string ReadConnectionStringVariable = "MINV_DB_READ";
     public const string DefaultConnectionString =
         "Host=localhost;Port=5432;Database=minv;Username=minv_app;Password=minv-dev;Include Error Detail=true";
 
@@ -26,6 +27,16 @@ public static class DependencyInjection
     {
         services.TryAddSingleton<IClock, SystemClock>();   // los datos de prueba registran antes un reloj simulado
         services.AddScoped<TenantSessionInterceptor>();
+        // V4 · Claves maestras de integración: el servidor en la nube y el gateway las reciben por variable de entorno
+        var keys = Environment.GetEnvironmentVariable(AesGcmSecretProtector.KeysVariable);
+        services.TryAddSingleton<ISecretProtector>(string.IsNullOrWhiteSpace(keys)
+            ? new UnconfiguredSecretProtector()
+            : AesGcmSecretProtector.FromConfiguration(keys));
+        // V4 · Modelo de lectura (OLAP): puede apuntar a una réplica de lectura (MINV_DB_READ); por defecto, la misma base
+        var readConnection = Environment.GetEnvironmentVariable(ReadConnectionStringVariable) is { Length: > 0 } replica ? replica : connectionString;
+        services.AddDbContextFactory<MinvReadDbContext>((sp, options) => Configure(options, readConnection)
+            .AddInterceptors(sp.GetRequiredService<TenantSessionInterceptor>()), ServiceLifetime.Scoped);
+        services.AddScoped(sp => sp.GetRequiredService<IDbContextFactory<MinvReadDbContext>>().CreateDbContext());
         return services.AddMinvPersistence((sp, options) => Configure(options, connectionString)
             .AddInterceptors(sp.GetRequiredService<TenantSessionInterceptor>()));
     }
@@ -43,6 +54,7 @@ public static class DependencyInjection
         services.AddSingleton<DemoState>();
         services.AddSingleton<IClock>(sp => sp.GetRequiredService<DemoClock>());
         services.AddScoped<DemoWorkspace>();
+        services.TryAddSingleton<ISecretProtector>(AesGcmSecretProtector.Ephemeral());
         return services.AddMinvPersistence((_, options) => ConfigureInMemory(options, name, root));
     }
 
@@ -51,15 +63,19 @@ public static class DependencyInjection
     {
         services.AddScoped<ITenantContext, TenantContext>();
         services.AddScoped<ICurrentUser, CurrentUser>();
+        services.AddScoped<IRequestOrigin, RequestOrigin>();
+        services.AddScoped<Integration.ApiKeyAuthenticator>();
+        services.AddScoped<Integration.CloudSessionAuthenticator>();
+        services.AddScoped<IReportingReader, ReportingReader>();
         services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
         services.AddScoped<MinvSaveChangesInterceptor>();
-        services.AddDbContextFactory<MINVDbContext>((sp, options) =>
+        services.AddDbContextFactory<MinvWriteDbContext>((sp, options) =>
         {
             provider(sp, options);
             options.AddInterceptors(sp.GetRequiredService<MinvSaveChangesInterceptor>());
         }, ServiceLifetime.Scoped);
-        services.AddScoped(sp => sp.GetRequiredService<IDbContextFactory<MINVDbContext>>().CreateDbContext());
-        services.AddScoped<IMinvDbContext>(sp => sp.GetRequiredService<MINVDbContext>());
+        services.AddScoped(sp => sp.GetRequiredService<IDbContextFactory<MinvWriteDbContext>>().CreateDbContext());
+        services.AddScoped<IMinvDbContext>(sp => sp.GetRequiredService<MinvWriteDbContext>());
         services.AddScoped<ILicenseService, LicenseService>();
         services.AddScoped<IAuditTrail, AuditTrail>();
         services.AddScoped<TenantProvisioner>();
@@ -67,6 +83,12 @@ public static class DependencyInjection
         services.AddTransient<Seeding.LocalDataSeeder>();
         return services;
     }
+
+    /// <summary>V4 · Despachador de webhooks (API Gateway): cliente HTTP protegido contra SSRF y despachador por lotes.
+    /// <paramref name="allowPrivateTargets"/> solo para pruebas locales (webhooks en localhost).</summary>
+    public static IServiceCollection AddMinvWebhookDispatcher(this IServiceCollection services, bool allowPrivateTargets = false) =>
+        services.AddSingleton(sp => new Integration.WebhookDispatcher(sp.GetRequiredService<IServiceScopeFactory>(),
+            Integration.SafeWebhookHttp.Create(allowPrivateTargets), sp.GetRequiredService<IClock>()));
 
     internal static DbContextOptionsBuilder Configure(DbContextOptionsBuilder options, string connectionString) =>
         options.UseNpgsql(connectionString, npgsql => npgsql.MigrationsHistoryTable("__ef_migrations_history", Schemas.Iam));
@@ -79,14 +101,14 @@ public static class DependencyInjection
 
 /// <summary>Fábrica de diseño para <c>dotnet ef</c> (migraciones y script SQL). Cadena: variable MINV_DB o la de
 /// desarrollo.</summary>
-public sealed class MINVDbContextDesignTimeFactory : IDesignTimeDbContextFactory<MINVDbContext>
+public sealed class MinvWriteDbContextDesignTimeFactory : IDesignTimeDbContextFactory<MinvWriteDbContext>
 {
-    public MINVDbContext CreateDbContext(string[] args)
+    public MinvWriteDbContext CreateDbContext(string[] args)
     {
         var cs = Environment.GetEnvironmentVariable(DependencyInjection.ConnectionStringVariable)
                  ?? DependencyInjection.DefaultConnectionString;
-        var options = new DbContextOptionsBuilder<MINVDbContext>();
+        var options = new DbContextOptionsBuilder<MinvWriteDbContext>();
         DependencyInjection.Configure(options, cs);
-        return new MINVDbContext(options.Options, new TenantContext());
+        return new MinvWriteDbContext(options.Options, new TenantContext());
     }
 }

@@ -88,12 +88,16 @@ public sealed record DemoUserOption(string Email, string Name, string RoleCode, 
 
 /// <summary>
 /// Inicio de sesión: empresa, correo y contraseña (la contraseña no se enlaza: la vista la entrega solo al ingresar,
-/// regla A-09). Muestra el estado de la base de datos y permite entrar a la demostración con los datos de la V2.1.
+/// regla A-09). V4: elige la conexión (base local por PostgreSQL o servidor M-INV en la nube), muestra su estado y
+/// permite entrar a la demostración con los datos de la V2.1.
 /// </summary>
 public sealed class LoginViewModel : ObservableObject
 {
     private readonly ClientHost _host;
     private readonly ClientSettings _settings;
+    private bool _cloud;
+    private string _serverUrl;
+    private ServerStatus? _server;
     private string _tenantCode;
     private string _email;
     private bool _remember;
@@ -115,6 +119,8 @@ public sealed class LoginViewModel : ObservableObject
         _remember = settings.Remember;
         _tenantCode = (settings.Remember ? settings.TenantCode : null) ?? host.DefaultTenantCode;
         _email = (settings.Remember ? settings.Email : null) ?? string.Empty;
+        _cloud = settings.ConnectionMode == "nube";
+        _serverUrl = settings.ServerUrl ?? host.Configuration["Client:ServerUrl"] ?? "http://localhost:5080";
         RetryDb = new AsyncRelayCommand(CheckDbAsync);
         OpenDemo = new AsyncRelayCommand(OpenDemoAsync);
         CloseDemo = new RelayCommand(() => IsDemoOpen = false);
@@ -165,6 +171,33 @@ public sealed class LoginViewModel : ObservableObject
         set => Set(ref _capsLock, value);
     }
 
+    /// <summary>V4 · Conexión por el servidor M-INV en la nube (en lugar de PostgreSQL directo).</summary>
+    public bool IsCloud
+    {
+        get => _cloud;
+        set
+        {
+            if (Set(ref _cloud, value))
+            {
+                OnPropertiesChanged(nameof(IsLocal), nameof(DbText), nameof(DbDetail), nameof(DbReady), nameof(DbProblem));
+                _ = CheckDbAsync();
+            }
+        }
+    }
+
+    public bool IsLocal
+    {
+        get => !_cloud;
+        set => IsCloud = !value;
+    }
+
+    /// <summary>V4 · Dirección del servidor en la nube (https; http solo en este equipo).</summary>
+    public string ServerUrl
+    {
+        get => _serverUrl;
+        set => Set(ref _serverUrl, (value ?? "").Trim());
+    }
+
     public DatabaseStatus? Db
     {
         get => _db;
@@ -183,13 +216,17 @@ public sealed class LoginViewModel : ObservableObject
         private set => Set(ref _checkingDb, value);
     }
 
-    public bool DbReady => _db?.IsReady == true;
+    public bool DbReady => _cloud ? _server?.IsReady == true : _db?.IsReady == true;
 
-    public bool DbProblem => _db is not null && !_db.IsReady;
+    public bool DbProblem => _cloud ? _server is not null && !_server.IsReady : _db is not null && !_db.IsReady;
 
-    public string DbText => _db is null ? "Comprobando la base de datos…" : _db.IsReady ? $"PostgreSQL {_db.Version} conectado" : "Sin conexión con la base de datos";
+    public string DbText => _cloud
+        ? _server is null ? "Comprobando el servidor…" : _server.IsReady ? $"Servidor M-INV {_server.Version} disponible" : "Sin conexión con el servidor"
+        : _db is null ? "Comprobando la base de datos…" : _db.IsReady ? $"PostgreSQL {_db.Version} conectado" : "Sin conexión con la base de datos";
 
-    public string DbDetail => _db is null ? "" : _db.IsReady ? $"{_db.Server} · {_db.Database}" : _db.Message;
+    public string DbDetail => _cloud
+        ? _server is null ? "" : _server.IsReady ? $"{_server.Server} · conexión cifrada y sin credenciales de base en este equipo" : _server.Message
+        : _db is null ? "" : _db.IsReady ? $"{_db.Server} · {_db.Database}" : _db.Message;
 
     // -------------------------------------------------------------------------------------------- demostración
     public bool IsDemoOpen
@@ -244,9 +281,19 @@ public sealed class LoginViewModel : ObservableObject
     {
         IsCheckingDb = true;
         Db = null;
+        _server = null;
+        OnPropertiesChanged(nameof(DbText), nameof(DbDetail), nameof(DbReady), nameof(DbProblem));
         try
         {
-            Db = await _host.ProbeAsync();
+            if (_cloud)
+            {
+                _server = await ClientHost.ProbeCloudAsync(ServerUrl);
+                OnPropertiesChanged(nameof(DbText), nameof(DbDetail), nameof(DbReady), nameof(DbProblem));
+            }
+            else
+            {
+                Db = await _host.ProbeAsync();
+            }
         }
         finally
         {
@@ -264,10 +311,14 @@ public sealed class LoginViewModel : ObservableObject
         Error = null;
         try
         {
-            Result = await _host.SignInAsync(TenantCode.Trim(), Email.Trim(), password);
+            Result = _cloud
+                ? await _host.SignInCloudAsync(ServerUrl, TenantCode.Trim(), Email.Trim(), password)
+                : await _host.SignInAsync(TenantCode.Trim(), Email.Trim(), password);
             _settings.Remember = Remember;
             _settings.TenantCode = Remember ? TenantCode.Trim() : null;
             _settings.Email = Remember ? Email.Trim() : null;
+            _settings.ConnectionMode = _cloud ? "nube" : "local";
+            _settings.ServerUrl = ServerUrl;
             _settings.Save();
             SignedIn?.Invoke(this, EventArgs.Empty);
             return true;
@@ -275,6 +326,10 @@ public sealed class LoginViewModel : ObservableObject
         catch (Exception ex) when (ex is AuthenticationFailedException or RequestValidationException)
         {
             Error = ex is RequestValidationException v ? string.Join(" ", v.Errors) : ex.Message;
+        }
+        catch (Exception ex) when (_cloud)
+        {
+            Error = "No se pudo ingresar por el servidor en la nube: " + AppServices.Describe(ex);
         }
         catch (Exception ex)
         {
@@ -351,6 +406,15 @@ public sealed class LoginViewModel : ObservableObject
 
     /// <summary>Solo para las capturas automáticas: fija el estado de la base sin conectarse.</summary>
     internal void SetDbStatus(DatabaseStatus status) => Db = status;
+
+    /// <summary>Solo para las capturas automáticas: modo nube con un estado del servidor fijo (sin conectarse).</summary>
+    internal void ShowCloud(string server, ServerStatus status)
+    {
+        _cloud = true;
+        _serverUrl = server;
+        _server = status;
+        OnPropertiesChanged(nameof(IsCloud), nameof(IsLocal), nameof(ServerUrl), nameof(DbText), nameof(DbDetail), nameof(DbReady), nameof(DbProblem));
+    }
 }
 
 /// <summary>Cambio de contraseña (obligatorio si el administrador la asignó con «debe cambiarla»).</summary>

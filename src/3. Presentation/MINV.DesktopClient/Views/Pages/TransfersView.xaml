@@ -1,0 +1,314 @@
+<UserControl x:Class="MINV.DesktopClient.Views.Pages.TransfersView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:MINV.DesktopClient.Controls"
+             xmlns:vm="clr-namespace:MINV.DesktopClient.ViewModels"
+             xmlns:t="clr-namespace:MINV.Application.Inventory.Transfers;assembly=MINV.Application"
+             xmlns:cat="clr-namespace:MINV.Application.Catalog;assembly=MINV.Application">
+    <!-- V4 · Transferencias entre sucursales: lista, detalle con manifiesto por lote y bitácora, alta y recepción -->
+    <Grid Margin="28,6,28,24">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <DockPanel Grid.ColumnSpan="2" Margin="0,0,0,14">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button Style="{StaticResource PrimaryButton}" Content="Nueva transferencia" c:Ui.Icon="{x:Static c:Glyphs.Add}" Command="{Binding New}"
+                        Margin="0,0,8,0" Visibility="{Binding CanManage, Converter={StaticResource Visible}}" c:Ui.IsBusy="{Binding New.IsRunning}" />
+                <Button Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Refresh}" Command="{Binding Refresh}" ToolTip="Actualizar (F5)" />
+            </StackPanel>
+            <StackPanel>
+                <TextBlock Text="{Binding Title}" Style="{StaticResource H1}" />
+                <TextBlock Text="{Binding Subtitle}" Style="{StaticResource Caption}" FontSize="13" Margin="0,4,0,0" />
+            </StackPanel>
+        </DockPanel>
+
+        <UniformGrid Grid.Row="1" Grid.ColumnSpan="2" Columns="4" Margin="-6,0,-6,10">
+            <ContentControl Content="{Binding PendingKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+            <ContentControl Content="{Binding TransitKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+            <ContentControl Content="{Binding ReceivedKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+            <ContentControl Content="{Binding ShortageKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+        </UniformGrid>
+
+        <DockPanel Grid.Row="2" Margin="0,0,0,12">
+            <TextBlock DockPanel.Dock="Right" Text="{Binding Summary}" Style="{StaticResource Caption}" VerticalAlignment="Center" />
+            <ComboBox Width="240" ItemsSource="{Binding Statuses}" SelectedItem="{Binding Status}" ToolTip="Estado" HorizontalAlignment="Left" />
+        </DockPanel>
+
+        <Border Grid.Row="3" Style="{StaticResource CardFlat}" Padding="4,2,4,4">
+            <Grid>
+                <DataGrid ItemsSource="{Binding Rows}" SelectedItem="{Binding Selected}" RowHeight="54">
+                    <DataGrid.Columns>
+                        <DataGridTemplateColumn Header="NÚMERO" Width="136" SortMemberPath="Number" CanUserSort="True">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:TransferItem}">
+                                    <Border Style="{StaticResource Pill}" Background="{DynamicResource BrandSoft}">
+                                        <TextBlock Text="{Binding Number}" Style="{StaticResource Mono}" Foreground="{DynamicResource BrandText}" FontWeight="SemiBold" />
+                                    </Border>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTemplateColumn Header="RUTA" Width="*" MinWidth="170" SortMemberPath="Route" CanUserSort="True">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:TransferItem}">
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Route}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Style="{StaticResource Caption}" FontSize="11.5" TextTrimming="CharacterEllipsis">
+                                            <Run Text="{Binding WarehousesText, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding LinesText, Mode=OneWay}" />
+                                            <Run Text=" · " /><Run Text="{Binding DatesText, Mode=OneWay}" />
+                                        </TextBlock>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTemplateColumn Header="VALOR" Width="118" SortMemberPath="Value" CanUserSort="True" HeaderStyle="{StaticResource HeaderRight}">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:TransferItem}">
+                                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Right">
+                                        <TextBlock Text="{Binding ValueText}" HorizontalAlignment="Right" />
+                                        <TextBlock Text="{Binding ShortageText}" FontSize="11" Foreground="{DynamicResource Danger}" HorizontalAlignment="Right"
+                                                   Visibility="{Binding ShortageText, Converter={StaticResource HasValue}}" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTemplateColumn Header="ESTADO" Width="116" SortMemberPath="Status" CanUserSort="True">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:TransferItem}">
+                                    <Border Style="{StaticResource StatusPill}" c:Ui.BrushKey="{Binding StatusSoftBrush}">
+                                        <TextBlock Text="{Binding StatusText}" FontSize="11" FontWeight="SemiBold" c:Ui.BrushKey="{Binding StatusBrush}" />
+                                    </Border>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+                <ContentControl Style="{StaticResource EmptyState}" Tag="{x:Static c:Glyphs.Transfer}" Visibility="{Binding IsEmpty, Converter={StaticResource Visible}}">
+                    <StackPanel>
+                        <TextBlock Text="No hay transferencias con ese filtro" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" HorizontalAlignment="Center" />
+                        <TextBlock Text="Solicite mercadería de otra sucursal con «Nueva transferencia»." Style="{StaticResource Caption}" HorizontalAlignment="Center"
+                                   Margin="0,4,0,0" />
+                    </StackPanel>
+                </ContentControl>
+            </Grid>
+        </Border>
+
+        <!-- Detalle -->
+        <Border Grid.Row="2" Grid.RowSpan="2" Grid.Column="1" Style="{StaticResource EditorPanel}" Width="400">
+            <Border.Visibility>
+                <MultiBinding Converter="{StaticResource DetailVisibility}">
+                    <Binding Path="HasSelection" />
+                    <Binding Path="IsEditing" />
+                </MultiBinding>
+            </Border.Visibility>
+            <DockPanel Margin="20,16">
+                <StackPanel DockPanel.Dock="Top">
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Close}" Click="OnCloseDetail" ToolTip="Cerrar" />
+                        <TextBlock Text="{Binding Selected.Number}" Style="{StaticResource H2}" VerticalAlignment="Center" />
+                    </DockPanel>
+                    <TextBlock Text="{Binding Selected.RouteLong}" FontWeight="SemiBold" Margin="0,6,0,0" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding Selected.WarehousesText}" Style="{StaticResource Caption}" />
+                    <Border Style="{StaticResource StatusPill}" c:Ui.BrushKey="{Binding Selected.StatusSoftBrush}" Margin="0,8,0,0">
+                        <TextBlock Text="{Binding Selected.StatusText}" FontSize="11" FontWeight="SemiBold" c:Ui.BrushKey="{Binding Selected.StatusBrush}" />
+                    </Border>
+                    <TextBlock Text="{Binding Selected.Row.Notes}" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,8,0,0"
+                               Visibility="{Binding Selected.Row.Notes, Converter={StaticResource HasValue}}" />
+                </StackPanel>
+                <StackPanel DockPanel.Dock="Bottom">
+                    <Border Height="1" Background="{DynamicResource Border}" Margin="0,10" />
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Right" Text="{Binding Selected.ValueText}" FontSize="22" FontWeight="Bold" />
+                        <TextBlock Text="VALOR AL COSTO DEL ORIGEN" Style="{StaticResource Overline}" VerticalAlignment="Center" />
+                    </DockPanel>
+                    <UniformGrid Columns="3" Margin="0,14,0,0" Visibility="{Binding CanManage, Converter={StaticResource Visible}}">
+                        <Button Style="{StaticResource PrimaryButton}" Content="Despachar" c:Ui.Icon="{x:Static c:Glyphs.Transfer}" Command="{Binding Dispatch}"
+                                Margin="0,0,4,0" c:Ui.IsBusy="{Binding Dispatch.IsRunning}" />
+                        <Button Style="{StaticResource SoftButton}" Content="Recibir" c:Ui.Icon="{x:Static c:Glyphs.Box}" Command="{Binding Receive}" Margin="2,0" />
+                        <Button Content="Anular" c:Ui.Icon="{x:Static c:Glyphs.Error}" Command="{Binding Cancel}" Margin="4,0,0,0" />
+                    </UniformGrid>
+                </StackPanel>
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,14,0,0">
+                    <StackPanel>
+                        <TextBlock Text="PRODUCTOS" Style="{StaticResource Overline}" />
+                        <ItemsControl ItemsSource="{Binding Detail.Lines}" Focusable="False">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type t:TransferLineRow}">
+                                    <DockPanel Margin="0,6">
+                                        <TextBlock DockPanel.Dock="Right" FontWeight="SemiBold">
+                                            <Run Text="{Binding Quantity, Mode=OneWay, StringFormat={}{0:0.###}}" /> <Run Text="{Binding Unit, Mode=OneWay}" />
+                                        </TextBlock>
+                                        <StackPanel Margin="0,0,10,0">
+                                            <TextBlock Text="{Binding Name}" TextWrapping="Wrap" Foreground="{DynamicResource TextPrimary}" />
+                                            <TextBlock Style="{StaticResource Caption}" FontSize="11.5" TextWrapping="Wrap">
+                                                <Run Text="{Binding Sku, Mode=OneWay}" />
+                                                <Run Text="{Binding Lots.Count, Mode=OneWay, StringFormat=' · lotes: {0}'}" />
+                                            </TextBlock>
+                                            <ItemsControl ItemsSource="{Binding Lots}" Focusable="False">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock Text="{Binding}" Style="{StaticResource Mono}" FontSize="11" Foreground="{DynamicResource TextMuted}" />
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                            <TextBlock FontSize="11.5" Foreground="{DynamicResource Danger}" TextWrapping="Wrap"
+                                                       Visibility="{Binding ShortageReason, Converter={StaticResource HasValue}}">
+                                                <Run Text="Faltante" /> <Run Text="{Binding Shortage, Mode=OneWay, StringFormat={}{0:0.###}}" />
+                                                <Run Text="·" /> <Run Text="{Binding ShortageReason, Mode=OneWay}" />
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </DockPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Text="BITÁCORA" Style="{StaticResource Overline}" Margin="0,14,0,4" />
+                        <ItemsControl ItemsSource="{Binding Detail.History}" Focusable="False">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type t:TransferHistoryRow}">
+                                    <DockPanel Margin="0,4">
+                                        <Ellipse DockPanel.Dock="Left" Width="8" Height="8" Fill="{DynamicResource Brand}" VerticalAlignment="Top" Margin="0,5,10,0" />
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Detail}" TextWrapping="Wrap" Foreground="{DynamicResource TextPrimary}" />
+                                            <TextBlock Style="{StaticResource Caption}" FontSize="11.5">
+                                                <Run Text="{Binding OccurredAt, Mode=OneWay, StringFormat={}{0:dd/MM/yyyy HH:mm}}" /><Run Text=" · " /><Run Text="{Binding User, Mode=OneWay}" />
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </DockPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
+
+        <!-- Transferencia nueva -->
+        <Border Grid.Row="2" Grid.RowSpan="2" Grid.Column="1" Style="{StaticResource EditorPanel}" Width="480"
+                Visibility="{Binding DataContext.IsCreating, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource Visible}}" DataContext="{Binding Editor}">
+            <DockPanel>
+                <DockPanel DockPanel.Dock="Top" Margin="20,16,12,8">
+                    <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Close}" Command="{Binding Cancel}" />
+                    <TextBlock Text="Nueva transferencia" Style="{StaticResource H2}" VerticalAlignment="Center" />
+                </DockPanel>
+                <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0" Padding="20,12">
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Style="{StaticResource PrimaryButton}" Content="Solicitar" Command="{Binding Save}" MinWidth="150"
+                                c:Ui.IsBusy="{Binding Save.IsRunning}" c:Ui.Icon="{x:Static c:Glyphs.Save}" />
+                        <TextBlock Text="{Binding LinesText}" Style="{StaticResource Caption}" VerticalAlignment="Center" />
+                    </DockPanel>
+                </Border>
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="20,4,20,16">
+                        <TextBlock Text="Sale de (almacén de su sucursal)" Style="{StaticResource FieldLabel}" />
+                        <ComboBox ItemsSource="{Binding Origins}" SelectedItem="{Binding From}" />
+                        <TextBlock Text="Llega a (almacén de destino)" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
+                        <ComboBox ItemsSource="{Binding Destinations}" SelectedItem="{Binding To}" />
+                        <TextBlock Text="Notas" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
+                        <TextBox Text="{Binding Notes, UpdateSourceTrigger=PropertyChanged}" MaxLength="250" c:Ui.Placeholder="Motivo, urgencia, transporte…" />
+                        <TextBlock Text="Agregar producto" Style="{StaticResource FieldLabel}" Margin="0,16,0,6" />
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Style="{StaticResource SoftButton}" Content="Agregar" c:Ui.Icon="{x:Static c:Glyphs.Add}" Command="{Binding AddLine}"
+                                    Margin="6,0,0,0" />
+                            <ComboBox ItemsSource="{Binding Products}" SelectedItem="{Binding Product}" IsTextSearchEnabled="True" TextSearch.TextPath="Name">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type cat:CatalogItem}">
+                                        <TextBlock>
+                                            <Run Text="{Binding Name, Mode=OneWay}" /> <Run Text="{Binding Sku, Mode=OneWay}" Foreground="{DynamicResource TextMuted}" />
+                                        </TextBlock>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                        </DockPanel>
+                        <ItemsControl ItemsSource="{Binding Lines}" Margin="0,12,0,0" Focusable="False">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:TransferDraftLine}">
+                                    <Border Style="{StaticResource Panel}" Padding="10" Margin="0,0,0,8">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="40" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <c:ProductThumb Width="40" Height="40" Source="{Binding Image}" CornerRadius="8" VerticalAlignment="Top" />
+                                            <StackPanel Grid.Column="1" Margin="10,0,6,0">
+                                                <TextBlock Text="{Binding Product.Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                                    <TextBox Width="90" Height="30" Text="{Binding Quantity, UpdateSourceTrigger=PropertyChanged}" ToolTip="Cantidad"
+                                                             TextAlignment="Right" />
+                                                    <TextBlock Text="{Binding Product.Unit}" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="6,0,0,0" />
+                                                </StackPanel>
+                                            </StackPanel>
+                                            <Button Grid.Column="2" Style="{StaticResource IconButton}" Width="28" Height="28" FontSize="12" Content="{x:Static c:Glyphs.Delete}"
+                                                    VerticalAlignment="Top" Foreground="{DynamicResource Danger}"
+                                                    Command="{Binding DataContext.RemoveLine, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}" />
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <Border Style="{StaticResource FormError}" Visibility="{Binding Error, Converter={StaticResource HasValue}}">
+                            <TextBlock Text="{Binding Error}" Foreground="{DynamicResource Danger}" TextWrapping="Wrap" />
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
+
+        <!-- Recepción en el destino -->
+        <Border Grid.Row="2" Grid.RowSpan="2" Grid.Column="1" Style="{StaticResource EditorPanel}" Width="480"
+                Visibility="{Binding DataContext.IsReceiving, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource Visible}}" DataContext="{Binding Receipt}">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Top" Margin="20,16,12,8">
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Close}" Command="{Binding Cancel}" />
+                        <TextBlock Text="{Binding Title}" Style="{StaticResource H2}" VerticalAlignment="Center" />
+                    </DockPanel>
+                    <TextBlock Text="{Binding RouteText}" Style="{StaticResource Caption}" Margin="0,4,0,0" />
+                    <TextBlock Text="Cuente lo que llegó. Si falta algo, indique el motivo: el faltante queda registrado como merma en tránsito (no se borra nada)."
+                               Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,8,0,0" />
+                </StackPanel>
+                <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0" Padding="20,12">
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Style="{StaticResource PrimaryButton}" Content="Confirmar recepción" Command="{Binding Save}" MinWidth="170"
+                                c:Ui.IsBusy="{Binding Save.IsRunning}" c:Ui.Icon="{x:Static c:Glyphs.CheckCircle}" />
+                        <Button Content="Cancelar" Command="{Binding Cancel}" HorizontalAlignment="Left" />
+                    </DockPanel>
+                </Border>
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="20,4,20,16">
+                        <ItemsControl ItemsSource="{Binding Lines}" Focusable="False">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:ReceiptLine}">
+                                    <Border Style="{StaticResource Panel}" Padding="10" Margin="0,0,0,8">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Line.Name}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding ShippedText}" Style="{StaticResource Caption}" />
+                                            <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                                <TextBlock Text="Llegó" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                                <TextBox Width="100" Height="30" Text="{Binding Received, UpdateSourceTrigger=PropertyChanged}" TextAlignment="Right" />
+                                                <TextBlock Text="{Binding Line.Unit}" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="6,0,0,0" />
+                                            </StackPanel>
+                                            <TextBox Text="{Binding Reason, UpdateSourceTrigger=PropertyChanged}" Margin="0,8,0,0" MaxLength="200"
+                                                     c:Ui.Placeholder="Motivo del faltante (obligatorio)"
+                                                     Visibility="{Binding HasShortage, Converter={StaticResource Visible}}" />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <Border Style="{StaticResource FormError}" Visibility="{Binding Error, Converter={StaticResource HasValue}}">
+                            <TextBlock Text="{Binding Error}" Foreground="{DynamicResource Danger}" TextWrapping="Wrap" />
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
+    </Grid>
+</UserControl>

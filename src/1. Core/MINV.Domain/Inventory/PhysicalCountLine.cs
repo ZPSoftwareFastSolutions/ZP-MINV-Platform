@@ -4,16 +4,20 @@ namespace MINV.Domain.Inventory;
 
 /// <summary>Conteo de una existencia dentro de una toma física.</summary>
 /// <remarks>Origen en la V2.1: tblConteo (Conteo, Sistema, Diferencia).</remarks>
-public sealed class PhysicalCountLine : Entity, IConcurrencyAware
+public sealed class PhysicalCountLine : Entity, IConcurrencyAware, IBranchScoped
 {
     private PhysicalCountLine()
     {
     }
 
-    internal PhysicalCountLine(Guid tenantId, Guid physicalCountId, Guid stockLevelId, decimal countedQuantity,
+    /// <summary>V4 · Sucursal dueña de la fila (redundancia controlada; la FK compuesta con el padre la mantiene coherente).</summary>
+    public Guid BranchId { get; private set; }
+
+    internal PhysicalCountLine(Guid tenantId, Guid branchId, Guid physicalCountId, Guid stockLevelId, decimal countedQuantity,
         Guid countedByUserId, DateTimeOffset countedAt)
         : base(tenantId)
     {
+        BranchId = Guard.NotEmpty(branchId, nameof(branchId));
         PhysicalCountId = Guard.NotEmpty(physicalCountId, nameof(physicalCountId));
         StockLevelId = Guard.NotEmpty(stockLevelId, nameof(stockLevelId));
         Recount(countedQuantity, countedByUserId, countedAt);

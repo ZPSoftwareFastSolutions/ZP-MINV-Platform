@@ -1,31 +1,37 @@
 -- =====================================================================================================================
--- M-INV V3 · Inicialización de la base de datos PostgreSQL (96 tablas, 7 esquemas, 5FN)
+-- M-INV V4 · Inicialización de la base de datos PostgreSQL (110 tablas, 8 esquemas + modelo de lectura, 5FN)
 -- Z&P Software Fast Solutions
 --
 -- ARCHIVO GENERADO por tools/build_v3.ps1 (cabecera + «dotnet ef migrations script --idempotent»). No lo edite a mano:
 -- cambie el modelo (src/2. Infrastructure/MINV.Infrastructure) y regenere. Es idempotente: se puede volver a ejecutar.
 --
--- Requisitos: PostgreSQL 15 o superior (se recomienda 16).
+-- Requisitos: PostgreSQL 15 o superior (se recomienda 16). En la nube: DigitalOcean, AWS RDS o Supabase (con PgBouncer
+-- use el modo SESIÓN o la conexión directa: la seguridad por filas usa variables de sesión).
 --
--- 1) Como superusuario (psql -U postgres), una sola vez:
---      CREATE ROLE minv_owner LOGIN PASSWORD '<clave del dueño>';
---      CREATE ROLE minv_app   LOGIN PASSWORD '<clave de la aplicación>';
+-- 1) Como superusuario o administrador (una sola vez):
+--      CREATE ROLE minv_owner  LOGIN PASSWORD '<clave del dueño>';
+--      CREATE ROLE minv_server LOGIN NOBYPASSRLS PASSWORD '<clave del servidor>';   -- V4: servidor en la nube y API Gateway
+--      CREATE ROLE minv_app    LOGIN NOBYPASSRLS PASSWORD '<clave de la aplicación>'; -- escritorio con conexión directa
 --      CREATE DATABASE minv OWNER minv_owner ENCODING 'UTF8' TEMPLATE template0;
--- 2) Como dueño, conectado a la base «minv»:
+--    (o bien: minv roles --clave-servidor … --clave-app … · tools\bd_nube.ps1 hace todo)
+-- 2) Como dueño, conectado a la base «minv» (los roles deben existir: la migración les otorga los privilegios):
 --      psql -U minv_owner -d minv -v ON_ERROR_STOP=1 -f scripts/db_init.sql
--- 3) La aplicación se conecta como minv_app (sujeto a Row Level Security; sin UPDATE/DELETE en los libros mayores):
---      MINV_DB = "Host=localhost;Port=5432;Database=minv;Username=minv_app;Password=<clave de la aplicación>"
+-- 3) Conexiones (siempre sujetas a Row Level Security por empresa y por sucursal):
+--      servidores: MINV_DB = "Host=…;Database=minv;Username=minv_server;Password=…;SSL Mode=VerifyFull"
+--      escritorio directo (base local): MINV_DB = "Host=localhost;Port=5432;Database=minv;Username=minv_app;Password=…"
 --
--- Contenido: esquemas iam, catalog, warehouse, inventory, purchasing, sales y accounting; tablas con PK, FK compuestas
--- (tenant_id, id), restricciones CHECK e índices únicos; catálogo de módulos comerciales; triggers append-only, un valor
--- por atributo y asientos cuadrados; Row Level Security por tenant; vistas v_stock_by_variant, v_conservation_breaches y
--- v_activity; permisos de minv_app.
+-- Contenido: esquemas iam, catalog, warehouse, inventory, purchasing, sales, accounting e integration; tablas con PK, FK
+-- compuestas (tenant_id, id) y (tenant_id, branch_id, id); restricciones CHECK e índices únicos; catálogo de módulos
+-- comerciales; triggers append-only, un valor por atributo y asientos cuadrados; Row Level Security por empresa y
+-- política restrictiva por sucursal; funciones SECURITY DEFINER para el servidor; esquema reporting (vistas
+-- materializadas + vistas filtradas); vistas v_stock_by_variant, v_conservation_breaches, v_transfer_breaches y
+-- v_activity; privilegios de minv_app y minv_server.
 -- =====================================================================================================================
 
 DO $$
 BEGIN
     IF current_setting('server_version_num')::int < 150000 THEN
-        RAISE EXCEPTION 'M-INV V3 requiere PostgreSQL 15 o superior (servidor: %)', current_setting('server_version');
+        RAISE EXCEPTION 'M-INV requiere PostgreSQL 15 o superior (servidor: %)', current_setting('server_version');
     END IF;
 END;
 $$;
@@ -4480,6 +4486,3711 @@ BEGIN
     IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925184331_ProductImages') THEN
     INSERT INTO iam.__ef_migrations_history ("MigrationId", "ProductVersion")
     VALUES ('20260925184331_ProductImages', '8.0.31');
+    END IF;
+END $EF$;
+COMMIT;
+
+START TRANSACTION;
+
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DO $$
+    BEGIN
+        IF EXISTS (SELECT 1 FROM inventory.stock_transfers) THEN
+            RAISE EXCEPTION 'M-INV V4: inventory.stock_transfers tiene filas de la V3 (no había caso de uso de transferencias): revíselas antes de migrar.';
+        END IF;
+    END;
+    $$;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE warehouse.aisles DROP CONSTRAINT fk_aisles_tenant_id_zone_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE accounting.average_cost_history DROP CONSTRAINT fk_average_cost_history_tenant_id_stock_movement_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE accounting.average_cost_history DROP CONSTRAINT fk_average_cost_history_tenant_id_warehouse_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE warehouse.bin_assignments DROP CONSTRAINT fk_bin_assignments_tenant_id_bin_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE warehouse.bins DROP CONSTRAINT fk_bins_tenant_id_shelf_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.cash_movements DROP CONSTRAINT fk_cash_movements_tenant_id_pos_session_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.goods_receipt_lines DROP CONSTRAINT fk_goods_receipt_lines_tenant_id_goods_receipt_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.goods_receipt_lines DROP CONSTRAINT fk_goods_receipt_lines_tenant_id_purchase_order_line_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.goods_receipt_lines DROP CONSTRAINT fk_goods_receipt_lines_tenant_id_stock_level_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.goods_receipt_lines DROP CONSTRAINT fk_goods_receipt_lines_tenant_id_stock_movement_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.goods_receipts DROP CONSTRAINT fk_goods_receipts_tenant_id_purchase_order_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.goods_receipts DROP CONSTRAINT fk_goods_receipts_tenant_id_warehouse_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.invoice_lines DROP CONSTRAINT fk_invoice_lines_tenant_id_invoice_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.invoice_lines DROP CONSTRAINT fk_invoice_lines_tenant_id_sales_order_line_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.invoices DROP CONSTRAINT fk_invoices_tenant_id_sales_order_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE accounting.journal_lines DROP CONSTRAINT fk_journal_lines_tenant_id_journal_entry_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.payments DROP CONSTRAINT fk_payments_tenant_id_invoice_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.payments DROP CONSTRAINT fk_payments_tenant_id_pos_session_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.physical_count_lines DROP CONSTRAINT fk_physical_count_lines_tenant_id_physical_count_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.physical_count_lines DROP CONSTRAINT fk_physical_count_lines_tenant_id_stock_level_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.physical_count_lines DROP CONSTRAINT fk_physical_count_lines_tenant_id_stock_movement_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.physical_counts DROP CONSTRAINT fk_physical_counts_tenant_id_warehouse_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.pos_registers DROP CONSTRAINT fk_pos_registers_tenant_id_warehouse_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.pos_sessions DROP CONSTRAINT fk_pos_sessions_tenant_id_pos_register_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE catalog.product_stock_policies DROP CONSTRAINT fk_product_stock_policies_tenant_id_warehouse_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.purchase_order_lines DROP CONSTRAINT fk_purchase_order_lines_tenant_id_purchase_order_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.purchase_orders DROP CONSTRAINT fk_purchase_orders_tenant_id_warehouse_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.purchase_return_lines DROP CONSTRAINT fk_purchase_return_lines_tenant_id_goods_receipt_line_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.purchase_return_lines DROP CONSTRAINT fk_purchase_return_lines_tenant_id_purchase_return_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.purchase_return_lines DROP CONSTRAINT fk_purchase_return_lines_tenant_id_stock_level_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.purchase_return_lines DROP CONSTRAINT fk_purchase_return_lines_tenant_id_stock_movement_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE warehouse.racks DROP CONSTRAINT fk_racks_tenant_id_aisle_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.sales_order_lines DROP CONSTRAINT fk_sales_order_lines_tenant_id_sales_order_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.sales_order_lines DROP CONSTRAINT fk_sales_order_lines_tenant_id_stock_movement_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.sales_orders DROP CONSTRAINT fk_sales_orders_tenant_id_pos_session_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.sales_orders DROP CONSTRAINT fk_sales_orders_tenant_id_warehouse_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE warehouse.shelves DROP CONSTRAINT fk_shelves_tenant_id_rack_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_adjustment_lines DROP CONSTRAINT fk_stock_adjustment_lines_tenant_id_stock_adjustment_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_adjustment_lines DROP CONSTRAINT fk_stock_adjustment_lines_tenant_id_stock_level_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_adjustment_lines DROP CONSTRAINT fk_stock_adjustment_lines_tenant_id_stock_movement_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_adjustments DROP CONSTRAINT fk_stock_adjustments_tenant_id_warehouse_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_levels DROP CONSTRAINT fk_stock_levels_tenant_id_bin_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_movements DROP CONSTRAINT fk_stock_movements_tenant_id_stock_level_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_reservations DROP CONSTRAINT fk_stock_reservations_tenant_id_pos_session_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_reservations DROP CONSTRAINT fk_stock_reservations_tenant_id_sales_order_line_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_reservations DROP CONSTRAINT fk_stock_reservations_tenant_id_stock_level_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_transfer_lines DROP CONSTRAINT fk_stock_transfer_lines_tenant_id_destination_stock_level_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_transfer_lines DROP CONSTRAINT fk_stock_transfer_lines_tenant_id_inbound_movement_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_transfer_lines DROP CONSTRAINT fk_stock_transfer_lines_tenant_id_outbound_movement_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_transfer_lines DROP CONSTRAINT fk_stock_transfer_lines_tenant_id_source_stock_level_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_transfer_lines DROP CONSTRAINT fk_stock_transfer_lines_tenant_id_stock_transfer_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_transfers DROP CONSTRAINT fk_stock_transfers_tenant_id_from_warehouse_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_transfers DROP CONSTRAINT fk_stock_transfers_tenant_id_to_warehouse_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.supplier_invoice_lines DROP CONSTRAINT fk_supplier_invoice_lines_tenant_id_goods_receipt_line_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.supplier_invoice_lines DROP CONSTRAINT fk_supplier_invoice_lines_tenant_id_supplier_invoice_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE warehouse.zones DROP CONSTRAINT fk_zones_tenant_id_warehouse_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX warehouse.ix_zones_tenant_id_warehouse_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX warehouse.ix_warehouses_tenant_id_branch_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX purchasing.ix_supplier_invoice_lines_tenant_id_goods_receipt_line_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX purchasing.ix_supplier_invoice_lines_tenant_id_supplier_invoice_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX inventory.ix_stock_transfers_tenant_id_from_warehouse_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX inventory.ix_stock_transfers_tenant_id_to_warehouse_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX inventory.ix_stock_transfer_lines_tenant_id_destination_stock_level_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX inventory.ix_stock_transfer_lines_tenant_id_inbound_movement_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX inventory.ix_stock_transfer_lines_tenant_id_outbound_movement_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX inventory.ix_stock_transfer_lines_tenant_id_stock_transfer_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX inventory.ix_stock_reservations_tenant_id_pos_session_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX inventory.ix_stock_reservations_tenant_id_sales_order_line_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX inventory.ix_stock_reservations_tenant_id_stock_level_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX inventory.ix_stock_movements_tenant_id_stock_level_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX inventory.ix_stock_levels_tenant_id_bin_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX inventory.ix_stock_adjustments_tenant_id_warehouse_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX inventory.ix_stock_adjustment_lines_tenant_id_stock_adjustment_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX inventory.ix_stock_adjustment_lines_tenant_id_stock_level_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX inventory.ix_stock_adjustment_lines_tenant_id_stock_movement_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX warehouse.ix_shelves_tenant_id_rack_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX sales.ix_sales_orders_tenant_id_pos_session_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX sales.ix_sales_orders_tenant_id_warehouse_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX sales.ix_sales_order_lines_tenant_id_sales_order_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX sales.ix_sales_order_lines_tenant_id_stock_movement_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX warehouse.ix_racks_tenant_id_aisle_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX purchasing.ix_purchase_return_lines_tenant_id_goods_receipt_line_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX purchasing.ix_purchase_return_lines_tenant_id_purchase_return_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX purchasing.ix_purchase_return_lines_tenant_id_stock_level_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX purchasing.ix_purchase_return_lines_tenant_id_stock_movement_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX purchasing.ix_purchase_orders_tenant_id_warehouse_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX purchasing.ix_purchase_order_lines_tenant_id_purchase_order_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX catalog.ix_product_stock_policies_tenant_id_warehouse_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX sales.ix_pos_sessions_tenant_id_pos_register_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX sales.ix_pos_registers_tenant_id_warehouse_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX inventory.ix_physical_counts_tenant_id_warehouse_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX inventory.ix_physical_count_lines_tenant_id_physical_count_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX inventory.ix_physical_count_lines_tenant_id_stock_level_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX inventory.ix_physical_count_lines_tenant_id_stock_movement_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX sales.ix_payments_tenant_id_invoice_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX sales.ix_payments_tenant_id_pos_session_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX accounting.ix_journal_lines_tenant_id_journal_entry_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX sales.ix_invoices_tenant_id_sales_order_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX sales.ix_invoice_lines_tenant_id_invoice_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX sales.ix_invoice_lines_tenant_id_sales_order_line_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX purchasing.ix_goods_receipts_tenant_id_purchase_order_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX purchasing.ix_goods_receipts_tenant_id_warehouse_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX purchasing.ix_goods_receipt_lines_tenant_id_goods_receipt_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX purchasing.ix_goods_receipt_lines_tenant_id_purchase_order_line_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX purchasing.ix_goods_receipt_lines_tenant_id_stock_level_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX purchasing.ix_goods_receipt_lines_tenant_id_stock_movement_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX sales.ix_cash_movements_tenant_id_pos_session_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX warehouse.ix_bins_tenant_id_shelf_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX warehouse.ix_bin_assignments_tenant_id_bin_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX accounting.ix_average_cost_history_tenant_id_stock_movement_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX accounting.ix_average_cost_history_tenant_id_variant_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX accounting.ix_average_cost_history_tenant_id_warehouse_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DROP INDEX warehouse.ix_aisles_tenant_id_zone_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_transfer_lines DROP COLUMN destination_stock_level_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_transfer_lines DROP COLUMN inbound_movement_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_transfer_lines DROP COLUMN outbound_movement_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+        IF NOT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = 'integration') THEN
+            CREATE SCHEMA integration;
+        END IF;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_transfers RENAME COLUMN shipped_at TO dispatched_at;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_transfer_lines RENAME COLUMN source_stock_level_id TO variant_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER INDEX inventory.ix_stock_transfer_lines_tenant_id_source_stock_level_id RENAME TO ix_stock_transfer_lines_tenant_id_variant_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE warehouse.zones ADD branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.supplier_invoices ADD branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.supplier_invoice_lines ADD branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_transfers ADD from_branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_transfers ADD requested_at timestamp with time zone NOT NULL DEFAULT TIMESTAMPTZ '-infinity';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_transfers ADD requested_by_user_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_transfers ADD to_branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_transfer_lines ADD from_branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_transfer_lines ADD to_branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_transfer_lines ADD unit_cost numeric(18,6);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_reservations ADD branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_movements ADD branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_levels ADD branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_adjustments ADD branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_adjustment_lines ADD branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE warehouse.shelves ADD branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE iam.sessions ADD active_branch_id uuid;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE iam.sessions ADD expires_at timestamp with time zone;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE iam.sessions ADD token_hash character varying(64);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.sales_orders ADD branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.sales_order_lines ADD branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE warehouse.racks ADD branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.purchase_returns ADD branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.purchase_return_lines ADD branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.purchase_orders ADD branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.purchase_order_lines ADD branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE catalog.product_stock_policies ADD branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.pos_sessions ADD branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.pos_registers ADD branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.physical_counts ADD branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.physical_count_lines ADD branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.payments ADD branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE accounting.journal_lines ADD branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE accounting.journal_entries ADD branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.invoices ADD branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.invoice_lines ADD branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.goods_receipts ADD branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.goods_receipt_lines ADD branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.cash_movements ADD branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE warehouse.bins ADD branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE warehouse.bin_assignments ADD branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE accounting.average_cost_history ADD branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE accounting.average_cost_history ADD sequence integer NOT NULL DEFAULT 0;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE iam.audit_logs ADD api_key_id uuid;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE iam.audit_logs ADD branch_id uuid;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE iam.audit_logs ADD channel character varying(20);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE warehouse.aisles ADD branch_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_movements DISABLE TRIGGER USER;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.cash_movements DISABLE TRIGGER USER;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.payments DISABLE TRIGGER USER;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE accounting.average_cost_history DISABLE TRIGGER USER;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE accounting.journal_entries DISABLE TRIGGER USER;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE accounting.journal_lines DISABLE TRIGGER USER;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    -- Topología: la sucursal baja por la jerarquía desde el almacén
+    UPDATE warehouse.zones z SET branch_id = w.branch_id FROM warehouse.warehouses w WHERE w.id = z.warehouse_id;
+    UPDATE warehouse.aisles a SET branch_id = z.branch_id FROM warehouse.zones z WHERE z.id = a.zone_id;
+    UPDATE warehouse.racks r SET branch_id = a.branch_id FROM warehouse.aisles a WHERE a.id = r.aisle_id;
+    UPDATE warehouse.shelves s SET branch_id = r.branch_id FROM warehouse.racks r WHERE r.id = s.rack_id;
+    UPDATE warehouse.bins b SET branch_id = s.branch_id FROM warehouse.shelves s WHERE s.id = b.shelf_id;
+    UPDATE warehouse.bin_assignments x SET branch_id = b.branch_id FROM warehouse.bins b WHERE b.id = x.bin_id;
+    UPDATE catalog.product_stock_policies p SET branch_id = w.branch_id FROM warehouse.warehouses w WHERE w.id = p.warehouse_id;
+
+    -- Existencias y libros de stock
+    UPDATE inventory.stock_levels l SET branch_id = b.branch_id FROM warehouse.bins b WHERE b.id = l.bin_id;
+    UPDATE inventory.stock_movements m SET branch_id = l.branch_id FROM inventory.stock_levels l WHERE l.id = m.stock_level_id;
+    UPDATE inventory.stock_reservations r SET branch_id = l.branch_id FROM inventory.stock_levels l WHERE l.id = r.stock_level_id;
+    UPDATE inventory.stock_adjustments a SET branch_id = w.branch_id FROM warehouse.warehouses w WHERE w.id = a.warehouse_id;
+    UPDATE inventory.stock_adjustment_lines x SET branch_id = a.branch_id FROM inventory.stock_adjustments a WHERE a.id = x.stock_adjustment_id;
+    UPDATE inventory.physical_counts c SET branch_id = w.branch_id FROM warehouse.warehouses w WHERE w.id = c.warehouse_id;
+    UPDATE inventory.physical_count_lines x SET branch_id = c.branch_id FROM inventory.physical_counts c WHERE c.id = x.physical_count_id;
+
+    -- Compras
+    UPDATE purchasing.purchase_orders o SET branch_id = w.branch_id FROM warehouse.warehouses w WHERE w.id = o.warehouse_id;
+    UPDATE purchasing.purchase_order_lines x SET branch_id = o.branch_id FROM purchasing.purchase_orders o WHERE o.id = x.purchase_order_id;
+    UPDATE purchasing.goods_receipts g SET branch_id = w.branch_id FROM warehouse.warehouses w WHERE w.id = g.warehouse_id;
+    UPDATE purchasing.goods_receipt_lines x SET branch_id = g.branch_id FROM purchasing.goods_receipts g WHERE g.id = x.goods_receipt_id;
+    UPDATE purchasing.purchase_returns r SET branch_id = l.branch_id
+        FROM purchasing.purchase_return_lines x JOIN inventory.stock_levels l ON l.id = x.stock_level_id
+        WHERE x.purchase_return_id = r.id;
+    UPDATE purchasing.purchase_return_lines x SET branch_id = r.branch_id FROM purchasing.purchase_returns r WHERE r.id = x.purchase_return_id;
+    UPDATE purchasing.supplier_invoices i SET branch_id = g.branch_id
+        FROM purchasing.supplier_invoice_lines x JOIN purchasing.goods_receipt_lines g ON g.id = x.goods_receipt_line_id
+        WHERE x.supplier_invoice_id = i.id;
+
+    -- Ventas y caja
+    UPDATE sales.pos_registers r SET branch_id = w.branch_id FROM warehouse.warehouses w WHERE w.id = r.warehouse_id;
+    UPDATE sales.pos_sessions s SET branch_id = r.branch_id FROM sales.pos_registers r WHERE r.id = s.pos_register_id;
+    UPDATE sales.cash_movements c SET branch_id = s.branch_id FROM sales.pos_sessions s WHERE s.id = c.pos_session_id;
+    UPDATE sales.sales_orders o SET branch_id = s.branch_id FROM sales.pos_sessions s WHERE s.id = o.pos_session_id;
+    UPDATE sales.sales_orders o SET branch_id = w.branch_id FROM warehouse.warehouses w WHERE w.id = o.warehouse_id;
+    UPDATE sales.sales_order_lines x SET branch_id = o.branch_id FROM sales.sales_orders o WHERE o.id = x.sales_order_id;
+    UPDATE sales.invoices i SET branch_id = o.branch_id FROM sales.sales_orders o WHERE o.id = i.sales_order_id;
+    UPDATE sales.invoice_lines x SET branch_id = i.branch_id FROM sales.invoices i WHERE i.id = x.invoice_id;
+    UPDATE sales.payments p SET branch_id = i.branch_id FROM sales.invoices i WHERE i.id = p.invoice_id;
+
+    -- Costos
+    UPDATE accounting.average_cost_history h SET branch_id = w.branch_id FROM warehouse.warehouses w WHERE w.id = h.warehouse_id;
+    UPDATE accounting.average_cost_history h SET sequence = s.n
+    FROM (SELECT id, row_number() OVER (PARTITION BY tenant_id, variant_id, warehouse_id ORDER BY effective_at, id) AS n
+          FROM accounting.average_cost_history) s
+    WHERE s.id = h.id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DO $$
+    DECLARE t text;
+    BEGIN
+        FOREACH t IN ARRAY ARRAY['purchasing.supplier_invoices', 'accounting.journal_entries', 'purchasing.purchase_returns'] LOOP
+            EXECUTE format('UPDATE %s x SET branch_id = (SELECT b.id FROM warehouse.branches b WHERE b.tenant_id = x.tenant_id ORDER BY b.code LIMIT 1) '
+                           'WHERE x.branch_id = ''00000000-0000-0000-0000-000000000000''', t);
+        END LOOP;
+    END;
+    $$;
+    UPDATE purchasing.supplier_invoice_lines x SET branch_id = i.branch_id FROM purchasing.supplier_invoices i WHERE i.id = x.supplier_invoice_id;
+    UPDATE purchasing.purchase_return_lines x SET branch_id = r.branch_id FROM purchasing.purchase_returns r WHERE r.id = x.purchase_return_id;
+    UPDATE accounting.journal_lines x SET branch_id = e.branch_id FROM accounting.journal_entries e WHERE e.id = x.journal_entry_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DO $$
+    DECLARE t text; n bigint;
+    BEGIN
+        FOREACH t IN ARRAY ARRAY['warehouse.zones', 'warehouse.aisles', 'warehouse.racks', 'warehouse.shelves', 'warehouse.bins', 'warehouse.bin_assignments', 'catalog.product_stock_policies', 'inventory.stock_levels', 'inventory.stock_movements', 'inventory.stock_reservations', 'inventory.stock_adjustments', 'inventory.stock_adjustment_lines', 'inventory.physical_counts', 'inventory.physical_count_lines', 'inventory.stock_transfer_movements', 'purchasing.purchase_orders', 'purchasing.purchase_order_lines', 'purchasing.goods_receipts', 'purchasing.goods_receipt_lines', 'purchasing.purchase_returns', 'purchasing.purchase_return_lines', 'purchasing.supplier_invoices', 'purchasing.supplier_invoice_lines', 'sales.pos_registers', 'sales.pos_sessions', 'sales.cash_movements', 'sales.sales_orders', 'sales.sales_order_lines', 'sales.invoices', 'sales.invoice_lines', 'sales.payments', 'sales.external_orders', 'accounting.journal_entries', 'accounting.journal_lines', 'accounting.average_cost_history'] LOOP
+            CONTINUE WHEN to_regclass(t) IS NULL;   -- tablas nuevas de la V4 (se crean después, vacías)
+            EXECUTE format('SELECT count(*) FROM %s WHERE branch_id = ''00000000-0000-0000-0000-000000000000''', t) INTO n;
+            IF n > 0 THEN
+                RAISE EXCEPTION 'M-INV V4: % filas de % quedaron sin sucursal', n, t;
+            END IF;
+        END LOOP;
+    END;
+    $$;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_movements ENABLE TRIGGER USER;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.cash_movements ENABLE TRIGGER USER;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.payments ENABLE TRIGGER USER;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE accounting.average_cost_history ENABLE TRIGGER USER;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE accounting.journal_entries ENABLE TRIGGER USER;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE accounting.journal_lines ENABLE TRIGGER USER;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE warehouse.zones ADD CONSTRAINT ak_zones_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE warehouse.warehouses ADD CONSTRAINT ak_warehouses_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.supplier_invoices ADD CONSTRAINT ak_supplier_invoices_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.supplier_invoice_lines ADD CONSTRAINT ak_supplier_invoice_lines_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_transfers ADD CONSTRAINT ak_stock_transfers_tenant_id_from_branch_id_to_branch_id_id UNIQUE (tenant_id, from_branch_id, to_branch_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_transfer_lines ADD CONSTRAINT ak_stock_transfer_lines_tenant_id_from_branch_id_to_br_7655fbfd UNIQUE (tenant_id, from_branch_id, to_branch_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_reservations ADD CONSTRAINT ak_stock_reservations_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_movements ADD CONSTRAINT ak_stock_movements_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_levels ADD CONSTRAINT ak_stock_levels_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_adjustments ADD CONSTRAINT ak_stock_adjustments_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_adjustment_lines ADD CONSTRAINT ak_stock_adjustment_lines_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE warehouse.shelves ADD CONSTRAINT ak_shelves_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.sales_orders ADD CONSTRAINT ak_sales_orders_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.sales_order_lines ADD CONSTRAINT ak_sales_order_lines_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE warehouse.racks ADD CONSTRAINT ak_racks_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.purchase_returns ADD CONSTRAINT ak_purchase_returns_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.purchase_return_lines ADD CONSTRAINT ak_purchase_return_lines_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.purchase_orders ADD CONSTRAINT ak_purchase_orders_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.purchase_order_lines ADD CONSTRAINT ak_purchase_order_lines_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE catalog.product_stock_policies ADD CONSTRAINT ak_product_stock_policies_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.pos_sessions ADD CONSTRAINT ak_pos_sessions_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.pos_registers ADD CONSTRAINT ak_pos_registers_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.physical_counts ADD CONSTRAINT ak_physical_counts_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.physical_count_lines ADD CONSTRAINT ak_physical_count_lines_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.payments ADD CONSTRAINT ak_payments_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE accounting.journal_lines ADD CONSTRAINT ak_journal_lines_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE accounting.journal_entries ADD CONSTRAINT ak_journal_entries_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.invoices ADD CONSTRAINT ak_invoices_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.invoice_lines ADD CONSTRAINT ak_invoice_lines_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.goods_receipts ADD CONSTRAINT ak_goods_receipts_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.goods_receipt_lines ADD CONSTRAINT ak_goods_receipt_lines_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.cash_movements ADD CONSTRAINT ak_cash_movements_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE warehouse.bins ADD CONSTRAINT ak_bins_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE accounting.average_cost_history ADD CONSTRAINT ak_average_cost_history_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE warehouse.aisles ADD CONSTRAINT ak_aisles_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE TABLE integration.api_keys (
+        id uuid NOT NULL,
+        name character varying(100) NOT NULL,
+        prefix character varying(8) NOT NULL,
+        token_hash character varying(64) NOT NULL,
+        owner_user_id uuid NOT NULL,
+        branch_id uuid,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        expires_at timestamp with time zone,
+        revoked_at timestamp with time zone,
+        created_by uuid,
+        updated_at timestamp with time zone,
+        updated_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_api_keys PRIMARY KEY (id),
+        CONSTRAINT ak_api_keys_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_api_keys_hash CHECK (token_hash ~ '^[0-9a-f]{64}$'),
+        CONSTRAINT ck_api_keys_prefijo CHECK (prefix ~ '^[a-z0-9]{8}$'),
+        CONSTRAINT ck_api_keys_vencimiento CHECK (expires_at IS NULL OR expires_at > created_at),
+        CONSTRAINT fk_api_keys_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_api_keys_tenant_id_branch_id FOREIGN KEY (tenant_id, branch_id) REFERENCES warehouse.branches (tenant_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_api_keys_tenant_id_owner_user_id FOREIGN KEY (tenant_id, owner_user_id) REFERENCES iam.users (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE TABLE sales.external_orders (
+        id uuid NOT NULL,
+        branch_id uuid NOT NULL,
+        channel character varying(60) NOT NULL,
+        external_id character varying(100) NOT NULL,
+        request_hash character varying(64) NOT NULL,
+        sales_order_id uuid NOT NULL,
+        invoice_number character varying(30) NOT NULL,
+        received_at timestamp with time zone NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_external_orders PRIMARY KEY (id),
+        CONSTRAINT ak_external_orders_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id),
+        CONSTRAINT ak_external_orders_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_external_orders_hash CHECK (request_hash ~ '^[0-9a-f]{64}$'),
+        CONSTRAINT fk_external_orders_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_external_orders_tenant_id_branch_id_sales_order_id FOREIGN KEY (tenant_id, branch_id, sales_order_id) REFERENCES sales.sales_orders (tenant_id, branch_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE TABLE integration.outbox_events (
+        id uuid NOT NULL,
+        event_type character varying(60) NOT NULL,
+        branch_id uuid,
+        payload jsonb NOT NULL,
+        occurred_at timestamp with time zone NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_outbox_events PRIMARY KEY (id),
+        CONSTRAINT ak_outbox_events_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT fk_outbox_events_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_outbox_events_tenant_id_branch_id FOREIGN KEY (tenant_id, branch_id) REFERENCES warehouse.branches (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE TABLE iam.processed_requests (
+        id uuid NOT NULL,
+        request_id uuid NOT NULL,
+        user_id uuid NOT NULL,
+        request_type character varying(200) NOT NULL,
+        request_hash character varying(64) NOT NULL,
+        response text NOT NULL,
+        processed_at timestamp with time zone NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_processed_requests PRIMARY KEY (id),
+        CONSTRAINT ak_processed_requests_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_processed_requests_hash CHECK (request_hash ~ '^[0-9a-f]{64}$'),
+        CONSTRAINT fk_processed_requests_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_processed_requests_tenant_id_user_id FOREIGN KEY (tenant_id, user_id) REFERENCES iam.users (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE TABLE inventory.stock_transfer_discrepancies (
+        id uuid NOT NULL,
+        from_branch_id uuid NOT NULL,
+        to_branch_id uuid NOT NULL,
+        transfer_line_id uuid NOT NULL,
+        quantity numeric(18,6) NOT NULL,
+        reason character varying(200) NOT NULL,
+        recorded_by_user_id uuid NOT NULL,
+        recorded_at timestamp with time zone NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_stock_transfer_discrepancies PRIMARY KEY (id),
+        CONSTRAINT ak_stock_transfer_discrepancies_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_stock_transfer_discrepancies_cantidad CHECK (quantity > 0),
+        CONSTRAINT fk_stock_transfer_discrepancies_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_stock_transfer_discrepancies_tenant_id_from_branch__1bf1d075 FOREIGN KEY (tenant_id, from_branch_id, to_branch_id, transfer_line_id) REFERENCES inventory.stock_transfer_lines (tenant_id, from_branch_id, to_branch_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_stock_transfer_discrepancies_tenant_id_recorded_by_user_id FOREIGN KEY (tenant_id, recorded_by_user_id) REFERENCES iam.users (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE TABLE inventory.stock_transfer_events (
+        id uuid NOT NULL,
+        from_branch_id uuid NOT NULL,
+        to_branch_id uuid NOT NULL,
+        transfer_id uuid NOT NULL,
+        status character varying(20) NOT NULL,
+        user_id uuid NOT NULL,
+        occurred_at timestamp with time zone NOT NULL,
+        detail character varying(250) NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_stock_transfer_events PRIMARY KEY (id),
+        CONSTRAINT ak_stock_transfer_events_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT fk_stock_transfer_events_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_stock_transfer_events_tenant_id_from_branch_id_to_b_7078530b FOREIGN KEY (tenant_id, from_branch_id, to_branch_id, transfer_id) REFERENCES inventory.stock_transfers (tenant_id, from_branch_id, to_branch_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_stock_transfer_events_tenant_id_user_id FOREIGN KEY (tenant_id, user_id) REFERENCES iam.users (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE TABLE inventory.stock_transfer_line_batches (
+        transfer_line_id uuid NOT NULL,
+        batch_id uuid NOT NULL,
+        from_branch_id uuid NOT NULL,
+        to_branch_id uuid NOT NULL,
+        quantity numeric(18,6) NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_stock_transfer_line_batches PRIMARY KEY (transfer_line_id, batch_id),
+        CONSTRAINT ck_stock_transfer_line_batches_cantidad CHECK (quantity > 0),
+        CONSTRAINT fk_stock_transfer_line_batches_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_stock_transfer_line_batches_tenant_id_batch_id FOREIGN KEY (tenant_id, batch_id) REFERENCES inventory.batches (tenant_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_stock_transfer_line_batches_tenant_id_from_branch_i_86ebd39b FOREIGN KEY (tenant_id, from_branch_id, to_branch_id, transfer_line_id) REFERENCES inventory.stock_transfer_lines (tenant_id, from_branch_id, to_branch_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE TABLE inventory.stock_transfer_movements (
+        transfer_line_id uuid NOT NULL,
+        stock_movement_id uuid NOT NULL,
+        branch_id uuid NOT NULL,
+        direction character varying(5) NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_stock_transfer_movements PRIMARY KEY (transfer_line_id, stock_movement_id),
+        CONSTRAINT ck_stock_transfer_movements_sentido CHECK (direction IN ('Out', 'In')),
+        CONSTRAINT fk_stock_transfer_movements_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_stock_transfer_movements_tenant_id_branch_id_stock__4b2e1eb5 FOREIGN KEY (tenant_id, branch_id, stock_movement_id) REFERENCES inventory.stock_movements (tenant_id, branch_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_stock_transfer_movements_tenant_id_transfer_line_id FOREIGN KEY (tenant_id, transfer_line_id) REFERENCES inventory.stock_transfer_lines (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE TABLE integration.api_key_scopes (
+        api_key_id uuid NOT NULL,
+        scope character varying(40) NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        updated_at timestamp with time zone,
+        updated_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_api_key_scopes PRIMARY KEY (api_key_id, scope),
+        CONSTRAINT fk_api_key_scopes_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_api_key_scopes_tenant_id_api_key_id FOREIGN KEY (tenant_id, api_key_id) REFERENCES integration.api_keys (tenant_id, id) ON DELETE CASCADE
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE TABLE integration.webhook_endpoints (
+        id uuid NOT NULL,
+        url character varying(500) NOT NULL,
+        description character varying(200),
+        created_by_user_id uuid NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        is_active boolean NOT NULL,
+        disabled_at timestamp with time zone,
+        api_key_id uuid,
+        branch_id uuid,
+        secret_ciphertext character varying(500) NOT NULL,
+        secret_key_id character varying(40) NOT NULL,
+        secret_version integer NOT NULL,
+        previous_secret_ciphertext character varying(500),
+        previous_secret_key_id character varying(40),
+        previous_secret_expires_at timestamp with time zone,
+        created_by uuid,
+        updated_at timestamp with time zone,
+        updated_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_webhook_endpoints PRIMARY KEY (id),
+        CONSTRAINT ak_webhook_endpoints_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_webhook_endpoints_baja CHECK (is_active = (disabled_at IS NULL)),
+        CONSTRAINT ck_webhook_endpoints_rotacion CHECK ((previous_secret_ciphertext IS NULL) = (previous_secret_expires_at IS NULL) AND (previous_secret_ciphertext IS NULL) = (previous_secret_key_id IS NULL)),
+        CONSTRAINT ck_webhook_endpoints_url CHECK (url ~ '^(https://|http://localhost|http://127\.0\.0\.1|http://\[::1\])'),
+        CONSTRAINT ck_webhook_endpoints_version CHECK (secret_version >= 1),
+        CONSTRAINT fk_webhook_endpoints_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_webhook_endpoints_tenant_id_api_key_id FOREIGN KEY (tenant_id, api_key_id) REFERENCES integration.api_keys (tenant_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_webhook_endpoints_tenant_id_branch_id FOREIGN KEY (tenant_id, branch_id) REFERENCES warehouse.branches (tenant_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_webhook_endpoints_tenant_id_created_by_user_id FOREIGN KEY (tenant_id, created_by_user_id) REFERENCES iam.users (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE TABLE integration.outbox_dispatch (
+        outbox_event_id uuid NOT NULL,
+        status character varying(20) NOT NULL,
+        rounds integer NOT NULL,
+        next_attempt_at timestamp with time zone NOT NULL,
+        completed_at timestamp with time zone,
+        last_error character varying(500),
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        updated_at timestamp with time zone,
+        updated_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_outbox_dispatch PRIMARY KEY (outbox_event_id),
+        CONSTRAINT ck_outbox_dispatch_estado CHECK (status IN ('Pending', 'Completed', 'Exhausted')),
+        CONSTRAINT ck_outbox_dispatch_fin CHECK ((status = 'Pending') = (completed_at IS NULL)),
+        CONSTRAINT ck_outbox_dispatch_rondas CHECK (rounds BETWEEN 0 AND 8),
+        CONSTRAINT fk_outbox_dispatch_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_outbox_dispatch_tenant_id_outbox_event_id FOREIGN KEY (tenant_id, outbox_event_id) REFERENCES integration.outbox_events (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE TABLE integration.webhook_deliveries (
+        id uuid NOT NULL,
+        outbox_event_id uuid NOT NULL,
+        endpoint_id uuid NOT NULL,
+        attempt integer NOT NULL,
+        status_code integer,
+        succeeded boolean NOT NULL,
+        error character varying(500),
+        attempted_at timestamp with time zone NOT NULL,
+        duration_ms integer NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_webhook_deliveries PRIMARY KEY (id),
+        CONSTRAINT ak_webhook_deliveries_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_webhook_deliveries_duracion CHECK (duration_ms >= 0),
+        CONSTRAINT ck_webhook_deliveries_intento CHECK (attempt BETWEEN 1 AND 8),
+        CONSTRAINT fk_webhook_deliveries_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_webhook_deliveries_tenant_id_endpoint_id FOREIGN KEY (tenant_id, endpoint_id) REFERENCES integration.webhook_endpoints (tenant_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_webhook_deliveries_tenant_id_outbox_event_id FOREIGN KEY (tenant_id, outbox_event_id) REFERENCES integration.outbox_events (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE TABLE integration.webhook_endpoint_events (
+        endpoint_id uuid NOT NULL,
+        event_type character varying(60) NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        updated_at timestamp with time zone,
+        updated_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_webhook_endpoint_events PRIMARY KEY (endpoint_id, event_type),
+        CONSTRAINT fk_webhook_endpoint_events_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_webhook_endpoint_events_tenant_id_endpoint_id FOREIGN KEY (tenant_id, endpoint_id) REFERENCES integration.webhook_endpoints (tenant_id, id) ON DELETE CASCADE
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    INSERT INTO iam.modules (id, code, created_at, created_by, description, monthly_fee_bs, name, setup_price_bs, updated_at, updated_by)
+    VALUES ('01920000-0000-7000-8000-000000000006', 'CLOUD_HA', TIMESTAMPTZ '2026-09-25T00:00:00+00:00', NULL, 'PostgreSQL gestionado en la nube (AWS/DigitalOcean) con respaldos PITR, réplica y SLA 99,9 %.', 1500.0, 'Infraestructura Cloud HA', 12000.0, NULL, NULL);
+    INSERT INTO iam.modules (id, code, created_at, created_by, description, monthly_fee_bs, name, setup_price_bs, updated_at, updated_by)
+    VALUES ('01920000-0000-7000-8000-000000000007', 'MULTI_BRANCH', TIMESTAMPTZ '2026-09-25T00:00:00+00:00', NULL, 'Inventario aislado por sucursal (BranchId) y transferencias con mercancía en tránsito.', 500.0, 'Topología multi-sucursal', 8000.0, NULL, NULL);
+    INSERT INTO iam.modules (id, code, created_at, created_by, description, monthly_fee_bs, name, setup_price_bs, updated_at, updated_by)
+    VALUES ('01920000-0000-7000-8000-000000000008', 'API_INTEGRATIONS', TIMESTAMPTZ '2026-09-25T00:00:00+00:00', NULL, 'API Gateway con API Keys y webhooks para e-commerce (Shopify) y ERP contable.', 400.0, 'Integraciones API (B2B)', 6000.0, NULL, NULL);
+    INSERT INTO iam.modules (id, code, created_at, created_by, description, monthly_fee_bs, name, setup_price_bs, updated_at, updated_by)
+    VALUES ('01920000-0000-7000-8000-000000000009', 'GLOBAL_AUDIT', TIMESTAMPTZ '2026-09-25T00:00:00+00:00', NULL, 'Modelo de lectura desnormalizado para gerencia sin cargar las cajas POS.', 300.0, 'Auditoría global (réplicas de lectura)', 5000.0, NULL, NULL);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_zones_tenant_id_branch_id_warehouse_id ON warehouse.zones (tenant_id, branch_id, warehouse_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_supplier_invoice_lines_tenant_id_branch_id_goods_re_33e178bb ON purchasing.supplier_invoice_lines (tenant_id, branch_id, goods_receipt_line_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_supplier_invoice_lines_tenant_id_branch_id_supplier_4d17bc14 ON purchasing.supplier_invoice_lines (tenant_id, branch_id, supplier_invoice_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_stock_transfers_tenant_id_from_branch_id_from_warehouse_id ON inventory.stock_transfers (tenant_id, from_branch_id, from_warehouse_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_stock_transfers_tenant_id_requested_by_user_id ON inventory.stock_transfers (tenant_id, requested_by_user_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_stock_transfers_tenant_id_status ON inventory.stock_transfers (tenant_id, status);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_stock_transfers_tenant_id_to_branch_id_to_warehouse_id ON inventory.stock_transfers (tenant_id, to_branch_id, to_warehouse_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_transfers ADD CONSTRAINT ck_stock_transfers_despacho CHECK ((status IN ('Dispatched', 'Received')) = (dispatched_at IS NOT NULL));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_transfers ADD CONSTRAINT ck_stock_transfers_estado CHECK (status IN ('Pending', 'Dispatched', 'Received', 'Cancelled'));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_transfers ADD CONSTRAINT ck_stock_transfers_recepcion CHECK ((status = 'Received') = (received_at IS NOT NULL));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_stock_transfer_lines_tenant_id_from_branch_id_to_br_b04b8098 ON inventory.stock_transfer_lines (tenant_id, from_branch_id, to_branch_id, stock_transfer_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE UNIQUE INDEX ux_stock_transfer_lines_stock_transfer_id_variant_id ON inventory.stock_transfer_lines (stock_transfer_id, variant_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_transfer_lines ADD CONSTRAINT ck_stock_transfer_lines_costo CHECK (unit_cost IS NULL OR unit_cost >= 0);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_stock_reservations_tenant_id_branch_id_pos_session_id ON inventory.stock_reservations (tenant_id, branch_id, pos_session_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_stock_reservations_tenant_id_branch_id_sales_order_line_id ON inventory.stock_reservations (tenant_id, branch_id, sales_order_line_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_stock_reservations_tenant_id_branch_id_stock_level_id ON inventory.stock_reservations (tenant_id, branch_id, stock_level_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_stock_movements_tenant_id_branch_id_stock_level_id ON inventory.stock_movements (tenant_id, branch_id, stock_level_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_stock_levels_tenant_id_branch_id_bin_id ON inventory.stock_levels (tenant_id, branch_id, bin_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_stock_adjustments_tenant_id_branch_id_warehouse_id ON inventory.stock_adjustments (tenant_id, branch_id, warehouse_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_stock_adjustment_lines_tenant_id_branch_id_stock_ad_62ee571f ON inventory.stock_adjustment_lines (tenant_id, branch_id, stock_adjustment_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_stock_adjustment_lines_tenant_id_branch_id_stock_level_id ON inventory.stock_adjustment_lines (tenant_id, branch_id, stock_level_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_stock_adjustment_lines_tenant_id_branch_id_stock_movement_id ON inventory.stock_adjustment_lines (tenant_id, branch_id, stock_movement_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_shelves_tenant_id_branch_id_rack_id ON warehouse.shelves (tenant_id, branch_id, rack_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_sessions_tenant_id_active_branch_id ON iam.sessions (tenant_id, active_branch_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE UNIQUE INDEX ux_sessions_token_hash ON iam.sessions (token_hash) WHERE token_hash IS NOT NULL;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE iam.sessions ADD CONSTRAINT ck_sessions_token CHECK ((token_hash IS NULL) = (expires_at IS NULL) AND (token_hash IS NULL OR token_hash ~ '^[0-9a-f]{64}$'));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_sales_orders_tenant_id_branch_id_pos_session_id ON sales.sales_orders (tenant_id, branch_id, pos_session_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_sales_orders_tenant_id_branch_id_warehouse_id ON sales.sales_orders (tenant_id, branch_id, warehouse_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_sales_order_lines_tenant_id_branch_id_sales_order_id ON sales.sales_order_lines (tenant_id, branch_id, sales_order_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_sales_order_lines_tenant_id_branch_id_stock_movement_id ON sales.sales_order_lines (tenant_id, branch_id, stock_movement_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_racks_tenant_id_branch_id_aisle_id ON warehouse.racks (tenant_id, branch_id, aisle_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_purchase_return_lines_tenant_id_branch_id_goods_rec_5503cf33 ON purchasing.purchase_return_lines (tenant_id, branch_id, goods_receipt_line_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_purchase_return_lines_tenant_id_branch_id_purchase_return_id ON purchasing.purchase_return_lines (tenant_id, branch_id, purchase_return_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_purchase_return_lines_tenant_id_branch_id_stock_level_id ON purchasing.purchase_return_lines (tenant_id, branch_id, stock_level_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_purchase_return_lines_tenant_id_branch_id_stock_movement_id ON purchasing.purchase_return_lines (tenant_id, branch_id, stock_movement_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_purchase_orders_tenant_id_branch_id_warehouse_id ON purchasing.purchase_orders (tenant_id, branch_id, warehouse_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_purchase_order_lines_tenant_id_branch_id_purchase_order_id ON purchasing.purchase_order_lines (tenant_id, branch_id, purchase_order_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_product_stock_policies_tenant_id_branch_id_warehouse_id ON catalog.product_stock_policies (tenant_id, branch_id, warehouse_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_pos_sessions_tenant_id_branch_id_pos_register_id ON sales.pos_sessions (tenant_id, branch_id, pos_register_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_pos_registers_tenant_id_branch_id_warehouse_id ON sales.pos_registers (tenant_id, branch_id, warehouse_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_physical_counts_tenant_id_branch_id_warehouse_id ON inventory.physical_counts (tenant_id, branch_id, warehouse_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_physical_count_lines_tenant_id_branch_id_physical_count_id ON inventory.physical_count_lines (tenant_id, branch_id, physical_count_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_physical_count_lines_tenant_id_branch_id_stock_level_id ON inventory.physical_count_lines (tenant_id, branch_id, stock_level_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_physical_count_lines_tenant_id_branch_id_stock_movement_id ON inventory.physical_count_lines (tenant_id, branch_id, stock_movement_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_payments_tenant_id_branch_id_invoice_id ON sales.payments (tenant_id, branch_id, invoice_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_payments_tenant_id_branch_id_pos_session_id ON sales.payments (tenant_id, branch_id, pos_session_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_journal_lines_tenant_id_branch_id_journal_entry_id ON accounting.journal_lines (tenant_id, branch_id, journal_entry_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_invoices_tenant_id_branch_id_sales_order_id ON sales.invoices (tenant_id, branch_id, sales_order_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_invoice_lines_tenant_id_branch_id_invoice_id ON sales.invoice_lines (tenant_id, branch_id, invoice_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_invoice_lines_tenant_id_branch_id_sales_order_line_id ON sales.invoice_lines (tenant_id, branch_id, sales_order_line_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_goods_receipts_tenant_id_branch_id_purchase_order_id ON purchasing.goods_receipts (tenant_id, branch_id, purchase_order_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_goods_receipts_tenant_id_branch_id_warehouse_id ON purchasing.goods_receipts (tenant_id, branch_id, warehouse_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_goods_receipt_lines_tenant_id_branch_id_goods_receipt_id ON purchasing.goods_receipt_lines (tenant_id, branch_id, goods_receipt_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_goods_receipt_lines_tenant_id_branch_id_purchase_or_92e74ade ON purchasing.goods_receipt_lines (tenant_id, branch_id, purchase_order_line_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_goods_receipt_lines_tenant_id_branch_id_stock_level_id ON purchasing.goods_receipt_lines (tenant_id, branch_id, stock_level_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_goods_receipt_lines_tenant_id_branch_id_stock_movement_id ON purchasing.goods_receipt_lines (tenant_id, branch_id, stock_movement_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_cash_movements_tenant_id_branch_id_pos_session_id ON sales.cash_movements (tenant_id, branch_id, pos_session_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_bins_tenant_id_branch_id_shelf_id ON warehouse.bins (tenant_id, branch_id, shelf_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_bin_assignments_tenant_id_branch_id_bin_id ON warehouse.bin_assignments (tenant_id, branch_id, bin_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_average_cost_history_tenant_id_branch_id_stock_movement_id ON accounting.average_cost_history (tenant_id, branch_id, stock_movement_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_average_cost_history_tenant_id_branch_id_warehouse_id ON accounting.average_cost_history (tenant_id, branch_id, warehouse_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE UNIQUE INDEX ux_average_cost_history_tenant_id_variant_id_warehouse_f2e7f7b5 ON accounting.average_cost_history (tenant_id, variant_id, warehouse_id, sequence);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE accounting.average_cost_history ADD CONSTRAINT ck_average_cost_history_secuencia CHECK (sequence >= 1);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_audit_logs_tenant_id_api_key_id_occurred_at ON iam.audit_logs (tenant_id, api_key_id, occurred_at) WHERE api_key_id IS NOT NULL;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_audit_logs_tenant_id_branch_id ON iam.audit_logs (tenant_id, branch_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE iam.audit_logs ADD CONSTRAINT ck_audit_logs_canal CHECK (channel IS NULL OR channel IN ('desktop', 'cloud', 'api'));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_aisles_tenant_id_branch_id_zone_id ON warehouse.aisles (tenant_id, branch_id, zone_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_api_key_scopes_tenant_id_api_key_id ON integration.api_key_scopes (tenant_id, api_key_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_api_keys_tenant_id_branch_id ON integration.api_keys (tenant_id, branch_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_api_keys_tenant_id_name ON integration.api_keys (tenant_id, name);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_api_keys_tenant_id_owner_user_id ON integration.api_keys (tenant_id, owner_user_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE UNIQUE INDEX ux_api_keys_prefix ON integration.api_keys (prefix);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_external_orders_tenant_id_branch_id_sales_order_id ON sales.external_orders (tenant_id, branch_id, sales_order_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE UNIQUE INDEX ux_external_orders_sales_order_id ON sales.external_orders (sales_order_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE UNIQUE INDEX ux_external_orders_tenant_id_channel_external_id ON sales.external_orders (tenant_id, channel, external_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_outbox_dispatch_next_attempt_at ON integration.outbox_dispatch (next_attempt_at) WHERE status = 'Pending';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE UNIQUE INDEX ux_outbox_dispatch_tenant_id_outbox_event_id ON integration.outbox_dispatch (tenant_id, outbox_event_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_outbox_events_tenant_id_branch_id ON integration.outbox_events (tenant_id, branch_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_outbox_events_tenant_id_occurred_at ON integration.outbox_events (tenant_id, occurred_at);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_processed_requests_processed_at ON iam.processed_requests (processed_at);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_processed_requests_tenant_id_user_id ON iam.processed_requests (tenant_id, user_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE UNIQUE INDEX ux_processed_requests_tenant_id_request_id ON iam.processed_requests (tenant_id, request_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_stock_transfer_discrepancies_tenant_id_from_branch__ab9c7114 ON inventory.stock_transfer_discrepancies (tenant_id, from_branch_id, to_branch_id, transfer_line_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_stock_transfer_discrepancies_tenant_id_recorded_by_user_id ON inventory.stock_transfer_discrepancies (tenant_id, recorded_by_user_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_stock_transfer_events_tenant_id_from_branch_id_to_b_ed8553a1 ON inventory.stock_transfer_events (tenant_id, from_branch_id, to_branch_id, transfer_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_stock_transfer_events_tenant_id_user_id ON inventory.stock_transfer_events (tenant_id, user_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_stock_transfer_events_transfer_id_occurred_at ON inventory.stock_transfer_events (transfer_id, occurred_at);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_stock_transfer_line_batches_tenant_id_batch_id ON inventory.stock_transfer_line_batches (tenant_id, batch_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_stock_transfer_line_batches_tenant_id_from_branch_i_d73f9652 ON inventory.stock_transfer_line_batches (tenant_id, from_branch_id, to_branch_id, transfer_line_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_stock_transfer_movements_tenant_id_branch_id_stock__76276875 ON inventory.stock_transfer_movements (tenant_id, branch_id, stock_movement_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_stock_transfer_movements_tenant_id_transfer_line_id ON inventory.stock_transfer_movements (tenant_id, transfer_line_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE UNIQUE INDEX ux_stock_transfer_movements_stock_movement_id ON inventory.stock_transfer_movements (stock_movement_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_webhook_deliveries_tenant_id_endpoint_id ON integration.webhook_deliveries (tenant_id, endpoint_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_webhook_deliveries_tenant_id_outbox_event_id ON integration.webhook_deliveries (tenant_id, outbox_event_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE UNIQUE INDEX ux_webhook_deliveries_outbox_event_id_endpoint_id_attempt ON integration.webhook_deliveries (outbox_event_id, endpoint_id, attempt);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_webhook_endpoint_events_tenant_id_endpoint_id ON integration.webhook_endpoint_events (tenant_id, endpoint_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_webhook_endpoints_tenant_id_api_key_id ON integration.webhook_endpoints (tenant_id, api_key_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_webhook_endpoints_tenant_id_branch_id ON integration.webhook_endpoints (tenant_id, branch_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE INDEX ix_webhook_endpoints_tenant_id_created_by_user_id ON integration.webhook_endpoints (tenant_id, created_by_user_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE warehouse.aisles ADD CONSTRAINT fk_aisles_tenant_id_branch_id_zone_id FOREIGN KEY (tenant_id, branch_id, zone_id) REFERENCES warehouse.zones (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE iam.audit_logs ADD CONSTRAINT fk_audit_logs_tenant_id_api_key_id FOREIGN KEY (tenant_id, api_key_id) REFERENCES integration.api_keys (tenant_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE iam.audit_logs ADD CONSTRAINT fk_audit_logs_tenant_id_branch_id FOREIGN KEY (tenant_id, branch_id) REFERENCES warehouse.branches (tenant_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE accounting.average_cost_history ADD CONSTRAINT fk_average_cost_history_tenant_id_branch_id_stock_movement_id FOREIGN KEY (tenant_id, branch_id, stock_movement_id) REFERENCES inventory.stock_movements (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE accounting.average_cost_history ADD CONSTRAINT fk_average_cost_history_tenant_id_branch_id_warehouse_id FOREIGN KEY (tenant_id, branch_id, warehouse_id) REFERENCES warehouse.warehouses (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE warehouse.bin_assignments ADD CONSTRAINT fk_bin_assignments_tenant_id_branch_id_bin_id FOREIGN KEY (tenant_id, branch_id, bin_id) REFERENCES warehouse.bins (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE warehouse.bins ADD CONSTRAINT fk_bins_tenant_id_branch_id_shelf_id FOREIGN KEY (tenant_id, branch_id, shelf_id) REFERENCES warehouse.shelves (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.cash_movements ADD CONSTRAINT fk_cash_movements_tenant_id_branch_id_pos_session_id FOREIGN KEY (tenant_id, branch_id, pos_session_id) REFERENCES sales.pos_sessions (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.goods_receipt_lines ADD CONSTRAINT fk_goods_receipt_lines_tenant_id_branch_id_goods_receipt_id FOREIGN KEY (tenant_id, branch_id, goods_receipt_id) REFERENCES purchasing.goods_receipts (tenant_id, branch_id, id) ON DELETE CASCADE;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.goods_receipt_lines ADD CONSTRAINT fk_goods_receipt_lines_tenant_id_branch_id_purchase_or_a9a4baae FOREIGN KEY (tenant_id, branch_id, purchase_order_line_id) REFERENCES purchasing.purchase_order_lines (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.goods_receipt_lines ADD CONSTRAINT fk_goods_receipt_lines_tenant_id_branch_id_stock_level_id FOREIGN KEY (tenant_id, branch_id, stock_level_id) REFERENCES inventory.stock_levels (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.goods_receipt_lines ADD CONSTRAINT fk_goods_receipt_lines_tenant_id_branch_id_stock_movement_id FOREIGN KEY (tenant_id, branch_id, stock_movement_id) REFERENCES inventory.stock_movements (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.goods_receipts ADD CONSTRAINT fk_goods_receipts_tenant_id_branch_id_purchase_order_id FOREIGN KEY (tenant_id, branch_id, purchase_order_id) REFERENCES purchasing.purchase_orders (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.goods_receipts ADD CONSTRAINT fk_goods_receipts_tenant_id_branch_id_warehouse_id FOREIGN KEY (tenant_id, branch_id, warehouse_id) REFERENCES warehouse.warehouses (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.invoice_lines ADD CONSTRAINT fk_invoice_lines_tenant_id_branch_id_invoice_id FOREIGN KEY (tenant_id, branch_id, invoice_id) REFERENCES sales.invoices (tenant_id, branch_id, id) ON DELETE CASCADE;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.invoice_lines ADD CONSTRAINT fk_invoice_lines_tenant_id_branch_id_sales_order_line_id FOREIGN KEY (tenant_id, branch_id, sales_order_line_id) REFERENCES sales.sales_order_lines (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.invoices ADD CONSTRAINT fk_invoices_tenant_id_branch_id_sales_order_id FOREIGN KEY (tenant_id, branch_id, sales_order_id) REFERENCES sales.sales_orders (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE accounting.journal_lines ADD CONSTRAINT fk_journal_lines_tenant_id_branch_id_journal_entry_id FOREIGN KEY (tenant_id, branch_id, journal_entry_id) REFERENCES accounting.journal_entries (tenant_id, branch_id, id) ON DELETE CASCADE;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.payments ADD CONSTRAINT fk_payments_tenant_id_branch_id_invoice_id FOREIGN KEY (tenant_id, branch_id, invoice_id) REFERENCES sales.invoices (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.payments ADD CONSTRAINT fk_payments_tenant_id_branch_id_pos_session_id FOREIGN KEY (tenant_id, branch_id, pos_session_id) REFERENCES sales.pos_sessions (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.physical_count_lines ADD CONSTRAINT fk_physical_count_lines_tenant_id_branch_id_physical_count_id FOREIGN KEY (tenant_id, branch_id, physical_count_id) REFERENCES inventory.physical_counts (tenant_id, branch_id, id) ON DELETE CASCADE;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.physical_count_lines ADD CONSTRAINT fk_physical_count_lines_tenant_id_branch_id_stock_level_id FOREIGN KEY (tenant_id, branch_id, stock_level_id) REFERENCES inventory.stock_levels (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.physical_count_lines ADD CONSTRAINT fk_physical_count_lines_tenant_id_branch_id_stock_movement_id FOREIGN KEY (tenant_id, branch_id, stock_movement_id) REFERENCES inventory.stock_movements (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.physical_counts ADD CONSTRAINT fk_physical_counts_tenant_id_branch_id_warehouse_id FOREIGN KEY (tenant_id, branch_id, warehouse_id) REFERENCES warehouse.warehouses (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.pos_registers ADD CONSTRAINT fk_pos_registers_tenant_id_branch_id_warehouse_id FOREIGN KEY (tenant_id, branch_id, warehouse_id) REFERENCES warehouse.warehouses (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.pos_sessions ADD CONSTRAINT fk_pos_sessions_tenant_id_branch_id_pos_register_id FOREIGN KEY (tenant_id, branch_id, pos_register_id) REFERENCES sales.pos_registers (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE catalog.product_stock_policies ADD CONSTRAINT fk_product_stock_policies_tenant_id_branch_id_warehouse_id FOREIGN KEY (tenant_id, branch_id, warehouse_id) REFERENCES warehouse.warehouses (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.purchase_order_lines ADD CONSTRAINT fk_purchase_order_lines_tenant_id_branch_id_purchase_order_id FOREIGN KEY (tenant_id, branch_id, purchase_order_id) REFERENCES purchasing.purchase_orders (tenant_id, branch_id, id) ON DELETE CASCADE;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.purchase_orders ADD CONSTRAINT fk_purchase_orders_tenant_id_branch_id_warehouse_id FOREIGN KEY (tenant_id, branch_id, warehouse_id) REFERENCES warehouse.warehouses (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.purchase_return_lines ADD CONSTRAINT fk_purchase_return_lines_tenant_id_branch_id_goods_rec_79ef70b8 FOREIGN KEY (tenant_id, branch_id, goods_receipt_line_id) REFERENCES purchasing.goods_receipt_lines (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.purchase_return_lines ADD CONSTRAINT fk_purchase_return_lines_tenant_id_branch_id_purchase_return_id FOREIGN KEY (tenant_id, branch_id, purchase_return_id) REFERENCES purchasing.purchase_returns (tenant_id, branch_id, id) ON DELETE CASCADE;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.purchase_return_lines ADD CONSTRAINT fk_purchase_return_lines_tenant_id_branch_id_stock_level_id FOREIGN KEY (tenant_id, branch_id, stock_level_id) REFERENCES inventory.stock_levels (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.purchase_return_lines ADD CONSTRAINT fk_purchase_return_lines_tenant_id_branch_id_stock_movement_id FOREIGN KEY (tenant_id, branch_id, stock_movement_id) REFERENCES inventory.stock_movements (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE warehouse.racks ADD CONSTRAINT fk_racks_tenant_id_branch_id_aisle_id FOREIGN KEY (tenant_id, branch_id, aisle_id) REFERENCES warehouse.aisles (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.sales_order_lines ADD CONSTRAINT fk_sales_order_lines_tenant_id_branch_id_sales_order_id FOREIGN KEY (tenant_id, branch_id, sales_order_id) REFERENCES sales.sales_orders (tenant_id, branch_id, id) ON DELETE CASCADE;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.sales_order_lines ADD CONSTRAINT fk_sales_order_lines_tenant_id_branch_id_stock_movement_id FOREIGN KEY (tenant_id, branch_id, stock_movement_id) REFERENCES inventory.stock_movements (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.sales_orders ADD CONSTRAINT fk_sales_orders_tenant_id_branch_id_pos_session_id FOREIGN KEY (tenant_id, branch_id, pos_session_id) REFERENCES sales.pos_sessions (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE sales.sales_orders ADD CONSTRAINT fk_sales_orders_tenant_id_branch_id_warehouse_id FOREIGN KEY (tenant_id, branch_id, warehouse_id) REFERENCES warehouse.warehouses (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE iam.sessions ADD CONSTRAINT fk_sessions_tenant_id_active_branch_id FOREIGN KEY (tenant_id, active_branch_id) REFERENCES warehouse.branches (tenant_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE warehouse.shelves ADD CONSTRAINT fk_shelves_tenant_id_branch_id_rack_id FOREIGN KEY (tenant_id, branch_id, rack_id) REFERENCES warehouse.racks (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_adjustment_lines ADD CONSTRAINT fk_stock_adjustment_lines_tenant_id_branch_id_stock_ad_202e465f FOREIGN KEY (tenant_id, branch_id, stock_adjustment_id) REFERENCES inventory.stock_adjustments (tenant_id, branch_id, id) ON DELETE CASCADE;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_adjustment_lines ADD CONSTRAINT fk_stock_adjustment_lines_tenant_id_branch_id_stock_level_id FOREIGN KEY (tenant_id, branch_id, stock_level_id) REFERENCES inventory.stock_levels (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_adjustment_lines ADD CONSTRAINT fk_stock_adjustment_lines_tenant_id_branch_id_stock_movement_id FOREIGN KEY (tenant_id, branch_id, stock_movement_id) REFERENCES inventory.stock_movements (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_adjustments ADD CONSTRAINT fk_stock_adjustments_tenant_id_branch_id_warehouse_id FOREIGN KEY (tenant_id, branch_id, warehouse_id) REFERENCES warehouse.warehouses (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_levels ADD CONSTRAINT fk_stock_levels_tenant_id_branch_id_bin_id FOREIGN KEY (tenant_id, branch_id, bin_id) REFERENCES warehouse.bins (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_movements ADD CONSTRAINT fk_stock_movements_tenant_id_branch_id_stock_level_id FOREIGN KEY (tenant_id, branch_id, stock_level_id) REFERENCES inventory.stock_levels (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_reservations ADD CONSTRAINT fk_stock_reservations_tenant_id_branch_id_pos_session_id FOREIGN KEY (tenant_id, branch_id, pos_session_id) REFERENCES sales.pos_sessions (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_reservations ADD CONSTRAINT fk_stock_reservations_tenant_id_branch_id_sales_order_line_id FOREIGN KEY (tenant_id, branch_id, sales_order_line_id) REFERENCES sales.sales_order_lines (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_reservations ADD CONSTRAINT fk_stock_reservations_tenant_id_branch_id_stock_level_id FOREIGN KEY (tenant_id, branch_id, stock_level_id) REFERENCES inventory.stock_levels (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_transfer_lines ADD CONSTRAINT fk_stock_transfer_lines_tenant_id_from_branch_id_to_br_8ab834cf FOREIGN KEY (tenant_id, from_branch_id, to_branch_id, stock_transfer_id) REFERENCES inventory.stock_transfers (tenant_id, from_branch_id, to_branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_transfer_lines ADD CONSTRAINT fk_stock_transfer_lines_tenant_id_variant_id FOREIGN KEY (tenant_id, variant_id) REFERENCES catalog.product_variants (tenant_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_transfers ADD CONSTRAINT fk_stock_transfers_tenant_id_from_branch_id_from_warehouse_id FOREIGN KEY (tenant_id, from_branch_id, from_warehouse_id) REFERENCES warehouse.warehouses (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_transfers ADD CONSTRAINT fk_stock_transfers_tenant_id_requested_by_user_id FOREIGN KEY (tenant_id, requested_by_user_id) REFERENCES iam.users (tenant_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE inventory.stock_transfers ADD CONSTRAINT fk_stock_transfers_tenant_id_to_branch_id_to_warehouse_id FOREIGN KEY (tenant_id, to_branch_id, to_warehouse_id) REFERENCES warehouse.warehouses (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.supplier_invoice_lines ADD CONSTRAINT fk_supplier_invoice_lines_tenant_id_branch_id_goods_re_507ecc30 FOREIGN KEY (tenant_id, branch_id, goods_receipt_line_id) REFERENCES purchasing.goods_receipt_lines (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE purchasing.supplier_invoice_lines ADD CONSTRAINT fk_supplier_invoice_lines_tenant_id_branch_id_supplier_47722964 FOREIGN KEY (tenant_id, branch_id, supplier_invoice_id) REFERENCES purchasing.supplier_invoices (tenant_id, branch_id, id) ON DELETE CASCADE;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    ALTER TABLE warehouse.zones ADD CONSTRAINT fk_zones_tenant_id_branch_id_warehouse_id FOREIGN KEY (tenant_id, branch_id, warehouse_id) REFERENCES warehouse.warehouses (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE TRIGGER trg_append_only BEFORE UPDATE OR DELETE ON inventory.stock_transfer_movements
+        FOR EACH ROW EXECUTE FUNCTION iam.minv_append_only();
+    CREATE TRIGGER trg_append_only_truncate BEFORE TRUNCATE ON inventory.stock_transfer_movements
+        FOR EACH STATEMENT EXECUTE FUNCTION iam.minv_append_only();
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE TRIGGER trg_append_only BEFORE UPDATE OR DELETE ON inventory.stock_transfer_discrepancies
+        FOR EACH ROW EXECUTE FUNCTION iam.minv_append_only();
+    CREATE TRIGGER trg_append_only_truncate BEFORE TRUNCATE ON inventory.stock_transfer_discrepancies
+        FOR EACH STATEMENT EXECUTE FUNCTION iam.minv_append_only();
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE TRIGGER trg_append_only BEFORE UPDATE OR DELETE ON inventory.stock_transfer_events
+        FOR EACH ROW EXECUTE FUNCTION iam.minv_append_only();
+    CREATE TRIGGER trg_append_only_truncate BEFORE TRUNCATE ON inventory.stock_transfer_events
+        FOR EACH STATEMENT EXECUTE FUNCTION iam.minv_append_only();
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE TRIGGER trg_append_only BEFORE UPDATE OR DELETE ON inventory.stock_transfer_line_batches
+        FOR EACH ROW EXECUTE FUNCTION iam.minv_append_only();
+    CREATE TRIGGER trg_append_only_truncate BEFORE TRUNCATE ON inventory.stock_transfer_line_batches
+        FOR EACH STATEMENT EXECUTE FUNCTION iam.minv_append_only();
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE TRIGGER trg_append_only BEFORE UPDATE OR DELETE ON integration.outbox_events
+        FOR EACH ROW EXECUTE FUNCTION iam.minv_append_only();
+    CREATE TRIGGER trg_append_only_truncate BEFORE TRUNCATE ON integration.outbox_events
+        FOR EACH STATEMENT EXECUTE FUNCTION iam.minv_append_only();
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE TRIGGER trg_append_only BEFORE UPDATE OR DELETE ON integration.webhook_deliveries
+        FOR EACH ROW EXECUTE FUNCTION iam.minv_append_only();
+    CREATE TRIGGER trg_append_only_truncate BEFORE TRUNCATE ON integration.webhook_deliveries
+        FOR EACH STATEMENT EXECUTE FUNCTION iam.minv_append_only();
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE TRIGGER trg_append_only BEFORE UPDATE OR DELETE ON sales.external_orders
+        FOR EACH ROW EXECUTE FUNCTION iam.minv_append_only();
+    CREATE TRIGGER trg_append_only_truncate BEFORE TRUNCATE ON sales.external_orders
+        FOR EACH STATEMENT EXECUTE FUNCTION iam.minv_append_only();
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE TRIGGER trg_append_only BEFORE UPDATE OR DELETE ON iam.processed_requests
+        FOR EACH ROW EXECUTE FUNCTION iam.minv_append_only();
+    CREATE TRIGGER trg_append_only_truncate BEFORE TRUNCATE ON iam.processed_requests
+        FOR EACH STATEMENT EXECUTE FUNCTION iam.minv_append_only();
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE OR REPLACE FUNCTION iam.branch_visible(p_branch uuid) RETURNS boolean
+    LANGUAGE sql STABLE AS $$
+        SELECT CASE coalesce(current_setting('minv.branch_ids', true), '')
+                   WHEN '*' THEN true
+                   WHEN '' THEN false
+                   ELSE p_branch = ANY (string_to_array(current_setting('minv.branch_ids', true), ',')::uuid[])
+               END
+    $$;
+    DO $$
+    DECLARE r record;
+    BEGIN
+        FOR r IN
+            SELECT c.table_schema, c.table_name
+            FROM information_schema.columns c
+            JOIN information_schema.tables t
+              ON t.table_schema = c.table_schema AND t.table_name = c.table_name AND t.table_type = 'BASE TABLE'
+            WHERE c.column_name = 'tenant_id' AND c.table_schema IN ('iam', 'catalog', 'warehouse', 'inventory', 'purchasing', 'sales', 'accounting', 'integration')
+        LOOP
+            EXECUTE format('ALTER TABLE %I.%I ENABLE ROW LEVEL SECURITY', r.table_schema, r.table_name);
+            EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I.%I', r.table_schema, r.table_name);
+            EXECUTE format('CREATE POLICY tenant_isolation ON %I.%I USING (tenant_id = iam.current_tenant_id()) '
+                           'WITH CHECK (tenant_id = iam.current_tenant_id())', r.table_schema, r.table_name);
+        END LOOP;
+    END;
+    $$;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON warehouse.zones AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON warehouse.aisles AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON warehouse.racks AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON warehouse.shelves AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON warehouse.bins AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON warehouse.bin_assignments AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON catalog.product_stock_policies AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON inventory.stock_levels AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON inventory.stock_movements AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON inventory.stock_reservations AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON inventory.stock_adjustments AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON inventory.stock_adjustment_lines AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON inventory.physical_counts AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON inventory.physical_count_lines AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON inventory.stock_transfer_movements AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON purchasing.purchase_orders AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON purchasing.purchase_order_lines AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON purchasing.goods_receipts AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON purchasing.goods_receipt_lines AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON purchasing.purchase_returns AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON purchasing.purchase_return_lines AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON purchasing.supplier_invoices AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON purchasing.supplier_invoice_lines AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON sales.pos_registers AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON sales.pos_sessions AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON sales.cash_movements AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON sales.sales_orders AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON sales.sales_order_lines AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON sales.invoices AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON sales.invoice_lines AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON sales.payments AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON sales.external_orders AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON accounting.journal_entries AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON accounting.journal_lines AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON accounting.average_cost_history AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON inventory.stock_transfers AS RESTRICTIVE
+        USING (iam.branch_visible(from_branch_id) OR iam.branch_visible(to_branch_id))
+        WITH CHECK (iam.branch_visible(from_branch_id) OR iam.branch_visible(to_branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON inventory.stock_transfer_lines AS RESTRICTIVE
+        USING (iam.branch_visible(from_branch_id) OR iam.branch_visible(to_branch_id))
+        WITH CHECK (iam.branch_visible(from_branch_id) OR iam.branch_visible(to_branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON inventory.stock_transfer_line_batches AS RESTRICTIVE
+        USING (iam.branch_visible(from_branch_id) OR iam.branch_visible(to_branch_id))
+        WITH CHECK (iam.branch_visible(from_branch_id) OR iam.branch_visible(to_branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON inventory.stock_transfer_discrepancies AS RESTRICTIVE
+        USING (iam.branch_visible(from_branch_id) OR iam.branch_visible(to_branch_id))
+        WITH CHECK (iam.branch_visible(from_branch_id) OR iam.branch_visible(to_branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE POLICY branch_isolation ON inventory.stock_transfer_events AS RESTRICTIVE
+        USING (iam.branch_visible(from_branch_id) OR iam.branch_visible(to_branch_id))
+        WITH CHECK (iam.branch_visible(from_branch_id) OR iam.branch_visible(to_branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE OR REPLACE FUNCTION integration.resolve_api_key(p_prefix text)
+    RETURNS TABLE (api_key_id uuid, tenant_id uuid, token_hash text, owner_user_id uuid, branch_id uuid,
+                   expires_at timestamptz, revoked_at timestamptz)
+    LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, integration AS $$
+        SELECT k.id, k.tenant_id, k.token_hash, k.owner_user_id, k.branch_id, k.expires_at, k.revoked_at
+        FROM integration.api_keys k
+        WHERE k.prefix = p_prefix
+    $$;
+
+    CREATE OR REPLACE FUNCTION iam.resolve_session(p_token_hash text)
+    RETURNS TABLE (session_id uuid, tenant_id uuid, user_id uuid, active_branch_id uuid, expires_at timestamptz, ended_at timestamptz)
+    LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, iam AS $$
+        SELECT s.id, s.tenant_id, s.user_id, s.active_branch_id, s.expires_at, s.ended_at
+        FROM iam.sessions s
+        WHERE s.token_hash = p_token_hash
+    $$;
+
+    CREATE OR REPLACE FUNCTION integration.claim_deliveries(p_limit integer, p_lease_seconds integer)
+    RETURNS TABLE (tenant_id uuid, outbox_event_id uuid)
+    LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, integration AS $$
+    #variable_conflict use_column
+    BEGIN
+        RETURN QUERY
+        WITH due AS (
+            SELECT d.outbox_event_id AS id
+            FROM integration.outbox_dispatch d
+            WHERE d.status = 'Pending' AND d.next_attempt_at <= now()
+            ORDER BY d.next_attempt_at
+            LIMIT greatest(1, least(p_limit, 500))
+            FOR UPDATE SKIP LOCKED)
+        UPDATE integration.outbox_dispatch d
+           SET next_attempt_at = now() + make_interval(secs => greatest(30, least(p_lease_seconds, 3600)))
+        FROM due
+        WHERE d.outbox_event_id = due.id
+        RETURNING d.tenant_id, d.outbox_event_id;
+    END;
+    $$;
+
+    REVOKE ALL ON FUNCTION integration.resolve_api_key(text) FROM PUBLIC;
+    REVOKE ALL ON FUNCTION iam.resolve_session(text) FROM PUBLIC;
+    REVOKE ALL ON FUNCTION integration.claim_deliveries(integer, integer) FROM PUBLIC;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    CREATE SCHEMA IF NOT EXISTS reporting;
+
+    CREATE MATERIALIZED VIEW reporting.mv_branch_stock AS
+    SELECT l.tenant_id, l.branch_id, b.variant_id,
+           sum(l.quantity_on_hand) AS on_hand,
+           sum(l.quantity_reserved) AS reserved,
+           sum(l.quantity_on_hand * coalesce(c.average_cost, 0)) AS value,
+           now() AS refreshed_at
+    FROM inventory.stock_levels l
+    JOIN inventory.batches b ON b.id = l.batch_id
+    JOIN warehouse.bins bi ON bi.id = l.bin_id
+    JOIN warehouse.shelves sh ON sh.id = bi.shelf_id
+    JOIN warehouse.racks r ON r.id = sh.rack_id
+    JOIN warehouse.aisles a ON a.id = r.aisle_id
+    JOIN warehouse.zones z ON z.id = a.zone_id
+    LEFT JOIN LATERAL (
+        SELECT h.average_cost FROM accounting.average_cost_history h
+        WHERE h.tenant_id = l.tenant_id AND h.variant_id = b.variant_id AND h.warehouse_id = z.warehouse_id
+        ORDER BY h.sequence DESC LIMIT 1) c ON true
+    GROUP BY l.tenant_id, l.branch_id, b.variant_id;
+    CREATE UNIQUE INDEX ux_mv_branch_stock ON reporting.mv_branch_stock (tenant_id, branch_id, variant_id);
+
+    CREATE MATERIALIZED VIEW reporting.mv_branch_daily_sales AS
+    SELECT i.tenant_id, i.branch_id, (i.issued_at AT TIME ZONE c.time_zone_id)::date AS day,
+           count(*)::int AS tickets,
+           coalesce(sum(p.amount), 0) AS revenue,
+           coalesce(sum(t.tax), 0) AS tax,
+           now() AS refreshed_at
+    FROM sales.invoices i
+    JOIN iam.tenant_configs c ON c.tenant_id = i.tenant_id
+    LEFT JOIN LATERAL (SELECT sum(x.amount) AS amount FROM sales.payments x WHERE x.invoice_id = i.id) p ON true
+    LEFT JOIN LATERAL (SELECT sum(x.tax_amount) AS tax FROM sales.invoice_lines x WHERE x.invoice_id = i.id) t ON true
+    WHERE i.status = 'Issued'
+    GROUP BY i.tenant_id, i.branch_id, (i.issued_at AT TIME ZONE c.time_zone_id)::date;
+    CREATE UNIQUE INDEX ux_mv_branch_daily_sales ON reporting.mv_branch_daily_sales (tenant_id, branch_id, day);
+
+    -- Las vistas materializadas no admiten RLS: solo se exponen estas vistas filtradas (security_barrier evita que un
+    -- predicado del usuario vea filas antes del filtro)
+    CREATE VIEW reporting.v_branch_stock WITH (security_barrier = true) AS
+    SELECT * FROM reporting.mv_branch_stock
+    WHERE tenant_id = iam.current_tenant_id() AND iam.branch_visible(branch_id);
+
+    CREATE VIEW reporting.v_branch_daily_sales WITH (security_barrier = true) AS
+    SELECT * FROM reporting.mv_branch_daily_sales
+    WHERE tenant_id = iam.current_tenant_id() AND iam.branch_visible(branch_id);
+
+    CREATE OR REPLACE FUNCTION reporting.refresh_all() RETURNS boolean
+    LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, reporting AS $$
+    BEGIN
+        IF NOT pg_try_advisory_xact_lock(hashtext('minv.reporting.refresh')) THEN
+            RETURN false;   -- otra réplica ya está refrescando
+        END IF;
+        REFRESH MATERIALIZED VIEW CONCURRENTLY reporting.mv_branch_stock;
+        REFRESH MATERIALIZED VIEW CONCURRENTLY reporting.mv_branch_daily_sales;
+        RETURN true;
+    END;
+    $$;
+    REVOKE ALL ON FUNCTION reporting.refresh_all() FROM PUBLIC;
+
+    -- Conservación de las transferencias: despachado = cantidad; recibido + faltante = cantidad
+    CREATE OR REPLACE VIEW inventory.v_transfer_breaches WITH (security_invoker = true) AS
+    SELECT t.tenant_id, t.id AS transfer_id, t.number, t.status, l.id AS line_id, l.quantity,
+           coalesce(o.sent, 0) AS sent, coalesce(m.shipped, 0) AS shipped, coalesce(i.received, 0) AS received,
+           coalesce(d.shortage, 0) AS shortage
+    FROM inventory.stock_transfers t
+    JOIN inventory.stock_transfer_lines l ON l.stock_transfer_id = t.id
+    LEFT JOIN LATERAL (SELECT sum(x.quantity) AS shipped FROM inventory.stock_transfer_line_batches x WHERE x.transfer_line_id = l.id) m ON true
+    LEFT JOIN LATERAL (SELECT sum(x.quantity) AS shortage FROM inventory.stock_transfer_discrepancies x WHERE x.transfer_line_id = l.id) d ON true
+    LEFT JOIN LATERAL (SELECT sum(sm.quantity) AS sent FROM inventory.stock_transfer_movements tm
+                       JOIN inventory.stock_movements sm ON sm.id = tm.stock_movement_id
+                       WHERE tm.transfer_line_id = l.id AND tm.direction = 'Out') o ON true
+    LEFT JOIN LATERAL (SELECT sum(sm.quantity) AS received FROM inventory.stock_transfer_movements tm
+                       JOIN inventory.stock_movements sm ON sm.id = tm.stock_movement_id
+                       WHERE tm.transfer_line_id = l.id AND tm.direction = 'In') i ON true
+    WHERE (t.status IN ('Dispatched', 'Received') AND (coalesce(o.sent, 0) <> l.quantity OR coalesce(m.shipped, 0) <> l.quantity))
+       OR (t.status = 'Received' AND coalesce(i.received, 0) + coalesce(d.shortage, 0) <> l.quantity)
+       OR (t.status IN ('Pending', 'Cancelled') AND (o.sent IS NOT NULL OR m.shipped IS NOT NULL OR i.received IS NOT NULL));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    INSERT INTO iam.permissions (id, tenant_id, code, description)
+    SELECT gen_random_uuid(), t.id, p.code, p.description
+    FROM iam.tenants t
+    CROSS JOIN (VALUES
+        ('corporate.branches.all', 'Ver y operar todas las sucursales (gerencia global)'),
+        ('corporate.branches.manage', 'Crear y modificar sucursales y asignar usuarios a sucursales'),
+        ('inventory.transfers.manage', 'Crear, despachar y recibir transferencias entre sucursales'),
+        ('integration.manage', 'Administrar API Keys y webhooks de integración B2B')) AS p(code, description)
+    WHERE NOT EXISTS (SELECT 1 FROM iam.permissions x WHERE x.tenant_id = t.id AND x.code = p.code);
+
+    INSERT INTO iam.role_permissions (tenant_id, role_id, permission_id)
+    SELECT r.tenant_id, r.id, p.id
+    FROM iam.roles r
+    JOIN (VALUES ('ADMIN', 'corporate.branches.all'), ('ADMIN', 'corporate.branches.manage'), ('ADMIN', 'inventory.transfers.manage'),
+                 ('ADMIN', 'integration.manage'), ('BODEGA', 'inventory.transfers.manage'), ('GERENCIA', 'corporate.branches.all'),
+                 ('GERENCIA', 'inventory.transfers.manage')) AS m(role_code, permission_code) ON m.role_code = r.code
+    JOIN iam.permissions p ON p.tenant_id = r.tenant_id AND p.code = m.permission_code
+    WHERE NOT EXISTS (SELECT 1 FROM iam.role_permissions x WHERE x.role_id = r.id AND x.permission_id = p.id);
+
+    INSERT INTO accounting.accounts (id, tenant_id, code, name, account_type, parent_account_id, is_postable)
+    SELECT gen_random_uuid(), g.tenant_id, a.code, a.name, a.account_type, g.id, true
+    FROM (VALUES ('1.1.06', 'Mercadería enviada a sucursales', 'Asset', '1.1'),
+                 ('2.1.04', 'Mercadería recibida de sucursales', 'Liability', '2.1')) AS a(code, name, account_type, parent_code)
+    JOIN accounting.accounts g ON g.code = a.parent_code
+    WHERE NOT EXISTS (SELECT 1 FROM accounting.accounts x WHERE x.tenant_id = g.tenant_id AND x.code = a.code);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DO $$
+    DECLARE r text;
+    BEGIN
+        FOREACH r IN ARRAY ARRAY['minv_app', 'minv_server'] LOOP
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
+                EXECUTE format('GRANT USAGE ON SCHEMA iam, catalog, warehouse, inventory, purchasing, sales, accounting, integration, reporting TO %I', r);
+                EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA iam, catalog, warehouse, inventory, purchasing, sales, accounting, integration TO %I', r);
+                EXECUTE format('REVOKE UPDATE, DELETE, TRUNCATE ON inventory.stock_movements, iam.audit_logs, iam.access_logs, sales.cash_movements, sales.payments, accounting.exchange_rates, accounting.average_cost_history, inventory.stock_transfer_movements, inventory.stock_transfer_discrepancies, inventory.stock_transfer_events, inventory.stock_transfer_line_batches, integration.outbox_events, integration.webhook_deliveries, sales.external_orders, iam.processed_requests FROM %I', r);
+                EXECUTE format('REVOKE INSERT, UPDATE, DELETE ON iam.modules, iam.__ef_migrations_history FROM %I', r);
+                EXECUTE format('GRANT SELECT ON reporting.v_branch_stock, reporting.v_branch_daily_sales TO %I', r);
+                EXECUTE format('GRANT EXECUTE ON FUNCTION iam.current_tenant_id(), iam.branch_visible(uuid) TO %I', r);
+            END IF;
+        END LOOP;
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'minv_server') THEN
+            GRANT EXECUTE ON FUNCTION integration.resolve_api_key(text), iam.resolve_session(text),
+                integration.claim_deliveries(integer, integer), reporting.refresh_all() TO minv_server;
+        END IF;
+    END;
+    $$;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    DO $$
+    DECLARE r record;
+    BEGIN
+        FOR r IN SELECT schemaname, tablename FROM pg_tables
+                 WHERE schemaname IN ('iam', 'catalog', 'warehouse', 'inventory', 'purchasing', 'sales', 'accounting', 'integration')
+                   AND tableowner = current_user
+        LOOP
+            EXECUTE format('ANALYZE %I.%I', r.schemaname, r.tablename);
+        END LOOP;
+    END;
+    $$;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925214056_V4MultiBranchCloud') THEN
+    INSERT INTO iam.__ef_migrations_history ("MigrationId", "ProductVersion")
+    VALUES ('20260925214056_V4MultiBranchCloud', '8.0.31');
+    END IF;
+END $EF$;
+COMMIT;
+
+START TRANSACTION;
+
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925225352_V4BranchHeaderKeys') THEN
+    ALTER TABLE accounting.journal_entries ADD CONSTRAINT fk_journal_entries_tenant_id_branch_id FOREIGN KEY (tenant_id, branch_id) REFERENCES warehouse.branches (tenant_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925225352_V4BranchHeaderKeys') THEN
+    ALTER TABLE purchasing.purchase_returns ADD CONSTRAINT fk_purchase_returns_tenant_id_branch_id FOREIGN KEY (tenant_id, branch_id) REFERENCES warehouse.branches (tenant_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925225352_V4BranchHeaderKeys') THEN
+    ALTER TABLE purchasing.supplier_invoices ADD CONSTRAINT fk_supplier_invoices_tenant_id_branch_id FOREIGN KEY (tenant_id, branch_id) REFERENCES warehouse.branches (tenant_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925225352_V4BranchHeaderKeys') THEN
+    INSERT INTO iam.__ef_migrations_history ("MigrationId", "ProductVersion")
+    VALUES ('20260925225352_V4BranchHeaderKeys', '8.0.31');
     END IF;
 END $EF$;
 COMMIT;

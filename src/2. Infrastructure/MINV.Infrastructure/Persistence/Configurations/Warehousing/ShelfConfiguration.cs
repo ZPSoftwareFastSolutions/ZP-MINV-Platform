@@ -12,8 +12,8 @@ internal sealed class ShelfConfiguration : IEntityTypeConfiguration<Shelf>
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Code).HasMaxLength(20);
         builder.HasOne<Rack>().WithMany()
-            .HasForeignKey(x => new { x.TenantId, x.RackId })
-            .HasPrincipalKey(p => new { p.TenantId, p.Id })
+            .HasForeignKey(x => new { x.TenantId, x.BranchId, x.RackId })
+            .HasPrincipalKey(p => new { p.TenantId, p.BranchId, p.Id })
             .OnDelete(DeleteBehavior.Restrict);
         builder.HasIndex(x => new { x.RackId, x.Code }).IsUnique();
     }

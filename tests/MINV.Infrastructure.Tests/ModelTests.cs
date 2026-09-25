@@ -10,18 +10,18 @@ namespace MINV.Infrastructure.Tests;
 /// <summary>Pruebas del modelo relacional (no necesitan PostgreSQL: EF Core arma el modelo y el DDL en memoria).</summary>
 public sealed class ModelTests
 {
-    private static readonly MINVDbContext Db = new MINVDbContextDesignTimeFactory().CreateDbContext([]);
+    private static readonly MinvWriteDbContext Db = new MinvWriteDbContextDesignTimeFactory().CreateDbContext([]);
     private static readonly IModel Model = Db.GetService<IDesignTimeModel>().Model;
     private static readonly string Ddl = Db.Database.GenerateCreateScript();
 
     private static IEnumerable<IEntityType> Entities => Model.GetEntityTypes().Where(e => !e.IsOwned());
 
     [Fact]
-    public void El_modelo_tiene_mas_de_80_tablas_en_7_esquemas()
+    public void El_modelo_tiene_mas_de_80_tablas_en_8_esquemas()
     {
         var tables = Entities.Select(e => (e.GetSchema(), e.GetTableName())).Distinct().ToList();
         Assert.True(tables.Count >= 80, $"solo {tables.Count} tablas");
-        Assert.Equal(97, tables.Count);   // 96 de la V3 + catalog.product_images (V3.1)
+        Assert.Equal(110, tables.Count);   // 96 de la V3 + product_images (V3.1) + 13 de la V4 (sucursales, integración, idempotencia)
         Assert.Equal(Schemas.All.OrderBy(s => s), tables.Select(t => t.Item1!).Distinct().OrderBy(s => s));
     }
 
@@ -51,7 +51,12 @@ public sealed class ModelTests
             {
                 continue;
             }
-            Assert.True(fk.Properties.Any(p => p.Name == nameof(ITenantScoped.TenantId)) && fk.Properties.Count == 2,
+            // V3: (tenant_id, x_id). V4: (tenant_id, branch_id, x_id) entre filas de una sucursal y
+            // (tenant_id, from_branch_id, to_branch_id, x_id) entre las filas de una transferencia.
+            var names = fk.Properties.Select(p => p.Name).ToList();
+            // (la FK a la propia sucursal, p. ej. centro de costo → sucursal, es (tenant_id, branch_id): ahí branch_id es la referencia)
+            var branchColumns = principal.Name == "Branch" ? 0 : names.Count(n => n is "BranchId" or "FromBranchId" or "ToBranchId");
+            Assert.True(names.Contains(nameof(ITenantScoped.TenantId)) && fk.Properties.Count == 2 + branchColumns && branchColumns <= 2,
                 $"{fk.DeclaringEntityType.ClrType.Name} → {principal.Name}: FK sin tenant_id");
         }
     }
@@ -75,8 +80,12 @@ public sealed class ModelTests
     public void Los_libros_mayores_son_append_only()
     {
         var appendOnly = Entities.Where(e => typeof(IAppendOnly).IsAssignableFrom(e.ClrType)).Select(e => e.ClrType.Name).OrderBy(n => n);
-        Assert.Equal(new[] { "AccessLog", "AuditLog", "AverageCostHistory", "CashMovement", "ExchangeRate", "Payment", "StockMovement" },
-            appendOnly);
+        Assert.Equal(new[]
+        {
+            "AccessLog", "AuditLog", "AverageCostHistory", "CashMovement", "ExchangeRate", "ExternalOrder", "OutboxEvent", "Payment",
+            "ProcessedRequest", "StockMovement", "StockTransferDiscrepancy", "StockTransferEvent", "StockTransferLineBatch",
+            "StockTransferMovement", "WebhookDelivery",
+        }, appendOnly);
     }
 
     [Fact]

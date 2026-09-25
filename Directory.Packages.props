@@ -1,5 +1,5 @@
 <Project>
-  <!-- M-INV V3 · Versiones centralizadas de paquetes NuGet (Central Package Management). -->
+  <!-- M-INV · Versiones centralizadas de paquetes NuGet (Central Package Management). -->
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
@@ -19,6 +19,10 @@
   <ItemGroup Label="Hosting y hardware">
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
     <PackageVersion Include="System.IO.Ports" Version="8.0.0" />
+  </ItemGroup>
+  <ItemGroup Label="Web (V4)">
+    <!-- OpenAPI del API Gateway B2B (la 6.x es la línea compatible con .NET 8). -->
+    <PackageVersion Include="Swashbuckle.AspNetCore" Version="6.9.0" />
   </ItemGroup>
   <ItemGroup Label="Pruebas">
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />

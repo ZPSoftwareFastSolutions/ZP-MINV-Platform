@@ -153,11 +153,11 @@ public static partial class V21ImportPlanner
             var variant = product.DefaultVariant;
             var batch = Batch.CreateDefault(t, variant.Id);
             var bin = topology.BinFor(p.Location, plan);
-            var level = StockLevel.Open(t, bin, batch.Id);
+            var level = StockLevel.Open(t, seeds.BranchId, bin, batch.Id);
             plan.Entities.AddRange([product, batch, level,
-                new ProductStockPolicy(t, variant.Id, seeds.WarehouseId, p.Minimum, p.Maximum),
-                new BinAssignment(t, bin, variant.Id, isPrimaryPick: true),
-                new AverageCostHistory(t, variant.Id, seeds.WarehouseId, now, Math.Max(0, p.UnitCost), null)]);
+                new ProductStockPolicy(t, seeds.BranchId, variant.Id, seeds.WarehouseId, p.Minimum, p.Maximum),
+                new BinAssignment(t, seeds.BranchId, bin, variant.Id, isPrimaryPick: true),
+                new AverageCostHistory(t, seeds.BranchId, variant.Id, seeds.WarehouseId, 1, now, Math.Max(0, p.UnitCost), null)]);
             if (p.Supplier.Length > 0 && suppliers.TryGetValue(p.Supplier, out var supplier))
             {
                 plan.Entities.Add(new ProductSupplier(t, product.Id, supplier.Id, null, null, isPreferred: true));
@@ -225,7 +225,7 @@ public static partial class V21ImportPlanner
         if (options.ImportOpenCount && counts.Count > 0)
         {
             var date = wb.SnapshotSerial is { } s ? DateOnly.FromDateTime(XlsxTableReader.FromSerial(Math.Floor(s))) : DateOnly.FromDateTime(now.UtcDateTime);
-            var count = PhysicalCount.Open(t, seeds.WarehouseId, date, 1, "Toma física en curso migrada de la V2.1");
+            var count = PhysicalCount.Open(t, seeds.BranchId, seeds.WarehouseId, date, 1, "Toma física en curso migrada de la V2.1");
             foreach (var c in counts)
             {
                 if (!plan.BySku.TryGetValue(c.Sku, out var target))
@@ -312,32 +312,32 @@ public static partial class V21ImportPlanner
             var zoneKey = Part(0);
             if (!_zones.TryGetValue(zoneKey, out var zoneId))
             {
-                var z = new Zone(tenantId, seeds.WarehouseId, zoneKey, $"Zona {zoneKey}", seeds.PickingLocationTypeId);
+                var z = new Zone(tenantId, seeds.BranchId, seeds.WarehouseId, zoneKey, $"Zona {zoneKey}", seeds.PickingLocationTypeId);
                 plan.Entities.Add(z);
                 _zones[zoneKey] = zoneId = z.Id;
             }
             var aisleKey = zoneKey + "/" + Part(1);
             if (!_aisles.TryGetValue(aisleKey, out var aisleId))
             {
-                var a = new Aisle(tenantId, zoneId, Part(1));
+                var a = new Aisle(tenantId, seeds.BranchId, zoneId, Part(1));
                 plan.Entities.Add(a);
                 _aisles[aisleKey] = aisleId = a.Id;
             }
             var rackKey = aisleKey + "/" + Part(2);
             if (!_racks.TryGetValue(rackKey, out var rackId))
             {
-                var r = new Rack(tenantId, aisleId, Part(2));
+                var r = new Rack(tenantId, seeds.BranchId, aisleId, Part(2));
                 plan.Entities.Add(r);
                 _racks[rackKey] = rackId = r.Id;
             }
             var shelfKey = rackKey + "/" + Part(3);
             if (!_shelves.TryGetValue(shelfKey, out var shelfId))
             {
-                var s = new Shelf(tenantId, rackId, Part(3));
+                var s = new Shelf(tenantId, seeds.BranchId, rackId, Part(3));
                 plan.Entities.Add(s);
                 _shelves[shelfKey] = shelfId = s.Id;
             }
-            var bin = new Bin(tenantId, shelfId, SafeCode($"{seeds.WarehouseCode}-{loc}", 40), seeds.PickingLocationTypeId, _bins.Count + 1);
+            var bin = new Bin(tenantId, seeds.BranchId, shelfId, SafeCode($"{seeds.WarehouseCode}-{loc}", 40), seeds.PickingLocationTypeId, _bins.Count + 1);
             plan.Entities.Add(bin);
             _bins[loc] = bin.Id;
             return bin.Id;

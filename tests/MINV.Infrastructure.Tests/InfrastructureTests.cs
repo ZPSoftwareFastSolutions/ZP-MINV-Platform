@@ -12,12 +12,12 @@ namespace MINV.Infrastructure.Tests;
 /// <summary>Guardas de escritura y servicios (sin PostgreSQL: el interceptor se ejecuta sobre el ChangeTracker).</summary>
 public sealed class InterceptorTests
 {
-    private static (MINVDbContext Db, MinvSaveChangesInterceptor Interceptor, TenantContext Tenant) Build()
+    private static (MinvWriteDbContext Db, MinvSaveChangesInterceptor Interceptor, TenantContext Tenant) Build()
     {
         var tenant = new TenantContext();
-        var options = new DbContextOptionsBuilder<MINVDbContext>();
+        var options = new DbContextOptionsBuilder<MinvWriteDbContext>();
         DependencyInjection.Configure(options, DependencyInjection.DefaultConnectionString);
-        var db = new MINVDbContext(options.Options, tenant);
+        var db = new MinvWriteDbContext(options.Options, tenant);
         var user = new CurrentUser();
         user.SignIn(Guid.NewGuid(), "ana@demo.example", "Ana", []);
         return (db, new MinvSaveChangesInterceptor(tenant, user, new SystemClock()), tenant);
@@ -26,7 +26,7 @@ public sealed class InterceptorTests
     private static StockMovement Movement(Guid tenant)
     {
         var type = MovementType.CreateDefaults(tenant).First(t => t.Code == MovementTypeCodes.Receipt);
-        var level = StockLevel.Open(tenant, Guid.NewGuid(), Guid.NewGuid());
+        var level = StockLevel.Open(tenant, Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
         return level.Register(type, 5, new UnitRule("UND", false), new MovementContext(Guid.NewGuid(),
             DateOnly.FromDateTime(DateTime.UtcNow), DateTimeOffset.UtcNow));
     }

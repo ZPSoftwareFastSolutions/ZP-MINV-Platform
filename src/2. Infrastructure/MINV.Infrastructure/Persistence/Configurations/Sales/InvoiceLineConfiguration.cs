@@ -16,8 +16,8 @@ internal sealed class InvoiceLineConfiguration : IEntityTypeConfiguration<Invoic
         builder.HasKey(x => x.Id);
         builder.Property(x => x.TaxAmount).HasPrecision(19, 4);
         builder.HasOne<SalesOrderLine>().WithMany()
-            .HasForeignKey(x => new { x.TenantId, x.SalesOrderLineId })
-            .HasPrincipalKey(p => new { p.TenantId, p.Id })
+            .HasForeignKey(x => new { x.TenantId, x.BranchId, x.SalesOrderLineId })
+            .HasPrincipalKey(p => new { p.TenantId, p.BranchId, p.Id })
             .OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<TaxRate>().WithMany()
             .HasForeignKey(x => new { x.TenantId, x.TaxRateId })

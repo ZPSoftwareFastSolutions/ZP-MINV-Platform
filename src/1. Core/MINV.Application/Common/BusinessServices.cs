@@ -10,9 +10,24 @@ using MINV.Domain.Iam;
 namespace MINV.Application.Common;
 
 /// <summary>Numeración de documentos «PREFIJO-000001» (única por empresa; si dos cajas numeran a la vez, la base
-/// rechaza el duplicado y el caso de uso reintenta).</summary>
+/// rechaza el duplicado y el caso de uso reintenta). V4: cada sucursal numera con su código («F-CM-000001»,
+/// «F-EA-000001»): una sucursal solo ve sus documentos (filtro y RLS) y así nunca choca con la numeración de otra.</summary>
 public static class Documents
 {
+    /// <summary>Prefijo de una sucursal: «F» + código de la sucursal → «F-CM».</summary>
+    public static async Task<string> BranchPrefixAsync(IMinvDbContext db, string prefix, Guid branchId, CancellationToken ct)
+    {
+        var code = db.Set<Domain.Warehousing.Branch>().Local.FirstOrDefault(b => b.Id == branchId)?.Code
+                   ?? await db.Set<Domain.Warehousing.Branch>().Where(b => b.Id == branchId).Select(b => b.Code).FirstOrDefaultAsync(ct)
+                   ?? throw new NotFoundException("La sucursal no existe.");
+        return prefix + "-" + code;
+    }
+
+    /// <summary>Número siguiente de un documento de la sucursal.</summary>
+    public static async Task<string> NextForBranchAsync<T>(IMinvDbContext db, Expression<Func<T, string>> number, string prefix, Guid branchId,
+        CancellationToken ct) where T : class =>
+        await NextNumberAsync(db.Set<T>(), number, await BranchPrefixAsync(db, prefix, branchId, ct), ct);
+
     public static async Task<string> NextNumberAsync<T>(DbSet<T> set, Expression<Func<T, string>> number, string prefix, CancellationToken ct)
         where T : class
     {
@@ -27,6 +42,41 @@ public static class Documents
     }
 }
 
+/// <summary>
+/// V4 · Sucursal de un documento que no nace de un almacén (asiento manual, gasto): la indicada (si el alcance de la
+/// sesión la permite), la activa, la única del alcance o la del almacén por defecto de la empresa.
+/// </summary>
+public static class BranchContext
+{
+    public static async Task<Guid> ResolveAsync(IMinvDbContext db, Guid? requested, CancellationToken ct)
+    {
+        var scope = db.Branches;
+        if (requested is Guid id)
+        {
+            if (!scope.Allows(id))
+            {
+                throw new AccessDeniedException("No tiene acceso a esa sucursal.");
+            }
+            _ = await db.Set<Domain.Warehousing.Branch>().Where(b => b.Id == id && b.IsActive).Select(b => (Guid?)b.Id).FirstOrDefaultAsync(ct)
+                ?? throw new NotFoundException("La sucursal no existe o está inactiva.");
+            return id;
+        }
+        if (scope.ActiveBranchId is Guid active)
+        {
+            return active;
+        }
+        if (!scope.AllBranches && scope.BranchIds.Count == 1)
+        {
+            return scope.BranchIds.First();
+        }
+        var config = await db.Set<TenantConfig>().FirstAsync(ct);
+        var branches = db.Set<Domain.Warehousing.Warehouse>();
+        return await branches.Where(w => w.Id == config.DefaultWarehouseId).Select(w => (Guid?)w.BranchId).FirstOrDefaultAsync(ct)
+               ?? await db.Set<Domain.Warehousing.Branch>().Where(b => b.IsActive).OrderBy(b => b.Code).Select(b => (Guid?)b.Id).FirstOrDefaultAsync(ct)
+               ?? throw new NotFoundException("La empresa no tiene sucursales.");
+    }
+}
+
 /// <summary>Línea de un asiento: cuenta (código), debe, haber y detalle.</summary>
 public sealed record JournalLineSpec(string AccountCode, decimal Debit, decimal Credit, string? Memo = null);
 
@@ -36,7 +86,7 @@ public sealed record JournalLineSpec(string AccountCode, decimal Debit, decimal 
 /// </summary>
 public static class JournalPoster
 {
-    public static async Task<JournalEntry> PostAsync(IMinvDbContext db, Guid tenantId, Guid userId, DateOnly date, string description,
+    public static async Task<JournalEntry> PostAsync(IMinvDbContext db, Guid tenantId, Guid branchId, Guid userId, DateOnly date, string description,
         IReadOnlyList<JournalLineSpec> lines, DateTimeOffset now, Guid? correlationId, CancellationToken ct)
     {
         var effective = lines.Select(l => l with { Debit = Money(l.Debit), Credit = Money(l.Credit) })
@@ -62,8 +112,8 @@ public static class JournalPoster
         }
         Guard.That(period.Status == FiscalPeriodStatus.Open, "period.closed", $"El período {month:00}/{year} está cerrado.");
         var config = await db.Set<TenantConfig>().FirstAsync(ct);
-        var number = await Documents.NextNumberAsync(db.Set<JournalEntry>(), e => e.Number, "AS", ct);
-        var entry = new JournalEntry(tenantId, number, period.Id, date, description.Length > 250 ? description[..250] : description,
+        var number = await Documents.NextForBranchAsync<JournalEntry>(db, e => e.Number, "AS", branchId, ct);
+        var entry = new JournalEntry(tenantId, branchId, number, period.Id, date, description.Length > 250 ? description[..250] : description,
             config.DefaultCurrencyId, correlationId);
         foreach (var line in effective)
         {
@@ -85,19 +135,34 @@ public static class JournalPoster
     public static decimal Money(decimal value) => decimal.Round(value, 2, MidpointRounding.AwayFromZero);
 }
 
-/// <summary>Costo promedio ponderado por variante y almacén (AverageCostHistory es append-only: cada cambio es una fila).</summary>
+/// <summary>
+/// Costo promedio ponderado por variante y almacén (AverageCostHistory es append-only: cada cambio es una fila). V4: las
+/// filas llevan una secuencia por (variante, almacén) con índice único; el costo vigente es el de mayor secuencia. Si dos
+/// recepciones concurrentes (una compra y una transferencia) calculan sobre el mismo promedio, la segunda choca con el
+/// índice, se traduce a conflicto de concurrencia y el caso de uso reintenta con el promedio que dejó la primera.
+/// </summary>
 public static class AverageCosts
 {
-    public static async Task<decimal> CurrentAsync(IMinvDbContext db, Guid variantId, Guid warehouseId, CancellationToken ct)
+    public static async Task<decimal> CurrentAsync(IMinvDbContext db, Guid variantId, Guid warehouseId, CancellationToken ct) =>
+        (await LatestAsync(db, variantId, warehouseId, ct))?.AverageCost ?? 0m;
+
+    /// <summary>Registra un nuevo costo promedio con la secuencia siguiente.</summary>
+    public static async Task<AverageCostHistory> RecordAsync(IMinvDbContext db, Guid tenantId, Guid branchId, Guid variantId, Guid warehouseId,
+        DateTimeOffset effectiveAt, decimal averageCost, Guid? stockMovementId, CancellationToken ct)
+    {
+        var sequence = ((await LatestAsync(db, variantId, warehouseId, ct))?.Sequence ?? 0) + 1;
+        var row = new AverageCostHistory(tenantId, branchId, variantId, warehouseId, sequence, effectiveAt, averageCost, stockMovementId);
+        db.Set<AverageCostHistory>().Add(row);
+        return row;
+    }
+
+    private static async Task<AverageCostHistory?> LatestAsync(IMinvDbContext db, Guid variantId, Guid warehouseId, CancellationToken ct)
     {
         var local = db.Set<AverageCostHistory>().Local.Where(x => x.VariantId == variantId && x.WarehouseId == warehouseId)
-            .OrderByDescending(x => x.EffectiveAt).FirstOrDefault();
-        if (local is not null)
-        {
-            return local.AverageCost;
-        }
-        return await db.Set<AverageCostHistory>().Where(x => x.VariantId == variantId && x.WarehouseId == warehouseId)
-            .OrderByDescending(x => x.EffectiveAt).Select(x => (decimal?)x.AverageCost).FirstOrDefaultAsync(ct) ?? 0m;
+            .OrderByDescending(x => x.Sequence).FirstOrDefault();
+        var stored = await db.Set<AverageCostHistory>().AsNoTracking().Where(x => x.VariantId == variantId && x.WarehouseId == warehouseId)
+            .OrderByDescending(x => x.Sequence).FirstOrDefaultAsync(ct);
+        return local is null ? stored : stored is null || local.Sequence >= stored.Sequence ? local : stored;
     }
 
     /// <summary>Nuevo promedio después de recibir <paramref name="quantity"/> a <paramref name="unitCost"/>.</summary>

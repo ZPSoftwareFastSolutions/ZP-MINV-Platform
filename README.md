@@ -1,18 +1,65 @@
-# ZP-MINV-Platform · M-INV V3.1 (escritorio + PostgreSQL) · V2.1 (colaborativo)
+# ZP-MINV-Platform · M-INV V4 (multi-sucursal en la nube) · V3.1 (escritorio + PostgreSQL) · V2.1 (colaborativo)
 
-**Sistema de inventarios y punto de venta B2B de Z&P Software Fast Solutions.** La **V3** lleva M-INV de Excel a una
-arquitectura cliente-servidor: solución **.NET 8** en Clean Architecture (dominio rico, CQRS con MediatR), base de datos
-**PostgreSQL** multi-empresa de **97 tablas normalizadas hasta 5FN**, cliente de escritorio **WPF** y módulo de hardware
-**ESC/POS**. Se construyó sobre el modelo de la **V2.1**: su importador migra el libro colaborativo y verifica que la V3
-reproduce exactamente su stock, semáforo, alertas y pedido. La V2.1 (Excel en Microsoft 365) y la V1.2 (Excel local)
-siguen en el repositorio.
+**Sistema de inventarios y punto de venta B2B de Z&P Software Fast Solutions.** La **V4** convierte M-INV en una
+plataforma **multi-sucursal en la nube**: cada sucursal ve y opera solo lo suyo, la mercadería viaja entre sucursales
+con **transferencias en tránsito**, el escritorio trabaja **por internet** contra un servidor M-INV y la tienda en línea
+o el ERP se integran por un **API Gateway B2B** con API Keys y **webhooks firmados** (PostgreSQL gestionado en
+DigitalOcean, AWS RDS o Supabase; **110 tablas** en 8 esquemas). La **V3** llevó M-INV de Excel a una arquitectura
+cliente-servidor: solución **.NET 8** en Clean Architecture (dominio rico, CQRS con MediatR), base de datos
+**PostgreSQL** multi-empresa normalizada hasta 5FN, cliente de escritorio **WPF** y módulo de hardware **ESC/POS**,
+construida sobre el modelo de la **V2.1** (su importador migra el libro colaborativo y verifica la paridad). La V2.1
+(Excel en Microsoft 365) y la V1.2 (Excel local) siguen en el repositorio.
 
-> **¿Cómo la ejecuto?** Siga [`docs/deployment/inicio-rapido-v3.md`](docs/deployment/inicio-rapido-v3.md): con
-> `tools\bd_local.ps1` deja PostgreSQL LOCAL con la base creada y datos de prueba (usuarios de cada rol) y abre
-> `M-INV.exe`; o, en 3 pasos, en modo demostración (sin base de datos). Interfaz: [`docs/product/escritorio-v3.1.md`](docs/product/escritorio-v3.1.md). Modelo de datos:
+> **¿Cómo la ejecuto?** V4: siga [`docs/deployment/inicio-rapido-v4.md`](docs/deployment/inicio-rapido-v4.md): base
+> local con 3 sucursales y datos de prueba (`tools\bd_local.ps1 -Accion recrear`), `M-INV.exe` en modo «Base local»,
+> la nube simulada en su equipo (`tools\servidores_locales.ps1 -Accion iniciar`) y el API con `curl`; para una nube
+> real, [`docs/deployment/despliegue-nube-v4.md`](docs/deployment/despliegue-nube-v4.md). V3.1:
+> [`docs/deployment/inicio-rapido-v3.md`](docs/deployment/inicio-rapido-v3.md). Interfaz:
+> [`docs/product/escritorio-v3.1.md`](docs/product/escritorio-v3.1.md). Modelo de datos (V3 y V4):
 > [`docs/database/ERD-MINV-V3.md`](docs/database/ERD-MINV-V3.md).
 
-## M-INV V3.1 · rama `Inventario-V3.-BaseDeDatosLocal` · base de datos local, más funciones e imágenes
+## M-INV V4 · rama `Inventario-V4.-BaseDeDatosNube` (4.0.0-alpha.1) · multi-sucursal en la nube
+
+Construida sobre `Inventario-V3.-BaseDeDatosLocal`. Arquitectura completa:
+[`docs/architecture/arquitectura-v4.md`](docs/architecture/arquitectura-v4.md).
+
+```text
+  M-INV.exe «Base local» ── PostgreSQL (minv_app) ─────────────────────────────┐
+  M-INV.exe «Nube» ── https ──► MINV.CloudServer (login · RPC · idempotencia) ──┤  mismos casos de uso,
+  Tienda / ERP ── API Key ───► MINV.ApiGateway (/v1 · webhooks · reportes) ─────┤  rol minv_server (sin BYPASSRLS)
+                                                                                 ▼
+             PostgreSQL gestionado: 110 tablas · RLS por empresa Y por sucursal · outbox · réplica de lectura
+```
+
+| Parte | Contenido |
+|---|---|
+| Multi-sucursal | `IBranchScoped` / `IInterBranch`: stock, documentos, cajas y asientos de cada sucursal aislados por filtros de EF Core, guardas, FK compuestas con la sucursal y Row Level Security RESTRICTIVA; gerencia global (`corporate.branches.all`) con «Todas las sucursales»; sucursal activa en la barra superior |
+| Transferencias | Pendiente → despachada (**en tránsito**) → recibida (faltantes con motivo) o anulada; manifiesto por lote, bitácora, asientos 1.1.06 / 2.1.04 y stock consolidado que cuenta lo que viaja una sola vez |
+| `src/3. Presentation/MINV.CloudServer` | Servidor del escritorio en modo nube: `POST /api/v1/session/login`, `POST /api/v1/rpc`, `POST /api/v1/session/logout`, `GET /api/v1/health` |
+| `src/3. Presentation/MINV.ApiGateway` | API B2B `/v1` (catálogo, stock, pedidos idempotentes, transferencias, webhooks, reportes), API Keys con alcances, ProblemDetails, OpenAPI en `/docs`, despachador de webhooks firmados |
+| Modelo de lectura | `MinvReadDbContext` + esquema `reporting` (vistas materializadas) para el tablero gerencial, opcionalmente en una réplica (`MINV_DB_READ`) |
+| Base de datos | Migración `V4MultiBranchCloud`: 110 tablas, 8 esquemas (`integration`), 108 políticas por empresa, 40 por sucursal, 15 libros append-only, funciones SECURITY DEFINER mínimas |
+| Módulos comerciales | `CLOUD_HA` (Bs 12.000 + 1.500/mes), `MULTI_BRANCH` (8.000 + 500), `API_INTEGRATIONS` (6.000 + 400), `GLOBAL_AUDIT` (5.000 + 300) |
+| `tests/MINV.Integration.Tests` | Servidor en la nube y gateway reales (Kestrel en loopback) sobre la base en memoria con la empresa multi-sucursal |
+| [`.claude/v4-architecture-rules.md`](.claude/v4-architecture-rules.md) | Reglas B-01 a B-17 (alcance, transferencias, outbox, idempotencia, roles, SECURITY DEFINER, migraciones, DoD) |
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\bd_local.ps1 -Accion recrear              # base local V4: 3 sucursales + datos de prueba
+powershell -ExecutionPolicy Bypass -File tools\servidores_locales.ps1 -Accion iniciar    # nube simulada: :5080 (servidor) y :5090 (API)
+powershell -ExecutionPolicy Bypass -File tools\bd_nube.ps1 -Accion preparar -Conexion "<cadena del rol dueño>"   # PostgreSQL gestionado
+dotnet run --project "src/3. Presentation/MINV.CloudServer" -- --urls http://localhost:5080   # servidor en la nube (MINV_DB = rol minv_server)
+dotnet run --project "src/3. Presentation/MINV.ApiGateway" -- --urls http://localhost:5090    # API Gateway (+ MINV_INTEGRATION_KEYS)
+dotnet test tests/MINV.Integration.Tests                                                   # pruebas de extremo a extremo de ambos servidores
+docker compose -f deploy/docker-compose.yml up -d --build                                  # ambos servidores en contenedores
+```
+
+Documentación V4: paso a paso [`docs/deployment/inicio-rapido-v4.md`](docs/deployment/inicio-rapido-v4.md) ·
+interfaz del escritorio [`docs/product/escritorio-v4.md`](docs/product/escritorio-v4.md) ·
+despliegue [`docs/deployment/despliegue-nube-v4.md`](docs/deployment/despliegue-nube-v4.md) · integradores
+[`docs/integration/api-gateway-v1.md`](docs/integration/api-gateway-v1.md) · migraciones
+[`.claude/database-migration-guide.md`](.claude/database-migration-guide.md).
+
+## M-INV V3.1 · rama `Inventario-V3.-BaseDeDatosLocal` · base de datos local, más funciones e imágenes (versión anterior)
 
 ![M-INV: punto de venta con imágenes](docs/product/capturas/v3.1/56-punto-de-venta.png)
 
@@ -171,22 +218,41 @@ Paso a paso: [`docs/deployment/inicio-rapido.md`](docs/deployment/inicio-rapido.
 ZP-MINV-Platform/
 ├── .claude/
 │   ├── excel-architecture-rules.md      Reglas CQRS para Excel (V1.x)
-│   └── v2-concurrency-rules.md          Reglas de coautoría y fragmentación (V2; prevalecen en el libro colaborativo)
+│   ├── v2-concurrency-rules.md          Reglas de coautoría y fragmentación (V2; prevalecen en el libro colaborativo)
+│   ├── v3-architecture-rules.md         Reglas A-01 a A-13 de la solución .NET (V3)
+│   ├── v4-architecture-rules.md         Reglas B-01 a B-17: multi-sucursal, nube, integraciones (V4)
+│   └── database-migration-guide.md      Migraciones de esquema y de datos (V2.1 → V3 → V4)
 ├── CLAUDE.md · CHANGELOG.md · README.md
+├── deploy/                                    V4: docker-compose.yml, Dockerfiles de los servidores, .env.example
 ├── docs/
+│   ├── architecture/arquitectura-v4.md        Arquitectura V4 (sucursales, transferencias, nube, API, webhooks)
 │   ├── architecture/data-dictionary.md       Modelo V1.2
 │   ├── architecture/data-dictionary-v2.md    Modelo V2 (usuarios, captura, bitácoras, instantáneas)
+│   ├── database/ERD-MINV-V3.md                Modelo relacional V3 y V4 (110 tablas)
+│   ├── deployment/inicio-rapido-v4.md         V4: paso a paso en un solo equipo (base local, nube simulada, API)
+│   ├── deployment/despliegue-nube-v4.md       V4: DigitalOcean, AWS RDS y Supabase, servidores, TLS, respaldos
+│   ├── deployment/inicio-rapido-v3.md         V3.1: base local, escritorio y demostración
 │   ├── deployment/inicio-rapido.md            Paso a paso: demo, producción, uso diario, Power Automate
 │   ├── deployment/sharepoint-rbac-policies.md Matriz de roles, protección de rangos y publicación
-│   └── product/                               Guía UX y capturas (v2/ = libro colaborativo)
+│   ├── integration/api-gateway-v1.md          V4: guía del integrador B2B (endpoints, errores, webhooks, firmas)
+│   └── product/                               Guía UX y capturas (v2/ = libro colaborativo, v3.1/ = escritorio)
+├── MINV.sln                             Solución .NET (V3 y V4)
 ├── src/
+│   ├── 1. Core/                         MINV.Domain · MINV.Application (casos de uso, contrato RPC)
+│   ├── 2. Infrastructure/               MINV.Infrastructure (EF Core, migraciones, servidores, webhooks) · MINV.Hardware
+│   ├── 3. Presentation/                 MINV.DesktopClient (M-INV.exe) · MINV.CloudServer (V4) · MINV.ApiGateway (V4)
+│   ├── 4. Tools/                        MINV.Cli (minv)
 │   ├── office-scripts/                  Office Scripts (TypeScript) + lib/comun.ts (bloque compartido)
 │   ├── macros/                          VBA de la edición Plus V1.2
 │   ├── M-INV_V2_Colaborativo.xlsx       Libro colaborativo · Core (demo)
 │   └── M-INV_V1_Core.xlsx/.xlsm         Edición local V1.2
 ├── releases/                            Release V2 y Releases V1.2
+├── scripts/db_init.sql                  Script idempotente de la base PostgreSQL (generado)
+├── tests/MINV.*.Tests                   Pruebas .NET (V4: MINV.Integration.Tests, servidores reales)
 ├── tests/office-scripts/                Simulador de ExcelScript y pruebas de los scripts (Node)
 └── tools/
+    ├── bd_local.ps1 · servidores_locales.ps1 · bd_nube.ps1   V3/V4: base local, nube simulada, nube gestionada
+    ├── build_v3.ps1 · publicar_escritorio.ps1                V3/V4: compilar, probar, db_init.sql, M-INV.exe
     ├── build_minv_v2.py + minv2/        Generador del libro colaborativo
     ├── office_scripts.py                Sincroniza el bloque común y genera los scripts instalables
     ├── verify_minv_v2.ps1               Verificación del libro V2 en Excel real
@@ -242,7 +308,10 @@ La protección de Excel evita errores, no ataques; la seguridad real es el permi
 ## Hoja de ruta
 
 - **V2.1** ✔ · Gerencia, consulta por usuario, toma física colaborativa, pedido sugerido, actividad y resumen diario.
-- **V3** · En curso (rama `Inventario-V3`): .NET 8 + PostgreSQL + WPF; ver la sección M-INV V3 al inicio.
+- **V3 / V3.1** ✔ (ramas `Inventario-V3`, `Inventario-V3.1`, `Inventario-V3.-BaseDeDatosLocal`): .NET 8 + PostgreSQL +
+  WPF, escritorio completo y base local con datos de prueba.
+- **V4** · En curso (rama `Inventario-V4.-BaseDeDatosNube`, 4.0.0-alpha.1): multi-sucursal, transferencias en
+  tránsito, servidor en la nube, API Gateway B2B y webhooks; ver la sección M-INV V4 al inicio.
 
 ---
-© Z&P Software Fast Solutions · M-INV V3.0.0-alpha.1 · V2.1.0 colaborativa · V1.2.0 local
+© Z&P Software Fast Solutions · M-INV V4.0.0-alpha.1 · V3.1.0-alpha.1 · V2.1.0 colaborativa · V1.2.0 local

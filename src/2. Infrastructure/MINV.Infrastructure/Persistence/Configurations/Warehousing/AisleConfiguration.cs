@@ -12,8 +12,8 @@ internal sealed class AisleConfiguration : IEntityTypeConfiguration<Aisle>
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Code).HasMaxLength(20);
         builder.HasOne<Zone>().WithMany()
-            .HasForeignKey(x => new { x.TenantId, x.ZoneId })
-            .HasPrincipalKey(p => new { p.TenantId, p.Id })
+            .HasForeignKey(x => new { x.TenantId, x.BranchId, x.ZoneId })
+            .HasPrincipalKey(p => new { p.TenantId, p.BranchId, p.Id })
             .OnDelete(DeleteBehavior.Restrict);
         builder.HasIndex(x => new { x.ZoneId, x.Code }).IsUnique();
     }

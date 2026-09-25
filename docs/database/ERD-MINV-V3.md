@@ -1,22 +1,30 @@
-# M-INV V3 · Modelo relacional (ERD) · PostgreSQL 15+
+# M-INV V3 y V4 · Modelo relacional (ERD) · PostgreSQL 15+
 
 Fuente de verdad: el modelo Code-First de `src/2. Infrastructure/MINV.Infrastructure` (entidades en
 `src/1. Core/MINV.Domain`, configuraciones en `Persistence/Configurations`, migraciones en `Persistence/Migrations`).
 Script equivalente: `scripts/db_init.sql`. La prueba `MINV.Infrastructure.Tests.ModelTests` verifica este documento
-contra el modelo real (97 tablas, 7 esquemas, FK compuestas por tenant, xmin, append-only).
+contra el modelo real: cada tabla del modelo debe aparecer aquí como `` `esquema.tabla` `` (V4: **110 tablas en 8
+esquemas**, FK compuestas por tenant y por sucursal, xmin, 15 libros append-only). La V3.1 tenía 97 tablas en 7
+esquemas; los cambios de la V4 (sucursal en las tablas transaccionales, transferencias rediseñadas, integraciones,
+idempotencia y modelo de lectura) están resumidos en el §7 y ya incorporados en el §4. Arquitectura:
+`docs/architecture/arquitectura-v4.md`.
 
 ## 1. Resumen
 
-| Contexto delimitado | Esquema | Tablas |
-|---|---|---|
-| IAM y tenants (identidad, RBAC, licencias, auditoría) | `iam` | 14 |
-| Catálogo y datos maestros | `catalog` | 19 |
-| Topología de almacén | `warehouse` | 10 |
-| Motor transaccional de stock | `inventory` | 14 |
-| Compras y proveedores | `purchasing` | 11 |
-| Ventas y POS | `sales` | 19 |
-| Costos y contabilidad | `accounting` | 10 |
-| **Total** | 7 | **97** |
+| Contexto delimitado | Esquema | Tablas V3.1 | Tablas V4 | Nuevas en la V4 |
+|---|---|---:|---:|---|
+| IAM y tenants (identidad, RBAC, licencias, auditoría) | `iam` | 14 | 15 | `iam.processed_requests` |
+| Catálogo y datos maestros | `catalog` | 19 | 19 | — |
+| Topología de almacén | `warehouse` | 10 | 10 | — |
+| Motor transaccional de stock | `inventory` | 14 | 18 | `inventory.stock_transfer_movements`, `inventory.stock_transfer_discrepancies`, `inventory.stock_transfer_events`, `inventory.stock_transfer_line_batches` |
+| Compras y proveedores | `purchasing` | 11 | 11 | — |
+| Ventas y POS | `sales` | 19 | 20 | `sales.external_orders` |
+| Costos y contabilidad | `accounting` | 10 | 10 | — |
+| Integraciones B2B (V4) | `integration` | — | 7 | las 7 del esquema |
+| **Total** | 7 → **8** | **97** | **110** | **13** |
+
+Además, el esquema `reporting` (V4) contiene el modelo de lectura: vistas materializadas y vistas filtradas, no
+tablas del modelo EF (§7.5).
 
 ## 2. Convenciones comunes a todas las tablas
 
@@ -27,7 +35,9 @@ contra el modelo real (97 tablas, 7 esquemas, FK compuestas por tenant, xmin, ap
 | Multi-tenant | Toda tabla (salvo `iam.tenants` e `iam.modules`) tiene `tenant_id uuid NOT NULL` → `iam.tenants(id)`, filtro global en EF Core y **Row Level Security** (`tenant_id = iam.current_tenant_id()`) |
 | Integridad entre empresas | Cada entidad expone la clave alterna `(tenant_id, id)` y **toda FK es compuesta** `(tenant_id, x_id) → (tenant_id, id)`: una fila no puede referenciar datos de otra empresa (lo garantiza PostgreSQL) |
 | Concurrencia optimista | Las tablas transaccionales usan la columna de sistema `xmin` como token (`RowVersion` en C#); un conflicto aborta la transacción y el caso de uso reintenta con los valores actuales |
-| Append-only | `inventory.stock_movements`, `iam.audit_logs`, `iam.access_logs`, `sales.cash_movements`, `sales.payments`, `accounting.exchange_rates`, `accounting.average_cost_history`: triggers que rechazan UPDATE, DELETE y TRUNCATE; el rol `minv_app` no tiene esos privilegios |
+| Append-only | `inventory.stock_movements`, `iam.audit_logs`, `iam.access_logs`, `sales.cash_movements`, `sales.payments`, `accounting.exchange_rates`, `accounting.average_cost_history` y (V4) `inventory.stock_transfer_movements`, `inventory.stock_transfer_discrepancies`, `inventory.stock_transfer_events`, `inventory.stock_transfer_line_batches`, `integration.outbox_events`, `integration.webhook_deliveries`, `sales.external_orders`, `iam.processed_requests`: triggers que rechazan UPDATE, DELETE y TRUNCATE; los roles `minv_app` y `minv_server` no tienen esos privilegios |
+| Sucursal (V4) | 35 tablas «por sucursal» (`IBranchScoped`) llevan `branch_id uuid NOT NULL`; 5 tablas «entre sucursales» (`IInterBranch`) llevan `from_branch_id` y `to_branch_id`. Filtro global de EF Core por el alcance de la sesión, guardas de escritura y **Row Level Security RESTRICTIVA** `branch_isolation` (`iam.branch_visible(…)`, variable `minv.branch_ids`). Lista completa en el §7.1 |
+| Integridad entre sucursales (V4) | Las tablas por sucursal exponen la clave alterna `(tenant_id, branch_id, id)` y sus hijos la referencian con `(tenant_id, branch_id, padre_id)`: un hijo nunca tiene otra sucursal que su padre, y la cadena termina en el almacén (`warehouses.branch_id`). Las de transferencias usan `(tenant_id, from_branch_id, to_branch_id, id)` |
 | Auditoría técnica | `created_at` (default `now()`), `created_by`; en las tablas no append-only también `updated_at`, `updated_by` |
 | Tipos | cantidades `numeric(18,6)` (regla `r6` de la V2.1), dinero `numeric(19,4)`, tasas `numeric(18,8)`, porcentajes `numeric(9,4)`, fechas de negocio `date`, instantes `timestamptz` (UTC), estados como texto (`varchar(20)`) |
 
@@ -50,16 +60,25 @@ contra el modelo real (97 tablas, 7 esquemas, FK compuestas por tenant, xmin, ap
   de venta sale de una sesión POS **o** de un almacén; la línea de factura de proveedor es de una recepción **o**
   libre; la reserva es de una sesión POS **o** de una línea de pedido.
 - **Redundancia controlada (documentada)**: `tenant_id` en cada tabla (lo exige el aislamiento multi-tenant; su
-  coherencia la garantizan las FK compuestas) y `stock_levels.quantity_on_hand` / `quantity_reserved`, estado
+  coherencia la garantizan las FK compuestas), (V4) `branch_id` / `from_branch_id` / `to_branch_id` en las tablas
+  de sucursal (los necesitan los filtros y la RLS por sucursal; su coherencia la garantizan las FK compuestas con la
+  sucursal), (V4) `stock_transfers.status` (estado materializado; la bitácora `stock_transfer_events` guarda cada
+  transición) y `stock_levels.quantity_on_hand` / `quantity_reserved`, estado
   materializado del agregado para el control de concurrencia; la vista `inventory.v_conservation_breaches` verifica que
-  Σ movimientos = existencia (invariante de conservación de la V1).
+  Σ movimientos = existencia (invariante de conservación de la V1). V4: lo recibido de una transferencia NO se guarda
+  (se deriva: despachado − faltantes) y `inventory.v_transfer_breaches` verifica la conservación de las transferencias.
 
 ## 4. Tablas por contexto
 
 Además de las relaciones dibujadas, **todas** las tablas con `tenant_id` referencian `iam.tenants(id)` y las FK entre
 contextos se listan en la columna «Referencias» de cada diccionario.
 
-### IAM y tenants · esquema `iam` (14 tablas)
+**V4**: los diagramas muestran `branch_id` en las tablas por sucursal. En esas tablas cada FK hacia su padre de la
+misma sucursal incluye también `branch_id` (p. ej. `(tenant_id, branch_id, warehouse_id) → warehouse.warehouses
+(tenant_id, branch_id, id)`); la columna «Referencias» la escribe entre paréntesis solo en las tablas nuevas o
+rediseñadas de la V4.
+
+### IAM y tenants · esquema `iam` (15 tablas)
 
 ```mermaid
 erDiagram
@@ -145,6 +164,9 @@ erDiagram
         timestamptz ended_at
         varchar machine_name
         varchar client_version
+        uuid active_branch_id FK
+        varchar token_hash
+        timestamptz expires_at
     }
     hardware_tokens {
         uuid id PK
@@ -179,6 +201,19 @@ erDiagram
         jsonb details
         uuid correlation_id
         varchar legacy_reference
+        varchar channel
+        uuid api_key_id FK
+        uuid branch_id FK
+    }
+    processed_requests {
+        uuid id PK
+        uuid tenant_id FK
+        uuid request_id
+        uuid user_id FK
+        varchar request_type
+        varchar request_hash
+        text response
+        timestamptz processed_at
     }
     modules ||--o{ tenant_modules : "module_id"
     users ||--o{ user_credentials : "user_id"
@@ -191,6 +226,7 @@ erDiagram
     users |o--o{ access_logs : "user_id"
     hardware_tokens |o--o{ access_logs : "hardware_token_id"
     users |o--o{ audit_logs : "user_id"
+    users ||--o{ processed_requests : "user_id"
 ```
 
 | Tabla | Descripción | Clave | Referencias (FK) | Únicos / CHECK |
@@ -205,10 +241,11 @@ erDiagram
 | `iam.user_roles` | Roles asignados a cada usuario. | (user_id, role_id) | user_id → iam.users<br>role_id → iam.roles | — |
 | `iam.permissions` | Permiso granular (p. ej. inventory.movements.register). | (id) | — | único (tenant_id, code)<br>CHECK code = lower(code) |
 | `iam.role_permissions` | Permisos de cada rol. | (role_id, permission_id) | role_id → iam.roles<br>permission_id → iam.permissions | — |
-| `iam.sessions` | Sesión de trabajo en el cliente de escritorio. · OCC xmin | (id) | user_id → iam.users<br>hardware_token_id → iam.hardware_tokens | CHECK ended_at IS NULL OR ended_at >= started_at |
+| `iam.sessions` | Sesión de trabajo en el cliente de escritorio. V4: sucursal activa (sin filtro: la sesión es de la empresa) y, en modo nube, SHA-256 del token `mses_…` con vencimiento deslizante de 12 h. · OCC xmin | (id) | user_id → iam.users<br>hardware_token_id → iam.hardware_tokens<br>active_branch_id → warehouse.branches | único (token_hash) WHERE token_hash IS NOT NULL<br>CHECK ended_at IS NULL OR ended_at >= started_at<br>CHECK (token_hash IS NULL) = (expires_at IS NULL) AND (token_hash IS NULL OR token_hash ~ '^[0-9a-f]{64}$') |
 | `iam.hardware_tokens` | Equipo autorizado (estación o terminal POS) identificado por la huella de su hardware. | (id) | branch_id → warehouse.branches | único (tenant_id, fingerprint)<br>CHECK revoked_at IS NULL OR revoked_at >= registered_at |
 | `iam.access_logs` | Intentos de inicio de sesión (append-only). · **append-only** | (id) | user_id → iam.users<br>hardware_token_id → iam.hardware_tokens | — |
-| `iam.audit_logs` | Auditoría inmutable de cada comando (sucesora de 14_ACTIVIDAD de la V2.1). · **append-only** | (id) | user_id → iam.users | único (tenant_id, legacy_reference) WHERE legacy_reference IS NOT NULL |
+| `iam.audit_logs` | Auditoría inmutable de cada comando (sucesora de 14_ACTIVIDAD de la V2.1). V4: canal (`desktop`, `cloud`, `api`), API Key usada y sucursal activa de quien ejecutó (contexto, sin filtro por sucursal). · **append-only** | (id) | user_id → iam.users<br>api_key_id → integration.api_keys<br>branch_id → warehouse.branches | único (tenant_id, legacy_reference) WHERE legacy_reference IS NOT NULL<br>CHECK channel IS NULL OR channel IN ('desktop', 'cloud', 'api')<br>índice (tenant_id, api_key_id, occurred_at) WHERE api_key_id IS NOT NULL |
+| `iam.processed_requests` | V4 · Comando ya ejecutado por el servidor en la nube: si la red se corta durante el COMMIT, el reintento con el mismo `request_id` devuelve la respuesta guardada (idempotencia). Se escribe en la misma transacción que el comando. · **append-only** | (id) | user_id → iam.users | único (tenant_id, request_id)<br>CHECK request_hash ~ '^[0-9a-f]{64}$' |
 
 ### Catálogo y datos maestros · esquema `catalog` (19 tablas)
 
@@ -335,6 +372,7 @@ erDiagram
     product_stock_policies {
         uuid id PK
         uuid tenant_id FK
+        uuid branch_id FK
         uuid variant_id FK
         uuid warehouse_id FK
         numeric min_quantity
@@ -426,6 +464,7 @@ erDiagram
     zones {
         uuid id PK
         uuid tenant_id FK
+        uuid branch_id FK
         uuid warehouse_id FK
         varchar code
         varchar name
@@ -434,24 +473,28 @@ erDiagram
     aisles {
         uuid id PK
         uuid tenant_id FK
+        uuid branch_id FK
         uuid zone_id FK
         varchar code
     }
     racks {
         uuid id PK
         uuid tenant_id FK
+        uuid branch_id FK
         uuid aisle_id FK
         varchar code
     }
     shelves {
         uuid id PK
         uuid tenant_id FK
+        uuid branch_id FK
         uuid rack_id FK
         varchar code
     }
     bins {
         uuid id PK
         uuid tenant_id FK
+        uuid branch_id FK
         uuid shelf_id FK
         varchar code
         uuid location_type_id FK
@@ -465,6 +508,7 @@ erDiagram
     }
     bin_assignments {
         uuid tenant_id FK
+        uuid branch_id FK
         uuid bin_id PK, FK
         uuid variant_id PK, FK
         boolean is_primary_pick
@@ -494,7 +538,7 @@ erDiagram
 | `warehouse.branch_users` | Usuarios habilitados en cada sucursal. | (branch_id, user_id) | branch_id → warehouse.branches<br>user_id → iam.users | — |
 | `warehouse.bin_assignments` | Posición fija de picking de una variante. | (bin_id, variant_id) | bin_id → warehouse.bins<br>variant_id → catalog.product_variants | — |
 
-### Motor transaccional de stock · esquema `inventory` (14 tablas)
+### Motor transaccional de stock · esquema `inventory` (18 tablas)
 
 ```mermaid
 erDiagram
@@ -538,6 +582,7 @@ erDiagram
     stock_levels {
         uuid id PK
         uuid tenant_id FK
+        uuid branch_id FK
         uuid bin_id FK
         uuid batch_id FK
         numeric quantity_on_hand
@@ -546,6 +591,7 @@ erDiagram
     stock_movements {
         uuid id PK
         uuid tenant_id FK
+        uuid branch_id FK
         uuid stock_level_id FK
         uuid movement_type_id FK
         numeric quantity
@@ -569,6 +615,7 @@ erDiagram
     stock_reservations {
         uuid id PK
         uuid tenant_id FK
+        uuid branch_id FK
         uuid stock_level_id FK
         numeric quantity
         varchar status
@@ -579,6 +626,7 @@ erDiagram
     stock_adjustments {
         uuid id PK
         uuid tenant_id FK
+        uuid branch_id FK
         varchar number
         uuid warehouse_id FK
         uuid adjustment_reason_id FK
@@ -590,6 +638,7 @@ erDiagram
     stock_adjustment_lines {
         uuid id PK
         uuid tenant_id FK
+        uuid branch_id FK
         uuid stock_adjustment_id FK
         uuid stock_level_id FK
         uuid movement_type_id FK
@@ -599,6 +648,7 @@ erDiagram
     physical_counts {
         uuid id PK
         uuid tenant_id FK
+        uuid branch_id FK
         varchar number
         uuid warehouse_id FK
         date count_date
@@ -610,6 +660,7 @@ erDiagram
     physical_count_lines {
         uuid id PK
         uuid tenant_id FK
+        uuid branch_id FK
         uuid physical_count_id FK
         uuid stock_level_id FK
         numeric counted_quantity
@@ -622,22 +673,63 @@ erDiagram
         uuid id PK
         uuid tenant_id FK
         varchar number
+        uuid from_branch_id FK
         uuid from_warehouse_id FK
+        uuid to_branch_id FK
         uuid to_warehouse_id FK
         varchar status
-        timestamptz shipped_at
+        uuid requested_by_user_id FK
+        timestamptz requested_at
+        timestamptz dispatched_at
         timestamptz received_at
         varchar notes
     }
     stock_transfer_lines {
         uuid id PK
         uuid tenant_id FK
+        uuid from_branch_id FK
+        uuid to_branch_id FK
         uuid stock_transfer_id FK
-        uuid source_stock_level_id FK
-        uuid destination_stock_level_id FK
+        uuid variant_id FK
         numeric quantity
-        uuid outbound_movement_id FK
-        uuid inbound_movement_id FK
+        numeric unit_cost
+    }
+    stock_transfer_line_batches {
+        uuid tenant_id FK
+        uuid from_branch_id FK
+        uuid to_branch_id FK
+        uuid transfer_line_id PK, FK
+        uuid batch_id PK, FK
+        numeric quantity
+    }
+    stock_transfer_movements {
+        uuid tenant_id FK
+        uuid branch_id FK
+        uuid transfer_line_id PK, FK
+        uuid stock_movement_id PK, FK
+        varchar direction
+    }
+    stock_transfer_discrepancies {
+        uuid id PK
+        uuid tenant_id FK
+        uuid from_branch_id FK
+        uuid to_branch_id FK
+        uuid transfer_line_id FK
+        numeric quantity
+        varchar reason
+        uuid recorded_by_user_id FK
+        timestamptz recorded_at
+    }
+    stock_transfer_events {
+        uuid id PK
+        uuid tenant_id FK
+        uuid from_branch_id FK
+        uuid to_branch_id FK
+        uuid transfer_id FK
+        varchar status
+        uuid user_id FK
+        timestamptz occurred_at
+        varchar detail
     }
     batches ||--o{ stock_levels : "batch_id"
     stock_levels ||--o{ stock_movements : "stock_level_id"
@@ -655,10 +747,12 @@ erDiagram
     stock_levels ||--o{ physical_count_lines : "stock_level_id"
     stock_movements |o--o{ physical_count_lines : "stock_movement_id"
     stock_transfers ||--o{ stock_transfer_lines : "stock_transfer_id"
-    stock_levels ||--o{ stock_transfer_lines : "source_stock_level_id"
-    stock_levels |o--o{ stock_transfer_lines : "destination_stock_level_id"
-    stock_movements |o--o{ stock_transfer_lines : "outbound_movement_id"
-    stock_movements |o--o{ stock_transfer_lines : "inbound_movement_id"
+    stock_transfers ||--o{ stock_transfer_events : "transfer_id"
+    stock_transfer_lines ||--o{ stock_transfer_line_batches : "transfer_line_id"
+    batches ||--o{ stock_transfer_line_batches : "batch_id"
+    stock_transfer_lines ||--o{ stock_transfer_movements : "transfer_line_id"
+    stock_movements ||--o| stock_transfer_movements : "stock_movement_id"
+    stock_transfer_lines ||--o{ stock_transfer_discrepancies : "transfer_line_id"
 ```
 
 | Tabla | Descripción | Clave | Referencias (FK) | Únicos / CHECK |
@@ -675,8 +769,12 @@ erDiagram
 | `inventory.stock_adjustment_lines` | Línea de un ajuste. | (id) | stock_adjustment_id → inventory.stock_adjustments<br>stock_level_id → inventory.stock_levels<br>movement_type_id → inventory.movement_types<br>stock_movement_id → inventory.stock_movements | único (stock_movement_id) WHERE stock_movement_id IS NOT NULL<br>CHECK quantity > 0 |
 | `inventory.physical_counts` | Toma física (sucesora de 13_CONTEO de la V2.1). · OCC xmin | (id) | warehouse_id → warehouse.warehouses<br>posted_by_user_id → iam.users | único (tenant_id, number)<br>único (warehouse_id) WHERE status = 'Open' |
 | `inventory.physical_count_lines` | Conteo de una existencia. · OCC xmin | (id) | physical_count_id → inventory.physical_counts<br>stock_level_id → inventory.stock_levels<br>counted_by_user_id → iam.users<br>stock_movement_id → inventory.stock_movements | único (physical_count_id, stock_level_id)<br>CHECK counted_quantity >= 0 |
-| `inventory.stock_transfers` | Traslado entre almacenes. · OCC xmin | (id) | from_warehouse_id → warehouse.warehouses<br>to_warehouse_id → warehouse.warehouses | único (tenant_id, number)<br>CHECK from_warehouse_id <> to_warehouse_id |
-| `inventory.stock_transfer_lines` | Línea de un traslado. | (id) | stock_transfer_id → inventory.stock_transfers<br>source_stock_level_id → inventory.stock_levels<br>destination_stock_level_id → inventory.stock_levels<br>outbound_movement_id → inventory.stock_movements<br>inbound_movement_id → inventory.stock_movements | CHECK quantity > 0 |
+| `inventory.stock_transfers` | V4 (rediseñada) · Transferencia entre almacenes de sucursales: `Pending` → `Dispatched` (en tránsito) → `Received`, o `Cancelled`. La ven el origen y el destino. · OCC xmin · **entre sucursales** | (id) | (from_branch_id, from_warehouse_id) → warehouse.warehouses<br>(to_branch_id, to_warehouse_id) → warehouse.warehouses<br>requested_by_user_id → iam.users | único (tenant_id, number)<br>CHECK from_warehouse_id <> to_warehouse_id<br>CHECK status IN ('Pending', 'Dispatched', 'Received', 'Cancelled')<br>CHECK (status IN ('Dispatched', 'Received')) = (dispatched_at IS NOT NULL)<br>CHECK (status = 'Received') = (received_at IS NOT NULL) |
+| `inventory.stock_transfer_lines` | V4 (rediseñada) · Línea: variante, cantidad solicitada (= despachada: el despacho es completo) y costo promedio del origen al despachar. Lo recibido no se guarda: es cantidad − faltantes. · **entre sucursales** | (id) | (from_branch_id, to_branch_id, stock_transfer_id) → inventory.stock_transfers<br>variant_id → catalog.product_variants | único (stock_transfer_id, variant_id)<br>CHECK quantity > 0<br>CHECK unit_cost IS NULL OR unit_cost >= 0 |
+| `inventory.stock_transfer_line_batches` | V4 · Manifiesto de despacho: lote y cantidad que viajan en cada línea (lo ven ambos lados; la recepción no puede ingresar de un lote más de lo que viajó). · **append-only** · **entre sucursales** | (transfer_line_id, batch_id) | (from_branch_id, to_branch_id, transfer_line_id) → inventory.stock_transfer_lines<br>batch_id → inventory.batches | CHECK quantity > 0 |
+| `inventory.stock_transfer_movements` | V4 · Vínculo entre una línea y un movimiento de stock: salida TRASLADO (SALIDA) en el origen o entrada TRASLADO (ENTRADA) en el destino. Su sucursal es la del movimiento. · **append-only** · **por sucursal** | (transfer_line_id, stock_movement_id) | transfer_line_id → inventory.stock_transfer_lines<br>(branch_id, stock_movement_id) → inventory.stock_movements | único (stock_movement_id)<br>CHECK direction IN ('Out', 'In') |
+| `inventory.stock_transfer_discrepancies` | V4 · Faltante al recibir (delta compensatorio con motivo); lo registra el destino y lo ven ambos. · **append-only** · **entre sucursales** | (id) | (from_branch_id, to_branch_id, transfer_line_id) → inventory.stock_transfer_lines<br>recorded_by_user_id → iam.users | CHECK quantity > 0 |
+| `inventory.stock_transfer_events` | V4 · Bitácora de la máquina de estados (quién, cuándo, a qué estado y detalle). · **append-only** · **entre sucursales** | (id) | (from_branch_id, to_branch_id, transfer_id) → inventory.stock_transfers<br>user_id → iam.users | índice (transfer_id, occurred_at) |
 
 ### Compras y proveedores · esquema `purchasing` (11 tablas)
 
@@ -709,6 +807,7 @@ erDiagram
     purchase_orders {
         uuid id PK
         uuid tenant_id FK
+        uuid branch_id FK
         varchar number
         uuid supplier_id FK
         uuid warehouse_id FK
@@ -721,6 +820,7 @@ erDiagram
     purchase_order_lines {
         uuid id PK
         uuid tenant_id FK
+        uuid branch_id FK
         uuid purchase_order_id FK
         uuid variant_id FK
         uuid unit_id FK
@@ -730,6 +830,7 @@ erDiagram
     goods_receipts {
         uuid id PK
         uuid tenant_id FK
+        uuid branch_id FK
         varchar number
         uuid purchase_order_id FK
         uuid supplier_id FK
@@ -742,6 +843,7 @@ erDiagram
     goods_receipt_lines {
         uuid id PK
         uuid tenant_id FK
+        uuid branch_id FK
         uuid goods_receipt_id FK
         uuid purchase_order_line_id FK
         uuid stock_level_id FK
@@ -752,6 +854,7 @@ erDiagram
     supplier_invoices {
         uuid id PK
         uuid tenant_id FK
+        uuid branch_id FK
         uuid supplier_id FK
         varchar number
         date invoice_date
@@ -762,6 +865,7 @@ erDiagram
     supplier_invoice_lines {
         uuid id PK
         uuid tenant_id FK
+        uuid branch_id FK
         uuid supplier_invoice_id FK
         uuid goods_receipt_line_id FK
         varchar description
@@ -772,6 +876,7 @@ erDiagram
     purchase_returns {
         uuid id PK
         uuid tenant_id FK
+        uuid branch_id FK
         varchar number
         uuid supplier_id FK
         date return_date
@@ -781,6 +886,7 @@ erDiagram
     purchase_return_lines {
         uuid id PK
         uuid tenant_id FK
+        uuid branch_id FK
         uuid purchase_return_id FK
         uuid stock_level_id FK
         uuid goods_receipt_line_id FK
@@ -817,7 +923,7 @@ erDiagram
 | `purchasing.purchase_returns` | Devolución a proveedor. · OCC xmin | (id) | supplier_id → purchasing.suppliers | único (tenant_id, number) |
 | `purchasing.purchase_return_lines` | Línea de una devolución. | (id) | purchase_return_id → purchasing.purchase_returns<br>stock_level_id → inventory.stock_levels<br>goods_receipt_line_id → purchasing.goods_receipt_lines<br>stock_movement_id → inventory.stock_movements | CHECK quantity > 0 |
 
-### Ventas y POS · esquema `sales` (19 tablas)
+### Ventas y POS · esquema `sales` (20 tablas)
 
 ```mermaid
 erDiagram
@@ -896,6 +1002,7 @@ erDiagram
     pos_registers {
         uuid id PK
         uuid tenant_id FK
+        uuid branch_id FK
         uuid warehouse_id FK
         varchar code
         varchar name
@@ -905,6 +1012,7 @@ erDiagram
     pos_sessions {
         uuid id PK
         uuid tenant_id FK
+        uuid branch_id FK
         uuid pos_register_id FK
         uuid opened_by_user_id FK
         timestamptz opened_at
@@ -917,6 +1025,7 @@ erDiagram
     cash_movements {
         uuid id PK
         uuid tenant_id FK
+        uuid branch_id FK
         uuid pos_session_id FK
         varchar direction
         numeric amount
@@ -927,6 +1036,7 @@ erDiagram
     sales_orders {
         uuid id PK
         uuid tenant_id FK
+        uuid branch_id FK
         varchar number
         uuid customer_id FK
         uuid pos_session_id FK
@@ -938,6 +1048,7 @@ erDiagram
     sales_order_lines {
         uuid id PK
         uuid tenant_id FK
+        uuid branch_id FK
         uuid sales_order_id FK
         uuid variant_id FK
         uuid unit_id FK
@@ -949,6 +1060,7 @@ erDiagram
     invoices {
         uuid id PK
         uuid tenant_id FK
+        uuid branch_id FK
         varchar number
         uuid sales_order_id FK
         varchar status
@@ -960,6 +1072,7 @@ erDiagram
     invoice_lines {
         uuid id PK
         uuid tenant_id FK
+        uuid branch_id FK
         uuid invoice_id FK
         uuid sales_order_line_id FK
         uuid tax_rate_id FK
@@ -977,6 +1090,7 @@ erDiagram
     payments {
         uuid id PK
         uuid tenant_id FK
+        uuid branch_id FK
         uuid invoice_id FK
         uuid payment_method_id FK
         numeric amount
@@ -984,6 +1098,17 @@ erDiagram
         timestamptz paid_at
         uuid pos_session_id FK
         uuid recorded_by_user_id FK
+    }
+    external_orders {
+        uuid id PK
+        uuid tenant_id FK
+        uuid branch_id FK
+        varchar channel
+        varchar external_id
+        varchar request_hash
+        uuid sales_order_id FK
+        varchar invoice_number
+        timestamptz received_at
     }
     countries ||--o{ states : "country_id"
     states ||--o{ cities : "state_id"
@@ -1006,6 +1131,7 @@ erDiagram
     invoices ||--o{ payments : "invoice_id"
     payment_methods ||--o{ payments : "payment_method_id"
     pos_sessions |o--o{ payments : "pos_session_id"
+    sales_orders ||--o| external_orders : "sales_order_id"
 ```
 
 | Tabla | Descripción | Clave | Referencias (FK) | Únicos / CHECK |
@@ -1029,6 +1155,7 @@ erDiagram
 | `sales.invoice_lines` | Línea fiscal de una factura (impuesto aplicado). | (id) | invoice_id → sales.invoices<br>sales_order_line_id → sales.sales_order_lines<br>tax_rate_id → accounting.tax_rates | único (sales_order_line_id)<br>CHECK tax_amount >= 0 |
 | `sales.payment_methods` | Medio de pago (efectivo, tarjeta, QR…). | (id) | — | único (tenant_id, code) |
 | `sales.payments` | Pago de una factura (append-only). · **append-only** | (id) | invoice_id → sales.invoices<br>payment_method_id → sales.payment_methods<br>pos_session_id → sales.pos_sessions<br>recorded_by_user_id → iam.users | CHECK amount > 0 |
+| `sales.external_orders` | V4 · Pedido de un canal externo (e-commerce, ERP) ya registrado como venta. El canal es la API Key que lo envió (`api-<id>`); repetir el mismo (canal, id externo) devuelve la venta original y con otro contenido se rechaza. · **append-only** · **por sucursal** | (id) | (branch_id, sales_order_id) → sales.sales_orders | único (tenant_id, channel, external_id)<br>único (sales_order_id)<br>CHECK request_hash ~ '^[0-9a-f]{64}$' |
 
 ### Costos y contabilidad · esquema `accounting` (10 tablas)
 
@@ -1077,6 +1204,7 @@ erDiagram
     journal_entries {
         uuid id PK
         uuid tenant_id FK
+        uuid branch_id FK
         varchar number
         uuid fiscal_period_id FK
         date entry_date
@@ -1090,6 +1218,7 @@ erDiagram
     journal_lines {
         uuid id PK
         uuid tenant_id FK
+        uuid branch_id FK
         uuid journal_entry_id FK
         uuid account_id FK
         uuid cost_center_id FK
@@ -1100,8 +1229,10 @@ erDiagram
     average_cost_history {
         uuid id PK
         uuid tenant_id FK
+        uuid branch_id FK
         uuid variant_id FK
         uuid warehouse_id FK
+        integer sequence
         timestamptz effective_at
         numeric average_cost
         uuid stock_movement_id FK
@@ -1142,10 +1273,104 @@ erDiagram
 | `accounting.fiscal_periods` | Período contable mensual. · OCC xmin | (id) | — | único (tenant_id, year, month)<br>CHECK month BETWEEN 1 AND 12<br>CHECK year BETWEEN 2000 AND 2100 |
 | `accounting.journal_entries` | Asiento contable (partida doble). · OCC xmin | (id) | fiscal_period_id → accounting.fiscal_periods<br>currency_id → accounting.currencies<br>posted_by_user_id → iam.users | único (tenant_id, number) |
 | `accounting.journal_lines` | Línea de un asiento (debe o haber). | (id) | journal_entry_id → accounting.journal_entries<br>account_id → accounting.accounts<br>cost_center_id → accounting.cost_centers | CHECK (debit > 0 AND credit = 0) OR (credit > 0 AND debit = 0) |
-| `accounting.average_cost_history` | Historial del costo promedio ponderado por variante y almacén (append-only). · **append-only** | (id) | variant_id → catalog.product_variants<br>warehouse_id → warehouse.warehouses<br>stock_movement_id → inventory.stock_movements | CHECK average_cost >= 0 |
+| `accounting.average_cost_history` | Historial del costo promedio ponderado por variante y almacén (append-only). V4: sucursal y `sequence` por (variante, almacén): el costo vigente es el de mayor secuencia y el índice único hace que dos cálculos concurrentes sobre el mismo estado choquen (el segundo reintenta). · **append-only** · **por sucursal** | (id) | variant_id → catalog.product_variants<br>(branch_id, warehouse_id) → warehouse.warehouses<br>(branch_id, stock_movement_id) → inventory.stock_movements | único (tenant_id, variant_id, warehouse_id, sequence)<br>CHECK average_cost >= 0<br>CHECK sequence >= 1 |
 | `accounting.tax_rates` | Tasa de un impuesto con vigencia. | (id) | tax_id → catalog.taxes | único (tax_id, valid_from)<br>CHECK rate >= 0 AND rate <= 100<br>CHECK valid_to IS NULL OR valid_to >= valid_from |
 | `accounting.tax_rules` | Regla de aplicación de un impuesto por categoría de cliente y sucursal. | (id) | tax_id → catalog.taxes<br>customer_category_id → sales.customer_categories<br>branch_id → warehouse.branches | único (tax_id, customer_category_id, branch_id) NULLS NOT DISTINCT<br>CHECK priority >= 0 |
 
+
+### Integraciones B2B · esquema `integration` (7 tablas) · V4
+
+```mermaid
+erDiagram
+    api_keys {
+        uuid id PK
+        uuid tenant_id FK
+        varchar name
+        varchar prefix
+        varchar token_hash
+        uuid owner_user_id FK
+        uuid branch_id FK
+        timestamptz created_at
+        timestamptz expires_at
+        timestamptz revoked_at
+    }
+    api_key_scopes {
+        uuid tenant_id FK
+        uuid api_key_id PK, FK
+        varchar scope PK
+    }
+    webhook_endpoints {
+        uuid id PK
+        uuid tenant_id FK
+        varchar url
+        varchar description
+        uuid created_by_user_id FK
+        timestamptz created_at
+        boolean is_active
+        timestamptz disabled_at
+        uuid api_key_id FK
+        uuid branch_id FK
+        varchar secret_ciphertext
+        varchar secret_key_id
+        integer secret_version
+        varchar previous_secret_ciphertext
+        varchar previous_secret_key_id
+        timestamptz previous_secret_expires_at
+    }
+    webhook_endpoint_events {
+        uuid tenant_id FK
+        uuid endpoint_id PK, FK
+        varchar event_type PK
+    }
+    outbox_events {
+        uuid id PK
+        uuid tenant_id FK
+        varchar event_type
+        uuid branch_id FK
+        jsonb payload
+        timestamptz occurred_at
+    }
+    outbox_dispatch {
+        uuid tenant_id FK
+        uuid outbox_event_id PK, FK
+        varchar status
+        integer rounds
+        timestamptz next_attempt_at
+        timestamptz completed_at
+        varchar last_error
+    }
+    webhook_deliveries {
+        uuid id PK
+        uuid tenant_id FK
+        uuid outbox_event_id FK
+        uuid endpoint_id FK
+        integer attempt
+        integer status_code
+        boolean succeeded
+        varchar error
+        timestamptz attempted_at
+        integer duration_ms
+    }
+    api_keys ||--o{ api_key_scopes : "api_key_id"
+    api_keys |o--o{ webhook_endpoints : "api_key_id"
+    webhook_endpoints ||--o{ webhook_endpoint_events : "endpoint_id"
+    outbox_events ||--|| outbox_dispatch : "outbox_event_id"
+    outbox_events ||--o{ webhook_deliveries : "outbox_event_id"
+    webhook_endpoints ||--o{ webhook_deliveries : "endpoint_id"
+```
+
+En estas tablas `branch_id` es un **atributo** (a qué sucursal está limitada la llave, qué eventos recibe el webhook, de
+qué sucursal es el evento), no una partición: se filtran solo por empresa.
+
+| Tabla | Descripción | Clave | Referencias (FK) | Únicos / CHECK |
+|---|---|---|---|---|
+| `integration.api_keys` | V4 · Llave del API Gateway: prefijo público (único en toda la plataforma: se busca antes de conocer la empresa, con `integration.resolve_api_key`) y SHA-256 del token completo (el token se muestra una sola vez). Actúa en nombre de su dueño; puede limitarse a una sucursal y vencer; se revoca, nunca se borra. · OCC xmin | (id) | owner_user_id → iam.users<br>branch_id → warehouse.branches | único (prefix)<br>CHECK prefix ~ '^[a-z0-9]{8}$'<br>CHECK token_hash ~ '^[0-9a-f]{64}$'<br>CHECK expires_at IS NULL OR expires_at > created_at |
+| `integration.api_key_scopes` | V4 · Alcances de cada llave (`catalog:read`, `stock:read`, `orders:write`, `transfers:read`, `transfers:write`, `webhooks:manage`, `reports:read`). | (api_key_id, scope) | api_key_id → integration.api_keys | — |
+| `integration.webhook_endpoints` | V4 · Destino de webhooks (URL https del tercero) con su secreto de firma **cifrado** (AES-256-GCM; `secret_key_id` = clave maestra usada) y, durante una rotación, el secreto anterior que sigue firmando hasta `previous_secret_expires_at`. · OCC xmin | (id) | api_key_id → integration.api_keys<br>branch_id → warehouse.branches<br>created_by_user_id → iam.users | CHECK la URL empieza por `https://` (o `http://localhost`, `http://127.0.0.1`, `http://[::1]`)<br>CHECK is_active = (disabled_at IS NULL)<br>CHECK secret_version >= 1<br>CHECK los tres campos `previous_secret_*` son todos nulos o todos no nulos |
+| `integration.webhook_endpoint_events` | V4 · Eventos a los que se suscribe cada destino (una fila por evento). | (endpoint_id, event_type) | endpoint_id → integration.webhook_endpoints | — |
+| `integration.outbox_events` | V4 · Outbox transaccional: cada evento de dominio (`sale.completed`, `transfer.dispatched`…) se guarda con su JSON en la MISMA transacción que el cambio que lo produjo. · **append-only** | (id) | branch_id → warehouse.branches | índice (tenant_id, occurred_at) |
+| `integration.outbox_dispatch` | V4 · Cola de despacho 1:1 con el evento (la única tabla mutable de la integración): estado, rondas hechas, próximo intento, último error. La toma `integration.claim_deliveries` con FOR UPDATE SKIP LOCKED. · OCC xmin | (outbox_event_id) | outbox_event_id → integration.outbox_events | CHECK status IN ('Pending', 'Completed', 'Exhausted')<br>CHECK (status = 'Pending') = (completed_at IS NULL)<br>CHECK rounds BETWEEN 0 AND 8<br>índice parcial (next_attempt_at) WHERE status = 'Pending' |
+| `integration.webhook_deliveries` | V4 · Cada intento de entrega de un evento a un destino (código HTTP, error, duración): un reintento es una fila nueva. · **append-only** | (id) | outbox_event_id → integration.outbox_events<br>endpoint_id → integration.webhook_endpoints | único (outbox_event_id, endpoint_id, attempt)<br>CHECK attempt BETWEEN 1 AND 8<br>CHECK duration_ms >= 0 |
 
 ## 5. Trazabilidad V2.1 → V3
 
@@ -1196,3 +1421,104 @@ V2.1).
 | `inventory.v_stock_by_variant` | Stock por variante y almacén (entradas, salidas, stock, último movimiento) |
 | `inventory.v_conservation_breaches` | Existencias cuya cantidad no coincide con la suma de sus movimientos (debe estar vacía) |
 | `iam.v_activity` | Actividad con usuario (sucesora de 14_ACTIVIDAD) |
+| (V4) `iam.branch_visible(uuid)` + políticas `branch_isolation` (RESTRICTIVAS) | Row Level Security por sucursal (`SET minv.branch_ids` = `*`, lista de UUID o vacío) en 35 tablas por sucursal y 5 entre sucursales; se combina con AND con `tenant_isolation` (108 tablas) |
+| (V4) `trg_append_only` en 8 tablas nuevas | 15 libros inmutables en total |
+| (V4) `integration.resolve_api_key(text)` | SECURITY DEFINER: busca una API Key por su prefijo antes de conocer la empresa (devuelve id, empresa, hash, dueño, sucursal y vigencia) |
+| (V4) `iam.resolve_session(text)` | SECURITY DEFINER: busca la sesión del servidor en la nube por el hash de su token |
+| (V4) `integration.claim_deliveries(integer, integer)` | SECURITY DEFINER: toma hasta N eventos vencidos de `outbox_dispatch` con FOR UPDATE SKIP LOCKED y los arrienda N segundos |
+| (V4) `reporting.refresh_all()` | SECURITY DEFINER: refresca las vistas materializadas con `REFRESH … CONCURRENTLY` bajo un candado consultivo (una réplica a la vez) |
+| (V4) `reporting.mv_branch_stock`, `reporting.mv_branch_daily_sales` | Vistas materializadas del modelo de lectura (índice único para el refresco concurrente); sin permisos para los roles de aplicación |
+| (V4) `reporting.v_branch_stock`, `reporting.v_branch_daily_sales` | Vistas `security_barrier` filtradas por `iam.current_tenant_id()` e `iam.branch_visible()`: lo único del esquema `reporting` que leen `minv_app` y `minv_server` |
+| (V4) `inventory.v_transfer_breaches` | Transferencias que violan la conservación (Σ salidas = cantidad = Σ manifiesto; recibido + faltantes = cantidad; sin movimientos si está pendiente o anulada). Debe estar vacía |
+
+## 7. V4 · Multi-sucursal, transferencias, integraciones e idempotencia
+
+Migración `V4MultiBranchCloud` (`Persistence/Migrations/20260925214056_V4MultiBranchCloud.cs` y su parcial `.Sql.cs`).
+Verificada sobre una copia de la base local de la V3: 110 tablas, 108 políticas `tenant_isolation`, 40
+`branch_isolation`, 15 triggers append-only y 0 descuadres de conservación.
+
+### 7.1 Tablas por sucursal y entre sucursales
+
+**Por sucursal** (`IBranchScoped`, columna `branch_id`, 35 tablas; política `branch_isolation` sobre `branch_id`):
+`warehouse.zones`, `warehouse.aisles`, `warehouse.racks`, `warehouse.shelves`, `warehouse.bins`,
+`warehouse.bin_assignments`, `catalog.product_stock_policies`, `inventory.stock_levels`, `inventory.stock_movements`,
+`inventory.stock_reservations`, `inventory.stock_adjustments`, `inventory.stock_adjustment_lines`,
+`inventory.physical_counts`, `inventory.physical_count_lines`, `inventory.stock_transfer_movements`,
+`purchasing.purchase_orders`, `purchasing.purchase_order_lines`, `purchasing.goods_receipts`,
+`purchasing.goods_receipt_lines`, `purchasing.purchase_returns`, `purchasing.purchase_return_lines`,
+`purchasing.supplier_invoices`, `purchasing.supplier_invoice_lines`, `sales.pos_registers`, `sales.pos_sessions`,
+`sales.cash_movements`, `sales.sales_orders`, `sales.sales_order_lines`, `sales.invoices`, `sales.invoice_lines`,
+`sales.payments`, `sales.external_orders`, `accounting.journal_entries`, `accounting.journal_lines`,
+`accounting.average_cost_history`.
+
+**Entre sucursales** (`IInterBranch`, columnas `from_branch_id` y `to_branch_id`, 5 tablas; visibles si alguna de las
+dos está en el alcance): `inventory.stock_transfers`, `inventory.stock_transfer_lines`,
+`inventory.stock_transfer_line_batches`, `inventory.stock_transfer_discrepancies`, `inventory.stock_transfer_events`.
+
+**De la empresa, sin filtro por sucursal** (directorio corporativo): `warehouse.branches`, `warehouse.warehouses`
+(cuya `branch_id` es la raíz de la jerarquía), `warehouse.branch_users` (asignación de usuarios), catálogo, clientes,
+proveedores, usuarios, roles, plan de cuentas. Las columnas `branch_id` de `iam.audit_logs`, `integration.api_keys`,
+`integration.webhook_endpoints`, `integration.outbox_events` e `iam.sessions.active_branch_id` son atributos de
+contexto, no particiones.
+
+La migración rellena `branch_id` en los datos existentes bajando por la jerarquía (almacén → zona → pasillo → estantería
+→ nivel → posición → existencia → movimiento; caja → turno → venta → factura → pago; orden → recepción → líneas), con
+los triggers append-only y de asientos pausados solo durante el relleno; lo que no tiene camino (asientos, facturas de
+proveedor sin recepción, devoluciones) va a la sucursal principal de la empresa (la V3 tenía una). Termina con una
+comprobación: ninguna fila puede quedar con la sucursal `00000000-0000-0000-0000-000000000000`.
+
+### 7.2 Las 13 tablas nuevas
+
+| Esquema | Tabla | Para qué |
+|---|---|---|
+| `iam` | `iam.processed_requests` | idempotencia de los comandos del escritorio en modo nube |
+| `sales` | `sales.external_orders` | idempotencia de los pedidos del e-commerce por API Key |
+| `inventory` | `inventory.stock_transfer_movements` | vínculo línea ↔ movimiento de salida o entrada |
+| `inventory` | `inventory.stock_transfer_discrepancies` | faltantes al recibir (deltas compensatorios) |
+| `inventory` | `inventory.stock_transfer_events` | bitácora de la máquina de estados |
+| `inventory` | `inventory.stock_transfer_line_batches` | manifiesto de despacho por lote |
+| `integration` | `integration.api_keys` | llaves del API Gateway |
+| `integration` | `integration.api_key_scopes` | alcances de cada llave |
+| `integration` | `integration.webhook_endpoints` | destinos de webhooks con secreto cifrado |
+| `integration` | `integration.webhook_endpoint_events` | eventos suscritos por destino |
+| `integration` | `integration.outbox_events` | outbox transaccional (append-only) |
+| `integration` | `integration.outbox_dispatch` | cola de despacho (mutable, SKIP LOCKED) |
+| `integration` | `integration.webhook_deliveries` | intentos de entrega (append-only) |
+
+### 7.3 Columnas nuevas o cambiadas en tablas existentes
+
+| Tabla | Cambio |
+|---|---|
+| 33 tablas de la V3 (§7.1) | `branch_id uuid NOT NULL` + clave alterna `(tenant_id, branch_id, id)` + FK a su padre con `branch_id` |
+| `iam.sessions` | `active_branch_id` (FK a `warehouse.branches`), `token_hash` (único, hex de 64), `expires_at` |
+| `iam.audit_logs` | `channel` (`desktop`, `cloud`, `api`), `api_key_id` (FK a `integration.api_keys`), `branch_id` (sucursal activa) |
+| `accounting.average_cost_history` | `branch_id`, `sequence` (≥ 1) + índice único `(tenant_id, variant_id, warehouse_id, sequence)` |
+| `inventory.stock_transfers` | rediseño: `from_branch_id`, `to_branch_id`, `requested_by_user_id`, `requested_at`; `shipped_at` → `dispatched_at`; estados `Pending`/`Dispatched`/`Received`/`Cancelled` (antes `Draft`/`InTransit`…) |
+| `inventory.stock_transfer_lines` | rediseño: `from_branch_id`, `to_branch_id`, `variant_id` (antes `source_stock_level_id`), `unit_cost`; se quitan `destination_stock_level_id`, `outbound_movement_id` e `inbound_movement_id` (los reemplazan el manifiesto y los vínculos) |
+| `integration.webhook_endpoints` | secretos: `secret_ciphertext` + `secret_key_id` + `secret_version`; durante la rotación, `previous_secret_ciphertext`, `previous_secret_key_id`, `previous_secret_expires_at` |
+
+### 7.4 Datos que agrega la migración a las empresas existentes
+
+- Permisos `corporate.branches.all`, `corporate.branches.manage`, `inventory.transfers.manage`, `integration.manage` y la
+  matriz: ADMIN (los cuatro), BODEGA (transferencias), GERENCIA (todas las sucursales y transferencias).
+- Cuentas `1.1.06` Mercadería enviada a sucursales (activo) y `2.1.04` Mercadería recibida de sucursales (pasivo):
+  en el consolidado, 1.1.06 − 2.1.04 = valor en tránsito.
+- Módulos comerciales `CLOUD_HA`, `MULTI_BRANCH`, `API_INTEGRATIONS` y `GLOBAL_AUDIT` en `iam.modules`.
+
+### 7.5 Esquema `reporting` (modelo de lectura)
+
+| Objeto | Contenido |
+|---|---|
+| `reporting.mv_branch_stock` | por empresa, sucursal y variante: existencia, reservado, valor al costo vigente (mayor `sequence`) y `refreshed_at` |
+| `reporting.mv_branch_daily_sales` | por empresa, sucursal y día (zona horaria de la empresa): tickets, ingresos (pagos) e IVA de las facturas emitidas, y `refreshed_at` |
+| `reporting.v_branch_stock`, `reporting.v_branch_daily_sales` | vistas `security_barrier` sobre las anteriores, filtradas por empresa y sucursal visibles; las lee `MinvReadDbContext` (réplica `MINV_DB_READ` si existe) |
+
+Se refrescan con `reporting.refresh_all()` cada 5 minutos desde el API Gateway.
+
+### 7.6 Roles
+
+| Rol | Tablas | Libros append-only | Funciones SECURITY DEFINER | RLS |
+|---|---|---|---|---|
+| `minv_owner` | dueño | dueño | dueño | la salta (solo migraciones) |
+| `minv_server` | SELECT, INSERT, UPDATE, DELETE | solo SELECT e INSERT | EXECUTE en las 4 | sujeto (`NOBYPASSRLS`, no dueño) |
+| `minv_app` | SELECT, INSERT, UPDATE, DELETE | solo SELECT e INSERT | — | sujeto |

@@ -3,15 +3,19 @@ using MINV.Domain.Common;
 namespace MINV.Domain.Purchasing;
 
 /// <summary>Línea de una recepción.</summary>
-public sealed class GoodsReceiptLine : Entity
+public sealed class GoodsReceiptLine : Entity, IBranchScoped
 {
     private GoodsReceiptLine()
     {
     }
 
-    public GoodsReceiptLine(Guid tenantId, Guid goodsReceiptId, Guid? purchaseOrderLineId, Guid stockLevelId, decimal quantity, decimal unitCost)
+    /// <summary>V4 · Sucursal dueña de la fila (redundancia controlada; la FK compuesta con el padre la mantiene coherente).</summary>
+    public Guid BranchId { get; private set; }
+
+    public GoodsReceiptLine(Guid tenantId, Guid branchId, Guid goodsReceiptId, Guid? purchaseOrderLineId, Guid stockLevelId, decimal quantity, decimal unitCost)
         : base(tenantId)
     {
+        BranchId = Guard.NotEmpty(branchId, nameof(branchId));
         GoodsReceiptId = Guard.NotEmpty(goodsReceiptId, nameof(goodsReceiptId));
         PurchaseOrderLineId = Guard.NotEmptyIfPresent(purchaseOrderLineId, nameof(purchaseOrderLineId));
         StockLevelId = Guard.NotEmpty(stockLevelId, nameof(stockLevelId));

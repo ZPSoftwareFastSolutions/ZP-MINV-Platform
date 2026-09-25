@@ -20,8 +20,8 @@ internal sealed class SupplierInvoiceLineConfiguration : IEntityTypeConfiguratio
         builder.Property(x => x.Quantity).HasPrecision(18, 6);
         builder.Property(x => x.UnitCost).HasPrecision(19, 4);
         builder.HasOne<GoodsReceiptLine>().WithMany()
-            .HasForeignKey(x => new { x.TenantId, x.GoodsReceiptLineId })
-            .HasPrincipalKey(p => new { p.TenantId, p.Id })
+            .HasForeignKey(x => new { x.TenantId, x.BranchId, x.GoodsReceiptLineId })
+            .HasPrincipalKey(p => new { p.TenantId, p.BranchId, p.Id })
             .OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<TaxRate>().WithMany()
             .HasForeignKey(x => new { x.TenantId, x.TaxRateId })

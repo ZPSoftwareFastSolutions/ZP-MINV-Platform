@@ -72,11 +72,13 @@ public sealed class GetIncomeStatementHandler(IMinvDbContext db) : IRequestHandl
     }
 }
 
-/// <summary>Asiento manual (gastos, aportes, pagos a proveedores…): debe cuadrar y usar cuentas imputables.</summary>
+/// <summary>Asiento manual (gastos, aportes, pagos a proveedores…): debe cuadrar y usar cuentas imputables. V4: se
+/// registra en la sucursal indicada o, si no se indica, en la activa de la sesión.</summary>
 [RequiresPermission(PermissionCodes.AccountingManage)]
-public sealed record CreateJournalEntryCommand(DateOnly Date, string Description, IReadOnlyList<JournalLineSpec> Lines) : IRequest<string>, IAuditableRequest
+public sealed record CreateJournalEntryCommand(DateOnly Date, string Description, IReadOnlyList<JournalLineSpec> Lines, Guid? BranchId = null)
+    : IRequest<string>, IAuditableRequest
 {
-    public object AuditDetails => new { Date, Description, Lines };
+    public object AuditDetails => new { Date, Description, Lines, BranchId };
 }
 
 public sealed class CreateJournalEntryValidator : AbstractValidator<CreateJournalEntryCommand>
@@ -108,7 +110,8 @@ public sealed class CreateJournalEntryHandler(IMinvDbContext db, ICurrentUser us
         {
             try
             {
-                var entry = await JournalPoster.PostAsync(db, tenant.TenantId, userId, request.Date, request.Description.Trim(), request.Lines,
+                var branchId = await BranchContext.ResolveAsync(db, request.BranchId, ct);
+                var entry = await JournalPoster.PostAsync(db, tenant.TenantId, branchId, userId, request.Date, request.Description.Trim(), request.Lines,
                     clock.UtcNow, null, ct);
                 await db.SaveChangesAsync(ct);
                 return entry.Number;

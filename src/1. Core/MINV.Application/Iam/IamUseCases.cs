@@ -8,12 +8,14 @@ using MINV.Domain.Iam;
 namespace MINV.Application.Iam;
 
 // ------------------------------------------------------------------------------------------------ login
-/// <summary>Inicio de sesión cifrado (PBKDF2). Deja rastro en AccessLogs (éxito o falla) y abre una Session.</summary>
+/// <summary>Inicio de sesión cifrado (PBKDF2). Deja rastro en AccessLogs (éxito o falla) y abre una Session. V4: calcula
+/// los permisos y el alcance por sucursal ANTES de abrir la sesión y fija ese alcance en el contexto: desde aquí todas las
+/// consultas (filtros de EF y RLS) ven solo esas sucursales.</summary>
 public sealed record LoginCommand(string TenantCode, string Email, string Password, string MachineName, string ClientVersion,
     string? HardwareFingerprint = null) : IRequest<LoginResult>;
 
 public sealed record LoginResult(Guid TenantId, Guid UserId, Guid SessionId, string DisplayName, IReadOnlyList<string> Roles,
-    IReadOnlyList<string> Permissions, bool MustChangePassword);
+    IReadOnlyList<string> Permissions, bool MustChangePassword, BranchAccess Access);
 
 public sealed class LoginValidator : AbstractValidator<LoginCommand>
 {
@@ -72,22 +74,31 @@ public sealed class LoginHandler(IMinvDbContext db, ITenantContext tenant, ICurr
                 : Generic);
         }
 
+        // Permisos y alcance por sucursal (la sucursal activa de la sesión anterior se conserva si sigue permitida)
+        var (roles, permissions) = await UserAccess.PermissionsAsync(db, user!.Id, ct);
+        var previous = await db.Set<Session>().Where(s => s.UserId == user.Id).OrderByDescending(s => s.StartedAt)
+            .Select(s => s.ActiveBranchId).FirstOrDefaultAsync(ct);
+        BranchAccess access;
+        try
+        {
+            access = await UserAccess.AccessAsync(db, user.Id, permissions, previous, ct);
+        }
+        catch (AccessDeniedException ex)
+        {
+            db.Set<AccessLog>().Add(new AccessLog(company.Id, user.Id, email, false, "sin sucursales asignadas", now, request.MachineName, device?.Id));
+            await db.SaveChangesAsync(ct);
+            throw new AuthenticationFailedException(ex.Message);
+        }
+
         credential!.RegisterSuccess();
-        var session = new Session(company.Id, user!.Id, device?.Id, now, request.MachineName, request.ClientVersion);
+        var session = new Session(company.Id, user.Id, device?.Id, now, request.MachineName, request.ClientVersion);
+        session.SelectBranch(access.ActiveBranchId);
         db.Set<Session>().Add(session);
         await db.SaveChangesAsync(ct);
 
-        var roles = await (from ur in db.Set<UserRole>()
-                           join r in db.Set<Role>() on ur.RoleId equals r.Id
-                           where ur.UserId == user.Id
-                           select r.Code).ToListAsync(ct);
-        var permissions = await (from ur in db.Set<UserRole>()
-                                 join rp in db.Set<RolePermission>() on ur.RoleId equals rp.RoleId
-                                 join p in db.Set<Permission>() on rp.PermissionId equals p.Id
-                                 where ur.UserId == user.Id
-                                 select p.Code).Distinct().ToListAsync(ct);
         currentUser.SignIn(user.Id, user.Email, user.DisplayName, permissions);
-        return new LoginResult(company.Id, user.Id, session.Id, user.DisplayName, roles, permissions, credential.MustChangePassword);
+        tenant.SetBranches(access.ToScope());
+        return new LoginResult(company.Id, user.Id, session.Id, user.DisplayName, roles, permissions, credential.MustChangePassword, access);
     }
 }
 

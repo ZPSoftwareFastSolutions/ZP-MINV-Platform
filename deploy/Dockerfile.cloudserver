@@ -1,0 +1,17 @@
+# M-INV V4 · Servidor en la nube del escritorio (MINV.CloudServer)
+# Construcción: docker build -f deploy/Dockerfile.cloudserver -t minv-cloudserver:4.0.0-alpha.1 .
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /src
+COPY . .
+RUN dotnet publish "src/3. Presentation/MINV.CloudServer/MINV.CloudServer.csproj" -c Release -o /app /p:UseAppHost=false
+
+FROM mcr.microsoft.com/dotnet/aspnet:8.0
+WORKDIR /app
+COPY --from=build /app .
+# Sin privilegios de root dentro del contenedor
+USER app
+ENV ASPNETCORE_URLS=http://+:8080 \
+    DOTNET_CLI_TELEMETRY_OPTOUT=1
+EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD ["dotnet", "MINV.CloudServer.dll", "--version"]
+ENTRYPOINT ["dotnet", "MINV.CloudServer.dll"]

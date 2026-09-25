@@ -1,0 +1,52 @@
+# M-INV V4 · Servidores en contenedores.
+#   1. Copie deploy/.env.example a deploy/.env y complete MINV_DB (rol minv_server de su PostgreSQL gestionado, con
+#      SSL Mode=VerifyFull) y MINV_INTEGRATION_KEYS (tools\bd_nube.ps1 las genera en %LOCALAPPDATA%\M-INV\credenciales-nube.txt).
+#   2. docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
+#   3. Publique los puertos detrás de un proxy TLS (Caddy, Nginx, el balanceador de su nube): el escritorio exige https.
+# Perfil «local-db»: levanta además un PostgreSQL 16 de prueba (solo para ensayos; en producción use uno gestionado).
+name: minv
+
+services:
+  cloudserver:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.cloudserver
+    image: minv-cloudserver:4.0.0-alpha.1
+    restart: unless-stopped
+    environment:
+      MINV_DB: ${MINV_DB:?Defina MINV_DB (rol minv_server)}
+      MINV_INTEGRATION_KEYS: ${MINV_INTEGRATION_KEYS:?Defina MINV_INTEGRATION_KEYS}
+      ASPNETCORE_URLS: http://+:8080
+    ports:
+      - "5080:8080"
+
+  apigateway:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.apigateway
+    image: minv-apigateway:4.0.0-alpha.1
+    restart: unless-stopped
+    environment:
+      MINV_DB: ${MINV_DB:?Defina MINV_DB (rol minv_server)}
+      MINV_DB_READ: ${MINV_DB_READ:-}
+      MINV_INTEGRATION_KEYS: ${MINV_INTEGRATION_KEYS:?Defina MINV_INTEGRATION_KEYS}
+      ASPNETCORE_URLS: http://+:8080
+      Minv__Reporting__RefreshMinutes: "5"
+    ports:
+      - "5090:8080"
+
+  postgres:
+    profiles: ["local-db"]
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: minv_owner
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD}
+      POSTGRES_DB: minv
+    ports:
+      - "5433:5432"
+    volumes:
+      - minv-pgdata:/var/lib/postgresql/data
+
+volumes:
+  minv-pgdata:

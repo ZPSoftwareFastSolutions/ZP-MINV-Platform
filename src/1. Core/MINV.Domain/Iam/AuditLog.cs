@@ -41,4 +41,23 @@ public sealed class AuditLog : Entity, IAppendOnly
     public Guid CorrelationId { get; private set; }
 
     public string? LegacyReference { get; private set; }
+
+    /// <summary>V4 · Por dónde llegó el comando: <c>desktop</c> (conexión local), <c>cloud</c> (escritorio vía servidor)
+    /// o <c>api</c> (API Gateway B2B).</summary>
+    public string? Channel { get; private set; }
+
+    /// <summary>V4 · API Key usada (si llegó por el gateway): permite reconstruir lo que hizo una integración.</summary>
+    public Guid? ApiKeyId { get; private set; }
+
+    /// <summary>V4 · Sucursal activa de quien ejecutó el comando (contexto, sin filtro).</summary>
+    public Guid? BranchId { get; private set; }
+
+    /// <summary>V4 · Contexto de origen (se fija al crear la fila, antes de guardarla).</summary>
+    public AuditLog WithOrigin(string? channel, Guid? apiKeyId, Guid? branchId)
+    {
+        Channel = Guard.OptionalText(channel, "El canal", 20);
+        ApiKeyId = Guard.NotEmptyIfPresent(apiKeyId, nameof(apiKeyId));
+        BranchId = Guard.NotEmptyIfPresent(branchId, nameof(branchId));
+        return this;
+    }
 }

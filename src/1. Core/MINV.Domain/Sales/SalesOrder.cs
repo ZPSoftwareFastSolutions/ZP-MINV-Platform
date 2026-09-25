@@ -4,7 +4,7 @@ namespace MINV.Domain.Sales;
 
 /// <summary>Pedido o venta (POS o back-office).</summary>
 /// <remarks>Origen en la V2.1: 10B_SALIDAS (tipo SALIDA).</remarks>
-public sealed class SalesOrder : Entity, IConcurrencyAware, IAggregateRoot
+public sealed class SalesOrder : Entity, IConcurrencyAware, IAggregateRoot, IBranchScoped
 {
     private readonly List<SalesOrderLine> _lines = new();
 
@@ -12,9 +12,13 @@ public sealed class SalesOrder : Entity, IConcurrencyAware, IAggregateRoot
     {
     }
 
-    public SalesOrder(Guid tenantId, string number, Guid customerId, Guid? posSessionId, Guid? warehouseId, Guid priceListId, DateOnly orderDate)
+    /// <summary>V4 · Sucursal dueña de la fila (redundancia controlada; la FK compuesta con el padre la mantiene coherente).</summary>
+    public Guid BranchId { get; private set; }
+
+    public SalesOrder(Guid tenantId, Guid branchId, string number, Guid customerId, Guid? posSessionId, Guid? warehouseId, Guid priceListId, DateOnly orderDate)
         : base(tenantId)
     {
+        BranchId = Guard.NotEmpty(branchId, nameof(branchId));
         Number = Guard.Text(number, "El número", 30);
         CustomerId = Guard.NotEmpty(customerId, nameof(customerId));
         PosSessionId = Guard.NotEmptyIfPresent(posSessionId, nameof(posSessionId));
@@ -47,7 +51,7 @@ public sealed class SalesOrder : Entity, IConcurrencyAware, IAggregateRoot
     public SalesOrderLine AddLine(Guid variantId, Guid unitId, decimal quantity, decimal unitPrice, decimal discountPercent)
     {
         EnsureDraft();
-        var line = new SalesOrderLine(TenantId, Id, variantId, unitId, quantity, unitPrice, discountPercent);
+        var line = new SalesOrderLine(TenantId, BranchId, Id, variantId, unitId, quantity, unitPrice, discountPercent);
         _lines.Add(line);
         return line;
     }

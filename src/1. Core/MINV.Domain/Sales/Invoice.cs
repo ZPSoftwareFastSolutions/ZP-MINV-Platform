@@ -3,7 +3,7 @@ using MINV.Domain.Common;
 namespace MINV.Domain.Sales;
 
 /// <summary>Factura de venta (una por pedido).</summary>
-public sealed class Invoice : Entity, IConcurrencyAware, IAggregateRoot
+public sealed class Invoice : Entity, IConcurrencyAware, IAggregateRoot, IBranchScoped
 {
     private readonly List<InvoiceLine> _lines = new();
 
@@ -11,9 +11,13 @@ public sealed class Invoice : Entity, IConcurrencyAware, IAggregateRoot
     {
     }
 
-    public Invoice(Guid tenantId, string number, Guid salesOrderId, string? fiscalAuthorizationCode)
+    /// <summary>V4 · Sucursal dueña de la fila (redundancia controlada; la FK compuesta con el padre la mantiene coherente).</summary>
+    public Guid BranchId { get; private set; }
+
+    public Invoice(Guid tenantId, Guid branchId, string number, Guid salesOrderId, string? fiscalAuthorizationCode)
         : base(tenantId)
     {
+        BranchId = Guard.NotEmpty(branchId, nameof(branchId));
         Number = Guard.Text(number, "El número", 40);
         SalesOrderId = Guard.NotEmpty(salesOrderId, nameof(salesOrderId));
         FiscalAuthorizationCode = Guard.OptionalText(fiscalAuthorizationCode, "El código de autorización", 100);
@@ -43,7 +47,7 @@ public sealed class Invoice : Entity, IConcurrencyAware, IAggregateRoot
     public InvoiceLine AddLine(Guid salesOrderLineId, Guid? taxRateId, decimal taxAmount)
     {
         EnsureDraft();
-        var line = new InvoiceLine(TenantId, Id, salesOrderLineId, taxRateId, taxAmount);
+        var line = new InvoiceLine(TenantId, BranchId, Id, salesOrderLineId, taxRateId, taxAmount);
         _lines.Add(line);
         return line;
     }

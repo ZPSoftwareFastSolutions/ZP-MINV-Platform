@@ -20,8 +20,8 @@ internal sealed class PosSessionConfiguration : IEntityTypeConfiguration<PosSess
         builder.Property(x => x.ClosingCashCounted).HasPrecision(19, 4);
         builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
         builder.HasOne<PosRegister>().WithMany()
-            .HasForeignKey(x => new { x.TenantId, x.PosRegisterId })
-            .HasPrincipalKey(p => new { p.TenantId, p.Id })
+            .HasForeignKey(x => new { x.TenantId, x.BranchId, x.PosRegisterId })
+            .HasPrincipalKey(p => new { p.TenantId, p.BranchId, p.Id })
             .OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<User>().WithMany()
             .HasForeignKey(x => new { x.TenantId, x.OpenedByUserId })

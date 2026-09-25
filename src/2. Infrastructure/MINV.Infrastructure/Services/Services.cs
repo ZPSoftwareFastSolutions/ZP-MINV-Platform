@@ -13,7 +13,20 @@ public sealed class TenantContext : ITenantContext
 
     public bool IsSet => TenantId != Guid.Empty;
 
+    /// <summary>V4 · Alcance por sucursal. <c>minv.branch_ids</c> se fija al abrir cada conexión (TenantSessionInterceptor):
+    /// los casos de uso cambian el alcance antes de su SaveChanges, que abre una conexión nueva.</summary>
+    public BranchScope Branches { get; private set; } = BranchScope.Unrestricted;
+
     public void Set(Guid tenantId) => TenantId = Guard.NotEmpty(tenantId, nameof(tenantId));
+
+    public void SetBranches(BranchScope scope)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        Guard.That(scope.AllBranches || scope.BranchIds.Count > 0, "branch.scope_empty", "El usuario no tiene ninguna sucursal asignada.");
+        Guard.That(scope.ActiveBranchId is null || scope.Allows(scope.ActiveBranchId.Value), "branch.active_outside",
+            "La sucursal activa no está entre las permitidas.");
+        Branches = scope;
+    }
 }
 
 public sealed class CurrentUser : ICurrentUser
@@ -109,7 +122,7 @@ public sealed class Pbkdf2PasswordHasher : IPasswordHasher
 }
 
 /// <summary>Módulos licenciados del tenant actual (TenantModules activos y vigentes).</summary>
-public sealed class LicenseService(MINVDbContext db, IClock clock) : ILicenseService
+public sealed class LicenseService(MinvWriteDbContext db, IClock clock) : ILicenseService
 {
     public async Task<bool> IsModuleActiveAsync(string moduleCode, CancellationToken cancellationToken = default)
     {
@@ -125,8 +138,8 @@ public sealed class LicenseService(MINVDbContext db, IClock clock) : ILicenseSer
 /// Auditoría en un contexto propio: se guarda aunque la transacción del caso de uso falle o se deshaga, y un error al
 /// auditar nunca interrumpe la operación (regla C-14 heredada de la V2.1).
 /// </summary>
-public sealed class AuditTrail(IDbContextFactory<MINVDbContext> factory, ITenantContext tenant, ICurrentUser user, IClock clock)
-    : IAuditTrail
+public sealed class AuditTrail(IDbContextFactory<MinvWriteDbContext> factory, ITenantContext tenant, ICurrentUser user, IRequestOrigin origin,
+    IClock clock) : IAuditTrail
 {
     public async Task WriteAsync(AuditEntry entry, CancellationToken cancellationToken = default)
     {
@@ -138,7 +151,8 @@ public sealed class AuditTrail(IDbContextFactory<MINVDbContext> factory, ITenant
         {
             await using var db = await factory.CreateDbContextAsync(cancellationToken);
             db.AuditLogs.Add(new AuditLog(tenant.TenantId, user.UserId, clock.UtcNow, entry.Action, entry.Outcome,
-                entry.EntityType, entry.EntityId, entry.Details, entry.CorrelationId, null));
+                entry.EntityType, entry.EntityId, entry.Details, entry.CorrelationId, null)
+                .WithOrigin(origin.Channel, origin.ApiKeyId, tenant.Branches.ActiveBranchId));
             await db.SaveChangesAsync(cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

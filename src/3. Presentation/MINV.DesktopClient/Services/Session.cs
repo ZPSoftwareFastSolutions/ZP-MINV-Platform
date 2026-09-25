@@ -1,22 +1,25 @@
 using MediatR;
-using MINV.Application.Abstractions;
 using MINV.Application.Iam;
 using MINV.Application.Inventory.Queries;
 using MINV.Domain.Iam;
 
 namespace MINV.DesktopClient.Services;
 
-/// <summary>Cómo se conecta este cliente: PostgreSQL (producción) o la base en memoria de la demostración.</summary>
-public sealed record ConnectionInfo(bool IsDemo, string Server, string Database, string User)
+/// <summary>Cómo se conecta este cliente: PostgreSQL directo (base local), el servidor M-INV en la nube (V4) o la base en
+/// memoria de la demostración.</summary>
+public sealed record ConnectionInfo(bool IsDemo, string Server, string Database, string User, bool IsCloud = false)
 {
-    public string Description => IsDemo ? "Demostración en memoria (datos de la V2.1)" : $"PostgreSQL · {Server} · {Database}";
+    public string Description => IsDemo ? "Demostración en memoria (datos de la V2.1)"
+        : IsCloud ? $"Nube · servidor {Server}" : $"PostgreSQL · {Server} · {Database}";
 }
 
-/// <summary>Sesión de trabajo del usuario (una por ingreso): quién es, qué puede hacer y en qué empresa trabaja.</summary>
+/// <summary>Sesión de trabajo del usuario (una por ingreso): quién es, qué puede hacer, en qué empresa y (V4) en qué
+/// sucursal trabaja.</summary>
 public sealed class SessionContext
 {
     private LoginResult? _login;
     private WorkspaceInfo? _workspace;
+    private BranchAccess? _access;
 
     public LoginResult Login => _login ?? throw new InvalidOperationException("No hay sesión iniciada.");
 
@@ -36,15 +39,40 @@ public sealed class SessionContext
 
     public bool IsDemo => Connection.IsDemo;
 
+    public bool IsCloud => Connection.IsCloud;
+
+    /// <summary>V4 · Sucursales visibles y la activa (las decide el servidor al iniciar sesión).</summary>
+    public BranchAccess Access => _access ?? throw new InvalidOperationException("No hay sesión iniciada.");
+
+    /// <summary>V4 · Nombre de la sucursal activa (o «Todas las sucursales»).</summary>
+    public string BranchText => _access?.Active is { } b ? $"{b.Code} · {b.Name}" : "Todas las sucursales";
+
     public bool Can(string permission) => _login?.Permissions.Contains(permission) == true;
 
-    public async Task StartAsync(IMediator mediator, LoginResult login, string email, ConnectionInfo connection, CancellationToken ct = default)
+    /// <summary>V4 · Cambió la sucursal activa: las pantallas recargan con los datos de la nueva sucursal.</summary>
+    public event EventHandler? BranchChanged;
+
+    public async Task StartAsync(SerialMediator mediator, LoginResult login, string email, ConnectionInfo connection, CancellationToken ct = default)
     {
         _login = login;
+        _access = login.Access;
         Email = email;
         Connection = connection;
         StartedAt = DateTimeOffset.Now;
-        _workspace = await mediator.Send(new GetWorkspaceQuery(), ct);
+        await LoadWorkspaceAsync(mediator, ct);
+    }
+
+    /// <summary>V4 · Cambia la sucursal activa (el servidor valida que esté entre las del usuario).</summary>
+    public async Task SelectBranchAsync(SerialMediator mediator, Guid? branchId, CancellationToken ct = default)
+    {
+        _access = await mediator.SendAsync(new SelectBranchCommand(Login.SessionId, branchId), ct);
+        await LoadWorkspaceAsync(mediator, ct);
+        BranchChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private async Task LoadWorkspaceAsync(SerialMediator mediator, CancellationToken ct)
+    {
+        _workspace = await mediator.SendAsync(new GetWorkspaceQuery(), ct);
         Fmt.CurrencySymbol = _workspace.CurrencySymbol;
         Fmt.CurrencyDecimals = Math.Clamp(_workspace.CurrencyDecimals, 0, 4);
     }
@@ -94,9 +122,10 @@ public sealed class DataCache(SerialMediator mediator)
 /// <summary>
 /// Envía los casos de uso de a uno: el contexto de datos de la sesión (EF Core) no admite dos consultas a la vez, y la
 /// interfaz puede pedir datos desde varias pantallas al mismo tiempo. Cada envío es una unidad de trabajo: antes se
-/// descarta lo rastreado, así nunca se decide con existencias leídas antes de que otra caja las cambiara.
+/// descarta lo rastreado, así nunca se decide con existencias leídas antes de que otra caja las cambiara. V4: el envío lo
+/// hace el transporte de la sesión (directo en este equipo o al servidor en la nube).
 /// </summary>
-public sealed class SerialMediator(IMediator mediator, IMinvDbContext db)
+public sealed class SerialMediator(IRequestTransport transport)
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -105,8 +134,7 @@ public sealed class SerialMediator(IMediator mediator, IMinvDbContext db)
         await _gate.WaitAsync(ct);
         try
         {
-            db.ClearTracking();
-            return await mediator.Send(request, ct);
+            return await transport.SendAsync(request, ct);
         }
         finally
         {

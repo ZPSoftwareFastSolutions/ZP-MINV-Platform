@@ -2,7 +2,8 @@ using MINV.Domain.Common;
 
 namespace MINV.Domain.Warehousing;
 
-/// <summary>Almacén de una sucursal.</summary>
+/// <summary>Almacén de una sucursal. V4: el DIRECTORIO de almacenes es de la empresa (lo ven todas las sucursales, para
+/// elegir el destino de una transferencia); su contenido (posiciones, existencias, movimientos) es de su sucursal.</summary>
 public sealed class Warehouse : Entity
 {
     private Warehouse()

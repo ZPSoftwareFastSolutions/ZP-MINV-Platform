@@ -21,6 +21,9 @@ internal sealed class TestData
         Types = MovementType.CreateDefaults(Tenant).ToDictionary(t => t.Code);
     }
 
+    /// <summary>V4 · Sucursal de las existencias y documentos de prueba.</summary>
+    public Guid Branch { get; } = Guid.NewGuid();
+
     public MovementType Type(string code) => Types[code];
 
     public CountMovementTypes CountTypes =>
@@ -32,7 +35,7 @@ internal sealed class TestData
 
     public StockLevel Level(decimal initial = 0)
     {
-        var level = StockLevel.Open(Tenant, Guid.NewGuid(), Guid.NewGuid());
+        var level = StockLevel.Open(Tenant, Branch, Guid.NewGuid(), Guid.NewGuid());
         if (initial > 0)
         {
             level.Register(Type(MovementTypeCodes.InitialBalance), initial, Kg, Context());

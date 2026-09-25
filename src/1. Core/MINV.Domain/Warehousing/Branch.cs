@@ -2,7 +2,8 @@ using MINV.Domain.Common;
 
 namespace MINV.Domain.Warehousing;
 
-/// <summary>Sucursal.</summary>
+/// <summary>Sucursal. V4: dimensión corporativa de la empresa (la ven todas las sesiones); lo que ocurre en ella
+/// (existencias, movimientos, ventas, compras, caja, asientos) lleva su <c>branch_id</c> y se filtra por el alcance.</summary>
 /// <remarks>Origen en la V2.1: 01_CONFIG: cfgBodega.</remarks>
 public sealed class Branch : Entity
 {
@@ -26,6 +27,8 @@ public sealed class Branch : Entity
     public Guid? AddressId { get; private set; }
 
     public bool IsActive { get; private set; }
+
+    public void Rename(string name) => Name = Guard.Text(name, "El nombre", 100);
 
     public void Activate() => IsActive = true;
 

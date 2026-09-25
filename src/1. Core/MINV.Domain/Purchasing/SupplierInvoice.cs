@@ -3,7 +3,7 @@ using MINV.Domain.Common;
 namespace MINV.Domain.Purchasing;
 
 /// <summary>Factura de proveedor.</summary>
-public sealed class SupplierInvoice : Entity, IConcurrencyAware, IAggregateRoot
+public sealed class SupplierInvoice : Entity, IConcurrencyAware, IAggregateRoot, IBranchScoped
 {
     private readonly List<SupplierInvoiceLine> _lines = new();
 
@@ -11,9 +11,13 @@ public sealed class SupplierInvoice : Entity, IConcurrencyAware, IAggregateRoot
     {
     }
 
-    public SupplierInvoice(Guid tenantId, Guid supplierId, string number, DateOnly invoiceDate, DateOnly? dueDate, Guid currencyId)
+    /// <summary>V4 · Sucursal dueña de la fila (redundancia controlada; la FK compuesta con el padre la mantiene coherente).</summary>
+    public Guid BranchId { get; private set; }
+
+    public SupplierInvoice(Guid tenantId, Guid branchId, Guid supplierId, string number, DateOnly invoiceDate, DateOnly? dueDate, Guid currencyId)
         : base(tenantId)
     {
+        BranchId = Guard.NotEmpty(branchId, nameof(branchId));
         SupplierId = Guard.NotEmpty(supplierId, nameof(supplierId));
         Number = Guard.Text(number, "El número", 40);
         InvoiceDate = invoiceDate;
@@ -43,7 +47,7 @@ public sealed class SupplierInvoice : Entity, IConcurrencyAware, IAggregateRoot
     public SupplierInvoiceLine AddLine(Guid? goodsReceiptLineId, string? description, decimal quantity, decimal unitCost, Guid? taxRateId)
     {
         EnsureDraft();
-        var line = new SupplierInvoiceLine(TenantId, Id, goodsReceiptLineId, description, quantity, unitCost, taxRateId);
+        var line = new SupplierInvoiceLine(TenantId, BranchId, Id, goodsReceiptLineId, description, quantity, unitCost, taxRateId);
         _lines.Add(line);
         return line;
     }

@@ -18,8 +18,8 @@ internal sealed class StockLevelConfiguration : IEntityTypeConfiguration<StockLe
         builder.Property(x => x.QuantityOnHand).HasPrecision(18, 6);
         builder.Property(x => x.QuantityReserved).HasPrecision(18, 6);
         builder.HasOne<Bin>().WithMany()
-            .HasForeignKey(x => new { x.TenantId, x.BinId })
-            .HasPrincipalKey(p => new { p.TenantId, p.Id })
+            .HasForeignKey(x => new { x.TenantId, x.BranchId, x.BinId })
+            .HasPrincipalKey(p => new { p.TenantId, p.BranchId, p.Id })
             .OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<Batch>().WithMany()
             .HasForeignKey(x => new { x.TenantId, x.BatchId })

@@ -1,0 +1,217 @@
+<UserControl x:Class="MINV.DesktopClient.Views.Pages.BranchesView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:MINV.DesktopClient.Controls"
+             xmlns:vm="clr-namespace:MINV.DesktopClient.ViewModels">
+    <!-- V4 · Sucursales: tablero por sucursal (modelo de lectura), stock consolidado con lo que está en tránsito y administración -->
+    <Grid Margin="28,6,28,24">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <DockPanel Grid.ColumnSpan="2" Margin="0,0,0,14">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <ComboBox Width="190" ItemsSource="{Binding Periods}" SelectedItem="{Binding Period}" ToolTip="Período de ventas" Margin="0,0,8,0" />
+                <Button Content="Asignar usuarios" c:Ui.Icon="{x:Static c:Glyphs.People}" Command="{Binding AssignUsers}" Margin="0,0,8,0"
+                        Visibility="{Binding CanManage, Converter={StaticResource Visible}}" c:Ui.IsBusy="{Binding AssignUsers.IsRunning}" />
+                <Button Style="{StaticResource PrimaryButton}" Content="Nueva sucursal" c:Ui.Icon="{x:Static c:Glyphs.Add}" Command="{Binding New}" Margin="0,0,8,0"
+                        Visibility="{Binding CanManage, Converter={StaticResource Visible}}" />
+                <Button Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Refresh}" Command="{Binding Refresh}" ToolTip="Actualizar (F5)" />
+            </StackPanel>
+            <StackPanel>
+                <TextBlock Text="{Binding Title}" Style="{StaticResource H1}" />
+                <TextBlock Text="{Binding Subtitle}" Style="{StaticResource Caption}" FontSize="13" Margin="0,4,0,0" />
+            </StackPanel>
+        </DockPanel>
+
+        <UniformGrid Grid.Row="1" Grid.ColumnSpan="2" Columns="4" Margin="-6,0,-6,10">
+            <ContentControl Content="{Binding RevenueKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+            <ContentControl Content="{Binding StockKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+            <Button Style="{StaticResource CardButton}" Command="{Binding OpenTransit}" Padding="0" Margin="0" ToolTip="Ver las transferencias en tránsito">
+                <ContentControl Content="{Binding TransitKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+            </Button>
+            <ContentControl Content="{Binding BranchesKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+        </UniformGrid>
+
+        <!-- Tarjetas por sucursal -->
+        <StackPanel Grid.Row="2" Grid.ColumnSpan="2" Margin="0,0,0,12">
+            <TextBlock Text="{Binding ReportNote}" Foreground="{DynamicResource Warning}" TextWrapping="Wrap" Margin="0,0,0,8"
+                       Visibility="{Binding ReportNote, Converter={StaticResource HasValue}}" />
+            <ItemsControl ItemsSource="{Binding Cards}" Focusable="False">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <UniformGrid Columns="3" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="{x:Type vm:BranchCard}">
+                        <Border Style="{StaticResource Card}" Margin="0,0,12,12" Padding="16,14">
+                            <StackPanel>
+                                <DockPanel>
+                                    <Border DockPanel.Dock="Right" Style="{StaticResource Pill}" Background="{DynamicResource BrandSoft}">
+                                        <TextBlock Text="{Binding Code}" Style="{StaticResource Mono}" Foreground="{DynamicResource BrandText}" FontWeight="SemiBold" />
+                                    </Border>
+                                    <TextBlock Text="{Binding Name}" Style="{StaticResource H3}" TextTrimming="CharacterEllipsis" />
+                                </DockPanel>
+                                <TextBlock Text="{Binding RevenueText}" FontSize="22" FontWeight="Bold" Margin="0,10,0,0" />
+                                <TextBlock Style="{StaticResource Caption}">
+                                    <Run Text="{Binding TicketsText, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding AverageText, Mode=OneWay}" />
+                                </TextBlock>
+                                <DockPanel Margin="0,8,0,0">
+                                    <TextBlock DockPanel.Dock="Right" Text="{Binding ShareText}" Style="{StaticResource Caption}" Margin="8,0,0,0" />
+                                    <Grid Height="6" VerticalAlignment="Center">
+                                        <Border Background="{DynamicResource ChartTrack}" CornerRadius="3" />
+                                        <Border Background="{DynamicResource Brand}" CornerRadius="3" HorizontalAlignment="Left"
+                                                Width="{Binding Share, Converter={StaticResource ShareWidth}, ConverterParameter=220}" />
+                                    </Grid>
+                                </DockPanel>
+                                <Border Height="1" Background="{DynamicResource Border}" Margin="0,10" />
+                                <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap">
+                                    <Run Text="Stock " /><Run Text="{Binding StockText, Mode=OneWay}" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" />
+                                </TextBlock>
+                                <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap">
+                                    <Run Text="{Binding WarehousesText, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding UsersText, Mode=OneWay}" />
+                                </TextBlock>
+                                <TextBlock Text="{Binding TransfersText}" Style="{StaticResource Caption}" />
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Text="{Binding RefreshedText}" Style="{StaticResource Caption}" FontSize="11.5"
+                       Visibility="{Binding RefreshedText, Converter={StaticResource HasValue}}" />
+        </StackPanel>
+
+        <!-- Stock consolidado -->
+        <DockPanel Grid.Row="3" Margin="0,0,0,10">
+            <TextBlock DockPanel.Dock="Left" Text="Stock consolidado" Style="{StaticResource H3}" VerticalAlignment="Center" Margin="0,0,16,0" />
+            <Button DockPanel.Dock="Right" Style="{StaticResource SoftButton}" Content="Buscar" Command="{Binding Search}" Margin="8,0,0,0" IsDefault="False" />
+            <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" c:Ui.Icon="{x:Static c:Glyphs.Search}" MaxWidth="360"
+                     HorizontalAlignment="Left" c:Ui.Placeholder="SKU o nombre del producto" Width="360" />
+        </DockPanel>
+        <Border Grid.Row="4" Style="{StaticResource CardFlat}" Padding="4,2,4,4">
+            <Grid>
+                <DataGrid ItemsSource="{Binding Stock}" RowHeight="46">
+                    <DataGrid.Columns>
+                        <DataGridTemplateColumn Header="PRODUCTO" Width="*" MinWidth="220" SortMemberPath="Name" CanUserSort="True">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:ConsolidatedItem}">
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Style="{StaticResource Caption}" FontSize="11.5">
+                                            <Run Text="{Binding Sku, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding Category, Mode=OneWay}" />
+                                        </TextBlock>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTextColumn Header="POR SUCURSAL" Binding="{Binding ByBranchText}" Width="240" ElementStyle="{StaticResource CellText}" />
+                        <DataGridTemplateColumn Header="EN TRÁNSITO" Width="120" SortMemberPath="HasTransit" CanUserSort="True">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:ConsolidatedItem}">
+                                    <TextBlock Text="{Binding InTransitText}" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,10,0">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding HasTransit}" Value="True">
+                                                        <Setter Property="Foreground" Value="{DynamicResource Info}" />
+                                                        <Setter Property="FontWeight" Value="SemiBold" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTextColumn Header="TOTAL" Binding="{Binding TotalText}" Width="110" HeaderStyle="{StaticResource HeaderRight}"
+                                            ElementStyle="{StaticResource CellRight}" />
+                        <DataGridTextColumn Header="VALOR" Binding="{Binding ValueText}" Width="130" HeaderStyle="{StaticResource HeaderRight}"
+                                            ElementStyle="{StaticResource CellRight}" />
+                    </DataGrid.Columns>
+                </DataGrid>
+                <ContentControl Style="{StaticResource EmptyState}" Tag="{x:Static c:Glyphs.Box}" Visibility="{Binding IsStockEmpty, Converter={StaticResource Visible}}">
+                    <TextBlock Text="Sin existencias con ese filtro" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" />
+                </ContentControl>
+            </Grid>
+        </Border>
+
+        <!-- Sucursal nueva -->
+        <Border Grid.Row="2" Grid.RowSpan="3" Grid.Column="1" Style="{StaticResource EditorPanel}" Width="400"
+                Visibility="{Binding DataContext.IsCreating, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource Visible}}" DataContext="{Binding Editor}">
+            <DockPanel>
+                <DockPanel DockPanel.Dock="Top" Margin="20,16,12,8">
+                    <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Close}" Command="{Binding Cancel}" />
+                    <TextBlock Text="Nueva sucursal" Style="{StaticResource H2}" VerticalAlignment="Center" />
+                </DockPanel>
+                <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0" Padding="20,12">
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Style="{StaticResource PrimaryButton}" Content="Crear sucursal" Command="{Binding Save}" MinWidth="150"
+                                c:Ui.IsBusy="{Binding Save.IsRunning}" c:Ui.Icon="{x:Static c:Glyphs.Save}" />
+                        <Button Content="Cancelar" Command="{Binding Cancel}" HorizontalAlignment="Left" />
+                    </DockPanel>
+                </Border>
+                <StackPanel Margin="20,4,20,16">
+                    <TextBlock Text="Código (letras y números, p. ej. CB)" Style="{StaticResource FieldLabel}" />
+                    <TextBox Text="{Binding Code, UpdateSourceTrigger=PropertyChanged}" MaxLength="12" CharacterCasing="Upper" />
+                    <TextBlock Text="Nombre" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
+                    <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" MaxLength="100" c:Ui.Placeholder="Sucursal Cochabamba" />
+                    <TextBlock Text="Código del almacén" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
+                    <TextBox Text="{Binding WarehouseCode, UpdateSourceTrigger=PropertyChanged}" MaxLength="12" CharacterCasing="Upper" />
+                    <TextBlock Text="Nombre del almacén" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
+                    <TextBox Text="{Binding WarehouseName, UpdateSourceTrigger=PropertyChanged}" MaxLength="100" />
+                    <CheckBox Content="Crear también su caja (punto de venta)" IsChecked="{Binding CreateRegister}" Margin="0,14,0,0" />
+                    <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,12,0,0"
+                               Text="Se crea el almacén con su posición GENERAL. Después asigne los usuarios que trabajan en ella y abastézcala con una transferencia." />
+                    <Border Style="{StaticResource FormError}" Visibility="{Binding Error, Converter={StaticResource HasValue}}">
+                        <TextBlock Text="{Binding Error}" Foreground="{DynamicResource Danger}" TextWrapping="Wrap" />
+                    </Border>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- Asignación de usuarios -->
+        <Border Grid.Row="2" Grid.RowSpan="3" Grid.Column="1" Style="{StaticResource EditorPanel}" Width="400"
+                Visibility="{Binding DataContext.IsAssigning, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource Visible}}" DataContext="{Binding Assign}">
+            <DockPanel>
+                <DockPanel DockPanel.Dock="Top" Margin="20,16,12,8">
+                    <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Close}" Command="{Binding Cancel}" />
+                    <TextBlock Text="Sucursales de un usuario" Style="{StaticResource H2}" VerticalAlignment="Center" />
+                </DockPanel>
+                <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0" Padding="20,12">
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Style="{StaticResource PrimaryButton}" Content="Guardar" Command="{Binding Save}" MinWidth="130"
+                                c:Ui.IsBusy="{Binding Save.IsRunning}" c:Ui.Icon="{x:Static c:Glyphs.Save}" />
+                        <Button Content="Cancelar" Command="{Binding Cancel}" HorizontalAlignment="Left" />
+                    </DockPanel>
+                </Border>
+                <StackPanel Margin="20,4,20,16">
+                    <TextBlock Text="Usuario" Style="{StaticResource FieldLabel}" />
+                    <ComboBox ItemsSource="{Binding Users}" SelectedItem="{Binding User}" />
+                    <TextBlock Text="Trabaja en" Style="{StaticResource FieldLabel}" Margin="0,14,0,6" />
+                    <ItemsControl ItemsSource="{Binding Checks}" Focusable="False">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:BranchCheck}">
+                                <CheckBox Content="{Binding Label}" IsChecked="{Binding IsChecked}" Margin="0,4" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,12,0,0"
+                               Text="Cada usuario ve y opera solo sus sucursales (filtro del sistema y seguridad por filas de PostgreSQL). La gerencia global las ve todas por su permiso." />
+                    <Border Style="{StaticResource FormError}" Visibility="{Binding Error, Converter={StaticResource HasValue}}">
+                        <TextBlock Text="{Binding Error}" Foreground="{DynamicResource Danger}" TextWrapping="Wrap" />
+                    </Border>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+    </Grid>
+</UserControl>

@@ -19,12 +19,12 @@ internal sealed class InvoiceConfiguration : IEntityTypeConfiguration<Invoice>
         builder.Property(x => x.FiscalAuthorizationCode).HasMaxLength(100);
         builder.Property(x => x.VoidReason).HasMaxLength(200);
         builder.HasOne<SalesOrder>().WithMany()
-            .HasForeignKey(x => new { x.TenantId, x.SalesOrderId })
-            .HasPrincipalKey(p => new { p.TenantId, p.Id })
+            .HasForeignKey(x => new { x.TenantId, x.BranchId, x.SalesOrderId })
+            .HasPrincipalKey(p => new { p.TenantId, p.BranchId, p.Id })
             .OnDelete(DeleteBehavior.Restrict);
         builder.HasMany(x => x.Lines).WithOne()
-            .HasForeignKey(c => new { c.TenantId, c.InvoiceId })
-            .HasPrincipalKey(p => new { p.TenantId, p.Id })
+            .HasForeignKey(c => new { c.TenantId, c.BranchId, c.InvoiceId })
+            .HasPrincipalKey(p => new { p.TenantId, p.BranchId, p.Id })
             .OnDelete(DeleteBehavior.Cascade);
         builder.Navigation(x => x.Lines).UsePropertyAccessMode(PropertyAccessMode.Field);
         builder.HasIndex(x => new { x.TenantId, x.Number }).IsUnique();

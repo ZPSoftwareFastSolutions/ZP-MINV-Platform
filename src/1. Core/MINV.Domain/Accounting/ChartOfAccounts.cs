@@ -8,8 +8,13 @@ public static class AccountCodes
     public const string Receivables = "1.1.03";
     public const string VatCredit = "1.1.04";
     public const string Inventory = "1.1.05";
+    /// <summary>V4 · Envíos a otras sucursales (lo debe la sucursal destino; lo registra el ORIGEN al despachar).</summary>
+    public const string InterBranchSent = "1.1.06";
     public const string Payables = "2.1.01";
     public const string VatDebit = "2.1.02";
+    /// <summary>V4 · Recepciones de otras sucursales (lo registra el DESTINO al recibir). En el consolidado,
+    /// 1.1.06 − 2.1.04 es exactamente el valor de la mercadería en tránsito.</summary>
+    public const string InterBranchReceived = "2.1.04";
     public const string Capital = "3.1.01";
     public const string RetainedEarnings = "3.1.02";
     public const string Sales = "4.1.01";
@@ -34,11 +39,13 @@ public static class ChartOfAccounts
         (AccountCodes.Receivables, "Cuentas por cobrar a clientes", AccountType.Asset, "1.1", true),
         (AccountCodes.VatCredit, "IVA crédito fiscal", AccountType.Asset, "1.1", true),
         (AccountCodes.Inventory, "Inventario de mercaderías", AccountType.Asset, "1.1", true),
+        (AccountCodes.InterBranchSent, "Mercadería enviada a sucursales", AccountType.Asset, "1.1", true),
         ("2", "PASIVO", AccountType.Liability, null, false),
         ("2.1", "Pasivo corriente", AccountType.Liability, "2", false),
         (AccountCodes.Payables, "Proveedores", AccountType.Liability, "2.1", true),
         (AccountCodes.VatDebit, "IVA débito fiscal", AccountType.Liability, "2.1", true),
         ("2.1.03", "Sueldos por pagar", AccountType.Liability, "2.1", true),
+        (AccountCodes.InterBranchReceived, "Mercadería recibida de sucursales", AccountType.Liability, "2.1", true),
         ("3", "PATRIMONIO", AccountType.Equity, null, false),
         ("3.1", "Capital", AccountType.Equity, "3", false),
         (AccountCodes.Capital, "Capital social", AccountType.Equity, "3.1", true),

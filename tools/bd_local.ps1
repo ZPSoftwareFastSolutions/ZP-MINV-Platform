@@ -1,18 +1,22 @@
 <#
 .SYNOPSIS
-    M-INV V3 - Base de datos PostgreSQL LOCAL (portable, sin instalador ni permisos de administrador).
+    M-INV V3/V4 - Base de datos PostgreSQL LOCAL (portable, sin instalador ni permisos de administrador).
 
 .DESCRIPTION
     Acciones (-Accion):
       instalar   (por defecto) Extrae PostgreSQL 16 portable en %LOCALAPPDATA%\M-INV\postgresql-16, crea el cluster,
-                 lo inicia en localhost:5432, crea los roles minv_owner y minv_app y la base "minv", aplica las
-                 migraciones (97 tablas, 5FN, RLS, triggers) y carga los datos de prueba (minv datos-prueba).
+                 lo inicia en localhost:5432, crea los roles minv_owner, minv_app y (V4) minv_server y la base "minv",
+                 aplica las migraciones (110 tablas, 5FN, RLS por empresa y por sucursal, triggers, modelo de lectura) y
+                 carga los datos de prueba multi-sucursal (minv datos-prueba).
                  Es idempotente: si algo ya existe, lo reutiliza.
       iniciar    Inicia el servidor.            detener   Lo detiene.            estado   Muestra si responde.
       recrear    Borra la base "minv", la vuelve a crear, migra y carga datos de prueba nuevos.
-    Las contrasenas (superusuario postgres, minv_owner y los usuarios de la aplicacion) se generan al azar y se
-    guardan SOLO en %LOCALAPPDATA%\M-INV\credenciales-bd-local.txt (fuera del repositorio). minv_app usa la clave de
+    Las contrasenas (superusuario postgres, minv_owner, minv_server y los usuarios de la aplicacion) se generan al azar y
+    se guardan SOLO en %LOCALAPPDATA%\M-INV\credenciales-bd-local.txt (fuera del repositorio). minv_app usa la clave de
     desarrollo "minv-dev" de appsettings.json (solo escucha en localhost).
+    V4: minv_server (sin BYPASSRLS, no es dueno de las tablas) lo usan el servidor en la nube y el API Gateway
+    (tools\servidores_locales.ps1). Las claves maestras de integracion (MINV_INTEGRATION_KEYS), la API Key de la tienda
+    de prueba y el secreto del webhook quedan en %LOCALAPPDATA%\M-INV\claves-integracion.txt.
     -Autoiniciar  deja un acceso en la carpeta Inicio de Windows para que PostgreSQL arranque al iniciar sesion.
     Script ASCII a proposito (PowerShell 5.1).
 
@@ -37,6 +41,7 @@ $data = Join-Path $base 'pgdata'
 $log = Join-Path $base 'postgresql.log'
 $cred = Join-Path $base 'credenciales-bd-local.txt'
 $usuarios = Join-Path $base 'usuarios-prueba.txt'
+$claves = Join-Path $base 'claves-integracion.txt'
 $env:DOTNET_ROLL_FORWARD = 'Major'
 $env:DOTNET_CLI_TELEMETRY_OPTOUT = '1'
 New-Item -ItemType Directory -Force -Path $base | Out-Null
@@ -59,6 +64,29 @@ function Guardar-Credencial([string]$clave, [string]$valor) {
     if (Test-Path $cred) { $lineas = @(Get-Content $cred -Encoding UTF8 | Where-Object { $_ -notlike ($clave + '=*') }) }
     $lineas += ($clave + '=' + $valor)
     Set-Content -Path $cred -Value $lineas -Encoding UTF8
+}
+
+function Leer-Integracion([string]$clave) {
+    if (-not (Test-Path $claves)) { return $null }
+    $linea = Get-Content $claves -Encoding UTF8 | Where-Object { $_ -like ($clave + '=*') } | Select-Object -First 1
+    if ($linea) { return $linea.Substring($clave.Length + 1) } else { return $null }
+}
+
+# V4 - Claves maestras AES-256 de los secretos de webhooks (se conservan entre recreaciones: id:base64 de 32 bytes)
+function Claves-Integracion {
+    $valor = Leer-Integracion 'MINV_INTEGRATION_KEYS'
+    if (-not $valor) {
+        $bytes = New-Object byte[] 32
+        [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+        $valor = 'local1:' + [Convert]::ToBase64String($bytes)
+    }
+    $texto = @(
+        'M-INV - claves de integracion de PRUEBA (solo este equipo; nunca las copie al repositorio)',
+        'Claves maestras de los secretos de webhooks (servidor en la nube y API Gateway):',
+        ('MINV_INTEGRATION_KEYS=' + $valor)
+    )
+    Set-Content -Path $claves -Value $texto -Encoding UTF8
+    return $valor
 }
 
 function Psql([string]$usuario, [string]$clave, [string]$base, [string]$sql) {
@@ -135,6 +163,13 @@ function Crear-Base([switch]$Borrar) {
     else { Psql 'postgres' $claveSuper 'postgres' ("ALTER ROLE minv_owner PASSWORD '" + $claveOwner + "'") | Out-Null }
     $existe = Psql 'postgres' $claveSuper 'postgres' "SELECT 1 FROM pg_roles WHERE rolname = 'minv_app'"
     if (-not $existe) { Psql 'postgres' $claveSuper 'postgres' "CREATE ROLE minv_app LOGIN PASSWORD 'minv-dev'" | Out-Null }
+    # V4 - Rol del servidor en la nube y del API Gateway: sin BYPASSRLS y sin ser dueno de las tablas
+    $claveServer = Leer-Credencial 'minv_server'
+    if (-not $claveServer) { $claveServer = Clave 24; Guardar-Credencial 'minv_server' $claveServer }
+    $existe = Psql 'postgres' $claveSuper 'postgres' "SELECT 1 FROM pg_roles WHERE rolname = 'minv_server'"
+    $verbo = 'CREATE'
+    if ($existe) { $verbo = 'ALTER' }
+    Psql 'postgres' $claveSuper 'postgres' ($verbo + " ROLE minv_server LOGIN NOSUPERUSER NOBYPASSRLS PASSWORD '" + $claveServer + "'") | Out-Null
     if ($Borrar) {
         Psql 'postgres' $claveSuper 'postgres' "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'minv' AND pid <> pg_backend_pid()" | Out-Null
         Psql 'postgres' $claveSuper 'postgres' 'DROP DATABASE IF EXISTS minv' | Out-Null
@@ -145,15 +180,20 @@ function Crear-Base([switch]$Borrar) {
         Write-Output 'Base "minv" creada.'
     }
     $cadena = 'Host=localhost;Port=' + $Puerto + ';Database=minv;Username=minv_owner;Password=' + $claveOwner
-    Write-Output 'Aplicando las migraciones (97 tablas, 5FN, triggers, RLS, vistas) ...'
+    Write-Output 'Aplicando las migraciones (110 tablas, 5FN, triggers, RLS por empresa y sucursal, vistas, modelo de lectura) ...'
     dotnet run --project (Join-Path $root 'src/4. Tools/MINV.Cli') -c Release -- migrate --conexion $cadena
     if ($LASTEXITCODE -ne 0) { throw 'minv migrate fallo.' }
-    $tablas = Psql 'minv_owner' $claveOwner 'minv' "SELECT count(*) FROM information_schema.tables WHERE table_schema IN ('iam','catalog','warehouse','inventory','purchasing','sales','accounting') AND table_type = 'BASE TABLE' AND table_name <> '__ef_migrations_history'"
+    $tablas = Psql 'minv_owner' $claveOwner 'minv' "SELECT count(*) FROM information_schema.tables WHERE table_schema IN ('iam','catalog','warehouse','inventory','purchasing','sales','accounting','integration') AND table_type = 'BASE TABLE' AND table_name <> '__ef_migrations_history'"
     Write-Output ('Tablas de M-INV en la base: ' + $tablas)
     if (-not $SinDatos) {
-        Write-Output 'Cargando datos de prueba (empresa, roles, usuarios, catalogo con imagenes, 60 dias de operacion) ...'
-        dotnet run --project (Join-Path $root 'src/4. Tools/MINV.Cli') -c Release -- datos-prueba --conexion $cadena --credenciales $usuarios
-        if ($LASTEXITCODE -ne 0) { throw 'minv datos-prueba fallo.' }
+        # Con las claves maestras, los datos de prueba incluyen un webhook con su secreto cifrado
+        $env:MINV_INTEGRATION_KEYS = Claves-Integracion
+        Write-Output 'Cargando datos de prueba (3 sucursales, usuarios por sucursal, catalogo con imagenes, 60 dias de operacion, transferencias y pedidos web) ...'
+        dotnet run --project (Join-Path $root 'src/4. Tools/MINV.Cli') -c Release -- datos-prueba --conexion $cadena --credenciales $usuarios --integracion $claves
+        $codigo = $LASTEXITCODE
+        Remove-Item Env:\MINV_INTEGRATION_KEYS -ErrorAction SilentlyContinue
+        if ($codigo -ne 0) { throw 'minv datos-prueba fallo.' }
+        dotnet run --project (Join-Path $root 'src/4. Tools/MINV.Cli') -c Release -- verify --codigo MINV --conexion $cadena
     }
 }
 
@@ -177,6 +217,8 @@ if ($Autoiniciar) { Autoinicio }
 if ($Accion -in @('instalar', 'recrear')) {
     Write-Output ''
     Write-Output ('Claves de PostgreSQL (solo en este equipo): ' + $cred)
-    Write-Output ('Usuarios de prueba de M-INV (empresa, correos y contrasenas): ' + $usuarios)
-    Write-Output 'Abra M-INV.exe e ingrese con la empresa y un usuario de ese archivo.'
+    Write-Output ('Usuarios de prueba de M-INV (empresa, correos, contrasenas y sucursales): ' + $usuarios)
+    Write-Output ('API Key de la tienda de prueba y claves de integracion: ' + $claves)
+    Write-Output 'Abra M-INV.exe e ingrese con la empresa y un usuario de ese archivo (modo "Base local").'
+    Write-Output 'Para simular la nube en este equipo: powershell -ExecutionPolicy Bypass -File tools\servidores_locales.ps1 -Accion iniciar'
 }

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!-- V4 · API Gateway B2B (ASP.NET Core Web API): SOLO para integraciones de terceros (e-commerce, ERP contable).
+       Autenticación por API Key con alcances, límites de tasa, ProblemDetails, OpenAPI y webhooks firmados. -->
+  <PropertyGroup>
+    <RootNamespace>MINV.ApiGateway</RootNamespace>
+    <AssemblyName>MINV.ApiGateway</AssemblyName>
+    <AssemblyTitle>M-INV · API Gateway B2B</AssemblyTitle>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Swashbuckle.AspNetCore" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\2. Infrastructure\MINV.Infrastructure\MINV.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

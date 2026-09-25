@@ -3,15 +3,19 @@ using MINV.Domain.Common;
 namespace MINV.Domain.Sales;
 
 /// <summary>Ingreso o retiro de efectivo de la caja (append-only).</summary>
-public sealed class CashMovement : Entity, IAppendOnly
+public sealed class CashMovement : Entity, IAppendOnly, IBranchScoped
 {
     private CashMovement()
     {
     }
 
-    public CashMovement(Guid tenantId, Guid posSessionId, CashDirection direction, decimal amount, string reason, DateTimeOffset occurredAt, Guid recordedByUserId)
+    /// <summary>V4 · Sucursal dueña de la fila (redundancia controlada; la FK compuesta con el padre la mantiene coherente).</summary>
+    public Guid BranchId { get; private set; }
+
+    public CashMovement(Guid tenantId, Guid branchId, Guid posSessionId, CashDirection direction, decimal amount, string reason, DateTimeOffset occurredAt, Guid recordedByUserId)
         : base(tenantId)
     {
+        BranchId = Guard.NotEmpty(branchId, nameof(branchId));
         PosSessionId = Guard.NotEmpty(posSessionId, nameof(posSessionId));
         Direction = Guard.Defined(direction, "La dirección");
         Amount = Guard.Positive(amount, "El monto");

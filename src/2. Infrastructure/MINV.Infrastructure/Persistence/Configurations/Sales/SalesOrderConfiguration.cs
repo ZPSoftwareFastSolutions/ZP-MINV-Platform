@@ -21,20 +21,20 @@ internal sealed class SalesOrderConfiguration : IEntityTypeConfiguration<SalesOr
             .HasPrincipalKey(p => new { p.TenantId, p.Id })
             .OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<PosSession>().WithMany()
-            .HasForeignKey(x => new { x.TenantId, x.PosSessionId })
-            .HasPrincipalKey(p => new { p.TenantId, p.Id })
+            .HasForeignKey(x => new { x.TenantId, x.BranchId, x.PosSessionId })
+            .HasPrincipalKey(p => new { p.TenantId, p.BranchId, p.Id })
             .OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<Warehouse>().WithMany()
-            .HasForeignKey(x => new { x.TenantId, x.WarehouseId })
-            .HasPrincipalKey(p => new { p.TenantId, p.Id })
+            .HasForeignKey(x => new { x.TenantId, x.BranchId, x.WarehouseId })
+            .HasPrincipalKey(p => new { p.TenantId, p.BranchId, p.Id })
             .OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<PriceList>().WithMany()
             .HasForeignKey(x => new { x.TenantId, x.PriceListId })
             .HasPrincipalKey(p => new { p.TenantId, p.Id })
             .OnDelete(DeleteBehavior.Restrict);
         builder.HasMany(x => x.Lines).WithOne()
-            .HasForeignKey(c => new { c.TenantId, c.SalesOrderId })
-            .HasPrincipalKey(p => new { p.TenantId, p.Id })
+            .HasForeignKey(c => new { c.TenantId, c.BranchId, c.SalesOrderId })
+            .HasPrincipalKey(p => new { p.TenantId, p.BranchId, p.Id })
             .OnDelete(DeleteBehavior.Cascade);
         builder.Navigation(x => x.Lines).UsePropertyAccessMode(PropertyAccessMode.Field);
         builder.HasIndex(x => new { x.TenantId, x.Number }).IsUnique();

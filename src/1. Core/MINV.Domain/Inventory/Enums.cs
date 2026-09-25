@@ -42,11 +42,11 @@ public enum PhysicalCountStatus
     Cancelled,
 }
 
-/// <summary>Estado de un traslado. Se guarda como texto.</summary>
+/// <summary>V4 · Máquina de estados de una transferencia: Pending → Dispatched (en tránsito) → Received; Pending → Cancelled.</summary>
 public enum TransferStatus
 {
-    Draft,
-    InTransit,
+    Pending,
+    Dispatched,
     Received,
     Cancelled,
 }

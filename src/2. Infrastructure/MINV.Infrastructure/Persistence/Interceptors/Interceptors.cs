@@ -45,6 +45,16 @@ public sealed class MinvSaveChangesInterceptor(ITenantContext tenant, ICurrentUs
             {
                 EnsureTenant(entry, scoped);
             }
+            if (entry.Entity is IBranchScoped branchScoped)
+            {
+                EnsureBranch(entry, branchScoped.BranchId);
+            }
+            else if (entry.Entity is IInterBranch interBranch)
+            {
+                // Una fila entre sucursales (transferencia, manifiesto, faltante, bitácora) la escribe una de sus dos
+                // sucursales: qué lado puede hacer qué (el origen crea y despacha, el destino recibe) lo decide el caso de uso.
+                EnsureInterBranch(entry, interBranch);
+            }
             switch (entry.State)
             {
                 case EntityState.Added:
@@ -75,6 +85,42 @@ public sealed class MinvSaveChangesInterceptor(ITenantContext tenant, ICurrentUs
         }
     }
 
+    /// <summary>V4 · Toda fila nueva de una sucursal cae dentro del alcance de la sesión y su sucursal nunca cambia.</summary>
+    private void EnsureBranch(EntityEntry entry, Guid branchId)
+    {
+        if (entry.State == EntityState.Added)
+        {
+            if (branchId == Guid.Empty || !tenant.Branches.Allows(branchId))
+            {
+                throw new DomainException("branch.outside_scope",
+                    $"{entry.Metadata.ClrType.Name}: no puede registrar operaciones en una sucursal que no es suya.");
+            }
+        }
+        else if (entry.State == EntityState.Modified && entry.Metadata.FindProperty(nameof(IBranchScoped.BranchId)) is not null
+                 && entry.Property(nameof(IBranchScoped.BranchId)).IsModified)
+        {
+            throw new DomainException("branch.immutable", "La sucursal de una fila no puede cambiar.");
+        }
+    }
+
+    private void EnsureInterBranch(EntityEntry entry, IInterBranch row)
+    {
+        if (entry.State == EntityState.Added)
+        {
+            if (row.FromBranchId == Guid.Empty || row.ToBranchId == Guid.Empty
+                || !(tenant.Branches.Allows(row.FromBranchId) || tenant.Branches.Allows(row.ToBranchId)))
+            {
+                throw new DomainException("branch.outside_scope",
+                    $"{entry.Metadata.ClrType.Name}: la operación no es de ninguna de sus sucursales.");
+            }
+        }
+        else if (entry.State == EntityState.Modified
+                 && (entry.Property(nameof(IInterBranch.FromBranchId)).IsModified || entry.Property(nameof(IInterBranch.ToBranchId)).IsModified))
+        {
+            throw new DomainException("branch.immutable", "Las sucursales de una transferencia no pueden cambiar.");
+        }
+    }
+
     private static void SetIfPresent(EntityEntry entry, string property, object? value)
     {
         if (entry.Metadata.FindProperty(property) is not null)
@@ -85,9 +131,10 @@ public sealed class MinvSaveChangesInterceptor(ITenantContext tenant, ICurrentUs
 }
 
 /// <summary>
-/// Defensa en profundidad: al abrir cada conexión fija <c>minv.tenant_id</c>, que usan las políticas de Row Level
-/// Security de PostgreSQL. Aunque una consulta olvidara el filtro, la base de datos no devolvería filas de otra empresa
-/// (si la aplicación se conecta con el rol <c>minv_app</c>, que no es dueño de las tablas).
+/// Defensa en profundidad: al abrir cada conexión fija <c>minv.tenant_id</c> y (V4) <c>minv.branch_ids</c>, que usan
+/// las políticas de Row Level Security de PostgreSQL. Aunque una consulta olvidara el filtro, la base de datos no
+/// devolvería filas de otra empresa ni de otra sucursal (si la aplicación se conecta con el rol <c>minv_app</c>, que no
+/// es dueño de las tablas). Son valores de SESIÓN: con un pool externo (PgBouncer) debe usarse el modo sesión.
 /// </summary>
 public sealed class TenantSessionInterceptor(ITenantContext tenant) : DbConnectionInterceptor
 {
@@ -107,11 +154,15 @@ public sealed class TenantSessionInterceptor(ITenantContext tenant) : DbConnecti
     private DbCommand Build(DbConnection connection)
     {
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT set_config('minv.tenant_id', @tenant, false)";
+        command.CommandText = "SELECT set_config('minv.tenant_id', @tenant, false), set_config('minv.branch_ids', @branches, false)";
         var p = command.CreateParameter();
         p.ParameterName = "tenant";
         p.Value = tenant.IsSet ? tenant.TenantId.ToString() : string.Empty;
         command.Parameters.Add(p);
+        var b = command.CreateParameter();
+        b.ParameterName = "branches";
+        b.Value = tenant.Branches.ToSessionSetting();
+        command.Parameters.Add(b);
         return command;
     }
 }

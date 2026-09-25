@@ -4,7 +4,7 @@ namespace MINV.Domain.Accounting;
 
 /// <summary>Asiento contable de partida doble. Solo se contabiliza si cuadra (Σ debe = Σ haber); contabilizado es
 /// inmutable (las correcciones son asientos de reversión).</summary>
-public sealed class JournalEntry : Entity, IConcurrencyAware, IAggregateRoot
+public sealed class JournalEntry : Entity, IConcurrencyAware, IAggregateRoot, IBranchScoped
 {
     private readonly List<JournalLine> _lines = new();
 
@@ -12,10 +12,14 @@ public sealed class JournalEntry : Entity, IConcurrencyAware, IAggregateRoot
     {
     }
 
-    public JournalEntry(Guid tenantId, string number, Guid fiscalPeriodId, DateOnly entryDate, string description,
+    /// <summary>V4 · Sucursal dueña de la fila (redundancia controlada; la FK compuesta con el padre la mantiene coherente).</summary>
+    public Guid BranchId { get; private set; }
+
+    public JournalEntry(Guid tenantId, Guid branchId, string number, Guid fiscalPeriodId, DateOnly entryDate, string description,
         Guid currencyId, Guid? sourceCorrelationId = null)
         : base(tenantId)
     {
+        BranchId = Guard.NotEmpty(branchId, nameof(branchId));
         Number = Guard.Text(number, "El número", 30);
         FiscalPeriodId = Guard.NotEmpty(fiscalPeriodId, nameof(fiscalPeriodId));
         EntryDate = entryDate;
@@ -72,7 +76,7 @@ public sealed class JournalEntry : Entity, IConcurrencyAware, IAggregateRoot
     private JournalLine AddLine(Guid accountId, Guid? costCenterId, decimal debit, decimal credit, string? memo)
     {
         EnsureDraft();
-        var line = new JournalLine(TenantId, Id, accountId, costCenterId, debit, credit, memo);
+        var line = new JournalLine(TenantId, BranchId, Id, accountId, costCenterId, debit, credit, memo);
         _lines.Add(line);
         return line;
     }

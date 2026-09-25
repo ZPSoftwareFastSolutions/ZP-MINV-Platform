@@ -184,7 +184,7 @@ public sealed class DemoWorkspaceTests
             Assert.Contains(activity, a => a.Action == "ChangePassword" && a.Outcome == AuditOutcome.Succeeded);
             Assert.True(await mediator.Send(new LogoutCommand(login.SessionId)));
             Assert.False(await mediator.Send(new LogoutCommand(login.SessionId)));   // ya estaba cerrada
-            var db = scope.ServiceProvider.GetRequiredService<MINV.Infrastructure.Persistence.MINVDbContext>();
+            var db = scope.ServiceProvider.GetRequiredService<MINV.Infrastructure.Persistence.MinvWriteDbContext>();
             Assert.False((await db.Sessions.FindAsync(login.SessionId))!.IsOpen);
             Assert.Contains(await mediator.Send(new GetActivityQuery(5)), a => a.Action == "Logout" && a.UserName == "Administrador M-INV");
         }

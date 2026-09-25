@@ -89,7 +89,34 @@
                 <StackPanel Width="380" VerticalAlignment="Center" Visibility="{Binding IsDemoOpen, Converter={StaticResource Hidden}}">
                     <TextBlock Text="Bienvenido" Style="{StaticResource H1}" FontSize="28" />
                     <TextBlock Text="Ingrese con el código de su empresa, su correo y su contraseña." Style="{StaticResource Body}"
-                               Foreground="{DynamicResource TextMuted}" Margin="0,6,0,18" />
+                               Foreground="{DynamicResource TextMuted}" Margin="0,6,0,14" />
+
+                    <!-- V4 · Conexión: base local (PostgreSQL directo) o servidor M-INV en la nube -->
+                    <Border Background="{DynamicResource SurfaceAlt}" CornerRadius="10" Padding="3" Margin="0,0,0,12">
+                        <UniformGrid Columns="2">
+                            <RadioButton Style="{StaticResource Segment}" GroupName="Conexion" IsChecked="{Binding IsLocal}" AutomationProperties.Name="Base local">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Monitor}" FontSize="13" Margin="0,0,6,0" />
+                                    <TextBlock Text="Base local" />
+                                </StackPanel>
+                            </RadioButton>
+                            <RadioButton Style="{StaticResource Segment}" GroupName="Conexion" IsChecked="{Binding IsCloud}" AutomationProperties.Name="Nube">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Cloud}" FontSize="13" Margin="0,0,6,0" />
+                                    <TextBlock Text="Nube" />
+                                </StackPanel>
+                            </RadioButton>
+                        </UniformGrid>
+                    </Border>
+                    <StackPanel Visibility="{Binding IsCloud, Converter={StaticResource Visible}}" Margin="0,0,0,12">
+                        <TextBlock Text="Servidor" Style="{StaticResource FieldLabel}" />
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Style="{StaticResource SoftButton}" Content="Probar" Margin="8,0,0,0" Padding="14,0"
+                                    Command="{Binding RetryDb}" />
+                            <TextBox Text="{Binding ServerUrl, UpdateSourceTrigger=PropertyChanged}" c:Ui.Icon="{x:Static c:Glyphs.Globe}"
+                                     c:Ui.Placeholder="https://minv.suempresa.com" />
+                        </DockPanel>
+                    </StackPanel>
 
                     <!-- Estado de la base de datos -->
                     <Border CornerRadius="10" Padding="12,9" Margin="0,0,0,20">
@@ -150,18 +177,21 @@
                     <Button x:Name="LoginButton" Style="{StaticResource PrimaryButton}" Content="Ingresar" Height="44" FontSize="14"
                             IsDefault="True" Click="OnLogin" c:Ui.IsBusy="{Binding IsBusy}" c:Ui.Icon="{x:Static c:Glyphs.ChevronRight}" />
 
-                    <Grid Margin="0,20">
-                        <Separator Margin="0" VerticalAlignment="Center" />
-                        <Border Background="{DynamicResource Surface}" HorizontalAlignment="Center" Padding="10,0">
-                            <TextBlock Text="¿Quiere conocer M-INV?" Style="{StaticResource Caption}" />
-                        </Border>
-                    </Grid>
-                    <Button Style="{StaticResource SoftButton}" Height="44" Command="{Binding OpenDemo}" c:Ui.Icon="{x:Static c:Glyphs.Sparkle}">
-                        <TextBlock>
-                            <Run Text="Explorar la demostración" FontWeight="SemiBold" />
-                            <Run Text="· sin instalar nada" FontWeight="Normal" />
-                        </TextBlock>
-                    </Button>
+                    <!-- La demostración corre en este equipo: se ofrece en el modo Base local -->
+                    <StackPanel Visibility="{Binding IsCloud, Converter={StaticResource Hidden}}">
+                        <Grid Margin="0,20">
+                            <Separator Margin="0" VerticalAlignment="Center" />
+                            <Border Background="{DynamicResource Surface}" HorizontalAlignment="Center" Padding="10,0">
+                                <TextBlock Text="¿Quiere conocer M-INV?" Style="{StaticResource Caption}" />
+                            </Border>
+                        </Grid>
+                        <Button Style="{StaticResource SoftButton}" Height="44" Command="{Binding OpenDemo}" c:Ui.Icon="{x:Static c:Glyphs.Sparkle}">
+                            <TextBlock>
+                                <Run Text="Explorar la demostración" FontWeight="SemiBold" />
+                                <Run Text="· sin instalar nada" FontWeight="Normal" />
+                            </TextBlock>
+                        </Button>
+                    </StackPanel>
                 </StackPanel>
 
                 <!-- ======================================================================= demostración -->

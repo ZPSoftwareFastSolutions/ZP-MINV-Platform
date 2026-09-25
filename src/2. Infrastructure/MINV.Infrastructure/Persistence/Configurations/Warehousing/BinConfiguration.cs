@@ -15,8 +15,8 @@ internal sealed class BinConfiguration : IEntityTypeConfiguration<Bin>
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Code).HasMaxLength(40);
         builder.HasOne<Shelf>().WithMany()
-            .HasForeignKey(x => new { x.TenantId, x.ShelfId })
-            .HasPrincipalKey(p => new { p.TenantId, p.Id })
+            .HasForeignKey(x => new { x.TenantId, x.BranchId, x.ShelfId })
+            .HasPrincipalKey(p => new { p.TenantId, p.BranchId, p.Id })
             .OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<LocationType>().WithMany()
             .HasForeignKey(x => new { x.TenantId, x.LocationTypeId })

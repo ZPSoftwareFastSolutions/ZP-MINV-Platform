@@ -44,6 +44,13 @@ public sealed class AppServices(SerialMediator mediator, NotificationService not
 
     public Task<T> SendAsync<T>(IRequest<T> request, CancellationToken ct = default) => mediator.SendAsync(request, ct);
 
+    /// <summary>V4 · Cambia la sucursal activa de la sesión y avisa a todas las pantallas que recarguen.</summary>
+    public async Task SelectBranchAsync(Guid? branchId)
+    {
+        await Session.SelectBranchAsync(mediator, branchId);
+        Data.Invalidate();
+    }
+
     /// <summary>Mensaje para el usuario a partir de una excepción (nunca un cuadro de error técnico).</summary>
     public static string Describe(Exception ex) => ex switch
     {

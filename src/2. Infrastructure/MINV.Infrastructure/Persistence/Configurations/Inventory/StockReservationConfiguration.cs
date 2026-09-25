@@ -18,16 +18,16 @@ internal sealed class StockReservationConfiguration : IEntityTypeConfiguration<S
         builder.Property(x => x.Quantity).HasPrecision(18, 6);
         builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
         builder.HasOne<StockLevel>().WithMany()
-            .HasForeignKey(x => new { x.TenantId, x.StockLevelId })
-            .HasPrincipalKey(p => new { p.TenantId, p.Id })
+            .HasForeignKey(x => new { x.TenantId, x.BranchId, x.StockLevelId })
+            .HasPrincipalKey(p => new { p.TenantId, p.BranchId, p.Id })
             .OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<PosSession>().WithMany()
-            .HasForeignKey(x => new { x.TenantId, x.PosSessionId })
-            .HasPrincipalKey(p => new { p.TenantId, p.Id })
+            .HasForeignKey(x => new { x.TenantId, x.BranchId, x.PosSessionId })
+            .HasPrincipalKey(p => new { p.TenantId, p.BranchId, p.Id })
             .OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<SalesOrderLine>().WithMany()
-            .HasForeignKey(x => new { x.TenantId, x.SalesOrderLineId })
-            .HasPrincipalKey(p => new { p.TenantId, p.Id })
+            .HasForeignKey(x => new { x.TenantId, x.BranchId, x.SalesOrderLineId })
+            .HasPrincipalKey(p => new { p.TenantId, p.BranchId, p.Id })
             .OnDelete(DeleteBehavior.Restrict);
         builder.HasIndex(x => new { x.StockLevelId, x.Status });
     }

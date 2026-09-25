@@ -8,6 +8,7 @@ using MINV.Application.Inventory.Queries;
 using MINV.Domain.Accounting;
 using MINV.Domain.Catalog;
 using MINV.Domain.Common;
+using MINV.Domain.Events;
 using MINV.Domain.Iam;
 using MINV.Domain.Inventory;
 using MINV.Domain.Purchasing;
@@ -234,9 +235,9 @@ public sealed class ReceivePurchaseOrderHandler(IMinvDbContext db, ICurrentUser 
         var type = await lookups.MovementTypeAsync(MovementTypeCodes.PurchaseReceipt, ct);
         var bins = lookups.BinIdsOf(order.WarehouseId);
         var received = await Receipts.ReceivedByLineAsync(db, ct);
-        var number = await Documents.NextNumberAsync(db.Set<GoodsReceipt>(), g => g.Number, "RC", ct);
+        var number = await Documents.NextForBranchAsync<GoodsReceipt>(db, g => g.Number, "RC", order.BranchId, ct);
         // Arco exclusivo (ck_goods_receipts_origen): la recepción de una orden no repite el proveedor (sale de la orden)
-        var receipt = new GoodsReceipt(order.TenantId, number, order.Id, null, order.WarehouseId, now, userId, request.SupplierDocument);
+        var receipt = new GoodsReceipt(order.TenantId, order.BranchId, number, order.Id, null, order.WarehouseId, now, userId, request.SupplierDocument);
         var total = 0m;
         foreach (var line in order.Lines)
         {
@@ -258,15 +259,16 @@ public sealed class ReceivePurchaseOrderHandler(IMinvDbContext db, ICurrentUser 
             db.Set<StockMovement>().Add(movement);
             receipt.AddLine(line.Id, level.Id, pending, line.UnitCost).LinkMovement(movement.Id);
             var average = AverageCosts.Weighted(onHandBefore, averageBefore, pending, line.UnitCost);
-            db.Set<AverageCostHistory>().Add(new AverageCostHistory(order.TenantId, variant.Id, order.WarehouseId, now, average, movement.Id));
+            await AverageCosts.RecordAsync(db, order.TenantId, order.BranchId, variant.Id, order.WarehouseId, now, average, movement.Id, ct);
             total += pending * line.UnitCost;
         }
         Guard.That(receipt.Lines.Count > 0, "purchase.received", $"La orden {order.Number} ya se recibió completa.");
         receipt.Post();
         db.Set<GoodsReceipt>().Add(receipt);
         order.RegisterReceipt(fullyReceived: true);
-        var entry = await JournalPoster.PostAsync(db, order.TenantId, userId, today, $"Compra {order.Number} · {supplier.LegalName} · recepción {number}",
+        var entry = await JournalPoster.PostAsync(db, order.TenantId, order.BranchId, userId, today, $"Compra {order.Number} · {supplier.LegalName} · recepción {number}",
             [new JournalLineSpec(AccountCodes.Inventory, total, 0), new JournalLineSpec(AccountCodes.Payables, 0, total)], now, receipt.Id, ct);
+        db.Publish(new PurchaseReceivedEvent(order.Number, number, order.BranchId, supplier.Code, JournalPoster.Money(total), now));
         await db.SaveChangesAsync(ct);
         return new ReceiptResult(order.Number, number, receipt.Lines.Count, JournalPoster.Money(total), entry.Number);
     }
@@ -284,8 +286,8 @@ internal static class Purchases
         var config = await lookups.ConfigAsync(ct);
         var warehouse = await lookups.WarehouseAsync(null, config, ct);
         var today = clock.TodayIn(config.TimeZoneId);
-        var number = await Documents.NextNumberAsync(db.Set<PurchaseOrder>(), o => o.Number, "OC", ct);
-        var order = new PurchaseOrder(supplier.TenantId, number, supplier.Id, warehouse.Id, config.DefaultCurrencyId, today,
+        var number = await Documents.NextForBranchAsync<PurchaseOrder>(db, o => o.Number, "OC", warehouse.BranchId, ct);
+        var order = new PurchaseOrder(supplier.TenantId, warehouse.BranchId, number, supplier.Id, warehouse.Id, config.DefaultCurrencyId, today,
             expected ?? today.AddDays(Math.Max(1, supplier.LeadTimeDays)), notes);
         foreach (var l in lines)
         {

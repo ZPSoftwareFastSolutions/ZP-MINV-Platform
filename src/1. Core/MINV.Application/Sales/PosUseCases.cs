@@ -36,7 +36,7 @@ public sealed class OpenPosSessionHandler(IMinvDbContext db, ICurrentUser user, 
                        ?? throw new NotFoundException($"La caja {code} no existe o está inactiva.");
         Guard.That(!await db.Set<PosSession>().AnyAsync(s => s.PosRegisterId == register.Id && s.Status == PosSessionStatus.Open, ct),
             "pos.already_open", $"La caja {code} ya tiene un turno abierto.");
-        var session = PosSession.Open(register.TenantId, register.Id, userId, request.OpeningCash, clock.UtcNow);
+        var session = PosSession.Open(register.TenantId, register.BranchId, register.Id, userId, request.OpeningCash, clock.UtcNow);
         db.Set<PosSession>().Add(session);
         await db.SaveChangesAsync(ct);   // el índice único parcial impide dos turnos abiertos aunque dos cajeros abran a la vez
         return session.Id;

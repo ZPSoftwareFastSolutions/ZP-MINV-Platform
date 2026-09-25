@@ -10,7 +10,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 namespace MINV.Infrastructure.Persistence.Migrations
 {
-    [DbContext(typeof(MINVDbContext))]
+    [DbContext(typeof(MinvWriteDbContext))]
     partial class MINVDbContextModelSnapshot : ModelSnapshot
     {
         protected override void BuildModel(ModelBuilder modelBuilder)
@@ -106,6 +106,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasColumnType("numeric(19,4)")
                         .HasColumnName("average_cost");
 
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -119,6 +123,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("EffectiveAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("effective_at");
+
+                    b.Property<int>("Sequence")
+                        .HasColumnType("integer")
+                        .HasColumnName("sequence");
 
                     b.Property<Guid?>("StockMovementId")
                         .HasColumnType("uuid")
@@ -142,21 +150,27 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_average_cost_history_tenant_id_id");
 
-                    b.HasIndex("TenantId", "StockMovementId")
-                        .HasDatabaseName("ix_average_cost_history_tenant_id_stock_movement_id");
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_average_cost_history_tenant_id_branch_id_id");
 
-                    b.HasIndex("TenantId", "VariantId")
-                        .HasDatabaseName("ix_average_cost_history_tenant_id_variant_id");
+                    b.HasIndex("TenantId", "BranchId", "StockMovementId")
+                        .HasDatabaseName("ix_average_cost_history_tenant_id_branch_id_stock_movement_id");
 
-                    b.HasIndex("TenantId", "WarehouseId")
-                        .HasDatabaseName("ix_average_cost_history_tenant_id_warehouse_id");
+                    b.HasIndex("TenantId", "BranchId", "WarehouseId")
+                        .HasDatabaseName("ix_average_cost_history_tenant_id_branch_id_warehouse_id");
 
                     b.HasIndex("VariantId", "WarehouseId", "EffectiveAt")
                         .HasDatabaseName("ix_average_cost_history_variant_id_warehouse_id_effective_at");
 
+                    b.HasIndex("TenantId", "VariantId", "WarehouseId", "Sequence")
+                        .IsUnique()
+                        .HasDatabaseName("ux_average_cost_history_tenant_id_variant_id_warehouse_f2e7f7b5");
+
                     b.ToTable("average_cost_history", "accounting", t =>
                         {
                             t.HasCheckConstraint("ck_average_cost_history_costo", "average_cost >= 0");
+
+                            t.HasCheckConstraint("ck_average_cost_history_secuencia", "sequence >= 1");
                         });
                 });
 
@@ -425,6 +439,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -501,6 +519,9 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_journal_entries_tenant_id_id");
 
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_journal_entries_tenant_id_branch_id_id");
+
                     b.HasIndex("TenantId", "CurrencyId")
                         .HasDatabaseName("ix_journal_entries_tenant_id_currency_id");
 
@@ -526,6 +547,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("AccountId")
                         .HasColumnType("uuid")
                         .HasColumnName("account_id");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
 
                     b.Property<Guid?>("CostCenterId")
                         .HasColumnType("uuid")
@@ -578,14 +603,17 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_journal_lines_tenant_id_id");
 
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_journal_lines_tenant_id_branch_id_id");
+
                     b.HasIndex("TenantId", "AccountId")
                         .HasDatabaseName("ix_journal_lines_tenant_id_account_id");
 
                     b.HasIndex("TenantId", "CostCenterId")
                         .HasDatabaseName("ix_journal_lines_tenant_id_cost_center_id");
 
-                    b.HasIndex("TenantId", "JournalEntryId")
-                        .HasDatabaseName("ix_journal_lines_tenant_id_journal_entry_id");
+                    b.HasIndex("TenantId", "BranchId", "JournalEntryId")
+                        .HasDatabaseName("ix_journal_lines_tenant_id_branch_id_journal_entry_id");
 
                     b.ToTable("journal_lines", "accounting", t =>
                         {
@@ -1353,6 +1381,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -1405,15 +1437,18 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_product_stock_policies_tenant_id_id");
 
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_product_stock_policies_tenant_id_branch_id_id");
+
                     b.HasIndex("TenantId", "VariantId")
                         .HasDatabaseName("ix_product_stock_policies_tenant_id_variant_id");
-
-                    b.HasIndex("TenantId", "WarehouseId")
-                        .HasDatabaseName("ix_product_stock_policies_tenant_id_warehouse_id");
 
                     b.HasIndex("VariantId", "WarehouseId")
                         .IsUnique()
                         .HasDatabaseName("ux_product_stock_policies_variant_id_warehouse_id");
+
+                    b.HasIndex("TenantId", "BranchId", "WarehouseId")
+                        .HasDatabaseName("ix_product_stock_policies_tenant_id_branch_id_warehouse_id");
 
                     b.ToTable("product_stock_policies", "catalog", t =>
                         {
@@ -1974,6 +2009,19 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(100)")
                         .HasColumnName("action");
 
+                    b.Property<Guid?>("ApiKeyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("api_key_id");
+
+                    b.Property<Guid?>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
+
+                    b.Property<string>("Channel")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("channel");
+
                     b.Property<Guid>("CorrelationId")
                         .HasColumnType("uuid")
                         .HasColumnName("correlation_id");
@@ -2030,6 +2078,9 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_audit_logs_tenant_id_id");
 
+                    b.HasIndex("TenantId", "BranchId")
+                        .HasDatabaseName("ix_audit_logs_tenant_id_branch_id");
+
                     b.HasIndex("TenantId", "LegacyReference")
                         .IsUnique()
                         .HasDatabaseName("ux_audit_logs_tenant_id_legacy_reference")
@@ -2041,7 +2092,14 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "UserId")
                         .HasDatabaseName("ix_audit_logs_tenant_id_user_id");
 
-                    b.ToTable("audit_logs", "iam");
+                    b.HasIndex("TenantId", "ApiKeyId", "OccurredAt")
+                        .HasDatabaseName("ix_audit_logs_tenant_id_api_key_id_occurred_at")
+                        .HasFilter("api_key_id IS NOT NULL");
+
+                    b.ToTable("audit_logs", "iam", t =>
+                        {
+                            t.HasCheckConstraint("ck_audit_logs_canal", "channel IS NULL OR channel IN ('desktop', 'cloud', 'api')");
+                        });
                 });
 
             modelBuilder.Entity("MINV.Domain.Iam.HardwareToken", b =>
@@ -2234,6 +2292,46 @@ namespace MINV.Infrastructure.Persistence.Migrations
                             MonthlyFeeBs = 800m,
                             Name = "SLA de soporte",
                             SetupPriceBs = 0m
+                        },
+                        new
+                        {
+                            Id = new Guid("01920000-0000-7000-8000-000000000006"),
+                            Code = "CLOUD_HA",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 9, 25, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            Description = "PostgreSQL gestionado en la nube (AWS/DigitalOcean) con respaldos PITR, réplica y SLA 99,9 %.",
+                            MonthlyFeeBs = 1500m,
+                            Name = "Infraestructura Cloud HA",
+                            SetupPriceBs = 12000m
+                        },
+                        new
+                        {
+                            Id = new Guid("01920000-0000-7000-8000-000000000007"),
+                            Code = "MULTI_BRANCH",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 9, 25, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            Description = "Inventario aislado por sucursal (BranchId) y transferencias con mercancía en tránsito.",
+                            MonthlyFeeBs = 500m,
+                            Name = "Topología multi-sucursal",
+                            SetupPriceBs = 8000m
+                        },
+                        new
+                        {
+                            Id = new Guid("01920000-0000-7000-8000-000000000008"),
+                            Code = "API_INTEGRATIONS",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 9, 25, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            Description = "API Gateway con API Keys y webhooks para e-commerce (Shopify) y ERP contable.",
+                            MonthlyFeeBs = 400m,
+                            Name = "Integraciones API (B2B)",
+                            SetupPriceBs = 6000m
+                        },
+                        new
+                        {
+                            Id = new Guid("01920000-0000-7000-8000-000000000009"),
+                            Code = "GLOBAL_AUDIT",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 9, 25, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            Description = "Modelo de lectura desnormalizado para gerencia sin cargar las cajas POS.",
+                            MonthlyFeeBs = 300m,
+                            Name = "Auditoría global (réplicas de lectura)",
+                            SetupPriceBs = 5000m
                         });
                 });
 
@@ -2290,6 +2388,77 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.ToTable("permissions", "iam", t =>
                         {
                             t.HasCheckConstraint("ck_permissions_codigo_minusculas", "code = lower(code)");
+                        });
+                });
+
+            modelBuilder.Entity("MINV.Domain.Iam.ProcessedRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("ProcessedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("processed_at");
+
+                    b.Property<string>("RequestHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("request_hash");
+
+                    b.Property<Guid>("RequestId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("request_id");
+
+                    b.Property<string>("RequestType")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("request_type");
+
+                    b.Property<string>("Response")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("response");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_processed_requests");
+
+                    b.HasAlternateKey("TenantId", "Id")
+                        .HasName("ak_processed_requests_tenant_id_id");
+
+                    b.HasIndex("ProcessedAt")
+                        .HasDatabaseName("ix_processed_requests_processed_at");
+
+                    b.HasIndex("TenantId", "RequestId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_processed_requests_tenant_id_request_id");
+
+                    b.HasIndex("TenantId", "UserId")
+                        .HasDatabaseName("ix_processed_requests_tenant_id_user_id");
+
+                    b.ToTable("processed_requests", "iam", t =>
+                        {
+                            t.HasCheckConstraint("ck_processed_requests_hash", "request_hash ~ '^[0-9a-f]{64}$'");
                         });
                 });
 
@@ -2400,6 +2569,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<Guid?>("ActiveBranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("active_branch_id");
+
                     b.Property<string>("ClientVersion")
                         .IsRequired()
                         .HasMaxLength(30)
@@ -2419,6 +2592,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("EndedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("ended_at");
+
+                    b.Property<DateTimeOffset?>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
 
                     b.Property<Guid?>("HardwareTokenId")
                         .HasColumnType("uuid")
@@ -2448,6 +2625,11 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("tenant_id");
 
+                    b.Property<string>("TokenHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("token_hash");
+
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
@@ -2466,6 +2648,14 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_sessions_tenant_id_id");
 
+                    b.HasIndex("TokenHash")
+                        .IsUnique()
+                        .HasDatabaseName("ux_sessions_token_hash")
+                        .HasFilter("token_hash IS NOT NULL");
+
+                    b.HasIndex("TenantId", "ActiveBranchId")
+                        .HasDatabaseName("ix_sessions_tenant_id_active_branch_id");
+
                     b.HasIndex("TenantId", "HardwareTokenId")
                         .HasDatabaseName("ix_sessions_tenant_id_hardware_token_id");
 
@@ -2478,6 +2668,8 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.ToTable("sessions", "iam", t =>
                         {
                             t.HasCheckConstraint("ck_sessions_fechas", "ended_at IS NULL OR ended_at >= started_at");
+
+                            t.HasCheckConstraint("ck_sessions_token", "(token_hash IS NULL) = (expires_at IS NULL) AND (token_hash IS NULL OR token_hash ~ '^[0-9a-f]{64}$')");
                         });
                 });
 
@@ -2852,6 +3044,518 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.ToTable("user_roles", "iam");
                 });
 
+            modelBuilder.Entity("MINV.Domain.Integration.ApiKey", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset?>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
+
+                    b.Property<Guid>("OwnerUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("owner_user_id");
+
+                    b.Property<string>("Prefix")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)")
+                        .HasColumnName("prefix");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("revoked_at");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("token_hash");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_api_keys");
+
+                    b.HasAlternateKey("TenantId", "Id")
+                        .HasName("ak_api_keys_tenant_id_id");
+
+                    b.HasIndex("Prefix")
+                        .IsUnique()
+                        .HasDatabaseName("ux_api_keys_prefix");
+
+                    b.HasIndex("TenantId", "BranchId")
+                        .HasDatabaseName("ix_api_keys_tenant_id_branch_id");
+
+                    b.HasIndex("TenantId", "Name")
+                        .HasDatabaseName("ix_api_keys_tenant_id_name");
+
+                    b.HasIndex("TenantId", "OwnerUserId")
+                        .HasDatabaseName("ix_api_keys_tenant_id_owner_user_id");
+
+                    b.ToTable("api_keys", "integration", t =>
+                        {
+                            t.HasCheckConstraint("ck_api_keys_hash", "token_hash ~ '^[0-9a-f]{64}$'");
+
+                            t.HasCheckConstraint("ck_api_keys_prefijo", "prefix ~ '^[a-z0-9]{8}$'");
+
+                            t.HasCheckConstraint("ck_api_keys_vencimiento", "expires_at IS NULL OR expires_at > created_at");
+                        });
+                });
+
+            modelBuilder.Entity("MINV.Domain.Integration.ApiKeyScope", b =>
+                {
+                    b.Property<Guid>("ApiKeyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("api_key_id");
+
+                    b.Property<string>("Scope")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("scope");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("ApiKeyId", "Scope")
+                        .HasName("pk_api_key_scopes");
+
+                    b.HasIndex("TenantId", "ApiKeyId")
+                        .HasDatabaseName("ix_api_key_scopes_tenant_id_api_key_id");
+
+                    b.ToTable("api_key_scopes", "integration");
+                });
+
+            modelBuilder.Entity("MINV.Domain.Integration.OutboxDispatch", b =>
+                {
+                    b.Property<Guid>("OutboxEventId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("outbox_event_id");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("last_error");
+
+                    b.Property<DateTimeOffset>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("next_attempt_at");
+
+                    b.Property<int>("Rounds")
+                        .HasColumnType("integer")
+                        .HasColumnName("rounds");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("OutboxEventId")
+                        .HasName("pk_outbox_dispatch");
+
+                    b.HasIndex("NextAttemptAt")
+                        .HasDatabaseName("ix_outbox_dispatch_next_attempt_at")
+                        .HasFilter("status = 'Pending'");
+
+                    b.HasIndex("TenantId", "OutboxEventId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_outbox_dispatch_tenant_id_outbox_event_id");
+
+                    b.ToTable("outbox_dispatch", "integration", t =>
+                        {
+                            t.HasCheckConstraint("ck_outbox_dispatch_estado", "status IN ('Pending', 'Completed', 'Exhausted')");
+
+                            t.HasCheckConstraint("ck_outbox_dispatch_fin", "(status = 'Pending') = (completed_at IS NULL)");
+
+                            t.HasCheckConstraint("ck_outbox_dispatch_rondas", "rounds BETWEEN 0 AND 8");
+                        });
+                });
+
+            modelBuilder.Entity("MINV.Domain.Integration.OutboxEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("event_type");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("occurred_at");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("payload");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_outbox_events");
+
+                    b.HasAlternateKey("TenantId", "Id")
+                        .HasName("ak_outbox_events_tenant_id_id");
+
+                    b.HasIndex("TenantId", "BranchId")
+                        .HasDatabaseName("ix_outbox_events_tenant_id_branch_id");
+
+                    b.HasIndex("TenantId", "OccurredAt")
+                        .HasDatabaseName("ix_outbox_events_tenant_id_occurred_at");
+
+                    b.ToTable("outbox_events", "integration");
+                });
+
+            modelBuilder.Entity("MINV.Domain.Integration.WebhookDelivery", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("Attempt")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempt");
+
+                    b.Property<DateTimeOffset>("AttemptedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("attempted_at");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<int>("DurationMs")
+                        .HasColumnType("integer")
+                        .HasColumnName("duration_ms");
+
+                    b.Property<Guid>("EndpointId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("endpoint_id");
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("error");
+
+                    b.Property<Guid>("OutboxEventId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("outbox_event_id");
+
+                    b.Property<int?>("StatusCode")
+                        .HasColumnType("integer")
+                        .HasColumnName("status_code");
+
+                    b.Property<bool>("Succeeded")
+                        .HasColumnType("boolean")
+                        .HasColumnName("succeeded");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_webhook_deliveries");
+
+                    b.HasAlternateKey("TenantId", "Id")
+                        .HasName("ak_webhook_deliveries_tenant_id_id");
+
+                    b.HasIndex("TenantId", "EndpointId")
+                        .HasDatabaseName("ix_webhook_deliveries_tenant_id_endpoint_id");
+
+                    b.HasIndex("TenantId", "OutboxEventId")
+                        .HasDatabaseName("ix_webhook_deliveries_tenant_id_outbox_event_id");
+
+                    b.HasIndex("OutboxEventId", "EndpointId", "Attempt")
+                        .IsUnique()
+                        .HasDatabaseName("ux_webhook_deliveries_outbox_event_id_endpoint_id_attempt");
+
+                    b.ToTable("webhook_deliveries", "integration", t =>
+                        {
+                            t.HasCheckConstraint("ck_webhook_deliveries_duracion", "duration_ms >= 0");
+
+                            t.HasCheckConstraint("ck_webhook_deliveries_intento", "attempt BETWEEN 1 AND 8");
+                        });
+                });
+
+            modelBuilder.Entity("MINV.Domain.Integration.WebhookEndpoint", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("ApiKeyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("api_key_id");
+
+                    b.Property<Guid?>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("description");
+
+                    b.Property<DateTimeOffset?>("DisabledAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("disabled_at");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_active");
+
+                    b.Property<string>("PreviousSecretCiphertext")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("previous_secret_ciphertext");
+
+                    b.Property<DateTimeOffset?>("PreviousSecretExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("previous_secret_expires_at");
+
+                    b.Property<string>("PreviousSecretKeyId")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("previous_secret_key_id");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<string>("SecretCiphertext")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("secret_ciphertext");
+
+                    b.Property<string>("SecretKeyId")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("secret_key_id");
+
+                    b.Property<int>("SecretVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("secret_version");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("url");
+
+                    b.HasKey("Id")
+                        .HasName("pk_webhook_endpoints");
+
+                    b.HasAlternateKey("TenantId", "Id")
+                        .HasName("ak_webhook_endpoints_tenant_id_id");
+
+                    b.HasIndex("TenantId", "ApiKeyId")
+                        .HasDatabaseName("ix_webhook_endpoints_tenant_id_api_key_id");
+
+                    b.HasIndex("TenantId", "BranchId")
+                        .HasDatabaseName("ix_webhook_endpoints_tenant_id_branch_id");
+
+                    b.HasIndex("TenantId", "CreatedByUserId")
+                        .HasDatabaseName("ix_webhook_endpoints_tenant_id_created_by_user_id");
+
+                    b.ToTable("webhook_endpoints", "integration", t =>
+                        {
+                            t.HasCheckConstraint("ck_webhook_endpoints_baja", "is_active = (disabled_at IS NULL)");
+
+                            t.HasCheckConstraint("ck_webhook_endpoints_rotacion", "(previous_secret_ciphertext IS NULL) = (previous_secret_expires_at IS NULL) AND (previous_secret_ciphertext IS NULL) = (previous_secret_key_id IS NULL)");
+
+                            t.HasCheckConstraint("ck_webhook_endpoints_url", "url ~ '^(https://|http://localhost|http://127\\.0\\.0\\.1|http://\\[::1\\])'");
+
+                            t.HasCheckConstraint("ck_webhook_endpoints_version", "secret_version >= 1");
+                        });
+                });
+
+            modelBuilder.Entity("MINV.Domain.Integration.WebhookEndpointEvent", b =>
+                {
+                    b.Property<Guid>("EndpointId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("endpoint_id");
+
+                    b.Property<string>("EventType")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("event_type");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("EndpointId", "EventType")
+                        .HasName("pk_webhook_endpoint_events");
+
+                    b.HasIndex("TenantId", "EndpointId")
+                        .HasDatabaseName("ix_webhook_endpoint_events_tenant_id_endpoint_id");
+
+                    b.ToTable("webhook_endpoint_events", "integration");
+                });
+
             modelBuilder.Entity("MINV.Domain.Inventory.AdjustmentReason", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3077,6 +3781,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
+
                     b.Property<DateOnly>("CountDate")
                         .HasColumnType("date")
                         .HasColumnName("count_date");
@@ -3144,6 +3852,9 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_physical_counts_tenant_id_id");
 
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_physical_counts_tenant_id_branch_id_id");
+
                     b.HasIndex("WarehouseId")
                         .IsUnique()
                         .HasDatabaseName("ux_physical_counts_warehouse_id")
@@ -3156,8 +3867,8 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "PostedByUserId")
                         .HasDatabaseName("ix_physical_counts_tenant_id_posted_by_user_id");
 
-                    b.HasIndex("TenantId", "WarehouseId")
-                        .HasDatabaseName("ix_physical_counts_tenant_id_warehouse_id");
+                    b.HasIndex("TenantId", "BranchId", "WarehouseId")
+                        .HasDatabaseName("ix_physical_counts_tenant_id_branch_id_warehouse_id");
 
                     b.ToTable("physical_counts", "inventory");
                 });
@@ -3167,6 +3878,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
 
                     b.Property<DateTimeOffset>("CountedAt")
                         .HasColumnType("timestamp with time zone")
@@ -3232,6 +3947,9 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_physical_count_lines_tenant_id_id");
 
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_physical_count_lines_tenant_id_branch_id_id");
+
                     b.HasIndex("PhysicalCountId", "StockLevelId")
                         .IsUnique()
                         .HasDatabaseName("ux_physical_count_lines_physical_count_id_stock_level_id");
@@ -3239,14 +3957,14 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "CountedByUserId")
                         .HasDatabaseName("ix_physical_count_lines_tenant_id_counted_by_user_id");
 
-                    b.HasIndex("TenantId", "PhysicalCountId")
-                        .HasDatabaseName("ix_physical_count_lines_tenant_id_physical_count_id");
+                    b.HasIndex("TenantId", "BranchId", "PhysicalCountId")
+                        .HasDatabaseName("ix_physical_count_lines_tenant_id_branch_id_physical_count_id");
 
-                    b.HasIndex("TenantId", "StockLevelId")
-                        .HasDatabaseName("ix_physical_count_lines_tenant_id_stock_level_id");
+                    b.HasIndex("TenantId", "BranchId", "StockLevelId")
+                        .HasDatabaseName("ix_physical_count_lines_tenant_id_branch_id_stock_level_id");
 
-                    b.HasIndex("TenantId", "StockMovementId")
-                        .HasDatabaseName("ix_physical_count_lines_tenant_id_stock_movement_id");
+                    b.HasIndex("TenantId", "BranchId", "StockMovementId")
+                        .HasDatabaseName("ix_physical_count_lines_tenant_id_branch_id_stock_movement_id");
 
                     b.ToTable("physical_count_lines", "inventory", t =>
                         {
@@ -3337,6 +4055,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("adjustment_reason_id");
 
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -3400,6 +4122,9 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_stock_adjustments_tenant_id_id");
 
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_stock_adjustments_tenant_id_branch_id_id");
+
                     b.HasIndex("TenantId", "AdjustmentReasonId")
                         .HasDatabaseName("ix_stock_adjustments_tenant_id_adjustment_reason_id");
 
@@ -3410,8 +4135,8 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "PostedByUserId")
                         .HasDatabaseName("ix_stock_adjustments_tenant_id_posted_by_user_id");
 
-                    b.HasIndex("TenantId", "WarehouseId")
-                        .HasDatabaseName("ix_stock_adjustments_tenant_id_warehouse_id");
+                    b.HasIndex("TenantId", "BranchId", "WarehouseId")
+                        .HasDatabaseName("ix_stock_adjustments_tenant_id_branch_id_warehouse_id");
 
                     b.ToTable("stock_adjustments", "inventory");
                 });
@@ -3421,6 +4146,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .ValueGeneratedOnAdd()
@@ -3471,6 +4200,9 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_stock_adjustment_lines_tenant_id_id");
 
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_stock_adjustment_lines_tenant_id_branch_id_id");
+
                     b.HasIndex("StockMovementId")
                         .IsUnique()
                         .HasDatabaseName("ux_stock_adjustment_lines_stock_movement_id")
@@ -3479,14 +4211,14 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "MovementTypeId")
                         .HasDatabaseName("ix_stock_adjustment_lines_tenant_id_movement_type_id");
 
-                    b.HasIndex("TenantId", "StockAdjustmentId")
-                        .HasDatabaseName("ix_stock_adjustment_lines_tenant_id_stock_adjustment_id");
+                    b.HasIndex("TenantId", "BranchId", "StockAdjustmentId")
+                        .HasDatabaseName("ix_stock_adjustment_lines_tenant_id_branch_id_stock_ad_62ee571f");
 
-                    b.HasIndex("TenantId", "StockLevelId")
-                        .HasDatabaseName("ix_stock_adjustment_lines_tenant_id_stock_level_id");
+                    b.HasIndex("TenantId", "BranchId", "StockLevelId")
+                        .HasDatabaseName("ix_stock_adjustment_lines_tenant_id_branch_id_stock_level_id");
 
-                    b.HasIndex("TenantId", "StockMovementId")
-                        .HasDatabaseName("ix_stock_adjustment_lines_tenant_id_stock_movement_id");
+                    b.HasIndex("TenantId", "BranchId", "StockMovementId")
+                        .HasDatabaseName("ix_stock_adjustment_lines_tenant_id_branch_id_stock_movement_id");
 
                     b.ToTable("stock_adjustment_lines", "inventory", t =>
                         {
@@ -3507,6 +4239,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("BinId")
                         .HasColumnType("uuid")
                         .HasColumnName("bin_id");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .ValueGeneratedOnAdd()
@@ -3552,6 +4288,9 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_stock_levels_tenant_id_id");
 
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_stock_levels_tenant_id_branch_id_id");
+
                     b.HasIndex("BinId", "BatchId")
                         .IsUnique()
                         .HasDatabaseName("ux_stock_levels_bin_id_batch_id");
@@ -3559,8 +4298,8 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "BatchId")
                         .HasDatabaseName("ix_stock_levels_tenant_id_batch_id");
 
-                    b.HasIndex("TenantId", "BinId")
-                        .HasDatabaseName("ix_stock_levels_tenant_id_bin_id");
+                    b.HasIndex("TenantId", "BranchId", "BinId")
+                        .HasDatabaseName("ix_stock_levels_tenant_id_branch_id_bin_id");
 
                     b.ToTable("stock_levels", "inventory", t =>
                         {
@@ -3579,6 +4318,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("AdjustmentReasonId")
                         .HasColumnType("uuid")
                         .HasColumnName("adjustment_reason_id");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
 
                     b.Property<DateOnly>("BusinessDate")
                         .HasColumnType("date")
@@ -3644,6 +4387,9 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_stock_movements_tenant_id_id");
 
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_stock_movements_tenant_id_branch_id_id");
+
                     b.HasIndex("CorrelationId")
                         .HasDatabaseName("ix_stock_movements_correlation_id");
 
@@ -3667,8 +4413,8 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "RecordedByUserId")
                         .HasDatabaseName("ix_stock_movements_tenant_id_recorded_by_user_id");
 
-                    b.HasIndex("TenantId", "StockLevelId")
-                        .HasDatabaseName("ix_stock_movements_tenant_id_stock_level_id");
+                    b.HasIndex("TenantId", "BranchId", "StockLevelId")
+                        .HasDatabaseName("ix_stock_movements_tenant_id_branch_id_stock_level_id");
 
                     b.ToTable("stock_movements", "inventory", t =>
                         {
@@ -3681,6 +4427,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .ValueGeneratedOnAdd()
@@ -3743,17 +4493,20 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_stock_reservations_tenant_id_id");
 
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_stock_reservations_tenant_id_branch_id_id");
+
                     b.HasIndex("StockLevelId", "Status")
                         .HasDatabaseName("ix_stock_reservations_stock_level_id_status");
 
-                    b.HasIndex("TenantId", "PosSessionId")
-                        .HasDatabaseName("ix_stock_reservations_tenant_id_pos_session_id");
+                    b.HasIndex("TenantId", "BranchId", "PosSessionId")
+                        .HasDatabaseName("ix_stock_reservations_tenant_id_branch_id_pos_session_id");
 
-                    b.HasIndex("TenantId", "SalesOrderLineId")
-                        .HasDatabaseName("ix_stock_reservations_tenant_id_sales_order_line_id");
+                    b.HasIndex("TenantId", "BranchId", "SalesOrderLineId")
+                        .HasDatabaseName("ix_stock_reservations_tenant_id_branch_id_sales_order_line_id");
 
-                    b.HasIndex("TenantId", "StockLevelId")
-                        .HasDatabaseName("ix_stock_reservations_tenant_id_stock_level_id");
+                    b.HasIndex("TenantId", "BranchId", "StockLevelId")
+                        .HasDatabaseName("ix_stock_reservations_tenant_id_branch_id_stock_level_id");
 
                     b.ToTable("stock_reservations", "inventory", t =>
                         {
@@ -3850,6 +4603,14 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
 
+                    b.Property<DateTimeOffset?>("DispatchedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("dispatched_at");
+
+                    b.Property<Guid>("FromBranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("from_branch_id");
+
                     b.Property<Guid>("FromWarehouseId")
                         .HasColumnType("uuid")
                         .HasColumnName("from_warehouse_id");
@@ -3869,15 +4630,19 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("received_at");
 
+                    b.Property<DateTimeOffset>("RequestedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("requested_at");
+
+                    b.Property<Guid>("RequestedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("requested_by_user_id");
+
                     b.Property<uint>("RowVersion")
                         .IsConcurrencyToken()
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("xid")
                         .HasColumnName("xmin");
-
-                    b.Property<DateTimeOffset?>("ShippedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("shipped_at");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -3888,6 +4653,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid")
                         .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("ToBranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("to_branch_id");
 
                     b.Property<Guid>("ToWarehouseId")
                         .HasColumnType("uuid")
@@ -3907,20 +4676,174 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_stock_transfers_tenant_id_id");
 
-                    b.HasIndex("TenantId", "FromWarehouseId")
-                        .HasDatabaseName("ix_stock_transfers_tenant_id_from_warehouse_id");
+                    b.HasAlternateKey("TenantId", "FromBranchId", "ToBranchId", "Id")
+                        .HasName("ak_stock_transfers_tenant_id_from_branch_id_to_branch_id_id");
 
                     b.HasIndex("TenantId", "Number")
                         .IsUnique()
                         .HasDatabaseName("ux_stock_transfers_tenant_id_number");
 
-                    b.HasIndex("TenantId", "ToWarehouseId")
-                        .HasDatabaseName("ix_stock_transfers_tenant_id_to_warehouse_id");
+                    b.HasIndex("TenantId", "RequestedByUserId")
+                        .HasDatabaseName("ix_stock_transfers_tenant_id_requested_by_user_id");
+
+                    b.HasIndex("TenantId", "Status")
+                        .HasDatabaseName("ix_stock_transfers_tenant_id_status");
+
+                    b.HasIndex("TenantId", "FromBranchId", "FromWarehouseId")
+                        .HasDatabaseName("ix_stock_transfers_tenant_id_from_branch_id_from_warehouse_id");
+
+                    b.HasIndex("TenantId", "ToBranchId", "ToWarehouseId")
+                        .HasDatabaseName("ix_stock_transfers_tenant_id_to_branch_id_to_warehouse_id");
 
                     b.ToTable("stock_transfers", "inventory", t =>
                         {
                             t.HasCheckConstraint("ck_stock_transfers_almacenes", "from_warehouse_id <> to_warehouse_id");
+
+                            t.HasCheckConstraint("ck_stock_transfers_despacho", "(status IN ('Dispatched', 'Received')) = (dispatched_at IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_stock_transfers_estado", "status IN ('Pending', 'Dispatched', 'Received', 'Cancelled')");
+
+                            t.HasCheckConstraint("ck_stock_transfers_recepcion", "(status = 'Received') = (received_at IS NOT NULL)");
                         });
+                });
+
+            modelBuilder.Entity("MINV.Domain.Inventory.StockTransferDiscrepancy", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("FromBranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("from_branch_id");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)")
+                        .HasColumnName("quantity");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("reason");
+
+                    b.Property<DateTimeOffset>("RecordedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("recorded_at");
+
+                    b.Property<Guid>("RecordedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("recorded_by_user_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("ToBranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("to_branch_id");
+
+                    b.Property<Guid>("TransferLineId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("transfer_line_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_stock_transfer_discrepancies");
+
+                    b.HasAlternateKey("TenantId", "Id")
+                        .HasName("ak_stock_transfer_discrepancies_tenant_id_id");
+
+                    b.HasIndex("TenantId", "RecordedByUserId")
+                        .HasDatabaseName("ix_stock_transfer_discrepancies_tenant_id_recorded_by_user_id");
+
+                    b.HasIndex("TenantId", "FromBranchId", "ToBranchId", "TransferLineId")
+                        .HasDatabaseName("ix_stock_transfer_discrepancies_tenant_id_from_branch__ab9c7114");
+
+                    b.ToTable("stock_transfer_discrepancies", "inventory", t =>
+                        {
+                            t.HasCheckConstraint("ck_stock_transfer_discrepancies_cantidad", "quantity > 0");
+                        });
+                });
+
+            modelBuilder.Entity("MINV.Domain.Inventory.StockTransferEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Detail")
+                        .IsRequired()
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)")
+                        .HasColumnName("detail");
+
+                    b.Property<Guid>("FromBranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("from_branch_id");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("occurred_at");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("ToBranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("to_branch_id");
+
+                    b.Property<Guid>("TransferId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("transfer_id");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_stock_transfer_events");
+
+                    b.HasAlternateKey("TenantId", "Id")
+                        .HasName("ak_stock_transfer_events_tenant_id_id");
+
+                    b.HasIndex("TenantId", "UserId")
+                        .HasDatabaseName("ix_stock_transfer_events_tenant_id_user_id");
+
+                    b.HasIndex("TransferId", "OccurredAt")
+                        .HasDatabaseName("ix_stock_transfer_events_transfer_id_occurred_at");
+
+                    b.HasIndex("TenantId", "FromBranchId", "ToBranchId", "TransferId")
+                        .HasDatabaseName("ix_stock_transfer_events_tenant_id_from_branch_id_to_b_ed8553a1");
+
+                    b.ToTable("stock_transfer_events", "inventory");
                 });
 
             modelBuilder.Entity("MINV.Domain.Inventory.StockTransferLine", b =>
@@ -3939,26 +4862,14 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
 
-                    b.Property<Guid?>("DestinationStockLevelId")
+                    b.Property<Guid>("FromBranchId")
                         .HasColumnType("uuid")
-                        .HasColumnName("destination_stock_level_id");
-
-                    b.Property<Guid?>("InboundMovementId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("inbound_movement_id");
-
-                    b.Property<Guid?>("OutboundMovementId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("outbound_movement_id");
+                        .HasColumnName("from_branch_id");
 
                     b.Property<decimal>("Quantity")
                         .HasPrecision(18, 6)
                         .HasColumnType("numeric(18,6)")
                         .HasColumnName("quantity");
-
-                    b.Property<Guid>("SourceStockLevelId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("source_stock_level_id");
 
                     b.Property<Guid>("StockTransferId")
                         .HasColumnType("uuid")
@@ -3968,6 +4879,15 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("tenant_id");
 
+                    b.Property<Guid>("ToBranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("to_branch_id");
+
+                    b.Property<decimal?>("UnitCost")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)")
+                        .HasColumnName("unit_cost");
+
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
@@ -3976,30 +4896,139 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("updated_by");
 
+                    b.Property<Guid>("VariantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("variant_id");
+
                     b.HasKey("Id")
                         .HasName("pk_stock_transfer_lines");
 
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_stock_transfer_lines_tenant_id_id");
 
-                    b.HasIndex("TenantId", "DestinationStockLevelId")
-                        .HasDatabaseName("ix_stock_transfer_lines_tenant_id_destination_stock_level_id");
+                    b.HasAlternateKey("TenantId", "FromBranchId", "ToBranchId", "Id")
+                        .HasName("ak_stock_transfer_lines_tenant_id_from_branch_id_to_br_7655fbfd");
 
-                    b.HasIndex("TenantId", "InboundMovementId")
-                        .HasDatabaseName("ix_stock_transfer_lines_tenant_id_inbound_movement_id");
+                    b.HasIndex("StockTransferId", "VariantId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_stock_transfer_lines_stock_transfer_id_variant_id");
 
-                    b.HasIndex("TenantId", "OutboundMovementId")
-                        .HasDatabaseName("ix_stock_transfer_lines_tenant_id_outbound_movement_id");
+                    b.HasIndex("TenantId", "VariantId")
+                        .HasDatabaseName("ix_stock_transfer_lines_tenant_id_variant_id");
 
-                    b.HasIndex("TenantId", "SourceStockLevelId")
-                        .HasDatabaseName("ix_stock_transfer_lines_tenant_id_source_stock_level_id");
-
-                    b.HasIndex("TenantId", "StockTransferId")
-                        .HasDatabaseName("ix_stock_transfer_lines_tenant_id_stock_transfer_id");
+                    b.HasIndex("TenantId", "FromBranchId", "ToBranchId", "StockTransferId")
+                        .HasDatabaseName("ix_stock_transfer_lines_tenant_id_from_branch_id_to_br_b04b8098");
 
                     b.ToTable("stock_transfer_lines", "inventory", t =>
                         {
                             t.HasCheckConstraint("ck_stock_transfer_lines_cantidad", "quantity > 0");
+
+                            t.HasCheckConstraint("ck_stock_transfer_lines_costo", "unit_cost IS NULL OR unit_cost >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("MINV.Domain.Inventory.StockTransferLineBatch", b =>
+                {
+                    b.Property<Guid>("TransferLineId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("transfer_line_id");
+
+                    b.Property<Guid>("BatchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("batch_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("FromBranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("from_branch_id");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)")
+                        .HasColumnName("quantity");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("ToBranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("to_branch_id");
+
+                    b.HasKey("TransferLineId", "BatchId")
+                        .HasName("pk_stock_transfer_line_batches");
+
+                    b.HasIndex("TenantId", "BatchId")
+                        .HasDatabaseName("ix_stock_transfer_line_batches_tenant_id_batch_id");
+
+                    b.HasIndex("TenantId", "FromBranchId", "ToBranchId", "TransferLineId")
+                        .HasDatabaseName("ix_stock_transfer_line_batches_tenant_id_from_branch_i_d73f9652");
+
+                    b.ToTable("stock_transfer_line_batches", "inventory", t =>
+                        {
+                            t.HasCheckConstraint("ck_stock_transfer_line_batches_cantidad", "quantity > 0");
+                        });
+                });
+
+            modelBuilder.Entity("MINV.Domain.Inventory.StockTransferMovement", b =>
+                {
+                    b.Property<Guid>("TransferLineId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("transfer_line_id");
+
+                    b.Property<Guid>("StockMovementId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("stock_movement_id");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Direction")
+                        .IsRequired()
+                        .HasMaxLength(5)
+                        .HasColumnType("character varying(5)")
+                        .HasColumnName("direction");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("TransferLineId", "StockMovementId")
+                        .HasName("pk_stock_transfer_movements");
+
+                    b.HasIndex("StockMovementId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_stock_transfer_movements_stock_movement_id");
+
+                    b.HasIndex("TenantId", "TransferLineId")
+                        .HasDatabaseName("ix_stock_transfer_movements_tenant_id_transfer_line_id");
+
+                    b.HasIndex("TenantId", "BranchId", "StockMovementId")
+                        .HasDatabaseName("ix_stock_transfer_movements_tenant_id_branch_id_stock__76276875");
+
+                    b.ToTable("stock_transfer_movements", "inventory", t =>
+                        {
+                            t.HasCheckConstraint("ck_stock_transfer_movements_sentido", "direction IN ('Out', 'In')");
                         });
                 });
 
@@ -4008,6 +5037,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .ValueGeneratedOnAdd()
@@ -4080,12 +5113,12 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_goods_receipts_tenant_id_id");
 
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_goods_receipts_tenant_id_branch_id_id");
+
                     b.HasIndex("TenantId", "Number")
                         .IsUnique()
                         .HasDatabaseName("ux_goods_receipts_tenant_id_number");
-
-                    b.HasIndex("TenantId", "PurchaseOrderId")
-                        .HasDatabaseName("ix_goods_receipts_tenant_id_purchase_order_id");
 
                     b.HasIndex("TenantId", "ReceivedByUserId")
                         .HasDatabaseName("ix_goods_receipts_tenant_id_received_by_user_id");
@@ -4093,8 +5126,11 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "SupplierId")
                         .HasDatabaseName("ix_goods_receipts_tenant_id_supplier_id");
 
-                    b.HasIndex("TenantId", "WarehouseId")
-                        .HasDatabaseName("ix_goods_receipts_tenant_id_warehouse_id");
+                    b.HasIndex("TenantId", "BranchId", "PurchaseOrderId")
+                        .HasDatabaseName("ix_goods_receipts_tenant_id_branch_id_purchase_order_id");
+
+                    b.HasIndex("TenantId", "BranchId", "WarehouseId")
+                        .HasDatabaseName("ix_goods_receipts_tenant_id_branch_id_warehouse_id");
 
                     b.ToTable("goods_receipts", "purchasing", t =>
                         {
@@ -4107,6 +5143,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .ValueGeneratedOnAdd()
@@ -4162,22 +5202,25 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_goods_receipt_lines_tenant_id_id");
 
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_goods_receipt_lines_tenant_id_branch_id_id");
+
                     b.HasIndex("StockMovementId")
                         .IsUnique()
                         .HasDatabaseName("ux_goods_receipt_lines_stock_movement_id")
                         .HasFilter("stock_movement_id IS NOT NULL");
 
-                    b.HasIndex("TenantId", "GoodsReceiptId")
-                        .HasDatabaseName("ix_goods_receipt_lines_tenant_id_goods_receipt_id");
+                    b.HasIndex("TenantId", "BranchId", "GoodsReceiptId")
+                        .HasDatabaseName("ix_goods_receipt_lines_tenant_id_branch_id_goods_receipt_id");
 
-                    b.HasIndex("TenantId", "PurchaseOrderLineId")
-                        .HasDatabaseName("ix_goods_receipt_lines_tenant_id_purchase_order_line_id");
+                    b.HasIndex("TenantId", "BranchId", "PurchaseOrderLineId")
+                        .HasDatabaseName("ix_goods_receipt_lines_tenant_id_branch_id_purchase_or_92e74ade");
 
-                    b.HasIndex("TenantId", "StockLevelId")
-                        .HasDatabaseName("ix_goods_receipt_lines_tenant_id_stock_level_id");
+                    b.HasIndex("TenantId", "BranchId", "StockLevelId")
+                        .HasDatabaseName("ix_goods_receipt_lines_tenant_id_branch_id_stock_level_id");
 
-                    b.HasIndex("TenantId", "StockMovementId")
-                        .HasDatabaseName("ix_goods_receipt_lines_tenant_id_stock_movement_id");
+                    b.HasIndex("TenantId", "BranchId", "StockMovementId")
+                        .HasDatabaseName("ix_goods_receipt_lines_tenant_id_branch_id_stock_movement_id");
 
                     b.ToTable("goods_receipt_lines", "purchasing", t =>
                         {
@@ -4192,6 +5235,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .ValueGeneratedOnAdd()
@@ -4264,6 +5311,9 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_purchase_orders_tenant_id_id");
 
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_purchase_orders_tenant_id_branch_id_id");
+
                     b.HasIndex("TenantId", "CurrencyId")
                         .HasDatabaseName("ix_purchase_orders_tenant_id_currency_id");
 
@@ -4274,8 +5324,8 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "SupplierId")
                         .HasDatabaseName("ix_purchase_orders_tenant_id_supplier_id");
 
-                    b.HasIndex("TenantId", "WarehouseId")
-                        .HasDatabaseName("ix_purchase_orders_tenant_id_warehouse_id");
+                    b.HasIndex("TenantId", "BranchId", "WarehouseId")
+                        .HasDatabaseName("ix_purchase_orders_tenant_id_branch_id_warehouse_id");
 
                     b.ToTable("purchase_orders", "purchasing", t =>
                         {
@@ -4288,6 +5338,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .ValueGeneratedOnAdd()
@@ -4339,8 +5393,8 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_purchase_order_lines_tenant_id_id");
 
-                    b.HasIndex("TenantId", "PurchaseOrderId")
-                        .HasDatabaseName("ix_purchase_order_lines_tenant_id_purchase_order_id");
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_purchase_order_lines_tenant_id_branch_id_id");
 
                     b.HasIndex("TenantId", "UnitId")
                         .HasDatabaseName("ix_purchase_order_lines_tenant_id_unit_id");
@@ -4351,6 +5405,9 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasIndex("PurchaseOrderId", "VariantId", "UnitId")
                         .IsUnique()
                         .HasDatabaseName("ux_purchase_order_lines_purchase_order_id_variant_id_unit_id");
+
+                    b.HasIndex("TenantId", "BranchId", "PurchaseOrderId")
+                        .HasDatabaseName("ix_purchase_order_lines_tenant_id_branch_id_purchase_order_id");
 
                     b.ToTable("purchase_order_lines", "purchasing", t =>
                         {
@@ -4365,6 +5422,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .ValueGeneratedOnAdd()
@@ -4426,6 +5487,9 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_purchase_returns_tenant_id_id");
 
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_purchase_returns_tenant_id_branch_id_id");
+
                     b.HasIndex("TenantId", "Number")
                         .IsUnique()
                         .HasDatabaseName("ux_purchase_returns_tenant_id_number");
@@ -4441,6 +5505,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .ValueGeneratedOnAdd()
@@ -4491,17 +5559,20 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_purchase_return_lines_tenant_id_id");
 
-                    b.HasIndex("TenantId", "GoodsReceiptLineId")
-                        .HasDatabaseName("ix_purchase_return_lines_tenant_id_goods_receipt_line_id");
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_purchase_return_lines_tenant_id_branch_id_id");
 
-                    b.HasIndex("TenantId", "PurchaseReturnId")
-                        .HasDatabaseName("ix_purchase_return_lines_tenant_id_purchase_return_id");
+                    b.HasIndex("TenantId", "BranchId", "GoodsReceiptLineId")
+                        .HasDatabaseName("ix_purchase_return_lines_tenant_id_branch_id_goods_rec_5503cf33");
 
-                    b.HasIndex("TenantId", "StockLevelId")
-                        .HasDatabaseName("ix_purchase_return_lines_tenant_id_stock_level_id");
+                    b.HasIndex("TenantId", "BranchId", "PurchaseReturnId")
+                        .HasDatabaseName("ix_purchase_return_lines_tenant_id_branch_id_purchase_return_id");
 
-                    b.HasIndex("TenantId", "StockMovementId")
-                        .HasDatabaseName("ix_purchase_return_lines_tenant_id_stock_movement_id");
+                    b.HasIndex("TenantId", "BranchId", "StockLevelId")
+                        .HasDatabaseName("ix_purchase_return_lines_tenant_id_branch_id_stock_level_id");
+
+                    b.HasIndex("TenantId", "BranchId", "StockMovementId")
+                        .HasDatabaseName("ix_purchase_return_lines_tenant_id_branch_id_stock_movement_id");
 
                     b.ToTable("purchase_return_lines", "purchasing", t =>
                         {
@@ -4707,6 +5778,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -4769,6 +5844,9 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_supplier_invoices_tenant_id_id");
 
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_supplier_invoices_tenant_id_branch_id_id");
+
                     b.HasIndex("SupplierId", "Number")
                         .IsUnique()
                         .HasDatabaseName("ux_supplier_invoices_supplier_id_number");
@@ -4790,6 +5868,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .ValueGeneratedOnAdd()
@@ -4846,14 +5928,17 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_supplier_invoice_lines_tenant_id_id");
 
-                    b.HasIndex("TenantId", "GoodsReceiptLineId")
-                        .HasDatabaseName("ix_supplier_invoice_lines_tenant_id_goods_receipt_line_id");
-
-                    b.HasIndex("TenantId", "SupplierInvoiceId")
-                        .HasDatabaseName("ix_supplier_invoice_lines_tenant_id_supplier_invoice_id");
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_supplier_invoice_lines_tenant_id_branch_id_id");
 
                     b.HasIndex("TenantId", "TaxRateId")
                         .HasDatabaseName("ix_supplier_invoice_lines_tenant_id_tax_rate_id");
+
+                    b.HasIndex("TenantId", "BranchId", "GoodsReceiptLineId")
+                        .HasDatabaseName("ix_supplier_invoice_lines_tenant_id_branch_id_goods_re_33e178bb");
+
+                    b.HasIndex("TenantId", "BranchId", "SupplierInvoiceId")
+                        .HasDatabaseName("ix_supplier_invoice_lines_tenant_id_branch_id_supplier_4d17bc14");
 
                     b.ToTable("supplier_invoice_lines", "purchasing", t =>
                         {
@@ -4931,6 +6016,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasColumnType("numeric(19,4)")
                         .HasColumnName("amount");
 
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -4975,11 +6064,14 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_cash_movements_tenant_id_id");
 
-                    b.HasIndex("TenantId", "PosSessionId")
-                        .HasDatabaseName("ix_cash_movements_tenant_id_pos_session_id");
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_cash_movements_tenant_id_branch_id_id");
 
                     b.HasIndex("TenantId", "RecordedByUserId")
                         .HasDatabaseName("ix_cash_movements_tenant_id_recorded_by_user_id");
+
+                    b.HasIndex("TenantId", "BranchId", "PosSessionId")
+                        .HasDatabaseName("ix_cash_movements_tenant_id_branch_id_pos_session_id");
 
                     b.ToTable("cash_movements", "sales", t =>
                         {
@@ -5301,11 +6393,97 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.ToTable("customer_categories", "sales");
                 });
 
+            modelBuilder.Entity("MINV.Domain.Sales.ExternalOrder", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
+
+                    b.Property<string>("Channel")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("channel");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("ExternalId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("external_id");
+
+                    b.Property<string>("InvoiceNumber")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("invoice_number");
+
+                    b.Property<DateTimeOffset>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("received_at");
+
+                    b.Property<string>("RequestHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("request_hash");
+
+                    b.Property<Guid>("SalesOrderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("sales_order_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_external_orders");
+
+                    b.HasAlternateKey("TenantId", "Id")
+                        .HasName("ak_external_orders_tenant_id_id");
+
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_external_orders_tenant_id_branch_id_id");
+
+                    b.HasIndex("SalesOrderId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_external_orders_sales_order_id");
+
+                    b.HasIndex("TenantId", "BranchId", "SalesOrderId")
+                        .HasDatabaseName("ix_external_orders_tenant_id_branch_id_sales_order_id");
+
+                    b.HasIndex("TenantId", "Channel", "ExternalId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_external_orders_tenant_id_channel_external_id");
+
+                    b.ToTable("external_orders", "sales", t =>
+                        {
+                            t.HasCheckConstraint("ck_external_orders_hash", "request_hash ~ '^[0-9a-f]{64}$'");
+                        });
+                });
+
             modelBuilder.Entity("MINV.Domain.Sales.Invoice", b =>
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .ValueGeneratedOnAdd()
@@ -5375,6 +6553,9 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_invoices_tenant_id_id");
 
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_invoices_tenant_id_branch_id_id");
+
                     b.HasIndex("SalesOrderId")
                         .IsUnique()
                         .HasDatabaseName("ux_invoices_sales_order_id");
@@ -5383,8 +6564,8 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .IsUnique()
                         .HasDatabaseName("ux_invoices_tenant_id_number");
 
-                    b.HasIndex("TenantId", "SalesOrderId")
-                        .HasDatabaseName("ix_invoices_tenant_id_sales_order_id");
+                    b.HasIndex("TenantId", "BranchId", "SalesOrderId")
+                        .HasDatabaseName("ix_invoices_tenant_id_branch_id_sales_order_id");
 
                     b.ToTable("invoices", "sales", t =>
                         {
@@ -5399,6 +6580,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .ValueGeneratedOnAdd()
@@ -5445,18 +6630,21 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_invoice_lines_tenant_id_id");
 
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_invoice_lines_tenant_id_branch_id_id");
+
                     b.HasIndex("SalesOrderLineId")
                         .IsUnique()
                         .HasDatabaseName("ux_invoice_lines_sales_order_line_id");
 
-                    b.HasIndex("TenantId", "InvoiceId")
-                        .HasDatabaseName("ix_invoice_lines_tenant_id_invoice_id");
-
-                    b.HasIndex("TenantId", "SalesOrderLineId")
-                        .HasDatabaseName("ix_invoice_lines_tenant_id_sales_order_line_id");
-
                     b.HasIndex("TenantId", "TaxRateId")
                         .HasDatabaseName("ix_invoice_lines_tenant_id_tax_rate_id");
+
+                    b.HasIndex("TenantId", "BranchId", "InvoiceId")
+                        .HasDatabaseName("ix_invoice_lines_tenant_id_branch_id_invoice_id");
+
+                    b.HasIndex("TenantId", "BranchId", "SalesOrderLineId")
+                        .HasDatabaseName("ix_invoice_lines_tenant_id_branch_id_sales_order_line_id");
 
                     b.ToTable("invoice_lines", "sales", t =>
                         {
@@ -5474,6 +6662,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasPrecision(19, 4)
                         .HasColumnType("numeric(19,4)")
                         .HasColumnName("amount");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .ValueGeneratedOnAdd()
@@ -5520,17 +6712,20 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_payments_tenant_id_id");
 
-                    b.HasIndex("TenantId", "InvoiceId")
-                        .HasDatabaseName("ix_payments_tenant_id_invoice_id");
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_payments_tenant_id_branch_id_id");
 
                     b.HasIndex("TenantId", "PaymentMethodId")
                         .HasDatabaseName("ix_payments_tenant_id_payment_method_id");
 
-                    b.HasIndex("TenantId", "PosSessionId")
-                        .HasDatabaseName("ix_payments_tenant_id_pos_session_id");
-
                     b.HasIndex("TenantId", "RecordedByUserId")
                         .HasDatabaseName("ix_payments_tenant_id_recorded_by_user_id");
+
+                    b.HasIndex("TenantId", "BranchId", "InvoiceId")
+                        .HasDatabaseName("ix_payments_tenant_id_branch_id_invoice_id");
+
+                    b.HasIndex("TenantId", "BranchId", "PosSessionId")
+                        .HasDatabaseName("ix_payments_tenant_id_branch_id_pos_session_id");
 
                     b.ToTable("payments", "sales", t =>
                         {
@@ -5609,6 +6804,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
+
                     b.Property<string>("Code")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -5661,6 +6860,9 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_pos_registers_tenant_id_id");
 
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_pos_registers_tenant_id_branch_id_id");
+
                     b.HasIndex("HardwareTokenId")
                         .IsUnique()
                         .HasDatabaseName("ux_pos_registers_hardware_token_id")
@@ -5673,8 +6875,8 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "HardwareTokenId")
                         .HasDatabaseName("ix_pos_registers_tenant_id_hardware_token_id");
 
-                    b.HasIndex("TenantId", "WarehouseId")
-                        .HasDatabaseName("ix_pos_registers_tenant_id_warehouse_id");
+                    b.HasIndex("TenantId", "BranchId", "WarehouseId")
+                        .HasDatabaseName("ix_pos_registers_tenant_id_branch_id_warehouse_id");
 
                     b.ToTable("pos_registers", "sales");
                 });
@@ -5684,6 +6886,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
 
                     b.Property<DateTimeOffset?>("ClosedAt")
                         .HasColumnType("timestamp with time zone")
@@ -5755,6 +6961,9 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_pos_sessions_tenant_id_id");
 
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_pos_sessions_tenant_id_branch_id_id");
+
                     b.HasIndex("PosRegisterId")
                         .IsUnique()
                         .HasDatabaseName("ux_pos_sessions_pos_register_id")
@@ -5766,8 +6975,8 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "OpenedByUserId")
                         .HasDatabaseName("ix_pos_sessions_tenant_id_opened_by_user_id");
 
-                    b.HasIndex("TenantId", "PosRegisterId")
-                        .HasDatabaseName("ix_pos_sessions_tenant_id_pos_register_id");
+                    b.HasIndex("TenantId", "BranchId", "PosRegisterId")
+                        .HasDatabaseName("ix_pos_sessions_tenant_id_branch_id_pos_register_id");
 
                     b.ToTable("pos_sessions", "sales", t =>
                         {
@@ -5965,6 +7174,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -6031,6 +7244,9 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_sales_orders_tenant_id_id");
 
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_sales_orders_tenant_id_branch_id_id");
+
                     b.HasIndex("TenantId", "CustomerId")
                         .HasDatabaseName("ix_sales_orders_tenant_id_customer_id");
 
@@ -6038,14 +7254,14 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .IsUnique()
                         .HasDatabaseName("ux_sales_orders_tenant_id_number");
 
-                    b.HasIndex("TenantId", "PosSessionId")
-                        .HasDatabaseName("ix_sales_orders_tenant_id_pos_session_id");
-
                     b.HasIndex("TenantId", "PriceListId")
                         .HasDatabaseName("ix_sales_orders_tenant_id_price_list_id");
 
-                    b.HasIndex("TenantId", "WarehouseId")
-                        .HasDatabaseName("ix_sales_orders_tenant_id_warehouse_id");
+                    b.HasIndex("TenantId", "BranchId", "PosSessionId")
+                        .HasDatabaseName("ix_sales_orders_tenant_id_branch_id_pos_session_id");
+
+                    b.HasIndex("TenantId", "BranchId", "WarehouseId")
+                        .HasDatabaseName("ix_sales_orders_tenant_id_branch_id_warehouse_id");
 
                     b.ToTable("sales_orders", "sales", t =>
                         {
@@ -6058,6 +7274,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .ValueGeneratedOnAdd()
@@ -6118,22 +7338,25 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_sales_order_lines_tenant_id_id");
 
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_sales_order_lines_tenant_id_branch_id_id");
+
                     b.HasIndex("StockMovementId")
                         .IsUnique()
                         .HasDatabaseName("ux_sales_order_lines_stock_movement_id")
                         .HasFilter("stock_movement_id IS NOT NULL");
-
-                    b.HasIndex("TenantId", "SalesOrderId")
-                        .HasDatabaseName("ix_sales_order_lines_tenant_id_sales_order_id");
-
-                    b.HasIndex("TenantId", "StockMovementId")
-                        .HasDatabaseName("ix_sales_order_lines_tenant_id_stock_movement_id");
 
                     b.HasIndex("TenantId", "UnitId")
                         .HasDatabaseName("ix_sales_order_lines_tenant_id_unit_id");
 
                     b.HasIndex("TenantId", "VariantId")
                         .HasDatabaseName("ix_sales_order_lines_tenant_id_variant_id");
+
+                    b.HasIndex("TenantId", "BranchId", "SalesOrderId")
+                        .HasDatabaseName("ix_sales_order_lines_tenant_id_branch_id_sales_order_id");
+
+                    b.HasIndex("TenantId", "BranchId", "StockMovementId")
+                        .HasDatabaseName("ix_sales_order_lines_tenant_id_branch_id_stock_movement_id");
 
                     b.ToTable("sales_order_lines", "sales", t =>
                         {
@@ -6211,6 +7434,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
+
                     b.Property<string>("Code")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -6249,12 +7476,15 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_aisles_tenant_id_id");
 
-                    b.HasIndex("TenantId", "ZoneId")
-                        .HasDatabaseName("ix_aisles_tenant_id_zone_id");
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_aisles_tenant_id_branch_id_id");
 
                     b.HasIndex("ZoneId", "Code")
                         .IsUnique()
                         .HasDatabaseName("ux_aisles_zone_id_code");
+
+                    b.HasIndex("TenantId", "BranchId", "ZoneId")
+                        .HasDatabaseName("ix_aisles_tenant_id_branch_id_zone_id");
 
                     b.ToTable("aisles", "warehouse");
                 });
@@ -6264,6 +7494,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
 
                     b.Property<string>("Code")
                         .IsRequired()
@@ -6315,6 +7549,9 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_bins_tenant_id_id");
 
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_bins_tenant_id_branch_id_id");
+
                     b.HasIndex("TenantId", "Code")
                         .IsUnique()
                         .HasDatabaseName("ux_bins_tenant_id_code");
@@ -6322,8 +7559,8 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "LocationTypeId")
                         .HasDatabaseName("ix_bins_tenant_id_location_type_id");
 
-                    b.HasIndex("TenantId", "ShelfId")
-                        .HasDatabaseName("ix_bins_tenant_id_shelf_id");
+                    b.HasIndex("TenantId", "BranchId", "ShelfId")
+                        .HasDatabaseName("ix_bins_tenant_id_branch_id_shelf_id");
 
                     b.ToTable("bins", "warehouse", t =>
                         {
@@ -6340,6 +7577,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("VariantId")
                         .HasColumnType("uuid")
                         .HasColumnName("variant_id");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .ValueGeneratedOnAdd()
@@ -6370,11 +7611,11 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasKey("BinId", "VariantId")
                         .HasName("pk_bin_assignments");
 
-                    b.HasIndex("TenantId", "BinId")
-                        .HasDatabaseName("ix_bin_assignments_tenant_id_bin_id");
-
                     b.HasIndex("TenantId", "VariantId")
                         .HasDatabaseName("ix_bin_assignments_tenant_id_variant_id");
+
+                    b.HasIndex("TenantId", "BranchId", "BinId")
+                        .HasDatabaseName("ix_bin_assignments_tenant_id_branch_id_bin_id");
 
                     b.ToTable("bin_assignments", "warehouse");
                 });
@@ -6562,6 +7803,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("aisle_id");
 
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
+
                     b.Property<string>("Code")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -6596,12 +7841,15 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_racks_tenant_id_id");
 
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_racks_tenant_id_branch_id_id");
+
                     b.HasIndex("AisleId", "Code")
                         .IsUnique()
                         .HasDatabaseName("ux_racks_aisle_id_code");
 
-                    b.HasIndex("TenantId", "AisleId")
-                        .HasDatabaseName("ix_racks_tenant_id_aisle_id");
+                    b.HasIndex("TenantId", "BranchId", "AisleId")
+                        .HasDatabaseName("ix_racks_tenant_id_branch_id_aisle_id");
 
                     b.ToTable("racks", "warehouse");
                 });
@@ -6611,6 +7859,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
 
                     b.Property<string>("Code")
                         .IsRequired()
@@ -6650,12 +7902,15 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_shelves_tenant_id_id");
 
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_shelves_tenant_id_branch_id_id");
+
                     b.HasIndex("RackId", "Code")
                         .IsUnique()
                         .HasDatabaseName("ux_shelves_rack_id_code");
 
-                    b.HasIndex("TenantId", "RackId")
-                        .HasDatabaseName("ix_shelves_tenant_id_rack_id");
+                    b.HasIndex("TenantId", "BranchId", "RackId")
+                        .HasDatabaseName("ix_shelves_tenant_id_branch_id_rack_id");
 
                     b.ToTable("shelves", "warehouse");
                 });
@@ -6714,8 +7969,8 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_warehouses_tenant_id_id");
 
-                    b.HasIndex("TenantId", "BranchId")
-                        .HasDatabaseName("ix_warehouses_tenant_id_branch_id");
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_warehouses_tenant_id_branch_id_id");
 
                     b.HasIndex("TenantId", "Code")
                         .IsUnique()
@@ -6729,6 +7984,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
 
                     b.Property<string>("Code")
                         .IsRequired()
@@ -6778,15 +8037,18 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_zones_tenant_id_id");
 
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_zones_tenant_id_branch_id_id");
+
                     b.HasIndex("TenantId", "LocationTypeId")
                         .HasDatabaseName("ix_zones_tenant_id_location_type_id");
-
-                    b.HasIndex("TenantId", "WarehouseId")
-                        .HasDatabaseName("ix_zones_tenant_id_warehouse_id");
 
                     b.HasIndex("WarehouseId", "Code")
                         .IsUnique()
                         .HasDatabaseName("ux_zones_warehouse_id_code");
+
+                    b.HasIndex("TenantId", "BranchId", "WarehouseId")
+                        .HasDatabaseName("ix_zones_tenant_id_branch_id_warehouse_id");
 
                     b.ToTable("zones", "warehouse");
                 });
@@ -6817,13 +8079,6 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_average_cost_history_tenant_id");
 
-                    b.HasOne("MINV.Domain.Inventory.StockMovement", null)
-                        .WithMany()
-                        .HasForeignKey("TenantId", "StockMovementId")
-                        .HasPrincipalKey("TenantId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("fk_average_cost_history_tenant_id_stock_movement_id");
-
                     b.HasOne("MINV.Domain.Catalog.ProductVariant", null)
                         .WithMany()
                         .HasForeignKey("TenantId", "VariantId")
@@ -6832,13 +8087,20 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_average_cost_history_tenant_id_variant_id");
 
+                    b.HasOne("MINV.Domain.Inventory.StockMovement", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BranchId", "StockMovementId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_average_cost_history_tenant_id_branch_id_stock_movement_id");
+
                     b.HasOne("MINV.Domain.Warehousing.Warehouse", null)
                         .WithMany()
-                        .HasForeignKey("TenantId", "WarehouseId")
-                        .HasPrincipalKey("TenantId", "Id")
+                        .HasForeignKey("TenantId", "BranchId", "WarehouseId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
-                        .HasConstraintName("fk_average_cost_history_tenant_id_warehouse_id");
+                        .HasConstraintName("fk_average_cost_history_tenant_id_branch_id_warehouse_id");
                 });
 
             modelBuilder.Entity("MINV.Domain.Accounting.CostCenter", b =>
@@ -6913,6 +8175,14 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_journal_entries_tenant_id");
 
+                    b.HasOne("MINV.Domain.Warehousing.Branch", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BranchId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_journal_entries_tenant_id_branch_id");
+
                     b.HasOne("MINV.Domain.Accounting.Currency", null)
                         .WithMany()
                         .HasForeignKey("TenantId", "CurrencyId")
@@ -6963,11 +8233,11 @@ namespace MINV.Infrastructure.Persistence.Migrations
 
                     b.HasOne("MINV.Domain.Accounting.JournalEntry", null)
                         .WithMany("Lines")
-                        .HasForeignKey("TenantId", "JournalEntryId")
-                        .HasPrincipalKey("TenantId", "Id")
+                        .HasForeignKey("TenantId", "BranchId", "JournalEntryId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
-                        .HasConstraintName("fk_journal_lines_tenant_id_journal_entry_id");
+                        .HasConstraintName("fk_journal_lines_tenant_id_branch_id_journal_entry_id");
                 });
 
             modelBuilder.Entity("MINV.Domain.Accounting.TaxRate", b =>
@@ -7225,11 +8495,11 @@ namespace MINV.Infrastructure.Persistence.Migrations
 
                     b.HasOne("MINV.Domain.Warehousing.Warehouse", null)
                         .WithMany()
-                        .HasForeignKey("TenantId", "WarehouseId")
-                        .HasPrincipalKey("TenantId", "Id")
+                        .HasForeignKey("TenantId", "BranchId", "WarehouseId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
-                        .HasConstraintName("fk_product_stock_policies_tenant_id_warehouse_id");
+                        .HasConstraintName("fk_product_stock_policies_tenant_id_branch_id_warehouse_id");
                 });
 
             modelBuilder.Entity("MINV.Domain.Catalog.ProductSupplier", b =>
@@ -7433,6 +8703,20 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_audit_logs_tenant_id");
 
+                    b.HasOne("MINV.Domain.Integration.ApiKey", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ApiKeyId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_audit_logs_tenant_id_api_key_id");
+
+                    b.HasOne("MINV.Domain.Warehousing.Branch", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BranchId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_audit_logs_tenant_id_branch_id");
+
                     b.HasOne("MINV.Domain.Iam.User", null)
                         .WithMany()
                         .HasForeignKey("TenantId", "UserId")
@@ -7466,6 +8750,24 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_permissions_tenant_id");
+                });
+
+            modelBuilder.Entity("MINV.Domain.Iam.ProcessedRequest", b =>
+                {
+                    b.HasOne("MINV.Domain.Iam.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_processed_requests_tenant_id");
+
+                    b.HasOne("MINV.Domain.Iam.User", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "UserId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_processed_requests_tenant_id_user_id");
                 });
 
             modelBuilder.Entity("MINV.Domain.Iam.Role", b =>
@@ -7512,6 +8814,13 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_sessions_tenant_id");
+
+                    b.HasOne("MINV.Domain.Warehousing.Branch", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ActiveBranchId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_sessions_tenant_id_active_branch_id");
 
                     b.HasOne("MINV.Domain.Iam.HardwareToken", null)
                         .WithMany()
@@ -7625,6 +8934,160 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_user_roles_tenant_id_user_id");
                 });
 
+            modelBuilder.Entity("MINV.Domain.Integration.ApiKey", b =>
+                {
+                    b.HasOne("MINV.Domain.Iam.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_api_keys_tenant_id");
+
+                    b.HasOne("MINV.Domain.Warehousing.Branch", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BranchId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_api_keys_tenant_id_branch_id");
+
+                    b.HasOne("MINV.Domain.Iam.User", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "OwnerUserId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_api_keys_tenant_id_owner_user_id");
+                });
+
+            modelBuilder.Entity("MINV.Domain.Integration.ApiKeyScope", b =>
+                {
+                    b.HasOne("MINV.Domain.Iam.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_api_key_scopes_tenant_id");
+
+                    b.HasOne("MINV.Domain.Integration.ApiKey", null)
+                        .WithMany("Scopes")
+                        .HasForeignKey("TenantId", "ApiKeyId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_api_key_scopes_tenant_id_api_key_id");
+                });
+
+            modelBuilder.Entity("MINV.Domain.Integration.OutboxDispatch", b =>
+                {
+                    b.HasOne("MINV.Domain.Iam.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_outbox_dispatch_tenant_id");
+
+                    b.HasOne("MINV.Domain.Integration.OutboxEvent", null)
+                        .WithOne()
+                        .HasForeignKey("MINV.Domain.Integration.OutboxDispatch", "TenantId", "OutboxEventId")
+                        .HasPrincipalKey("MINV.Domain.Integration.OutboxEvent", "TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_outbox_dispatch_tenant_id_outbox_event_id");
+                });
+
+            modelBuilder.Entity("MINV.Domain.Integration.OutboxEvent", b =>
+                {
+                    b.HasOne("MINV.Domain.Iam.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_outbox_events_tenant_id");
+
+                    b.HasOne("MINV.Domain.Warehousing.Branch", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BranchId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_outbox_events_tenant_id_branch_id");
+                });
+
+            modelBuilder.Entity("MINV.Domain.Integration.WebhookDelivery", b =>
+                {
+                    b.HasOne("MINV.Domain.Iam.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_webhook_deliveries_tenant_id");
+
+                    b.HasOne("MINV.Domain.Integration.WebhookEndpoint", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "EndpointId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_webhook_deliveries_tenant_id_endpoint_id");
+
+                    b.HasOne("MINV.Domain.Integration.OutboxEvent", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "OutboxEventId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_webhook_deliveries_tenant_id_outbox_event_id");
+                });
+
+            modelBuilder.Entity("MINV.Domain.Integration.WebhookEndpoint", b =>
+                {
+                    b.HasOne("MINV.Domain.Iam.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_webhook_endpoints_tenant_id");
+
+                    b.HasOne("MINV.Domain.Integration.ApiKey", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ApiKeyId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_webhook_endpoints_tenant_id_api_key_id");
+
+                    b.HasOne("MINV.Domain.Warehousing.Branch", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BranchId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_webhook_endpoints_tenant_id_branch_id");
+
+                    b.HasOne("MINV.Domain.Iam.User", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "CreatedByUserId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_webhook_endpoints_tenant_id_created_by_user_id");
+                });
+
+            modelBuilder.Entity("MINV.Domain.Integration.WebhookEndpointEvent", b =>
+                {
+                    b.HasOne("MINV.Domain.Iam.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_webhook_endpoint_events_tenant_id");
+
+                    b.HasOne("MINV.Domain.Integration.WebhookEndpoint", null)
+                        .WithMany("Events")
+                        .HasForeignKey("TenantId", "EndpointId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_webhook_endpoint_events_tenant_id_endpoint_id");
+                });
+
             modelBuilder.Entity("MINV.Domain.Inventory.AdjustmentReason", b =>
                 {
                     b.HasOne("MINV.Domain.Iam.Tenant", null)
@@ -7681,11 +9144,11 @@ namespace MINV.Infrastructure.Persistence.Migrations
 
                     b.HasOne("MINV.Domain.Warehousing.Warehouse", null)
                         .WithMany()
-                        .HasForeignKey("TenantId", "WarehouseId")
-                        .HasPrincipalKey("TenantId", "Id")
+                        .HasForeignKey("TenantId", "BranchId", "WarehouseId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
-                        .HasConstraintName("fk_physical_counts_tenant_id_warehouse_id");
+                        .HasConstraintName("fk_physical_counts_tenant_id_branch_id_warehouse_id");
                 });
 
             modelBuilder.Entity("MINV.Domain.Inventory.PhysicalCountLine", b =>
@@ -7707,26 +9170,26 @@ namespace MINV.Infrastructure.Persistence.Migrations
 
                     b.HasOne("MINV.Domain.Inventory.PhysicalCount", null)
                         .WithMany("Lines")
-                        .HasForeignKey("TenantId", "PhysicalCountId")
-                        .HasPrincipalKey("TenantId", "Id")
+                        .HasForeignKey("TenantId", "BranchId", "PhysicalCountId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
-                        .HasConstraintName("fk_physical_count_lines_tenant_id_physical_count_id");
+                        .HasConstraintName("fk_physical_count_lines_tenant_id_branch_id_physical_count_id");
 
                     b.HasOne("MINV.Domain.Inventory.StockLevel", null)
                         .WithMany()
-                        .HasForeignKey("TenantId", "StockLevelId")
-                        .HasPrincipalKey("TenantId", "Id")
+                        .HasForeignKey("TenantId", "BranchId", "StockLevelId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
-                        .HasConstraintName("fk_physical_count_lines_tenant_id_stock_level_id");
+                        .HasConstraintName("fk_physical_count_lines_tenant_id_branch_id_stock_level_id");
 
                     b.HasOne("MINV.Domain.Inventory.StockMovement", null)
                         .WithMany()
-                        .HasForeignKey("TenantId", "StockMovementId")
-                        .HasPrincipalKey("TenantId", "Id")
+                        .HasForeignKey("TenantId", "BranchId", "StockMovementId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("fk_physical_count_lines_tenant_id_stock_movement_id");
+                        .HasConstraintName("fk_physical_count_lines_tenant_id_branch_id_stock_movement_id");
                 });
 
             modelBuilder.Entity("MINV.Domain.Inventory.SerialNumber", b =>
@@ -7780,11 +9243,11 @@ namespace MINV.Infrastructure.Persistence.Migrations
 
                     b.HasOne("MINV.Domain.Warehousing.Warehouse", null)
                         .WithMany()
-                        .HasForeignKey("TenantId", "WarehouseId")
-                        .HasPrincipalKey("TenantId", "Id")
+                        .HasForeignKey("TenantId", "BranchId", "WarehouseId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
-                        .HasConstraintName("fk_stock_adjustments_tenant_id_warehouse_id");
+                        .HasConstraintName("fk_stock_adjustments_tenant_id_branch_id_warehouse_id");
                 });
 
             modelBuilder.Entity("MINV.Domain.Inventory.StockAdjustmentLine", b =>
@@ -7806,26 +9269,26 @@ namespace MINV.Infrastructure.Persistence.Migrations
 
                     b.HasOne("MINV.Domain.Inventory.StockAdjustment", null)
                         .WithMany("Lines")
-                        .HasForeignKey("TenantId", "StockAdjustmentId")
-                        .HasPrincipalKey("TenantId", "Id")
+                        .HasForeignKey("TenantId", "BranchId", "StockAdjustmentId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
-                        .HasConstraintName("fk_stock_adjustment_lines_tenant_id_stock_adjustment_id");
+                        .HasConstraintName("fk_stock_adjustment_lines_tenant_id_branch_id_stock_ad_202e465f");
 
                     b.HasOne("MINV.Domain.Inventory.StockLevel", null)
                         .WithMany()
-                        .HasForeignKey("TenantId", "StockLevelId")
-                        .HasPrincipalKey("TenantId", "Id")
+                        .HasForeignKey("TenantId", "BranchId", "StockLevelId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
-                        .HasConstraintName("fk_stock_adjustment_lines_tenant_id_stock_level_id");
+                        .HasConstraintName("fk_stock_adjustment_lines_tenant_id_branch_id_stock_level_id");
 
                     b.HasOne("MINV.Domain.Inventory.StockMovement", null)
                         .WithMany()
-                        .HasForeignKey("TenantId", "StockMovementId")
-                        .HasPrincipalKey("TenantId", "Id")
+                        .HasForeignKey("TenantId", "BranchId", "StockMovementId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("fk_stock_adjustment_lines_tenant_id_stock_movement_id");
+                        .HasConstraintName("fk_stock_adjustment_lines_tenant_id_branch_id_stock_movement_id");
                 });
 
             modelBuilder.Entity("MINV.Domain.Inventory.StockLevel", b =>
@@ -7847,11 +9310,11 @@ namespace MINV.Infrastructure.Persistence.Migrations
 
                     b.HasOne("MINV.Domain.Warehousing.Bin", null)
                         .WithMany()
-                        .HasForeignKey("TenantId", "BinId")
-                        .HasPrincipalKey("TenantId", "Id")
+                        .HasForeignKey("TenantId", "BranchId", "BinId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
-                        .HasConstraintName("fk_stock_levels_tenant_id_bin_id");
+                        .HasConstraintName("fk_stock_levels_tenant_id_branch_id_bin_id");
                 });
 
             modelBuilder.Entity("MINV.Domain.Inventory.StockMovement", b =>
@@ -7888,11 +9351,11 @@ namespace MINV.Infrastructure.Persistence.Migrations
 
                     b.HasOne("MINV.Domain.Inventory.StockLevel", null)
                         .WithMany()
-                        .HasForeignKey("TenantId", "StockLevelId")
-                        .HasPrincipalKey("TenantId", "Id")
+                        .HasForeignKey("TenantId", "BranchId", "StockLevelId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
-                        .HasConstraintName("fk_stock_movements_tenant_id_stock_level_id");
+                        .HasConstraintName("fk_stock_movements_tenant_id_branch_id_stock_level_id");
                 });
 
             modelBuilder.Entity("MINV.Domain.Inventory.StockReservation", b =>
@@ -7906,25 +9369,25 @@ namespace MINV.Infrastructure.Persistence.Migrations
 
                     b.HasOne("MINV.Domain.Sales.PosSession", null)
                         .WithMany()
-                        .HasForeignKey("TenantId", "PosSessionId")
-                        .HasPrincipalKey("TenantId", "Id")
+                        .HasForeignKey("TenantId", "BranchId", "PosSessionId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("fk_stock_reservations_tenant_id_pos_session_id");
+                        .HasConstraintName("fk_stock_reservations_tenant_id_branch_id_pos_session_id");
 
                     b.HasOne("MINV.Domain.Sales.SalesOrderLine", null)
                         .WithMany()
-                        .HasForeignKey("TenantId", "SalesOrderLineId")
-                        .HasPrincipalKey("TenantId", "Id")
+                        .HasForeignKey("TenantId", "BranchId", "SalesOrderLineId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("fk_stock_reservations_tenant_id_sales_order_line_id");
+                        .HasConstraintName("fk_stock_reservations_tenant_id_branch_id_sales_order_line_id");
 
                     b.HasOne("MINV.Domain.Inventory.StockLevel", null)
                         .WithMany()
-                        .HasForeignKey("TenantId", "StockLevelId")
-                        .HasPrincipalKey("TenantId", "Id")
+                        .HasForeignKey("TenantId", "BranchId", "StockLevelId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
-                        .HasConstraintName("fk_stock_reservations_tenant_id_stock_level_id");
+                        .HasConstraintName("fk_stock_reservations_tenant_id_branch_id_stock_level_id");
                 });
 
             modelBuilder.Entity("MINV.Domain.Inventory.StockStatus", b =>
@@ -7946,21 +9409,81 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_stock_transfers_tenant_id");
 
-                    b.HasOne("MINV.Domain.Warehousing.Warehouse", null)
+                    b.HasOne("MINV.Domain.Iam.User", null)
                         .WithMany()
-                        .HasForeignKey("TenantId", "FromWarehouseId")
+                        .HasForeignKey("TenantId", "RequestedByUserId")
                         .HasPrincipalKey("TenantId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
-                        .HasConstraintName("fk_stock_transfers_tenant_id_from_warehouse_id");
+                        .HasConstraintName("fk_stock_transfers_tenant_id_requested_by_user_id");
 
                     b.HasOne("MINV.Domain.Warehousing.Warehouse", null)
                         .WithMany()
-                        .HasForeignKey("TenantId", "ToWarehouseId")
+                        .HasForeignKey("TenantId", "FromBranchId", "FromWarehouseId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_stock_transfers_tenant_id_from_branch_id_from_warehouse_id");
+
+                    b.HasOne("MINV.Domain.Warehousing.Warehouse", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ToBranchId", "ToWarehouseId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_stock_transfers_tenant_id_to_branch_id_to_warehouse_id");
+                });
+
+            modelBuilder.Entity("MINV.Domain.Inventory.StockTransferDiscrepancy", b =>
+                {
+                    b.HasOne("MINV.Domain.Iam.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_stock_transfer_discrepancies_tenant_id");
+
+                    b.HasOne("MINV.Domain.Iam.User", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "RecordedByUserId")
                         .HasPrincipalKey("TenantId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
-                        .HasConstraintName("fk_stock_transfers_tenant_id_to_warehouse_id");
+                        .HasConstraintName("fk_stock_transfer_discrepancies_tenant_id_recorded_by_user_id");
+
+                    b.HasOne("MINV.Domain.Inventory.StockTransferLine", null)
+                        .WithMany("Discrepancies")
+                        .HasForeignKey("TenantId", "FromBranchId", "ToBranchId", "TransferLineId")
+                        .HasPrincipalKey("TenantId", "FromBranchId", "ToBranchId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_stock_transfer_discrepancies_tenant_id_from_branch__1bf1d075");
+                });
+
+            modelBuilder.Entity("MINV.Domain.Inventory.StockTransferEvent", b =>
+                {
+                    b.HasOne("MINV.Domain.Iam.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_stock_transfer_events_tenant_id");
+
+                    b.HasOne("MINV.Domain.Iam.User", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "UserId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_stock_transfer_events_tenant_id_user_id");
+
+                    b.HasOne("MINV.Domain.Inventory.StockTransfer", null)
+                        .WithMany("History")
+                        .HasForeignKey("TenantId", "FromBranchId", "ToBranchId", "TransferId")
+                        .HasPrincipalKey("TenantId", "FromBranchId", "ToBranchId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_stock_transfer_events_tenant_id_from_branch_id_to_b_7078530b");
                 });
 
             modelBuilder.Entity("MINV.Domain.Inventory.StockTransferLine", b =>
@@ -7972,42 +9495,73 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_stock_transfer_lines_tenant_id");
 
-                    b.HasOne("MINV.Domain.Inventory.StockLevel", null)
+                    b.HasOne("MINV.Domain.Catalog.ProductVariant", null)
                         .WithMany()
-                        .HasForeignKey("TenantId", "DestinationStockLevelId")
-                        .HasPrincipalKey("TenantId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("fk_stock_transfer_lines_tenant_id_destination_stock_level_id");
-
-                    b.HasOne("MINV.Domain.Inventory.StockMovement", null)
-                        .WithMany()
-                        .HasForeignKey("TenantId", "InboundMovementId")
-                        .HasPrincipalKey("TenantId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("fk_stock_transfer_lines_tenant_id_inbound_movement_id");
-
-                    b.HasOne("MINV.Domain.Inventory.StockMovement", null)
-                        .WithMany()
-                        .HasForeignKey("TenantId", "OutboundMovementId")
-                        .HasPrincipalKey("TenantId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("fk_stock_transfer_lines_tenant_id_outbound_movement_id");
-
-                    b.HasOne("MINV.Domain.Inventory.StockLevel", null)
-                        .WithMany()
-                        .HasForeignKey("TenantId", "SourceStockLevelId")
+                        .HasForeignKey("TenantId", "VariantId")
                         .HasPrincipalKey("TenantId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
-                        .HasConstraintName("fk_stock_transfer_lines_tenant_id_source_stock_level_id");
+                        .HasConstraintName("fk_stock_transfer_lines_tenant_id_variant_id");
 
                     b.HasOne("MINV.Domain.Inventory.StockTransfer", null)
                         .WithMany("Lines")
-                        .HasForeignKey("TenantId", "StockTransferId")
-                        .HasPrincipalKey("TenantId", "Id")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasForeignKey("TenantId", "FromBranchId", "ToBranchId", "StockTransferId")
+                        .HasPrincipalKey("TenantId", "FromBranchId", "ToBranchId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
-                        .HasConstraintName("fk_stock_transfer_lines_tenant_id_stock_transfer_id");
+                        .HasConstraintName("fk_stock_transfer_lines_tenant_id_from_branch_id_to_br_8ab834cf");
+                });
+
+            modelBuilder.Entity("MINV.Domain.Inventory.StockTransferLineBatch", b =>
+                {
+                    b.HasOne("MINV.Domain.Iam.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_stock_transfer_line_batches_tenant_id");
+
+                    b.HasOne("MINV.Domain.Inventory.Batch", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BatchId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_stock_transfer_line_batches_tenant_id_batch_id");
+
+                    b.HasOne("MINV.Domain.Inventory.StockTransferLine", null)
+                        .WithMany("Batches")
+                        .HasForeignKey("TenantId", "FromBranchId", "ToBranchId", "TransferLineId")
+                        .HasPrincipalKey("TenantId", "FromBranchId", "ToBranchId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_stock_transfer_line_batches_tenant_id_from_branch_i_86ebd39b");
+                });
+
+            modelBuilder.Entity("MINV.Domain.Inventory.StockTransferMovement", b =>
+                {
+                    b.HasOne("MINV.Domain.Iam.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_stock_transfer_movements_tenant_id");
+
+                    b.HasOne("MINV.Domain.Inventory.StockTransferLine", null)
+                        .WithMany("Movements")
+                        .HasForeignKey("TenantId", "TransferLineId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_stock_transfer_movements_tenant_id_transfer_line_id");
+
+                    b.HasOne("MINV.Domain.Inventory.StockMovement", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BranchId", "StockMovementId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_stock_transfer_movements_tenant_id_branch_id_stock__4b2e1eb5");
                 });
 
             modelBuilder.Entity("MINV.Domain.Purchasing.GoodsReceipt", b =>
@@ -8018,13 +9572,6 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_goods_receipts_tenant_id");
-
-                    b.HasOne("MINV.Domain.Purchasing.PurchaseOrder", null)
-                        .WithMany()
-                        .HasForeignKey("TenantId", "PurchaseOrderId")
-                        .HasPrincipalKey("TenantId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("fk_goods_receipts_tenant_id_purchase_order_id");
 
                     b.HasOne("MINV.Domain.Iam.User", null)
                         .WithMany()
@@ -8041,13 +9588,20 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_goods_receipts_tenant_id_supplier_id");
 
+                    b.HasOne("MINV.Domain.Purchasing.PurchaseOrder", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BranchId", "PurchaseOrderId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_goods_receipts_tenant_id_branch_id_purchase_order_id");
+
                     b.HasOne("MINV.Domain.Warehousing.Warehouse", null)
                         .WithMany()
-                        .HasForeignKey("TenantId", "WarehouseId")
-                        .HasPrincipalKey("TenantId", "Id")
+                        .HasForeignKey("TenantId", "BranchId", "WarehouseId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
-                        .HasConstraintName("fk_goods_receipts_tenant_id_warehouse_id");
+                        .HasConstraintName("fk_goods_receipts_tenant_id_branch_id_warehouse_id");
                 });
 
             modelBuilder.Entity("MINV.Domain.Purchasing.GoodsReceiptLine", b =>
@@ -8061,33 +9615,33 @@ namespace MINV.Infrastructure.Persistence.Migrations
 
                     b.HasOne("MINV.Domain.Purchasing.GoodsReceipt", null)
                         .WithMany("Lines")
-                        .HasForeignKey("TenantId", "GoodsReceiptId")
-                        .HasPrincipalKey("TenantId", "Id")
+                        .HasForeignKey("TenantId", "BranchId", "GoodsReceiptId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
-                        .HasConstraintName("fk_goods_receipt_lines_tenant_id_goods_receipt_id");
+                        .HasConstraintName("fk_goods_receipt_lines_tenant_id_branch_id_goods_receipt_id");
 
                     b.HasOne("MINV.Domain.Purchasing.PurchaseOrderLine", null)
                         .WithMany()
-                        .HasForeignKey("TenantId", "PurchaseOrderLineId")
-                        .HasPrincipalKey("TenantId", "Id")
+                        .HasForeignKey("TenantId", "BranchId", "PurchaseOrderLineId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("fk_goods_receipt_lines_tenant_id_purchase_order_line_id");
+                        .HasConstraintName("fk_goods_receipt_lines_tenant_id_branch_id_purchase_or_a9a4baae");
 
                     b.HasOne("MINV.Domain.Inventory.StockLevel", null)
                         .WithMany()
-                        .HasForeignKey("TenantId", "StockLevelId")
-                        .HasPrincipalKey("TenantId", "Id")
+                        .HasForeignKey("TenantId", "BranchId", "StockLevelId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
-                        .HasConstraintName("fk_goods_receipt_lines_tenant_id_stock_level_id");
+                        .HasConstraintName("fk_goods_receipt_lines_tenant_id_branch_id_stock_level_id");
 
                     b.HasOne("MINV.Domain.Inventory.StockMovement", null)
                         .WithMany()
-                        .HasForeignKey("TenantId", "StockMovementId")
-                        .HasPrincipalKey("TenantId", "Id")
+                        .HasForeignKey("TenantId", "BranchId", "StockMovementId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("fk_goods_receipt_lines_tenant_id_stock_movement_id");
+                        .HasConstraintName("fk_goods_receipt_lines_tenant_id_branch_id_stock_movement_id");
                 });
 
             modelBuilder.Entity("MINV.Domain.Purchasing.PurchaseOrder", b =>
@@ -8117,11 +9671,11 @@ namespace MINV.Infrastructure.Persistence.Migrations
 
                     b.HasOne("MINV.Domain.Warehousing.Warehouse", null)
                         .WithMany()
-                        .HasForeignKey("TenantId", "WarehouseId")
-                        .HasPrincipalKey("TenantId", "Id")
+                        .HasForeignKey("TenantId", "BranchId", "WarehouseId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
-                        .HasConstraintName("fk_purchase_orders_tenant_id_warehouse_id");
+                        .HasConstraintName("fk_purchase_orders_tenant_id_branch_id_warehouse_id");
                 });
 
             modelBuilder.Entity("MINV.Domain.Purchasing.PurchaseOrderLine", b =>
@@ -8132,14 +9686,6 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_purchase_order_lines_tenant_id");
-
-                    b.HasOne("MINV.Domain.Purchasing.PurchaseOrder", null)
-                        .WithMany("Lines")
-                        .HasForeignKey("TenantId", "PurchaseOrderId")
-                        .HasPrincipalKey("TenantId", "Id")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_purchase_order_lines_tenant_id_purchase_order_id");
 
                     b.HasOne("MINV.Domain.Catalog.UnitOfMeasure", null)
                         .WithMany()
@@ -8156,6 +9702,14 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_purchase_order_lines_tenant_id_variant_id");
+
+                    b.HasOne("MINV.Domain.Purchasing.PurchaseOrder", null)
+                        .WithMany("Lines")
+                        .HasForeignKey("TenantId", "BranchId", "PurchaseOrderId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_purchase_order_lines_tenant_id_branch_id_purchase_order_id");
                 });
 
             modelBuilder.Entity("MINV.Domain.Purchasing.PurchaseReturn", b =>
@@ -8166,6 +9720,14 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_purchase_returns_tenant_id");
+
+                    b.HasOne("MINV.Domain.Warehousing.Branch", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BranchId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_purchase_returns_tenant_id_branch_id");
 
                     b.HasOne("MINV.Domain.Purchasing.Supplier", null)
                         .WithMany()
@@ -8187,33 +9749,33 @@ namespace MINV.Infrastructure.Persistence.Migrations
 
                     b.HasOne("MINV.Domain.Purchasing.GoodsReceiptLine", null)
                         .WithMany()
-                        .HasForeignKey("TenantId", "GoodsReceiptLineId")
-                        .HasPrincipalKey("TenantId", "Id")
+                        .HasForeignKey("TenantId", "BranchId", "GoodsReceiptLineId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("fk_purchase_return_lines_tenant_id_goods_receipt_line_id");
+                        .HasConstraintName("fk_purchase_return_lines_tenant_id_branch_id_goods_rec_79ef70b8");
 
                     b.HasOne("MINV.Domain.Purchasing.PurchaseReturn", null)
                         .WithMany("Lines")
-                        .HasForeignKey("TenantId", "PurchaseReturnId")
-                        .HasPrincipalKey("TenantId", "Id")
+                        .HasForeignKey("TenantId", "BranchId", "PurchaseReturnId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
-                        .HasConstraintName("fk_purchase_return_lines_tenant_id_purchase_return_id");
+                        .HasConstraintName("fk_purchase_return_lines_tenant_id_branch_id_purchase_return_id");
 
                     b.HasOne("MINV.Domain.Inventory.StockLevel", null)
                         .WithMany()
-                        .HasForeignKey("TenantId", "StockLevelId")
-                        .HasPrincipalKey("TenantId", "Id")
+                        .HasForeignKey("TenantId", "BranchId", "StockLevelId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
-                        .HasConstraintName("fk_purchase_return_lines_tenant_id_stock_level_id");
+                        .HasConstraintName("fk_purchase_return_lines_tenant_id_branch_id_stock_level_id");
 
                     b.HasOne("MINV.Domain.Inventory.StockMovement", null)
                         .WithMany()
-                        .HasForeignKey("TenantId", "StockMovementId")
-                        .HasPrincipalKey("TenantId", "Id")
+                        .HasForeignKey("TenantId", "BranchId", "StockMovementId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("fk_purchase_return_lines_tenant_id_stock_movement_id");
+                        .HasConstraintName("fk_purchase_return_lines_tenant_id_branch_id_stock_movement_id");
                 });
 
             modelBuilder.Entity("MINV.Domain.Purchasing.Supplier", b =>
@@ -8279,6 +9841,14 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_supplier_invoices_tenant_id");
 
+                    b.HasOne("MINV.Domain.Warehousing.Branch", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BranchId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_supplier_invoices_tenant_id_branch_id");
+
                     b.HasOne("MINV.Domain.Accounting.Currency", null)
                         .WithMany()
                         .HasForeignKey("TenantId", "CurrencyId")
@@ -8305,27 +9875,27 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_supplier_invoice_lines_tenant_id");
 
-                    b.HasOne("MINV.Domain.Purchasing.GoodsReceiptLine", null)
-                        .WithMany()
-                        .HasForeignKey("TenantId", "GoodsReceiptLineId")
-                        .HasPrincipalKey("TenantId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("fk_supplier_invoice_lines_tenant_id_goods_receipt_line_id");
-
-                    b.HasOne("MINV.Domain.Purchasing.SupplierInvoice", null)
-                        .WithMany("Lines")
-                        .HasForeignKey("TenantId", "SupplierInvoiceId")
-                        .HasPrincipalKey("TenantId", "Id")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_supplier_invoice_lines_tenant_id_supplier_invoice_id");
-
                     b.HasOne("MINV.Domain.Accounting.TaxRate", null)
                         .WithMany()
                         .HasForeignKey("TenantId", "TaxRateId")
                         .HasPrincipalKey("TenantId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_supplier_invoice_lines_tenant_id_tax_rate_id");
+
+                    b.HasOne("MINV.Domain.Purchasing.GoodsReceiptLine", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BranchId", "GoodsReceiptLineId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_supplier_invoice_lines_tenant_id_branch_id_goods_re_507ecc30");
+
+                    b.HasOne("MINV.Domain.Purchasing.SupplierInvoice", null)
+                        .WithMany("Lines")
+                        .HasForeignKey("TenantId", "BranchId", "SupplierInvoiceId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_supplier_invoice_lines_tenant_id_branch_id_supplier_47722964");
                 });
 
             modelBuilder.Entity("MINV.Domain.Sales.Address", b =>
@@ -8355,14 +9925,6 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_cash_movements_tenant_id");
 
-                    b.HasOne("MINV.Domain.Sales.PosSession", null)
-                        .WithMany()
-                        .HasForeignKey("TenantId", "PosSessionId")
-                        .HasPrincipalKey("TenantId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("fk_cash_movements_tenant_id_pos_session_id");
-
                     b.HasOne("MINV.Domain.Iam.User", null)
                         .WithMany()
                         .HasForeignKey("TenantId", "RecordedByUserId")
@@ -8370,6 +9932,14 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_cash_movements_tenant_id_recorded_by_user_id");
+
+                    b.HasOne("MINV.Domain.Sales.PosSession", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BranchId", "PosSessionId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_cash_movements_tenant_id_branch_id_pos_session_id");
                 });
 
             modelBuilder.Entity("MINV.Domain.Sales.City", b =>
@@ -8461,6 +10031,24 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_customer_categories_tenant_id_default_price_list_id");
                 });
 
+            modelBuilder.Entity("MINV.Domain.Sales.ExternalOrder", b =>
+                {
+                    b.HasOne("MINV.Domain.Iam.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_external_orders_tenant_id");
+
+                    b.HasOne("MINV.Domain.Sales.SalesOrder", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BranchId", "SalesOrderId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_external_orders_tenant_id_branch_id_sales_order_id");
+                });
+
             modelBuilder.Entity("MINV.Domain.Sales.Invoice", b =>
                 {
                     b.HasOne("MINV.Domain.Iam.Tenant", null)
@@ -8472,11 +10060,11 @@ namespace MINV.Infrastructure.Persistence.Migrations
 
                     b.HasOne("MINV.Domain.Sales.SalesOrder", null)
                         .WithMany()
-                        .HasForeignKey("TenantId", "SalesOrderId")
-                        .HasPrincipalKey("TenantId", "Id")
+                        .HasForeignKey("TenantId", "BranchId", "SalesOrderId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
-                        .HasConstraintName("fk_invoices_tenant_id_sales_order_id");
+                        .HasConstraintName("fk_invoices_tenant_id_branch_id_sales_order_id");
                 });
 
             modelBuilder.Entity("MINV.Domain.Sales.InvoiceLine", b =>
@@ -8488,28 +10076,28 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_invoice_lines_tenant_id");
 
-                    b.HasOne("MINV.Domain.Sales.Invoice", null)
-                        .WithMany("Lines")
-                        .HasForeignKey("TenantId", "InvoiceId")
-                        .HasPrincipalKey("TenantId", "Id")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_invoice_lines_tenant_id_invoice_id");
-
-                    b.HasOne("MINV.Domain.Sales.SalesOrderLine", null)
-                        .WithMany()
-                        .HasForeignKey("TenantId", "SalesOrderLineId")
-                        .HasPrincipalKey("TenantId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("fk_invoice_lines_tenant_id_sales_order_line_id");
-
                     b.HasOne("MINV.Domain.Accounting.TaxRate", null)
                         .WithMany()
                         .HasForeignKey("TenantId", "TaxRateId")
                         .HasPrincipalKey("TenantId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_invoice_lines_tenant_id_tax_rate_id");
+
+                    b.HasOne("MINV.Domain.Sales.Invoice", null)
+                        .WithMany("Lines")
+                        .HasForeignKey("TenantId", "BranchId", "InvoiceId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_invoice_lines_tenant_id_branch_id_invoice_id");
+
+                    b.HasOne("MINV.Domain.Sales.SalesOrderLine", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BranchId", "SalesOrderLineId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_invoice_lines_tenant_id_branch_id_sales_order_line_id");
                 });
 
             modelBuilder.Entity("MINV.Domain.Sales.Payment", b =>
@@ -8521,14 +10109,6 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_payments_tenant_id");
 
-                    b.HasOne("MINV.Domain.Sales.Invoice", null)
-                        .WithMany()
-                        .HasForeignKey("TenantId", "InvoiceId")
-                        .HasPrincipalKey("TenantId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("fk_payments_tenant_id_invoice_id");
-
                     b.HasOne("MINV.Domain.Sales.PaymentMethod", null)
                         .WithMany()
                         .HasForeignKey("TenantId", "PaymentMethodId")
@@ -8537,13 +10117,6 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_payments_tenant_id_payment_method_id");
 
-                    b.HasOne("MINV.Domain.Sales.PosSession", null)
-                        .WithMany()
-                        .HasForeignKey("TenantId", "PosSessionId")
-                        .HasPrincipalKey("TenantId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("fk_payments_tenant_id_pos_session_id");
-
                     b.HasOne("MINV.Domain.Iam.User", null)
                         .WithMany()
                         .HasForeignKey("TenantId", "RecordedByUserId")
@@ -8551,6 +10124,21 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_payments_tenant_id_recorded_by_user_id");
+
+                    b.HasOne("MINV.Domain.Sales.Invoice", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BranchId", "InvoiceId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_payments_tenant_id_branch_id_invoice_id");
+
+                    b.HasOne("MINV.Domain.Sales.PosSession", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BranchId", "PosSessionId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_payments_tenant_id_branch_id_pos_session_id");
                 });
 
             modelBuilder.Entity("MINV.Domain.Sales.PaymentMethod", b =>
@@ -8581,11 +10169,11 @@ namespace MINV.Infrastructure.Persistence.Migrations
 
                     b.HasOne("MINV.Domain.Warehousing.Warehouse", null)
                         .WithMany()
-                        .HasForeignKey("TenantId", "WarehouseId")
-                        .HasPrincipalKey("TenantId", "Id")
+                        .HasForeignKey("TenantId", "BranchId", "WarehouseId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
-                        .HasConstraintName("fk_pos_registers_tenant_id_warehouse_id");
+                        .HasConstraintName("fk_pos_registers_tenant_id_branch_id_warehouse_id");
                 });
 
             modelBuilder.Entity("MINV.Domain.Sales.PosSession", b =>
@@ -8614,11 +10202,11 @@ namespace MINV.Infrastructure.Persistence.Migrations
 
                     b.HasOne("MINV.Domain.Sales.PosRegister", null)
                         .WithMany()
-                        .HasForeignKey("TenantId", "PosRegisterId")
-                        .HasPrincipalKey("TenantId", "Id")
+                        .HasForeignKey("TenantId", "BranchId", "PosRegisterId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
-                        .HasConstraintName("fk_pos_sessions_tenant_id_pos_register_id");
+                        .HasConstraintName("fk_pos_sessions_tenant_id_branch_id_pos_register_id");
                 });
 
             modelBuilder.Entity("MINV.Domain.Sales.PostalCode", b =>
@@ -8700,13 +10288,6 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_sales_orders_tenant_id_customer_id");
 
-                    b.HasOne("MINV.Domain.Sales.PosSession", null)
-                        .WithMany()
-                        .HasForeignKey("TenantId", "PosSessionId")
-                        .HasPrincipalKey("TenantId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("fk_sales_orders_tenant_id_pos_session_id");
-
                     b.HasOne("MINV.Domain.Sales.PriceList", null)
                         .WithMany()
                         .HasForeignKey("TenantId", "PriceListId")
@@ -8715,12 +10296,19 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_sales_orders_tenant_id_price_list_id");
 
+                    b.HasOne("MINV.Domain.Sales.PosSession", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BranchId", "PosSessionId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_sales_orders_tenant_id_branch_id_pos_session_id");
+
                     b.HasOne("MINV.Domain.Warehousing.Warehouse", null)
                         .WithMany()
-                        .HasForeignKey("TenantId", "WarehouseId")
-                        .HasPrincipalKey("TenantId", "Id")
+                        .HasForeignKey("TenantId", "BranchId", "WarehouseId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("fk_sales_orders_tenant_id_warehouse_id");
+                        .HasConstraintName("fk_sales_orders_tenant_id_branch_id_warehouse_id");
                 });
 
             modelBuilder.Entity("MINV.Domain.Sales.SalesOrderLine", b =>
@@ -8731,21 +10319,6 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_sales_order_lines_tenant_id");
-
-                    b.HasOne("MINV.Domain.Sales.SalesOrder", null)
-                        .WithMany("Lines")
-                        .HasForeignKey("TenantId", "SalesOrderId")
-                        .HasPrincipalKey("TenantId", "Id")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_sales_order_lines_tenant_id_sales_order_id");
-
-                    b.HasOne("MINV.Domain.Inventory.StockMovement", null)
-                        .WithMany()
-                        .HasForeignKey("TenantId", "StockMovementId")
-                        .HasPrincipalKey("TenantId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("fk_sales_order_lines_tenant_id_stock_movement_id");
 
                     b.HasOne("MINV.Domain.Catalog.UnitOfMeasure", null)
                         .WithMany()
@@ -8762,6 +10335,21 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_sales_order_lines_tenant_id_variant_id");
+
+                    b.HasOne("MINV.Domain.Sales.SalesOrder", null)
+                        .WithMany("Lines")
+                        .HasForeignKey("TenantId", "BranchId", "SalesOrderId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_sales_order_lines_tenant_id_branch_id_sales_order_id");
+
+                    b.HasOne("MINV.Domain.Inventory.StockMovement", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BranchId", "StockMovementId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_sales_order_lines_tenant_id_branch_id_stock_movement_id");
                 });
 
             modelBuilder.Entity("MINV.Domain.Sales.State", b =>
@@ -8793,11 +10381,11 @@ namespace MINV.Infrastructure.Persistence.Migrations
 
                     b.HasOne("MINV.Domain.Warehousing.Zone", null)
                         .WithMany()
-                        .HasForeignKey("TenantId", "ZoneId")
-                        .HasPrincipalKey("TenantId", "Id")
+                        .HasForeignKey("TenantId", "BranchId", "ZoneId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
-                        .HasConstraintName("fk_aisles_tenant_id_zone_id");
+                        .HasConstraintName("fk_aisles_tenant_id_branch_id_zone_id");
                 });
 
             modelBuilder.Entity("MINV.Domain.Warehousing.Bin", b =>
@@ -8819,11 +10407,11 @@ namespace MINV.Infrastructure.Persistence.Migrations
 
                     b.HasOne("MINV.Domain.Warehousing.Shelf", null)
                         .WithMany()
-                        .HasForeignKey("TenantId", "ShelfId")
-                        .HasPrincipalKey("TenantId", "Id")
+                        .HasForeignKey("TenantId", "BranchId", "ShelfId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
-                        .HasConstraintName("fk_bins_tenant_id_shelf_id");
+                        .HasConstraintName("fk_bins_tenant_id_branch_id_shelf_id");
                 });
 
             modelBuilder.Entity("MINV.Domain.Warehousing.BinAssignment", b =>
@@ -8835,14 +10423,6 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_bin_assignments_tenant_id");
 
-                    b.HasOne("MINV.Domain.Warehousing.Bin", null)
-                        .WithMany()
-                        .HasForeignKey("TenantId", "BinId")
-                        .HasPrincipalKey("TenantId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("fk_bin_assignments_tenant_id_bin_id");
-
                     b.HasOne("MINV.Domain.Catalog.ProductVariant", null)
                         .WithMany()
                         .HasForeignKey("TenantId", "VariantId")
@@ -8850,6 +10430,14 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_bin_assignments_tenant_id_variant_id");
+
+                    b.HasOne("MINV.Domain.Warehousing.Bin", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BranchId", "BinId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_bin_assignments_tenant_id_branch_id_bin_id");
                 });
 
             modelBuilder.Entity("MINV.Domain.Warehousing.Branch", b =>
@@ -8916,11 +10504,11 @@ namespace MINV.Infrastructure.Persistence.Migrations
 
                     b.HasOne("MINV.Domain.Warehousing.Aisle", null)
                         .WithMany()
-                        .HasForeignKey("TenantId", "AisleId")
-                        .HasPrincipalKey("TenantId", "Id")
+                        .HasForeignKey("TenantId", "BranchId", "AisleId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
-                        .HasConstraintName("fk_racks_tenant_id_aisle_id");
+                        .HasConstraintName("fk_racks_tenant_id_branch_id_aisle_id");
                 });
 
             modelBuilder.Entity("MINV.Domain.Warehousing.Shelf", b =>
@@ -8934,11 +10522,11 @@ namespace MINV.Infrastructure.Persistence.Migrations
 
                     b.HasOne("MINV.Domain.Warehousing.Rack", null)
                         .WithMany()
-                        .HasForeignKey("TenantId", "RackId")
-                        .HasPrincipalKey("TenantId", "Id")
+                        .HasForeignKey("TenantId", "BranchId", "RackId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
-                        .HasConstraintName("fk_shelves_tenant_id_rack_id");
+                        .HasConstraintName("fk_shelves_tenant_id_branch_id_rack_id");
                 });
 
             modelBuilder.Entity("MINV.Domain.Warehousing.Warehouse", b =>
@@ -8977,11 +10565,11 @@ namespace MINV.Infrastructure.Persistence.Migrations
 
                     b.HasOne("MINV.Domain.Warehousing.Warehouse", null)
                         .WithMany()
-                        .HasForeignKey("TenantId", "WarehouseId")
-                        .HasPrincipalKey("TenantId", "Id")
+                        .HasForeignKey("TenantId", "BranchId", "WarehouseId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
-                        .HasConstraintName("fk_zones_tenant_id_warehouse_id");
+                        .HasConstraintName("fk_zones_tenant_id_branch_id_warehouse_id");
                 });
 
             modelBuilder.Entity("MINV.Domain.Accounting.JournalEntry", b =>
@@ -9005,6 +10593,16 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.Navigation("Barcodes");
                 });
 
+            modelBuilder.Entity("MINV.Domain.Integration.ApiKey", b =>
+                {
+                    b.Navigation("Scopes");
+                });
+
+            modelBuilder.Entity("MINV.Domain.Integration.WebhookEndpoint", b =>
+                {
+                    b.Navigation("Events");
+                });
+
             modelBuilder.Entity("MINV.Domain.Inventory.PhysicalCount", b =>
                 {
                     b.Navigation("Lines");
@@ -9017,7 +10615,18 @@ namespace MINV.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("MINV.Domain.Inventory.StockTransfer", b =>
                 {
+                    b.Navigation("History");
+
                     b.Navigation("Lines");
+                });
+
+            modelBuilder.Entity("MINV.Domain.Inventory.StockTransferLine", b =>
+                {
+                    b.Navigation("Batches");
+
+                    b.Navigation("Discrepancies");
+
+                    b.Navigation("Movements");
                 });
 
             modelBuilder.Entity("MINV.Domain.Purchasing.GoodsReceipt", b =>

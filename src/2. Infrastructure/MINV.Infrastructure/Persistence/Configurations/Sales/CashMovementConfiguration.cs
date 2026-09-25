@@ -18,8 +18,8 @@ internal sealed class CashMovementConfiguration : IEntityTypeConfiguration<CashM
         builder.Property(x => x.Amount).HasPrecision(19, 4);
         builder.Property(x => x.Reason).HasMaxLength(200);
         builder.HasOne<PosSession>().WithMany()
-            .HasForeignKey(x => new { x.TenantId, x.PosSessionId })
-            .HasPrincipalKey(p => new { p.TenantId, p.Id })
+            .HasForeignKey(x => new { x.TenantId, x.BranchId, x.PosSessionId })
+            .HasPrincipalKey(p => new { p.TenantId, p.BranchId, p.Id })
             .OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<User>().WithMany()
             .HasForeignKey(x => new { x.TenantId, x.RecordedByUserId })
