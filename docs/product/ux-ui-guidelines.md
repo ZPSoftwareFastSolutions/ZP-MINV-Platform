@@ -1,8 +1,8 @@
-# Guía UX/UI · M-INV V1 ("App-like Excel")
+# Guía UX/UI · M-INV V1.2 ("App-like Excel")
 
 Objetivo: que un operador sin conocimientos técnicos perciba M-INV como **software nativo**, no como una hoja de
 cálculo, y que le resulte **imposible romper el sistema por accidente**. Todo lo descrito aquí está implementado en
-`tools/build_minv.py`; si cambia un token, cambie ambos.
+`tools/build_minv.py` (paquete `tools/minv/`, tokens en `base.py`); si cambia un token, cambie ambos.
 
 ## 1. Principios
 
@@ -15,6 +15,10 @@ cálculo, y que le resulte **imposible romper el sistema por accidente**. Todo l
    está bloqueado (ƒx).
 5. **Color con significado.** El semáforo se reserva para el estado del stock y siempre va acompañado de texto
    (nunca solo color).
+6. **Siempre hay un siguiente paso.** La portada dice qué hacer ahora y lleva al lugar exacto; cada hoja tiene su
+   acción principal a un clic y la guía se organiza por perfil (Bodega, Compras, Gerencia, Administración).
+7. **Ver antes de confirmar.** El formulario muestra el stock antes → después y el semáforo resultante antes de
+   registrar; las acciones irreversibles (ajustes del conteo) piden confirmación con «No» como opción por defecto.
 
 ## 2. Paleta (tokens)
 
@@ -69,46 +73,64 @@ Segoe UI es la fuente de sistema de Windows (sensación nativa). En macOS Excel 
 
 **Portada** (`00_PORTADA`): margen 24 px + 12 columnas × 94 px (1.176 px útiles) + margen 24 px, a 100 % de zoom
 (cabe en pantallas de 1.366 px). Filas en píxeles fijos. Orden vertical:
-héroe (82 px) → mosaicos (92 px) → 8 tarjetas KPI (2 × 100 px) → 4 gráficos (2 × 290 px) → últimos 8 movimientos → pie.
+héroe (82 px) → banda **Próximo paso** (44 px) → 8 mosaicos (86 px) → 8 tarjetas KPI (2 × 100 px) → 4 gráficos
+(2 × 290 px) → últimos 8 movimientos → pie.
 
-**Hojas de datos** (`05`, `10`, `15`, `16`):
+**Hojas de datos** (`04`, `05`, `10`, `13`, `15`, `16`):
 
 | Fila | Alto | Contenido |
 |---|---|---|
-| 1–4 | 68 px | Franja `ink`: título, subtítulo y navegación (píldoras) |
-| 5 | 34 px | Barra de herramientas: contador, botón de acción, leyenda ✎/ƒx, regla de la hoja |
+| 1–4 | 70 px | Franja `ink`: título, subtítulo y navegación (8 píldoras con icono) |
+| 5 | 34 px | Barra de herramientas: contadores (chips), botón de acción, leyenda ✎/ƒx, regla de la hoja |
 | 6 | 16 px | Distintivos por columna: `✎` (ingreso) o `ƒx` (cálculo) |
 | 7 | 34 px | Encabezados de tabla (con filtro) |
 | 8+ | 20 px | Datos |
+
+**Hojas de trabajo** (`12_REGISTRO`, `17_KARDEX`, `18_PEDIDO`): misma franja y barra; debajo, un lienzo en dos zonas
+(datos a la izquierda, resultado o vista previa a la derecha) y, si aplica, una tabla de resultados con encabezado
+inmovilizado. `18_PEDIDO` tiene además un encabezado imprimible (empresa, N.º de pedido, fecha, total, firmas).
 
 Filas 1–7 inmovilizadas: la navegación y los encabezados siempre están a la vista.
 
 ## 5. Navegación
 
 ```text
-                 ┌────────────── 00_PORTADA ──────────────┐
-                 │ [NUEVO MOVIMIENTO] [VER STOCK] [ALERTAS (n)] [CATÁLOGO] [GUÍA RÁPIDA] │
-                 └───┬──────────────┬───────────┬──────────┬──────────┬────┘
-        fila libre ▼        ▼           ▼          ▼          ▼
-            10_MOVIMIENTOS   15_STOCK    16_ALERTAS  05_PRODUCTOS  99_AYUDA
-            (irFilaLibreMov)                          (irFilaLibreProd)
+┌──────────────────────────────────── 00_PORTADA ─────────────────────────────────────┐
+│ PRÓXIMO PASO: «3 producto(s) agotado(s): prepare hoy el pedido sugerido»  [Ver pedido ➜] │
+│ [REGISTRAR] [CONSULTAR] [STOCK] [ALERTAS (n)] [PEDIDO] [CONTEO] [CATÁLOGO] [GUÍA]        │
+└────┬────────────┬─────────┬────────┬────────────┬────────┬─────────┬──────────┬───────┘
+     ▼            ▼         ▼        ▼            ▼        ▼         ▼          ▼
+ 12_REGISTRO   17_KARDEX 15_STOCK 16_ALERTAS  18_PEDIDO 13_CONTEO 05_PRODUCTOS 99_AYUDA
+ (Plus) o fila
+ libre de 10_MOVIMIENTOS (Estándar)
 ```
 
-- Todas las hojas visibles comparten la barra de píldoras `⌂ Inicio · + Movimientos · ▦ Stock · ⚠ Alertas ·
-  ☰ Catálogo · ? Guía`; la píldora activa es blanca.
-- **Navegación dinámica:** "Nuevo movimiento" y "Registrar nuevo producto" apuntan a nombres definidos
-  (`irFilaLibreMov`, `irFilaLibreProd`) que se recalculan: el cursor aterriza en la siguiente fila libre, ya resaltada.
-- Las tarjetas KPI también son botones (llevan a Stock, Alertas o la bitácora).
-- Hacer clic en celdas de la portada no hace nada (selección deshabilitada): solo los botones responden.
+- Todas las hojas visibles comparten la barra de 8 píldoras con icono
+  `Inicio · Registrar · Bitácora · Stock · Alertas · Consultar · Pedido · Guía`; la píldora activa es blanca.
+- **Próximo paso:** la banda de la portada muestra la acción más urgente (errores → configuración → catálogo →
+  saldo inicial → registros incompletos → conteo en curso → agotados → reposición → sin rotación → todo en orden),
+  con color de severidad y un botón que lleva al lugar exacto (`irSiguientePaso`).
+- **Navegación dinámica** (nombres `ir*` que se recalculan): `irRegistrar` abre el formulario (Plus) o la siguiente
+  fila libre de la bitácora (Estándar); `irBitacora`, `irFilaLibreProd` y `irFilaLibreProv` aterrizan en la siguiente
+  fila libre, ya resaltada; `irPrimerError` lleva al primer registro con `✖`.
+- **Guía por perfil:** `99_AYUDA` abre con «¿Qué necesita hacer hoy?» (Bodega, Compras, Gerencia, Administración),
+  cada perfil con sus dos accesos directos, y una lista de **primeros pasos** que se marca sola (✔ / ○).
+- **Doble clic (Plus):** en `16_ALERTAS` o `18_PEDIDO` abre el formulario listo para la reposición (ENTRADA con la
+  cantidad sugerida); en `15_STOCK` o en un registro de `10_MOVIMIENTOS`, la consulta del producto.
+- Las tarjetas KPI también son botones. Hacer clic en celdas de la portada no hace nada (selección deshabilitada).
 
 ## 6. Componentes
 
 | Componente | Implementación | Especificación |
 |---|---|---|
-| Mosaico (tile) | Forma redondeada + icono PNG superpuesto | 212 × 92 px, color de sección, icono blanco 32 px, texto 10,5 pt abajo, sombra |
+| Mosaico (tile) | Forma redondeada + icono PNG superpuesto | 130 × 86 px, color de sección, icono blanco 30 px, texto 9,5 pt abajo, sombra |
+| Banda «Próximo paso» | Celdas combinadas con formato condicional + botón blanco | Fondo/texto por severidad (rojo, ámbar, azul, verde); botón con texto vinculado (`txtPasoBoton`) |
 | Tarjeta KPI | Forma blanca + barra de acento + 3 cuadros de texto vinculados | 270 × 100 px; título 8,5 pt `muted`; valor 22 pt color semántico; nota 8,5 pt |
-| Píldora de navegación | Cuadro de texto con hipervínculo | 118 × 28 px, radio completo |
-| Botón de acción | Forma `brand` con hipervínculo | alto 28 px, texto blanco semibold |
+| Píldora de navegación | Cuadro de texto con hipervínculo + icono PNG | 104 × 26 px, radio completo, icono 16 px a la izquierda |
+| Botón de acción | Forma `brand` con hipervínculo o macro (Plus) | alto 28 px, texto blanco semibold; en el formulario 48 px (REGISTRAR verde) |
+| Campo de formulario | Celdas combinadas ✎ con validación y mensaje de entrada | etiqueta a la derecha (`*` rojo = obligatorio, «(opcional)» gris); borde rojo si hay error, ámbar si falta la observación de un ajuste |
+| Vista previa | Tarjeta blanca de celdas con fórmulas | stock actual → después (24 pt), semáforo antes/después, 7 validaciones `✔ ○ ✖` y resumen en verde/ámbar |
+| Aviso «sin macros» (Plus) | Forma ámbar | visible solo si las macros están deshabilitadas (el VBA la oculta al abrir) |
 | Chip / leyenda | Cuadro de texto (estático o vinculado a celda) | alto 20–24 px, radio completo |
 | Marco de gráfico | Forma blanca con sombra detrás del gráfico | radio 4 %, sin borde |
 | Gráficos | Nativos de Excel | Sin borde; etiquetas de datos en lugar de ejes de valores |
@@ -162,7 +184,10 @@ desprotegida). Regenerar los activos: `python tools/make_assets.py`.
 
 | Mandato | Limitación | Solución V1 |
 |---|---|---|
-| Ocultar barra de fórmulas | Es una opción de **aplicación**, no se guarda en `.xlsx` | Módulo opcional `src/macros/` (requiere `.xlsm`); en `.xlsx` las fórmulas quedan **ocultas** en Release |
+| Ocultar barra de fórmulas | Es una opción de **aplicación**, no se guarda en `.xlsx` | Edición Plus (`.xlsm`, `modAppMode`); en `.xlsx` las fórmulas quedan **ocultas** en Release |
 | Botones con color dinámico | Las formas no admiten formato condicional | Colores semánticos fijos por tarjeta; el valor sí es dinámico (texto vinculado) |
-| Tablas en hojas protegidas | No se expanden solas | Capacidad pre-asignada (500 productos / 5.000 movimientos) |
-| Inmutabilidad de filas | Excel no puede bloquear una fila "al guardarla" sin VBA | Protección + columna `Estado` + regla de corrección por AJUSTE; sellado VBA en backlog V1.1 |
+| Tablas en hojas protegidas | No se expanden solas | Capacidad pre-asignada (500 productos / 100 proveedores / 5.000 movimientos) |
+| Inmutabilidad de filas | Excel no puede bloquear una fila "al guardarla" sin VBA | Protección + columna `Estado` + regla de corrección por AJUSTE; en Plus, **sellado** VBA (filas registradas bloqueadas y en gris) |
+| Formulario de captura | Un formulario de celdas no puede "enviar" sin VBA | Edición Plus: botón REGISTRAR (VBA) que escribe en la bitácora y comprueba su `Estado`; en Estándar se registra en la bitácora |
+| Búsqueda en listas desplegables | La validación de datos no filtra mientras se escribe | Campo `Buscar` que filtra la lista (`lfForm`, `lfKardex`) al pulsar Enter |
+| Referencias a tablas en formatos condicionales | Excel rechaza el libro completo | Nombres definidos; el generador bloquea el build si aparece una (regla R-08) |

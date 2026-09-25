@@ -1,0 +1,16 @@
+'==============================================================================
+' M-INV V1.2 - Código de la hoja 10_MOVIMIENTOS (edición Plus)
+' tools/build_xlsm.ps1 lo instala en el módulo de la hoja.
+'==============================================================================
+Option Explicit
+
+' Doble clic en un registro: abre la consulta (kardex) de su producto.
+' En las celdas de ingreso (desbloqueadas) el doble clic edita como siempre.
+Private Sub Worksheet_BeforeDoubleClick(ByVal Target As Range, Cancel As Boolean)
+    Dim sku As String
+    If Not Target.Locked Then Exit Sub
+    sku = SkuDeFila(Me, Target.Row)
+    If Len(sku) = 0 Then Exit Sub
+    Cancel = True
+    AbrirKardex sku
+End Sub

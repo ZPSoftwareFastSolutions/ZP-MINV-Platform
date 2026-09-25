@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import datetime as dt
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 # ---------------------------------------------------------------------------
 # Catálogos base (aplican a Core y Release)
@@ -84,6 +84,17 @@ RESPONSABLES_DEMO = [
 ]
 
 
+# (Proveedor, NIT, Contacto, Teléfono, Correo, DíasEntrega) — datos ficticios (dominios .example reservados)
+PROVEEDORES_DEMO = [
+    ("Ferretería Mayorista del Valle", "900.456.123-1", "Jorge Salazar", "602 555 0101", "ventas@mayorista-valle.example", 5),
+    ("Electro Suministros S.A.S.", "901.234.567-8", "Paula Rincón", "601 555 0142", "pedidos@electrosuministros.example", 3),
+    ("Hidráulicos y PVC Ltda.", "800.765.432-5", "Andrés Mejía", "604 555 0177", "comercial@hidraulicos-pvc.example", 4),
+    ("Pinturas Andinas S.A.", "860.111.222-3", "Marcela Ortiz", "601 555 0199", "servicio@pinturas-andinas.example", 7),
+    ("Dotaciones Industriales Seguras", "900.888.999-0", "Luis Herrera", "602 555 0123", "ventas@dotaciones-seguras.example", 6),
+    ("Químicos del Norte S.A.S.", "901.555.444-2", "Diana Castro", "605 555 0165", "pedidos@quimicos-norte.example", 4),
+]
+
+
 @dataclass(frozen=True)
 class Producto:
     sku: str
@@ -95,6 +106,7 @@ class Producto:
     costo: float
     ubicacion: str
     activo: bool = True
+    proveedor: str = ""
 
     @property
     def etiqueta(self) -> str:
@@ -104,7 +116,7 @@ class Producto:
 
 _CAT = {c[0]: c[1] for c in CATEGORIAS_DEMO}
 
-PRODUCTOS_DEMO = [
+_PRODUCTOS = [
     Producto("FER-001", 'Tornillo drywall 6x1" (caja x100)', _CAT["FER"], "CAJA", 20, 120, 9800, "A-01-01"),
     Producto("FER-002", 'Chazo plástico 1/4" (bolsa x100)', _CAT["FER"], "PAQ", 15, 80, 6500, "A-01-02"),
     Producto("FER-003", "Martillo uña 16 oz mango fibra", _CAT["FER"], "UND", 5, 30, 28000, "A-02-01"),
@@ -140,6 +152,15 @@ PRODUCTOS_DEMO = [
     Producto("ASE-004", "Trapero industrial en algodón", _CAT["ASE"], "UND", 8, 50, 11500, "F-02-01"),
     Producto("ASE-005", "Detergente en polvo", _CAT["ASE"], "KG", 25, 150, 6800, "F-02-02"),
 ]
+
+_PROV = [p[0] for p in PROVEEDORES_DEMO]
+PROVEEDOR_POR_CATEGORIA = dict(zip([c[1] for c in CATEGORIAS_DEMO], _PROV))
+PROVEEDOR_EXCEPCIONES = {"ELE-007": _PROV[0], "ASE-003": _PROV[4]}
+PRODUCTOS_DEMO = [replace(p, proveedor=PROVEEDOR_EXCEPCIONES.get(p.sku, PROVEEDOR_POR_CATEGORIA[p.categoria]))
+                  for p in _PRODUCTOS]
+
+# Productos de baja rotación: solo se mueven en las primeras semanas (demuestran el KPI "sin rotación").
+LENTOS = {"SEG-002", "FER-006"}
 
 # Estado final deseado para la demo (el resto debe terminar ÓPTIMO).
 OBJETIVOS = {
@@ -228,6 +249,8 @@ def generar_movimientos(fin: dt.date, semilla: int = 2026) -> tuple[list[Movimie
         # 2) Ventas / despachos del día (~2-3 por día)
         for _ in range(rnd.choice([1, 2, 2, 3, 3, 4])):
             p = rnd.choices(activos, weights=pesos)[0]
+            if p.sku in LENTOS and (dia - inicio).days > 20:
+                continue  # baja rotación: sin demanda después de las primeras semanas
             q = _redondear(p, rnd.gauss(0.12 * p.maximo, 0.04 * p.maximo))
             q = min(q, stock[p.sku])
             if q < (0.5 if p.unidad in UNIDADES_DECIMALES else 1):
@@ -247,7 +270,7 @@ def generar_movimientos(fin: dt.date, semilla: int = 2026) -> tuple[list[Movimie
         dias_desde_ajuste += 1
         if dias_desde_ajuste >= 12:
             dias_desde_ajuste = 0
-            p = rnd.choice(activos)
+            p = rnd.choice([a for a in activos if a.sku not in LENTOS])
             if rnd.random() < 0.75 and stock[p.sku] >= 2:
                 q = _redondear(p, rnd.uniform(1, 2))
                 registrar(dia, "AJUSTE (-)", p, q, doc("AJ"), "Ana Gómez",

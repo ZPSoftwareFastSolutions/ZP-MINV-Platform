@@ -1,12 +1,31 @@
 '==============================================================================
-' M-INV V1 - Eventos del libro (OPCIONAL: requiere .xlsm y modAppMode.bas)
-' Pegue este codigo en el modulo "ThisWorkbook" del Editor de VBA (Alt + F11).
+' M-INV V1.2 - Eventos del libro (edición Plus)
+' Código del módulo del libro («ThisWorkbook» / «EsteLibro»). tools/build_xlsm.ps1 lo
+' instala automáticamente; para hacerlo a mano, péguelo en ese módulo (no lo importe).
 '==============================================================================
 Option Explicit
 
 Private Sub Workbook_Open()
+    On Error Resume Next
+    ProtegerParaMacros
+    MostrarAvisosSinMacros False
     Me.Worksheets(HOJA_PORTADA).Activate
     AplicarModoApp ActiveSheet
+    Me.Saved = True
+End Sub
+
+' Al guardar se sellan los registros correctos y el aviso «sin macros» queda visible en el
+' archivo (lo verá quien lo abra con las macros deshabilitadas).
+Private Sub Workbook_BeforeSave(ByVal SaveAsUI As Boolean, Cancel As Boolean)
+    On Error Resume Next
+    SellarBitacora
+    MostrarAvisosSinMacros True
+End Sub
+
+Private Sub Workbook_AfterSave(ByVal Success As Boolean)
+    On Error Resume Next
+    MostrarAvisosSinMacros False
+    Me.Saved = True
 End Sub
 
 Private Sub Workbook_Activate()
