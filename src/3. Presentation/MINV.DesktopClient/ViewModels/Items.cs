@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using MINV.Application.Iam;
 using MINV.Application.Inventory.PhysicalCounts;
@@ -235,7 +236,7 @@ public sealed class ActivityItem(ActivityRow r, DateTimeOffset now)
 
     public string SearchText => $"{UserName} {Row.UserEmail} {ActionText} {Row.Action} {Details}";
 
-    /// <summary>Resume el JSON de auditoría («SKU FER-001 · cantidad 5 · …»); el texto de la V2.1 se deja igual.</summary>
+    /// <summary>Resume el JSON de auditoría («SKU MOU-LOG-G502 · cantidad 5 · …»); el texto migrado de la V2.1 se deja igual.</summary>
     private static string Summarize(string? details)
     {
         if (string.IsNullOrWhiteSpace(details))
@@ -268,7 +269,7 @@ public sealed class ActivityItem(ActivityRow r, DateTimeOffset now)
                     {
                         continue;
                     }
-                    parts.Add($"{Friendly(p.Name)}: {p.Value}");
+                    parts.Add($"{Friendly(p.Name)}: {(MoneyFields.Contains(p.Name) && p.Value.ValueKind == JsonValueKind.Number ? Fmt.Money(p.Value.GetDecimal()) : Value(p.Value))}");
                 }
             }
             if (root.TryGetProperty("result", out var result) && result.ValueKind == JsonValueKind.Object
@@ -281,6 +282,42 @@ public sealed class ActivityItem(ActivityRow r, DateTimeOffset now)
         catch (JsonException)
         {
             return details;
+        }
+    }
+
+    /// <summary>Datos de la bitácora que son importes: se muestran con el formato de dinero del escritorio (<see cref="Fmt.Money"/>:
+    /// «Bs 35.212,54», no «35212.54»).</summary>
+    private static readonly HashSet<string> MoneyFields = new(StringComparer.Ordinal)
+    {
+        "TotalAmount", "Discounts", "NotSubjectToVat", "UnitCost", "SalePrice", "OpeningCash", "CountedCash", "Amount", "Price",
+        "CashReceived", "Total", "Refund",
+    };
+
+    /// <summary>Valor de un dato de la bitácora en español: sí/no y las fechas del JSON (ISO 8601: «2026-09-23»,
+    /// «2026-09-23T10:30:00-04:00») con el formato de fechas del escritorio (<see cref="Fmt.Date(DateOnly)"/> y
+    /// <see cref="Fmt.DateTime"/>).</summary>
+    private static string Value(JsonElement value)
+    {
+        switch (value.ValueKind)
+        {
+            case JsonValueKind.True:
+                return "sí";
+            case JsonValueKind.False:
+                return "no";
+            case JsonValueKind.String:
+                var text = value.GetString() ?? string.Empty;
+                if (text.Length == 10 && DateOnly.TryParseExact(text, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+                {
+                    return Fmt.Date(date);
+                }
+                if (text.Length >= 16 && text[4] == '-' && text[10] == 'T'
+                    && DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var instant))
+                {
+                    return Fmt.DateTime(instant);
+                }
+                return text;
+            default:
+                return value.ToString();
         }
     }
 
@@ -300,6 +337,57 @@ public sealed class ActivityItem(ActivityRow r, DateTimeOffset now)
         "OpeningCash" => "Fondo",
         "CountedCash" => "Arqueo",
         "Operacion" => "Operación",
+        // V4 a V4.2: los datos más frecuentes de la bitácora
+        "Name" => "Nombre",
+        "Code" => "Código",
+        "Number" => "Número",
+        "Email" => "Correo",
+        "Description" => "Descripción",
+        "Reason" => "Motivo",
+        "Note" or "Notes" => "Nota",
+        "BranchCode" => "Sucursal",
+        "SupplierCode" => "Proveedor",
+        "CustomerCode" => "Cliente",
+        "CategoryCode" => "Categoría",
+        "ParentCode" => "Categoría superior",
+        "PaymentMethodCode" => "Medio de pago",
+        "InvoiceNumber" => "Factura",
+        "InvoiceDate" => "Fecha de la factura",
+        "ReceiptNumber" => "Recepción",
+        "AuthorizationCode" => "Código de autorización",
+        "TotalAmount" => "Importe total",
+        "Discounts" => "Descuentos",
+        "NotSubjectToVat" => "No sujeto a crédito fiscal",
+        "PurchaseType" => "Tipo de compra",
+        "SupplierDocument" => "Documento del proveedor",
+        "ToWarehouseCode" => "Almacén de destino",
+        "FromWarehouseCode" => "Almacén de origen",
+        "UnitCost" => "Costo unitario",
+        "SalePrice" => "Precio de venta",
+        "Minimum" => "Mínimo",
+        "Maximum" => "Máximo",
+        "IsActive" => "Activo",
+        "Enabled" => "Activada",
+        "Serial" => "Serie",
+        "ReplacementSerial" => "Serie de reposición",
+        "Issue" => "Falla",
+        "Resolution" => "Resolución",
+        "Next" => "Estado nuevo",
+        "Disposal" => "Destino",
+        "Defective" => "Por falla",
+        "ChargeableRepair" => "Reparación con cargo",
+        "WarrantyMonths" => "Meses de garantía",
+        "TrackSerials" => "Lleva serie",
+        "SerialKind" => "Tipo de serie",
+        "ValidDays" => "Días de vigencia",
+        "Quote" => "Cotizar",
+        "AcceptIncompatible" => "Acepta incompatibilidades",
+        "Maintain" => "Mantenimiento",
+        "Nit" => "NIT",
+        "TaxId" => "NIT",
+        "Environment" => "Ambiente",
+        "Url" => "URL",
+        "Date" => "Fecha",
         _ => name,
     };
 }

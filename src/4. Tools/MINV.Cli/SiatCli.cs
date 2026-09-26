@@ -66,7 +66,7 @@ internal static class SiatCli
     // ================================================================================================ empresa
     public static async Task<int> RunAsync(string action, IServiceProvider sp, MinvWriteDbContext db, IReadOnlyDictionary<string, string> options)
     {
-        var code = (options.GetValueOrDefault("codigo") ?? "MINV").Trim().ToUpperInvariant();
+        var code = (options.GetValueOrDefault("codigo") ?? Cli.DefaultCompany).Trim().ToUpperInvariant();
         var tenant = await db.Tenants.FirstOrDefaultAsync(t => t.Code == code) ?? throw new InvalidOperationException($"La empresa {code} no existe.");
         var context = sp.GetRequiredService<ITenantContext>();
         context.Set(tenant.Id);

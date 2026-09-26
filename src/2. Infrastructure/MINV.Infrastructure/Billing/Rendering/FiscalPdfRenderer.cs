@@ -1,5 +1,6 @@
 using System.Globalization;
 using MINV.Application.Abstractions;
+using MINV.Application.Tech;
 using MINV.Domain.Billing;
 
 namespace MINV.Infrastructure.Billing.Rendering;
@@ -318,13 +319,14 @@ public sealed class FiscalPdfRenderer : IFiscalDocumentRenderer
             var quantityFormat = quantityDecimals <= 2 ? "#,##0.00" : "#,##0.00" + new string('#', quantityDecimals - 2);
             var headers = columns.Select(c => PdfFontMetrics.Wrap(c.Title, PdfFont.HelveticaBold, 8, c.Width - 6)).ToArray();
             var headerHeight = (headers.Max(h => h.Count) * 9) + 8;
-            var rows = lines.Select(l => new[]
+            var rows = lines.Select(l => (Line: l, Cells: new[]
             {
                 l.ProductCode, l.Quantity.ToString(quantityFormat, Invariant), l.Unit, l.Description, Money(l.UnitPrice), Money(l.Discount),
                 Money(l.Subtotal),
-            }).Select(cells => cells.Select((text, i) => columns[i].Align == Align.Right
+            })).Select(row => row.Cells.Select((text, i) => columns[i].Align == Align.Right
                 ? new[] { text }
-                : PdfFontMetrics.Wrap(text, PdfFont.Helvetica, 8, columns[i].Width - 6)).ToArray()).ToList();
+                : i == DescriptionColumn ? Description(row.Line, text, columns[i].Width - 6) : PdfFontMetrics.Wrap(text, PdfFont.Helvetica, 8, columns[i].Width - 6))
+                .ToArray()).ToList();
 
             EnsureSpace(headerHeight + (rows.Count > 0 ? RowHeight(rows[0]) : 0));
             DrawHeader();
@@ -372,6 +374,21 @@ public sealed class FiscalPdfRenderer : IFiscalDocumentRenderer
                 }
                 _y += height;
             }
+        }
+
+        /// <summary>Columna de la descripción en las tablas de detalle.</summary>
+        private const int DescriptionColumn = 3;
+
+        /// <summary>V4.2 · Descripción con las series o IMEI de la línea y la garantía derivada debajo (reglas T-03 y T-04).</summary>
+        private static IReadOnlyList<string> Description(FiscalPrintLine line, string text, double width)
+        {
+            var result = new List<string>(PdfFontMetrics.Wrap(text, PdfFont.Helvetica, 8, width));
+            result.AddRange(PdfFontMetrics.Wrap(line.SerialsText, PdfFont.Helvetica, 8, width));
+            if (line.WarrantyUntil is { } until)
+            {
+                result.AddRange(PdfFontMetrics.Wrap(TechPrint.Warranty(until), PdfFont.Helvetica, 8, width));
+            }
+            return result;
         }
 
         private static double RowHeight(IReadOnlyList<string>[] cells) => Math.Max(16, (cells.Max(c => c.Count) * LineStep) + 7);

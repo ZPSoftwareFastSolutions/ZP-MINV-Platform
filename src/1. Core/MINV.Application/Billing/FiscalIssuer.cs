@@ -17,8 +17,10 @@ public sealed record FiscalIssueServices(IMinvDbContext Db, IClock Clock, IFisca
 /// CAFC y el evento de contingencia manual.</summary>
 public sealed record FiscalManualEmission(long Number, DateTime IssuedAt, string Cafc, Guid SignificantEventId);
 
-/// <summary>V4.1 · Línea vendida que se factura (línea del pedido de M-INV con su producto).</summary>
-public sealed record FiscalSaleLine(SalesOrderLine Line, ProductVariant Variant, Product Product);
+/// <summary>V4.1 · Línea vendida que se factura (línea del pedido de M-INV con su producto). V4.2 · Con las series (o IMEI)
+/// vendidas en la línea: van en numeroSerie / numeroImei de la factura (regla T-03).</summary>
+public sealed record FiscalSaleLine(SalesOrderLine Line, ProductVariant Variant, Product Product, IReadOnlyList<string>? Serials = null,
+    SerialKind SerialKind = SerialKind.Serial);
 
 /// <summary>V4.1 · Venta de M-INV que se factura: sucursal, caja (null en la API), factura interna, cliente, medio de pago,
 /// líneas y datos de facturación del comprador que capturó la caja.</summary>
@@ -164,20 +166,52 @@ public static class FiscalIssuer
         var original = invoiceDocument.Lines.OrderBy(l => l.LineNumber).ToList();
         var lines = original.Select(l => new FiscalLineInput(l.VariantId, l.ActivityCode, l.SinProductCode, l.ProductCode, l.Description, l.Quantity,
             l.SinUnitCode, l.UnitPrice, l.Discount, 1, l.SerialNumber, l.Imei)).ToList();
-        var used = new HashSet<int>();
+        // V4.2 · Lo devuelto se toma de las líneas de la factura del mismo producto (primero la que coincide con la venta; una
+        // línea dividida por sus series puede aportar a varias) con el descuento prorrateado. Las series devueltas van en las
+        // líneas «devuelto» de la nota (quedan en el documento; el XSD de la nota no tiene numeroSerie).
+        var returnedSerials = await ReturnedSerialsAsync(db, salesReturn, ct);
+        var capacity = original.ToDictionary(l => l.LineNumber, l => l.Quantity);
         foreach (var returned in salesReturn.Lines)
         {
             var orderLine = orderLines.FirstOrDefault(l => l.Id == returned.SalesOrderLineId)
                             ?? throw new DomainException("return.line", "La línea devuelta no pertenece a la venta.");
-            var source = original.FirstOrDefault(l => !used.Contains(l.LineNumber) && l.VariantId == orderLine.VariantId && l.Quantity == orderLine.Quantity
-                                                      && l.UnitPrice == orderLine.UnitPrice)
-                         ?? original.FirstOrDefault(l => !used.Contains(l.LineNumber) && l.VariantId == orderLine.VariantId)
-                         ?? throw new DomainException("fiscal.note_line",
-                             "Una línea devuelta no figura en la factura del SIN de la venta: no se puede armar la nota crédito-débito.");
-            used.Add(source.LineNumber);
-            var discount = source.Discount is { } d && d > 0 ? FiscalRules.Round2(d * returned.Quantity / source.Quantity) : 0m;
-            lines.Add(new FiscalLineInput(source.VariantId, source.ActivityCode, source.SinProductCode, source.ProductCode, source.Description,
-                returned.Quantity, source.SinUnitCode, source.UnitPrice, discount > 0 ? discount : null, 2));
+            var candidates = original.Where(l => l.VariantId == orderLine.VariantId)
+                .OrderByDescending(l => l.Quantity == orderLine.Quantity && l.UnitPrice == orderLine.UnitPrice).ThenBy(l => l.LineNumber).ToList();
+            var serials = returnedSerials[returned.Id].ToList();
+            var pending = returned.Quantity;
+            void Take(FiscalDocumentLine source, decimal quantity, IReadOnlyList<string> taken)
+            {
+                capacity[source.LineNumber] -= quantity;
+                pending -= quantity;
+                var discount = source.Discount is { } d && d > 0 ? FiscalRules.Round2(d * quantity / source.Quantity) : 0m;
+                var text = taken.Count == 0 ? null : SerialText(taken);
+                var imei = source.Imei is not null && source.SerialNumber is null;
+                lines.Add(new FiscalLineInput(source.VariantId, source.ActivityCode, source.SinProductCode, source.ProductCode, source.Description,
+                    quantity, source.SinUnitCode, source.UnitPrice, discount > 0 ? discount : null, 2, imei ? null : text, imei ? text : null));
+            }
+            foreach (var source in candidates.Where(_ => serials.Count > 0))
+            {
+                var listed = SplitSerials(source.SerialNumber ?? source.Imei);
+                var mine = serials.Where(listed.Contains).Take((int)capacity[source.LineNumber]).ToList();
+                if (mine.Count > 0)
+                {
+                    serials.RemoveAll(mine.Contains);
+                    Take(source, mine.Count, mine);
+                }
+            }
+            foreach (var source in candidates.Where(l => capacity[l.LineNumber] > 0))
+            {
+                if (pending <= 0)
+                {
+                    break;
+                }
+                var quantity = Math.Min(capacity[source.LineNumber], pending);
+                var taken = serials.Take((int)decimal.Truncate(quantity)).ToList();
+                serials.RemoveAll(taken.Contains);
+                Take(source, quantity, taken);
+            }
+            Guard.That(candidates.Count > 0 && pending <= 0, "fiscal.note_line",
+                "Una línea devuelta no figura en la factura del SIN de la venta: no se puede armar la nota crédito-débito.");
         }
         var number = await lookups.NextNumberAsync(settings.Environment, point.Id, SiatCodes.SectorCreditDebitNote, ct);
         var legend = await lookups.PickLegendAsync(original[0].ActivityCode, ct);
@@ -188,6 +222,45 @@ public static class FiscalIssuer
         await AttachAsync(services, lookups, settings, branch, point, cufd, note,
             $"Nota crédito-débito emitida en línea por la devolución {salesReturn.Number} (factura {invoiceDocument.Number}).", ct);
         return new CreditNoteIssue(note, $"Nota crédito-débito N° {note.Number} emitida (pendiente de envío al SIN).");
+    }
+
+    /// <summary>V4.2 · Series devueltas por línea de la devolución (las recién agregadas al contexto y las guardadas).</summary>
+    private static async Task<ILookup<Guid, string>> ReturnedSerialsAsync(IMinvDbContext db, SalesReturn salesReturn, CancellationToken ct)
+    {
+        var lineIds = salesReturn.Lines.Select(l => l.Id).ToList();
+        var rows = db.Set<Domain.Inventory.SalesReturnLineSerial>().Local.Where(x => lineIds.Contains(x.SalesReturnLineId)).ToList();
+        var known = rows.Select(r => r.Id).ToHashSet();
+        rows.AddRange((await db.Set<Domain.Inventory.SalesReturnLineSerial>().AsNoTracking().Where(x => lineIds.Contains(x.SalesReturnLineId)).ToListAsync(ct))
+            .Where(r => !known.Contains(r.Id)));
+        if (rows.Count == 0)
+        {
+            return Array.Empty<(Guid, string)>().ToLookup(x => x.Item1, x => x.Item2);
+        }
+        var serialIds = rows.Select(r => r.SerialNumberId).Distinct().ToList();
+        var texts = db.Set<Domain.Inventory.SerialNumber>().Local.Where(s => serialIds.Contains(s.Id)).ToDictionary(s => s.Id, s => s.Serial);
+        var missing = serialIds.Where(id => !texts.ContainsKey(id)).ToList();
+        foreach (var unit in await db.Set<Domain.Inventory.SerialNumber>().AsNoTracking().Where(s => missing.Contains(s.Id))
+                     .Select(s => new { s.Id, s.Serial }).ToListAsync(ct))
+        {
+            texts[unit.Id] = unit.Serial;
+        }
+        return rows.OrderBy(r => r.Id).ToLookup(r => r.SalesReturnLineId, r => texts[r.SerialNumberId]);
+    }
+
+    /// <summary>Series de un numeroSerie / numeroImei («A, B, C»).</summary>
+    public static IReadOnlyList<string> SplitSerials(string? text) =>
+        string.IsNullOrWhiteSpace(text) ? [] : text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    /// <summary>Series unidas por coma dentro del largo del campo (en la nota solo se guardan: su XSD no las lleva).</summary>
+    private static string SerialText(IReadOnlyList<string> serials)
+    {
+        var text = string.Join(", ", serials);
+        if (text.Length <= MaxSerialText)
+        {
+            return text;
+        }
+        var cut = text.LastIndexOf(", ", MaxSerialText, StringComparison.Ordinal);
+        return cut > 0 ? text[..cut] : text[..MaxSerialText];
     }
 
     // ================================================================================================ comprador
@@ -330,7 +403,7 @@ public static class FiscalIssuer
                 $"Falta homologar con los catálogos del SIN: {string.Join("; ", missing)}. Complételo en Facturación › Homologación antes de facturar.");
         }
         var result = new List<FiscalLineInput>();
-        foreach (var (line, variant, product) in lines)
+        foreach (var (line, variant, product, serials, serialKind) in lines)
         {
             Guard.That(FiscalRules.HasAtMostDecimals(line.Quantity, 2), "fiscal.quantity_decimals",
                 $"{variant.Sku}: la factura admite cantidades con hasta 2 decimales (se vendió {Quantities.Format(line.Quantity)}). Ajuste la cantidad.");
@@ -341,10 +414,59 @@ public static class FiscalIssuer
             // descuento = round2(cantidad × precio) − importe cobrado: así el total fiscal es exactamente el total cobrado (F-06)
             var discount = FiscalRules.Round2(line.Quantity * line.UnitPrice) - line.Amount;
             var description = variant.Name is { Length: > 0 } variantName ? $"{product.Name} · {variantName}" : product.Name;
-            result.Add(new FiscalLineInput(variant.Id, code.ActivityCode, code.SinProductCode, variant.Sku, Truncate(description, 500), line.Quantity,
-                unit.SinUnitCode, line.UnitPrice, discount > 0 ? discount : null));
+            var input = new FiscalLineInput(variant.Id, code.ActivityCode, code.SinProductCode, variant.Sku, Truncate(description, 500), line.Quantity,
+                unit.SinUnitCode, line.UnitPrice, discount > 0 ? discount : null);
+            result.AddRange(serials is { Count: > 0 } ? WithSerials(input, serials, serialKind) : [input]);
         }
         return (result, payment!.Value);
+    }
+
+    /// <summary>Largo máximo de numeroSerie / numeroImei en el XSD de la factura Compra Venta.</summary>
+    public const int MaxSerialText = 1500;
+
+    /// <summary>
+    /// V4.2 · Regla T-03: la línea lleva sus series separadas por coma en numeroSerie (o numeroImei si el producto usa IMEI).
+    /// Si no caben en <see cref="MaxSerialText"/> caracteres, la línea se divide por unidades con el MISMO precio y el
+    /// descuento prorrateado (el último tramo lleva el resto): la suma de los subtotales es el importe de la línea y el total
+    /// fiscal no cambia (F-06).
+    /// </summary>
+    public static IReadOnlyList<FiscalLineInput> WithSerials(FiscalLineInput line, IReadOnlyList<string> serials, SerialKind kind)
+    {
+        ArgumentNullException.ThrowIfNull(line);
+        ArgumentNullException.ThrowIfNull(serials);
+        Guard.That(serials.Count == line.Quantity, "fiscal.serials", $"{line.ProductCode}: las series no coinciden con la cantidad facturada.");
+        var chunks = new List<List<string>> { new() };
+        var length = 0;
+        foreach (var serial in serials)
+        {
+            var extra = (chunks[^1].Count == 0 ? 0 : 2) + serial.Length;
+            if (chunks[^1].Count > 0 && length + extra > MaxSerialText)
+            {
+                chunks.Add(new List<string>());
+                extra = serial.Length;
+                length = 0;
+            }
+            chunks[^1].Add(serial);
+            length += extra;
+        }
+        var result = new List<FiscalLineInput>(chunks.Count);
+        var discount = line.Discount ?? 0m;
+        var assigned = 0m;
+        for (var i = 0; i < chunks.Count; i++)
+        {
+            var quantity = (decimal)chunks[i].Count;
+            var share = i == chunks.Count - 1 ? discount - assigned : FiscalRules.Round2(discount * quantity / line.Quantity);
+            assigned += share;
+            var text = string.Join(", ", chunks[i]);
+            result.Add(line with
+            {
+                Quantity = quantity,
+                Discount = share > 0 ? share : null,
+                SerialNumber = kind == SerialKind.Imei ? null : text,
+                Imei = kind == SerialKind.Imei ? text : null,
+            });
+        }
+        return result;
     }
 
     // ================================================================================================ emisión (núcleo)

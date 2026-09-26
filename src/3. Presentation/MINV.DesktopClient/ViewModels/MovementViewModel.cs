@@ -1,6 +1,7 @@
 using System.Windows.Threading;
 using MINV.Application.Inventory.Movements;
 using MINV.Application.Inventory.Queries;
+using MINV.Application.Tech;
 using MINV.DesktopClient.Controls;
 using MINV.DesktopClient.Mvvm;
 using MINV.DesktopClient.Services;
@@ -26,6 +27,7 @@ public sealed class MovementViewModel : PageViewModel, IScannerTarget
     private readonly DispatcherTimer _previewDelay = new() { Interval = TimeSpan.FromMilliseconds(120) };
     private MovementTypeOption? _type;
     private ProductCard? _product;
+    private ProductTechView? _tech;
     private bool _loadingProduct;
     private string _binCode = string.Empty;
     private string _quantityText = string.Empty;
@@ -61,6 +63,26 @@ public sealed class MovementViewModel : PageViewModel, IScannerTarget
 
     public ProductPickerViewModel Picker { get; }
 
+    /// <summary>V4.2 · Ficha técnica del producto elegido (lleva serie o IMEI, garantía).</summary>
+    public ProductTechView? Tech
+    {
+        get => _tech;
+        private set
+        {
+            if (Set(ref _tech, value))
+            {
+                OnPropertiesChanged(nameof(SerialHint), nameof(HasSerialHint));
+            }
+        }
+    }
+
+    /// <summary>V4.2 · «Lleva IMEI: al registrar se piden las series (una por unidad)».</summary>
+    public string? SerialHint => _tech is { TrackSerials: true } t
+        ? $"Lleva {TechText.KindLabel(t.SerialKind)}: al registrar se piden las series (una por unidad) · {t.SerialsInStock} en stock con serie"
+        : null;
+
+    public bool HasSerialHint => SerialHint is not null;
+
     public BulkObservableCollection<MovementTypeOption> Types { get; } = [];
 
     public BulkObservableCollection<string> Bins { get; } = [];
@@ -86,6 +108,10 @@ public sealed class MovementViewModel : PageViewModel, IScannerTarget
         {
             if (Set(ref _product, value))
             {
+                if (value is null || !string.Equals(_tech?.Sku, value.Sku, StringComparison.OrdinalIgnoreCase))
+                {
+                    Tech = null;
+                }
                 OnPropertiesChanged(nameof(HasProduct), nameof(ProductName), nameof(ProductSku), nameof(ProductMeta), nameof(TotalStockText),
                     nameof(MinMaxText), nameof(Level), nameof(Status), nameof(UnitText));
                 RaisePreview();
@@ -302,6 +328,8 @@ public sealed class MovementViewModel : PageViewModel, IScannerTarget
         {
             var card = await App.SendAsync(new GetProductCardQuery(sku, 1));
             var keepBin = _product?.Sku == card.Sku && _binCode.Length > 0;
+            // V4.2 · Si el producto lleva serie o IMEI, las series se piden al registrar (regla T-02)
+            Tech = await TechCatalog.ProductAsync(App, card.Sku);
             Product = card;
             if (!keepBin)
             {
@@ -337,18 +365,63 @@ public sealed class MovementViewModel : PageViewModel, IScannerTarget
         }
         var product = _product;
         var type = _type;
-        var ok = await RunAsync(async () =>
+        var bin = _binCode;
+        var document = string.IsNullOrWhiteSpace(_document) ? null : _document.Trim();
+        var notes = string.IsNullOrWhiteSpace(_notes) ? null : _notes.Trim();
+
+        async Task SendAsync(IReadOnlyList<string>? serials)
         {
-            var result = await App.SendAsync(new RegisterMovementCommand(product.Sku, _binCode, type.Code, quantity, null,
-                string.IsNullOrWhiteSpace(_document) ? null : _document.Trim(),
-                string.IsNullOrWhiteSpace(_notes) ? null : _notes.Trim()));
+            var result = await App.SendAsync(new RegisterMovementCommand(product.Sku, bin, type.Code, quantity, null, document, notes, Serials: serials));
             App.Notify.Success($"{type.Title} registrada",
-                $"{(type.Increases ? "+" : "−")}{Fmt.Qty(quantity, product.Unit)} · {product.Sku} · quedan {Fmt.Qty(result.QuantityOnHand, product.Unit)} en {_binCode}");
+                $"{(type.Increases ? "+" : "−")}{Fmt.Qty(quantity, product.Unit)} · {product.Sku} · quedan {Fmt.Qty(result.QuantityOnHand, product.Unit)} en {bin}");
             SessionLog.Insert(0, new MovementItem(new RecentMovement(App.Now, App.Session.Workspace.Today, product.Sku,
-                product.Name, type.Code, type.Name, (short)(type.Increases ? 1 : -1), quantity, product.Unit, _binCode,
-                App.Session.DisplayName, _document), App.Now));
+                product.Name, type.Code, type.Name, (short)(type.Increases ? 1 : -1), quantity, product.Unit, bin,
+                App.Session.DisplayName, document), App.Now));
             App.Data.Invalidate();
-        }, "No se registró el movimiento");
+        }
+
+        bool ok;
+        if (_tech is { TrackSerials: true } tech)
+        {
+            // V4.2 · Producto serializado: las series de las unidades que entran se escanean; las que salen se eligen de las
+            // disponibles. El movimiento se registra desde el formulario (un rechazo del dominio se corrige ahí mismo).
+            if (decimal.Truncate(quantity) != quantity)
+            {
+                App.Notify.Warning("Cantidad entera", $"{product.Sku} lleva {TechText.KindLabel(tech.SerialKind)}: la cantidad debe ser entera (una serie por unidad).");
+                return;
+            }
+            IReadOnlyList<SerialRow>? available = null;
+            if (!type.Increases)
+            {
+                try
+                {
+                    available = await App.SendAsync(new GetAvailableSerialsQuery(product.Sku));
+                }
+                catch (Exception ex) when (AppServices.IsExpected(ex))
+                {
+                    App.Notify.Error("No se pudieron leer las series disponibles", AppServices.Describe(ex));
+                    return;
+                }
+            }
+            var count = (int)quantity;
+            var label = TechText.KindLabel(tech.SerialKind);
+            var mode = type.Increases ? SerialCaptureMode.Entry : SerialCaptureMode.Pick;
+            var subtitle = type.Increases
+                ? (count == 1 ? $"Escanee o escriba el {label} de la unidad que entra." : $"Escanee o escriba los {count} {label} de las unidades que entran.")
+                : (count == 1 ? "Elija la unidad que sale (disponibles en la sucursal)." : $"Elija las {count} unidades que salen (disponibles en la sucursal).");
+            var captured = await SerialsDialog.AskAsync(App, $"{type.Title} · {Fmt.Qty(quantity, product.Unit)} de {product.Sku}", subtitle,
+                "Registrar movimiento", [new SerialCaptureLineSpec(product.Sku, product.Name, tech.SerialKind, count, mode, available)],
+                async serials =>
+                {
+                    await SendAsync(serials[0].Serials);
+                    return true;
+                });
+            ok = captured is not null;
+        }
+        else
+        {
+            ok = await RunAsync(() => SendAsync(null), "No se registró el movimiento");
+        }
         if (ok)
         {
             ResetForm(clearProduct: false);

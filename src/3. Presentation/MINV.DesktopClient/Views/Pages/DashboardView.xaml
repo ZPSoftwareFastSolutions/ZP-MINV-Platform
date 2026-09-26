@@ -37,7 +37,7 @@
 
             <!-- Indicadores -->
             <UniformGrid Columns="4" Margin="-8,0,-8,0">
-                <Button Style="{StaticResource CardButton}" Margin="8" Command="{Binding Go}" CommandParameter="stock" ToolTip="{Binding InventoryValueFull}">
+                <Button Style="{StaticResource KpiCardButton}" Margin="8" Command="{Binding Go}" CommandParameter="stock" ToolTip="{Binding InventoryValueFull}">
                     <DockPanel>
                         <Border DockPanel.Dock="Right" Style="{StaticResource IconBubble}" VerticalAlignment="Top">
                             <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Money}" FontSize="18" />
@@ -49,7 +49,7 @@
                         </StackPanel>
                     </DockPanel>
                 </Button>
-                <Button Style="{StaticResource CardButton}" Margin="8" Command="{Binding Go}" CommandParameter="alertas">
+                <Button Style="{StaticResource KpiCardButton}" Tag="{DynamicResource Warning}" Margin="8" Command="{Binding Go}" CommandParameter="alertas">
                     <DockPanel>
                         <Border DockPanel.Dock="Right" Style="{StaticResource IconBubble}" Background="{DynamicResource WarningSoft}" VerticalAlignment="Top">
                             <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Warning}" FontSize="18" Foreground="{DynamicResource Warning}" />
@@ -66,7 +66,7 @@
                         </StackPanel>
                     </DockPanel>
                 </Button>
-                <Button Style="{StaticResource CardButton}" Margin="8" Command="{Binding Go}" CommandParameter="pedido">
+                <Button Style="{StaticResource KpiCardButton}" Tag="{DynamicResource Info}" Margin="8" Command="{Binding Go}" CommandParameter="pedido">
                     <DockPanel>
                         <Border DockPanel.Dock="Right" Style="{StaticResource IconBubble}" Background="{DynamicResource InfoSoft}" VerticalAlignment="Top">
                             <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Cart}" FontSize="18" Foreground="{DynamicResource Info}" />
@@ -78,7 +78,7 @@
                         </StackPanel>
                     </DockPanel>
                 </Button>
-                <Button Style="{StaticResource CardButton}" Margin="8" Command="{Binding Go}" CommandParameter="stock">
+                <Button Style="{StaticResource KpiCardButton}" Tag="{DynamicResource Success}" Margin="8" Command="{Binding Go}" CommandParameter="stock">
                     <DockPanel>
                         <Border DockPanel.Dock="Right" Style="{StaticResource IconBubble}" Background="{DynamicResource SuccessSoft}" VerticalAlignment="Top">
                             <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Swap}" FontSize="18" Foreground="{DynamicResource Success}" />
@@ -110,7 +110,8 @@
                             </StackPanel>
                             <StackPanel>
                                 <TextBlock Text="Entradas y salidas · últimos 14 días" Style="{StaticResource H3}" />
-                                <TextBlock Text="{Binding TrendSummary}" Style="{StaticResource Caption}" Margin="0,3,0,0" />
+                                <TextBlock Text="{Binding TrendSummary}" ToolTip="{Binding TrendSummary}" Style="{StaticResource Caption}" Margin="0,3,0,0"
+                                           TextTrimming="CharacterEllipsis" />
                             </StackPanel>
                         </DockPanel>
                         <c:ColumnChart Points="{Binding Trend}" Height="236" />
@@ -155,6 +156,115 @@
                     </DockPanel>
                 </Border>
             </Grid>
+
+            <!-- V4.2 · Tecnología: ventas por categoría y plataforma, GPU y consolas, RMA y armados (últimos 30 días) -->
+            <StackPanel Margin="0,20,0,0" Visibility="{Binding HasTech, Converter={StaticResource Visible}}">
+                <StackPanel.Resources>
+                    <!-- Barra de la sección (la usan las tarjetas de ventas, RMA y armados, GPU y consolas) -->
+                    <DataTemplate x:Key="TechBar" DataType="{x:Type vm:TechBarItem}">
+                        <StackPanel Margin="0,4">
+                            <DockPanel>
+                                <TextBlock DockPanel.Dock="Right" Text="{Binding ValueText}" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" Margin="8,0,0,0" />
+                                <TextBlock DockPanel.Dock="Right" Text="{Binding DetailText}" Style="{StaticResource Caption}" FontSize="11.5" Margin="8,0,0,0" />
+                                <TextBlock Text="{Binding Name}" Foreground="{DynamicResource TextSecondary}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}" />
+                            </DockPanel>
+                            <Grid Height="6" Margin="0,4,0,0">
+                                <Border Background="{DynamicResource ChartTrack}" CornerRadius="3" />
+                                <Border CornerRadius="3" HorizontalAlignment="Left" c:Ui.BrushKey="{Binding BrushKey}"
+                                        Width="{Binding Share, Converter={StaticResource ShareWidth}, ConverterParameter=300}" />
+                            </Grid>
+                        </StackPanel>
+                    </DataTemplate>
+                </StackPanel.Resources>
+                <DockPanel Margin="0,0,0,6">
+                    <Button DockPanel.Dock="Right" Style="{StaticResource LinkButton}" Content="Garantías y RMA" Command="{Binding Go}" CommandParameter="garantias"
+                            VerticalAlignment="Center" Margin="12,0,0,0" />
+                    <Button DockPanel.Dock="Right" Style="{StaticResource LinkButton}" Content="Armador de PC" Command="{Binding Go}" CommandParameter="armador"
+                            VerticalAlignment="Center" />
+                    <StackPanel Orientation="Horizontal">
+                        <Border Width="4" Height="20" CornerRadius="2" Background="{DynamicResource BrandGradientStrip}" VerticalAlignment="Center" />
+                        <TextBlock Text="Tecnología" Style="{StaticResource H2}" Margin="10,0,0,0" VerticalAlignment="Center" />
+                        <TextBlock Text="· últimos 30 días en las sucursales visibles" Style="{StaticResource Caption}" Margin="8,0,0,0" VerticalAlignment="Center" />
+                    </StackPanel>
+                </DockPanel>
+                <Border Background="{DynamicResource WarningSoft}" CornerRadius="10" Padding="12,8" Margin="0,4,0,6"
+                        Visibility="{Binding HasTechWarning, Converter={StaticResource Visible}}">
+                    <TextBlock Text="{Binding TechWarning}" Foreground="{DynamicResource Warning}" TextWrapping="Wrap" />
+                </Border>
+                <UniformGrid Columns="4" Margin="-6,0,-6,0">
+                    <ContentControl Content="{Binding SerialsKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+                    <ContentControl Content="{Binding ClaimsKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+                    <ContentControl Content="{Binding QuotesKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+                    <ContentControl Content="{Binding BuildsKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+                </UniformGrid>
+                <Grid Margin="0,10,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="16" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="16" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Border Style="{StaticResource Card}" Padding="18,16">
+                        <StackPanel>
+                            <TextBlock Text="Ventas por categoría" Style="{StaticResource H3}" />
+                            <TextBlock Text="Categorías principales (con sus subcategorías)" Style="{StaticResource Caption}" Margin="0,3,0,8" />
+                            <ItemsControl ItemsSource="{Binding SalesByCategory}" ItemTemplate="{StaticResource TechBar}" Focusable="False" />
+                            <ContentControl Style="{StaticResource EmptyState}" Tag="{x:Static c:Glyphs.Chart}" Content="Sin ventas en el período"
+                                            Visibility="{Binding SalesByCategory.Count, Converter={StaticResource NoValue}}" />
+                        </StackPanel>
+                    </Border>
+                    <Border Grid.Column="2" Style="{StaticResource Card}" Padding="18,16">
+                        <StackPanel>
+                            <TextBlock Text="Ventas por plataforma" Style="{StaticResource H3}" />
+                            <TextBlock Text="PC, PlayStation, Xbox, Nintendo…" Style="{StaticResource Caption}" Margin="0,3,0,8" />
+                            <!-- La dona arriba y la leyenda a todo el ancho: los nombres de plataforma (Nintendo Switch 2, Xbox Series S…)
+                                 no caben al lado de la dona junto al importe -->
+                            <StackPanel Visibility="{Binding PlatformSegments.Count, Converter={StaticResource HasValue}}">
+                                <c:DonutChart Segments="{Binding PlatformSegments}" Stroke="16" Width="104" Height="104" HorizontalAlignment="Center" />
+                                <ItemsControl ItemsSource="{Binding PlatformLegend}" ItemTemplate="{StaticResource LegendRowTemplate}" Focusable="False"
+                                              Margin="0,8,0,0" />
+                            </StackPanel>
+                            <ContentControl Style="{StaticResource EmptyState}" Tag="{x:Static c:Glyphs.Pie}" Content="Sin ventas de productos con plataforma"
+                                            Visibility="{Binding PlatformSegments.Count, Converter={StaticResource NoValue}}" />
+                        </StackPanel>
+                    </Border>
+                    <Border Grid.Column="4" Style="{StaticResource Card}" Padding="18,16">
+                        <StackPanel>
+                            <TextBlock Text="RMA y armados" Style="{StaticResource H3}" />
+                            <TextBlock Text="Casos abiertos por estado · cotizado frente a vendido" Style="{StaticResource Caption}" Margin="0,3,0,8" />
+                            <ItemsControl ItemsSource="{Binding ClaimsByStatus}" ItemTemplate="{StaticResource TechBar}" Focusable="False" />
+                            <TextBlock Text="Sin casos RMA abiertos" Style="{StaticResource Caption}" Margin="0,2,0,6"
+                                       Visibility="{Binding ClaimsByStatus.Count, Converter={StaticResource NoValue}}" />
+                            <Border Height="1" Background="{DynamicResource Border}" Margin="0,8" />
+                            <ItemsControl ItemsSource="{Binding QuotesVsSold}" ItemTemplate="{StaticResource TechBar}" Focusable="False" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+                <Grid Margin="0,16,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="16" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Border Style="{StaticResource Card}" Padding="18,16">
+                        <StackPanel>
+                            <TextBlock Text="Tarjetas de video más vendidas" Style="{StaticResource H3}" Margin="0,0,0,8" />
+                            <ItemsControl ItemsSource="{Binding TopGpus}" ItemTemplate="{StaticResource TechBar}" Focusable="False" />
+                            <TextBlock Text="Sin ventas de tarjetas de video en el período" Style="{StaticResource Caption}"
+                                       Visibility="{Binding TopGpus.Count, Converter={StaticResource NoValue}}" />
+                        </StackPanel>
+                    </Border>
+                    <Border Grid.Column="2" Style="{StaticResource Card}" Padding="18,16">
+                        <StackPanel>
+                            <TextBlock Text="Consolas más vendidas" Style="{StaticResource H3}" Margin="0,0,0,8" />
+                            <ItemsControl ItemsSource="{Binding TopConsoles}" ItemTemplate="{StaticResource TechBar}" Focusable="False" />
+                            <TextBlock Text="Sin ventas de consolas en el período" Style="{StaticResource Caption}"
+                                       Visibility="{Binding TopConsoles.Count, Converter={StaticResource NoValue}}" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </StackPanel>
 
             <!-- Listas -->
             <Grid Margin="0,16,0,0">

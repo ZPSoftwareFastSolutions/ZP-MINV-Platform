@@ -1,14 +1,14 @@
 <#
 .SYNOPSIS
-    M-INV V3/V4/V4.1 - Base de datos PostgreSQL LOCAL (portable, sin instalador ni permisos de administrador).
+    M-INV V3/V4/V4.1/V4.2 - Base de datos PostgreSQL LOCAL (portable, sin instalador ni permisos de administrador).
 
 .DESCRIPTION
     Acciones (-Accion):
       instalar   (por defecto) Extrae PostgreSQL 16 portable en %LOCALAPPDATA%\M-INV\postgresql-16, crea el cluster,
                  lo inicia en localhost:5432, crea los roles minv_owner, minv_app y (V4) minv_server y la base "minv",
-                 aplica las migraciones (V4.1: 140 tablas en 9 esquemas, 5FN, RLS por empresa y por sucursal, triggers,
-                 modelo de lectura y facturacion SIAT) y carga los datos de prueba multi-sucursal CON FACTURACION
-                 (minv datos-prueba).
+                 aplica las migraciones (V4.2: 152 tablas en 10 esquemas, 5FN, RLS por empresa y por sucursal, triggers,
+                 modelo de lectura, facturacion SIAT, series, garantias y armados de PC) y carga la empresa de prueba
+                 Tech Zone Gaming S.R.L. (codigo TECHZONE) multi-sucursal CON FACTURACION (minv datos-prueba).
                  Es idempotente: si algo ya existe, lo reutiliza.
       iniciar    Inicia el servidor.            detener   Lo detiene.            estado   Muestra si responde.
       recrear    Detiene los servidores locales (si estan corriendo), borra la base "minv", la vuelve a crear, migra y
@@ -19,11 +19,14 @@
     V4: minv_server (sin BYPASSRLS, no es dueno de las tablas) lo usan el servidor en la nube y el API Gateway
     (tools\servidores_locales.ps1). Las claves maestras de integracion (MINV_INTEGRATION_KEYS), la API Key de la tienda
     de prueba y el secreto del webhook quedan en %LOCALAPPDATA%\M-INV\claves-integracion.txt.
+    V4.2: la empresa de prueba es Tech Zone Gaming S.R.L. (codigo TECHZONE), una tienda de computadoras, componentes,
+    perifericos, consolas y videojuegos con 3 sucursales (CM La Paz, CB Cochabamba, SC Santa Cruz): 159 productos con
+    ficha tecnica, series e IMEI, casos de garantia (RMA), armados de PC y 60 dias de operacion.
     V4.1: la empresa de prueba FACTURA (ambiente 2 de pruebas, NIT de simulacion) desde los ultimos 25 dias contra el
     simulador del SIN EN PROCESO; su estado (CUIS, CUFD, documentos, eventos y paquetes) queda en
     %LOCALAPPDATA%\M-INV\siat-simulador.json y el token delegado de SIMULACION (aleatorio) en claves-integracion.txt como
     MINV_SIAT_TOKEN: tools\servidores_locales.ps1 arranca el simulador HTTP (http://localhost:5095) con ambos.
-    -SinFacturacion  carga los datos de prueba de la V4 (sin facturacion SIAT).
+    -SinFacturacion  carga los datos de prueba sin facturacion SIAT (la misma empresa TECHZONE).
     -Autoiniciar  deja un acceso en la carpeta Inicio de Windows para que PostgreSQL arranque al iniciar sesion.
     Script ASCII a proposito (PowerShell 5.1).
 
@@ -52,6 +55,8 @@ $cred = Join-Path $base 'credenciales-bd-local.txt'
 $usuarios = Join-Path $base 'usuarios-prueba.txt'
 $claves = Join-Path $base 'claves-integracion.txt'
 $estadoSimulador = Join-Path $base 'siat-simulador.json'
+# V4.2 - Codigo de la empresa de prueba: Tech Zone Gaming S.R.L.
+$Empresa = 'TECHZONE'
 $env:DOTNET_ROLL_FORWARD = 'Major'
 $env:DOTNET_CLI_TELEMETRY_OPTOUT = '1'
 New-Item -ItemType Directory -Force -Path $base | Out-Null
@@ -190,29 +195,29 @@ function Crear-Base([switch]$Borrar) {
         Write-Output 'Base "minv" creada.'
     }
     $cadena = 'Host=localhost;Port=' + $Puerto + ';Database=minv;Username=minv_owner;Password=' + $claveOwner
-    Write-Output 'Aplicando las migraciones (140 tablas en 9 esquemas, 5FN, triggers, RLS por empresa y sucursal, vistas, modelo de lectura y facturacion SIAT) ...'
+    Write-Output 'Aplicando las migraciones (152 tablas en 10 esquemas, 5FN, triggers, RLS por empresa y sucursal, vistas, modelo de lectura, facturacion SIAT, series, garantias y armados) ...'
     dotnet run --project (Join-Path $root 'src/4. Tools/MINV.Cli') -c Release -- migrate --conexion $cadena
     if ($LASTEXITCODE -ne 0) { throw 'minv migrate fallo.' }
-    $tablas = Psql 'minv_owner' $claveOwner 'minv' "SELECT count(*) FROM information_schema.tables WHERE table_schema IN ('iam','catalog','warehouse','inventory','purchasing','sales','accounting','integration','billing') AND table_type = 'BASE TABLE' AND table_name <> '__ef_migrations_history'"
-    Write-Output ('Tablas de M-INV en la base: ' + $tablas + ' (V4.1: 140)')
+    $tablas = Psql 'minv_owner' $claveOwner 'minv' "SELECT count(*) FROM information_schema.tables WHERE table_schema IN ('iam','catalog','warehouse','inventory','purchasing','sales','accounting','integration','billing','service') AND table_type = 'BASE TABLE' AND table_name <> '__ef_migrations_history'"
+    Write-Output ('Tablas de M-INV en la base: ' + $tablas + ' (V4.2: 152)')
     if (-not $SinDatos) {
         # Con las claves maestras, los datos de prueba incluyen un webhook con su secreto cifrado y (V4.1) el token de
         # simulacion del SIN cifrado; el token en claro queda en claves-integracion.txt como MINV_SIAT_TOKEN
         $env:MINV_INTEGRATION_KEYS = Claves-Integracion
-        $argsDatos = @('datos-prueba', '--conexion', $cadena, '--credenciales', $usuarios, '--integracion', $claves)
+        $argsDatos = @('datos-prueba', '--codigo', $Empresa, '--conexion', $cadena, '--credenciales', $usuarios, '--integracion', $claves)
         if ($SinFacturacion) {
             $argsDatos += '--sin-facturacion'
-            Write-Output 'Cargando datos de prueba SIN facturacion (3 sucursales, usuarios por sucursal, catalogo con imagenes, 60 dias de operacion, transferencias y pedidos web) ...'
+            Write-Output 'Cargando la empresa de prueba TECHZONE (Tech Zone Gaming S.R.L.) SIN facturacion: 3 sucursales, catalogo de tecnologia con fichas tecnicas e imagenes, series e IMEI, 60 dias de operacion, transferencias, pedidos web, garantias y armados de PC ...'
         }
         else {
             $argsDatos += @('--siat-estado', $estadoSimulador)
-            Write-Output 'Cargando datos de prueba (3 sucursales, 60 dias de operacion, transferencias, pedidos web y FACTURACION SIAT de los ultimos 25 dias con el simulador del SIN) ...'
+            Write-Output 'Cargando la empresa de prueba TECHZONE (Tech Zone Gaming S.R.L.): 3 sucursales, catalogo de tecnologia con fichas tecnicas, series e IMEI, 60 dias de operacion, transferencias, pedidos web, garantias, armados de PC y FACTURACION SIAT de los ultimos 25 dias con el simulador del SIN ...'
         }
         dotnet run --project (Join-Path $root 'src/4. Tools/MINV.Cli') -c Release -- @argsDatos
         $codigo = $LASTEXITCODE
         Remove-Item Env:\MINV_INTEGRATION_KEYS -ErrorAction SilentlyContinue
         if ($codigo -ne 0) { throw 'minv datos-prueba fallo.' }
-        dotnet run --project (Join-Path $root 'src/4. Tools/MINV.Cli') -c Release -- verify --codigo MINV --conexion $cadena
+        dotnet run --project (Join-Path $root 'src/4. Tools/MINV.Cli') -c Release -- verify --codigo $Empresa --conexion $cadena
     }
 }
 
@@ -252,7 +257,10 @@ if ($Accion -in @('instalar', 'recrear')) {
     if (-not $SinFacturacion -and -not $SinDatos) {
         Write-Output ('Estado del simulador del SIN (CUIS, CUFD y facturas emitidas en la carga): ' + $estadoSimulador)
     }
-    Write-Output 'Abra M-INV.exe e ingrese con la empresa y un usuario de ese archivo (modo "Base local").'
+    if (-not $SinDatos) {
+        Write-Output ('Empresa de prueba: ' + $Empresa + ' - Tech Zone Gaming S.R.L. (sucursales CM La Paz, CB Cochabamba y SC Santa Cruz).')
+    }
+    Write-Output 'Abra M-INV.exe e ingrese con la empresa TECHZONE y un usuario de ese archivo (modo "Base local").'
     Write-Output 'Para simular la nube y el SIN en este equipo: powershell -ExecutionPolicy Bypass -File tools\servidores_locales.ps1 -Accion iniciar'
     Write-Output '(inicia el simulador del SIN en http://localhost:5095, el servidor en la nube y el API Gateway)'
 }

@@ -1,0 +1,390 @@
+<UserControl x:Class="MINV.DesktopClient.Views.Pages.PcBuilderView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:MINV.DesktopClient.Controls"
+             xmlns:vm="clr-namespace:MINV.DesktopClient.ViewModels">
+    <!-- V4.2 · Armador de PC: ranuras, candidatos compatibles de la sucursal, revisión en vivo, cotización y venta en la caja -->
+    <UserControl.Resources>
+        <!-- Ranura con sus piezas -->
+        <DataTemplate x:Key="SlotRow" DataType="{x:Type vm:PcSlotItem}">
+            <Border x:Name="Bd" CornerRadius="10" BorderThickness="1" BorderBrush="Transparent" Margin="0,0,0,4">
+                <StackPanel>
+                    <Button Style="{StaticResource RowButton}" Padding="8,7" Command="{Binding DataContext.SelectSlot, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                            CommandParameter="{Binding}" ToolTip="Ver las opciones de esta ranura">
+                        <DockPanel>
+                            <Border DockPanel.Dock="Left" Width="32" Height="32" CornerRadius="9" Background="{DynamicResource SurfaceHover}" VerticalAlignment="Top">
+                                <TextBlock Style="{StaticResource Icon}" Text="{Binding Glyph}" FontSize="14" Foreground="{DynamicResource BrandText}" />
+                            </Border>
+                            <TextBlock DockPanel.Dock="Right" Text="OBLIGATORIA" FontSize="9.5" FontWeight="Bold" Foreground="{DynamicResource Warning}" VerticalAlignment="Top"
+                                       Margin="6,2,0,0">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                        <Style.Triggers>
+                                            <MultiDataTrigger>
+                                                <MultiDataTrigger.Conditions>
+                                                    <Condition Binding="{Binding IsRequired}" Value="True" />
+                                                    <Condition Binding="{Binding IsEmpty}" Value="True" />
+                                                </MultiDataTrigger.Conditions>
+                                                <Setter Property="Visibility" Value="Visible" />
+                                            </MultiDataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                            <StackPanel Margin="10,0,0,0" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding Title}" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" />
+                                <TextBlock Text="{Binding Summary}" Style="{StaticResource Caption}" FontSize="11.5" />
+                            </StackPanel>
+                        </DockPanel>
+                    </Button>
+                    <ItemsControl ItemsSource="{Binding Parts}" Focusable="False" Margin="50,0,6,6">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:PcPartItem}">
+                                <DockPanel Margin="0,2,0,4">
+                                    <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Width="24" Height="24" FontSize="9" Content="{x:Static c:Glyphs.Close}"
+                                            ToolTip="Quitar la pieza" VerticalAlignment="Top" Foreground="{DynamicResource Danger}"
+                                            Command="{Binding DataContext.RemovePart, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"
+                                            Visibility="{Binding DataContext.CanEdit, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource Visible}}" />
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Name}" FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondary}" />
+                                        <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
+                                            <TextBlock Text="{Binding SubtotalText}" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource BrandText}" VerticalAlignment="Center" />
+                                            <StackPanel Orientation="Horizontal" Margin="8,0,0,0" Visibility="{Binding IsMulti, Converter={StaticResource Visible}}"
+                                                        IsEnabled="{Binding DataContext.CanEdit, RelativeSource={RelativeSource AncestorType=UserControl}}">
+                                                <Button Width="22" Height="22" Padding="0" FontFamily="{StaticResource IconFont}" FontSize="8" Content="{x:Static c:Glyphs.Remove}"
+                                                        Command="{Binding Decrease}" ToolTip="Una menos" />
+                                                <TextBlock Text="{Binding QuantityText}" Margin="6,0" VerticalAlignment="Center" FontSize="12" />
+                                                <Button Width="22" Height="22" Padding="0" FontFamily="{StaticResource IconFont}" FontSize="8" Content="{x:Static c:Glyphs.Add}"
+                                                        Command="{Binding Increase}" ToolTip="Una más" />
+                                            </StackPanel>
+                                            <TextBlock Text="{Binding StockText}" FontSize="11" Foreground="{DynamicResource Danger}" Margin="8,0,0,0" VerticalAlignment="Center"
+                                                       Visibility="{Binding ExceedsStock, Converter={StaticResource Visible}}" />
+                                        </StackPanel>
+                                    </StackPanel>
+                                </DockPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                    <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BrandSoft}" />
+                    <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Brand}" />
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <Grid Margin="28,6,28,24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <DockPanel Margin="0,0,0,12">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <Border Background="{DynamicResource SurfaceHover}" CornerRadius="10" Padding="2" Margin="0,0,10,0">
+                    <StackPanel Orientation="Horizontal">
+                        <RadioButton Style="{StaticResource Segment}" Content="Armar" c:Ui.Icon="{x:Static c:Glyphs.Wrench}" IsChecked="{Binding IsBuildTab}" GroupName="builderTab" />
+                        <RadioButton Style="{StaticResource Segment}" Content="{Binding QuotesTabText}" c:Ui.Icon="{x:Static c:Glyphs.Report}" IsChecked="{Binding IsQuotesTab}"
+                                     GroupName="builderTab" />
+                    </StackPanel>
+                </Border>
+                <Button Style="{StaticResource PrimaryButton}" Content="Nuevo armado" c:Ui.Icon="{x:Static c:Glyphs.Add}" Command="{Binding NewBuild}" Margin="0,0,8,0"
+                        Visibility="{Binding CanManage, Converter={StaticResource Visible}}" />
+                <Button Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Refresh}" Command="{Binding Refresh}" ToolTip="Actualizar (F5)" />
+            </StackPanel>
+            <StackPanel>
+                <TextBlock Text="{Binding Title}" Style="{StaticResource H1}" />
+                <TextBlock Text="{Binding Subtitle}" Style="{StaticResource Caption}" FontSize="13" Margin="0,4,0,0" />
+            </StackPanel>
+        </DockPanel>
+
+        <UniformGrid Grid.Row="1" Columns="3" Margin="-6,0,-6,10" Visibility="{Binding IsQuotesTab, Converter={StaticResource Visible}}">
+            <ContentControl Content="{Binding QuotedKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+            <ContentControl Content="{Binding SoldKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+            <ContentControl Content="{Binding DraftKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+        </UniformGrid>
+
+        <!-- ================================================================ armar -->
+        <Grid Grid.Row="2" Visibility="{Binding IsBuildTab, Converter={StaticResource Visible}}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="320" />
+                <ColumnDefinition Width="14" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="14" />
+                <ColumnDefinition Width="330" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Ranuras -->
+            <Border Style="{StaticResource CardFlat}" Padding="10,12">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Top" Margin="6,0,6,8">
+                        <TextBlock Text="{Binding CurrentTitle}" Style="{StaticResource H3}" TextTrimming="CharacterEllipsis" ToolTip="{Binding CurrentTitle}" />
+                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                            <Border Style="{StaticResource StatusPill}" c:Ui.BrushKey="{Binding CurrentStatusSoftBrush}">
+                                <TextBlock Text="{Binding CurrentStatusText}" FontSize="11" FontWeight="SemiBold" c:Ui.BrushKey="{Binding CurrentStatusBrush}" />
+                            </Border>
+                            <TextBlock Text="{Binding PartsText}" Style="{StaticResource Caption}" Margin="8,0,0,0" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </StackPanel>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel>
+                            <ItemsControl ItemsSource="{Binding Slots}" ItemTemplate="{StaticResource SlotRow}" Focusable="False" />
+                            <TextBlock Text="EXTRAS" Style="{StaticResource Overline}" Margin="8,10,0,6" />
+                            <ItemsControl ItemsSource="{Binding Extras}" ItemTemplate="{StaticResource SlotRow}" Focusable="False" />
+                        </StackPanel>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+
+            <!-- Candidatos de la ranura elegida -->
+            <Border Grid.Column="2" Style="{StaticResource CardFlat}" Padding="14,12">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Top">
+                        <TextBlock Text="{Binding CandidatesTitle}" Style="{StaticResource H3}" TextTrimming="CharacterEllipsis" ToolTip="{Binding CandidatesTitle}" />
+                        <TextBlock Style="{StaticResource Caption}" Margin="0,3,0,0" TextWrapping="Wrap"
+                                   Text="Compatibles con lo elegido; los incompatibles aparecen atenuados con el motivo" />
+                        <DockPanel Margin="0,10,0,10">
+                            <CheckBox DockPanel.Dock="Right" Content="Solo con stock" IsChecked="{Binding OnlyInStock}" VerticalAlignment="Center" Margin="10,0,0,0" />
+                            <ComboBox DockPanel.Dock="Right" Width="210" ItemsSource="{Binding Categories}" SelectedItem="{Binding ExtraCategory}" Margin="10,0,0,0"
+                                      ToolTip="Categoría de los productos de esta ranura" Visibility="{Binding NeedsCategory, Converter={StaticResource Visible}}" />
+                            <TextBox Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}" c:Ui.Icon="{x:Static c:Glyphs.Search}"
+                                     c:Ui.Placeholder="Buscar por nombre o SKU" />
+                        </DockPanel>
+                    </StackPanel>
+                    <Grid>
+                        <ListBox ItemsSource="{Binding Candidates}" Style="{StaticResource PlainList}" VirtualizingPanel.IsVirtualizing="True"
+                                 VirtualizingPanel.VirtualizationMode="Recycling" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:PcCandidateItem}">
+                                    <DockPanel x:Name="Row" Margin="2,6">
+                                        <c:ProductThumb DockPanel.Dock="Left" Width="52" Height="52" Source="{Binding Image}" CornerRadius="8" VerticalAlignment="Top" />
+                                        <StackPanel DockPanel.Dock="Right" Width="118" Margin="10,0,0,0" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding PriceText}" FontWeight="Bold" FontSize="14" HorizontalAlignment="Right" Foreground="{DynamicResource TextPrimary}" />
+                                            <TextBlock x:Name="Stock" Text="{Binding StockText}" Style="{StaticResource Caption}" FontSize="11.5" HorizontalAlignment="Right" />
+                                            <Button Style="{StaticResource SoftButton}" Content="Agregar" c:Ui.Icon="{x:Static c:Glyphs.Add}" Height="30" Padding="10,0"
+                                                    HorizontalAlignment="Right" Margin="0,4,0,0"
+                                                    Command="{Binding DataContext.AddPart, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"
+                                                    Visibility="{Binding DataContext.CanEdit, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource Visible}}" />
+                                        </StackPanel>
+                                        <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap" Foreground="{DynamicResource TextPrimary}" />
+                                            <TextBlock Text="{Binding SkuLine}" Style="{StaticResource Caption}" FontSize="11.5" TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding KeySpecs}" Style="{StaticResource Caption}" FontSize="11.5" TextWrapping="Wrap" Margin="0,2,0,0" />
+                                            <!-- Plataformas (opciones de la especificación «plataforma», regla T-07) -->
+                                            <ItemsControl ItemsSource="{Binding Platforms}" Focusable="False" ItemsPanel="{StaticResource WrapPanelTemplate}" Margin="0,4,0,0"
+                                                          Visibility="{Binding HasPlatforms, Converter={StaticResource Visible}}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <Border Style="{StaticResource PlatformBadge}" Margin="0,0,4,2">
+                                                            <TextBlock Text="{Binding}" />
+                                                        </Border>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                            <Border Background="{DynamicResource DangerSoft}" CornerRadius="6" Padding="8,3" Margin="0,5,0,0" HorizontalAlignment="Left"
+                                                    Visibility="{Binding IsIncompatible, Converter={StaticResource Visible}}">
+                                                <DockPanel>
+                                                    <TextBlock DockPanel.Dock="Left" Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Error}" FontSize="11"
+                                                               Foreground="{DynamicResource Danger}" Margin="0,2,6,0" VerticalAlignment="Top" />
+                                                    <TextBlock Text="{Binding Reason}" Foreground="{DynamicResource Danger}" FontSize="11.5" TextWrapping="Wrap" />
+                                                </DockPanel>
+                                            </Border>
+                                        </StackPanel>
+                                    </DockPanel>
+                                    <DataTemplate.Triggers>
+                                        <DataTrigger Binding="{Binding IsIncompatible}" Value="True">
+                                            <Setter TargetName="Row" Property="Opacity" Value="0.6" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding IsOut}" Value="True">
+                                            <Setter TargetName="Stock" Property="Foreground" Value="{DynamicResource Danger}" />
+                                        </DataTrigger>
+                                    </DataTemplate.Triggers>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                        <c:ProgressRing Width="34" Height="34" Visibility="{Binding IsLoadingCandidates, Converter={StaticResource Visible}}" />
+                        <ContentControl Style="{StaticResource EmptyState}" Tag="{x:Static c:Glyphs.Monitor}" Visibility="{Binding NoCandidates, Converter={StaticResource Visible}}">
+                            <TextBlock Text="{Binding NoCandidatesText}" TextWrapping="Wrap" MaxWidth="380" TextAlignment="Center" />
+                        </ContentControl>
+                    </Grid>
+                </DockPanel>
+            </Border>
+
+            <!-- Revisión y cotización -->
+            <Border Grid.Column="4" Style="{StaticResource Card}" Padding="16,14">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Bottom">
+                        <Border Height="1" Background="{DynamicResource Border}" Margin="0,10" />
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Right" Text="{Binding TotalText}" FontSize="24" FontWeight="Bold" FontFamily="{StaticResource DisplayFont}" />
+                            <StackPanel VerticalAlignment="Center" Margin="0,0,10,0">
+                                <TextBlock Text="TOTAL" Style="{StaticResource Overline}" />
+                                <TextBlock Text="IVA incluido · lista de precios vigente" Style="{StaticResource Caption}" FontSize="11" TextWrapping="Wrap"
+                                           Visibility="{Binding CanEdit, Converter={StaticResource Visible}}" />
+                                <TextBlock Text="IVA incluido · precios de la cotización" Style="{StaticResource Caption}" FontSize="11" TextWrapping="Wrap"
+                                           Visibility="{Binding CanEdit, Converter={StaticResource Hidden}}" />
+                            </StackPanel>
+                        </DockPanel>
+                        <Grid Margin="0,12,0,0" Visibility="{Binding CanEdit, Converter={StaticResource Visible}}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Button Content="Borrador" c:Ui.Icon="{x:Static c:Glyphs.Save}" Command="{Binding SaveDraft}" Margin="0,0,8,0" Padding="12,0"
+                                    c:Ui.IsBusy="{Binding SaveDraft.IsRunning}" ToolTip="Guardar el armado como borrador (sin congelar los precios)" />
+                            <Button Grid.Column="1" Style="{StaticResource PrimaryButton}" Content="Guardar cotización" c:Ui.Icon="{x:Static c:Glyphs.Report}"
+                                    Command="{Binding Quote}" Padding="12,0" c:Ui.IsBusy="{Binding Quote.IsRunning}"
+                                    ToolTip="Congelar los precios y la vigencia: es la oferta al cliente" />
+                        </Grid>
+                        <StackPanel Margin="0,8,0,0" Visibility="{Binding HasCurrent, Converter={StaticResource Visible}}">
+                            <Button Style="{StaticResource SoftButton}" Content="Vender en caja" c:Ui.Icon="{x:Static c:Glyphs.Cart}" Command="{Binding SellInPos}"
+                                    ToolTip="Cobrar la cotización vigente en el punto de venta (precios cotizados y series de cada pieza)" />
+                            <UniformGrid Columns="2" Margin="0,8,0,0">
+                                <Button Content="Proforma" c:Ui.Icon="{x:Static c:Glyphs.Printer}" Command="{Binding Proforma}" Margin="0,0,4,0"
+                                        c:Ui.IsBusy="{Binding Proforma.IsRunning}" ToolTip="Ver, imprimir o guardar en PDF la proforma de la cotización" />
+                                <Button Content="Anular" c:Ui.Icon="{x:Static c:Glyphs.Error}" Command="{Binding CancelBuild}" Margin="4,0,0,0"
+                                        ToolTip="Anular la cotización (no se puede cobrar después)" />
+                            </UniformGrid>
+                        </StackPanel>
+                    </StackPanel>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel>
+                            <Border CornerRadius="10" Padding="12,10" c:Ui.BrushKey="{Binding CompatibilitySoftBrush}">
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Left" Style="{StaticResource Icon}" Text="{Binding CompatibilityGlyph}" FontSize="20" Margin="0,0,10,0"
+                                               c:Ui.BrushKey="{Binding CompatibilityBrush}" VerticalAlignment="Center" />
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding CompatibilityTitle}" FontWeight="Bold" FontSize="14" c:Ui.BrushKey="{Binding CompatibilityBrush}" TextWrapping="Wrap" />
+                                        <TextBlock Text="Revisión en vivo de la compatibilidad" Style="{StaticResource Caption}" FontSize="11" />
+                                    </StackPanel>
+                                </DockPanel>
+                            </Border>
+                            <ItemsControl ItemsSource="{Binding Issues}" Focusable="False" Margin="0,8,0,0">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:PcIssueItem}">
+                                        <DockPanel Margin="0,3">
+                                            <TextBlock DockPanel.Dock="Left" Style="{StaticResource Icon}" Text="{Binding Glyph}" FontSize="12" Margin="2,2,8,0" VerticalAlignment="Top"
+                                                       c:Ui.BrushKey="{Binding Brush}" />
+                                            <TextBlock Text="{Binding Message}" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource TextSecondary}" />
+                                        </DockPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <TextBlock Text="ENERGÍA" Style="{StaticResource Overline}" Margin="0,14,0,6" />
+                            <UniformGrid Columns="3">
+                                <StackPanel>
+                                    <TextBlock Text="Consumo" Style="{StaticResource Caption}" FontSize="11" />
+                                    <TextBlock Text="{Binding DrawText}" FontWeight="SemiBold" FontSize="15" FontFamily="{StaticResource DisplayFont}" />
+                                </StackPanel>
+                                <StackPanel>
+                                    <TextBlock Text="Recomendada" Style="{StaticResource Caption}" FontSize="11" />
+                                    <TextBlock Text="{Binding RecommendedText}" FontWeight="SemiBold" FontSize="15" FontFamily="{StaticResource DisplayFont}" />
+                                </StackPanel>
+                                <StackPanel>
+                                    <TextBlock Text="Fuente" Style="{StaticResource Caption}" FontSize="11" />
+                                    <TextBlock Text="{Binding PsuText}" FontWeight="SemiBold" FontSize="15" FontFamily="{StaticResource DisplayFont}" />
+                                </StackPanel>
+                            </UniformGrid>
+                            <Grid Height="6" Margin="0,8,0,0">
+                                <Border Background="{DynamicResource ChartTrack}" CornerRadius="3" />
+                                <Border Background="{DynamicResource BrandGradientStrip}" CornerRadius="3" HorizontalAlignment="Left"
+                                        Width="{Binding PsuLoad, Converter={StaticResource ShareWidth}, ConverterParameter=298}" />
+                            </Grid>
+                            <TextBlock Text="{Binding PsuLoadText}" Style="{StaticResource Caption}" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap"
+                                       Visibility="{Binding PsuLoadText, Converter={StaticResource HasValue}}" />
+
+                            <TextBlock Text="COTIZACIÓN" Style="{StaticResource Overline}" Margin="0,16,0,6" />
+                            <TextBlock Text="{Binding CurrentDetail}" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                            <TextBlock Text="Nombre del armado" Style="{StaticResource FieldLabel}" />
+                            <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" MaxLength="150" c:Ui.Placeholder="PC gamer Ryzen 5 + RTX 4060"
+                                     IsEnabled="{Binding CanEdit}" />
+                            <TextBlock Text="Cliente" Style="{StaticResource FieldLabel}" Margin="0,10,0,6" />
+                            <ComboBox ItemsSource="{Binding Customers}" SelectedItem="{Binding Customer}" IsEnabled="{Binding CanEdit}" IsTextSearchEnabled="True" />
+                            <TextBlock Text="Vigencia de la cotización" Style="{StaticResource FieldLabel}" Margin="0,10,0,6" />
+                            <ComboBox ItemsSource="{Binding Validities}" SelectedItem="{Binding Validity}" IsEnabled="{Binding CanEdit}" />
+                        </StackPanel>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+        </Grid>
+
+        <!-- ================================================================ cotizaciones -->
+        <DockPanel Grid.Row="2" Visibility="{Binding IsQuotesTab, Converter={StaticResource Visible}}">
+            <ComboBox DockPanel.Dock="Top" Width="240" ItemsSource="{Binding Statuses}" SelectedItem="{Binding StatusFilter}" HorizontalAlignment="Left" Margin="0,0,0,10" />
+            <Border Style="{StaticResource CardFlat}" Padding="4,2,4,4">
+                <Grid>
+                    <DataGrid ItemsSource="{Binding Builds}" SelectedItem="{Binding SelectedBuild}" RowHeight="54">
+                        <DataGrid.InputBindings>
+                            <MouseBinding Gesture="LeftDoubleClick" Command="{Binding OpenBuild}" CommandParameter="{Binding SelectedBuild}" />
+                        </DataGrid.InputBindings>
+                        <DataGrid.Columns>
+                            <DataGridTemplateColumn Header="NÚMERO" Width="140" SortMemberPath="Number" CanUserSort="True">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate DataType="{x:Type vm:PcBuildItem}">
+                                        <Border Style="{StaticResource Pill}" Background="{DynamicResource BrandSoft}">
+                                            <TextBlock Text="{Binding Number}" Style="{StaticResource Mono}" Foreground="{DynamicResource BrandText}" FontWeight="SemiBold" />
+                                        </Border>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="ARMADO" Width="*" MinWidth="220" SortMemberPath="Name" CanUserSort="True">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate DataType="{x:Type vm:PcBuildItem}">
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Style="{StaticResource Caption}" FontSize="11.5" TextTrimming="CharacterEllipsis">
+                                                <Run Text="{Binding Customer, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding ItemsText, Mode=OneWay}" />
+                                                <Run Text=" · " /><Run Text="{Binding CreatedText, Mode=OneWay}" />
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="COMPATIBILIDAD" Width="175">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate DataType="{x:Type vm:PcBuildItem}">
+                                        <TextBlock Text="{Binding CompatibilityText}" c:Ui.BrushKey="{Binding CompatibilityBrush}" FontWeight="SemiBold" VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis" ToolTip="{Binding CompatibilityText}" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="VIGENCIA / VENTA" Binding="{Binding ValidText}" Width="180" ElementStyle="{StaticResource CellText}" />
+                            <DataGridTextColumn Header="TOTAL" Binding="{Binding TotalText}" Width="120" SortMemberPath="Total"
+                                                HeaderStyle="{StaticResource HeaderRight}" ElementStyle="{StaticResource CellRight}" />
+                            <DataGridTemplateColumn Header="ESTADO" Width="150" SortMemberPath="StatusText" CanUserSort="True">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate DataType="{x:Type vm:PcBuildItem}">
+                                        <Border Style="{StaticResource StatusPill}" c:Ui.BrushKey="{Binding StatusSoftBrush}">
+                                            <TextBlock Text="{Binding StatusText}" FontSize="11" FontWeight="SemiBold" c:Ui.BrushKey="{Binding StatusBrush}" />
+                                        </Border>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Width="90" CanUserSort="False">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate DataType="{x:Type vm:PcBuildItem}">
+                                        <Button Style="{StaticResource SoftButton}" Content="Abrir" Height="30" Padding="12,0" HorizontalAlignment="Right"
+                                                Command="{Binding DataContext.OpenBuild, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <ContentControl Style="{StaticResource EmptyState}" Tag="{x:Static c:Glyphs.Monitor}" Visibility="{Binding NoBuilds, Converter={StaticResource Visible}}">
+                        <StackPanel>
+                            <TextBlock Text="Todavía no hay armados" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" HorizontalAlignment="Center" />
+                            <TextBlock Text="Arme una PC en la pestaña «Armar» y cotícela para el cliente." Style="{StaticResource Caption}" HorizontalAlignment="Center"
+                                       Margin="0,4,0,0" />
+                        </StackPanel>
+                    </ContentControl>
+                </Grid>
+            </Border>
+        </DockPanel>
+    </Grid>
+</UserControl>

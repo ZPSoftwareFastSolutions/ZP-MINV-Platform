@@ -401,8 +401,22 @@ namespace MINV.Infrastructure.Persistence.Migrations
                 """);
         }
 
-        /// <summary>Estadísticas del planificador después del relleno (ANALYZE sí se admite dentro de la transacción).</summary>
-        private static void V4Analyze(MigrationBuilder migrationBuilder) => migrationBuilder.Sql(PostgresMaintenance.AnalyzeSql);
+        /// <summary>Estadísticas del planificador después del relleno (ANALYZE sí se admite dentro de la transacción). El SQL
+        /// queda congelado tal como se publicó en la V4 (los 8 esquemas de entonces): <see cref="PostgresMaintenance.AnalyzeSql"/>
+        /// siguió creciendo (V4.2: facturación y garantías) y una migración publicada no cambia (reglas A-07 y B-15).</summary>
+        private static void V4Analyze(MigrationBuilder migrationBuilder) => migrationBuilder.Sql("""
+            DO $$
+            DECLARE r record;
+            BEGIN
+                FOR r IN SELECT schemaname, tablename FROM pg_tables
+                         WHERE schemaname IN ('iam', 'catalog', 'warehouse', 'inventory', 'purchasing', 'sales', 'accounting', 'integration')
+                           AND tableowner = current_user
+                LOOP
+                    EXECUTE format('ANALYZE %I.%I', r.schemaname, r.tablename);
+                END LOOP;
+            END;
+            $$;
+            """);
 
         private static void V4DropGuards(MigrationBuilder migrationBuilder)
         {

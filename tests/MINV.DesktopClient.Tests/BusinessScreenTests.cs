@@ -10,7 +10,9 @@ namespace MINV.DesktopClient.Tests;
 
 /// <summary>
 /// Pantallas de negocio con la demostración: catálogo con imágenes, punto de venta (abrir caja, carrito, cobro,
-/// anulación), órdenes de compra (pedido sugerido → aprobar → recibir), reportes, contabilidad y usuarios.
+/// anulación), órdenes de compra (pedido sugerido → aprobar → recibir), reportes, contabilidad y usuarios. V4.2: la
+/// demostración es Tech Zone Gaming (con ventas, compras y cajas abiertas de sus cajeros): el administrador abre la caja
+/// libre (CAJA03) y cobra o recibe productos sin serie (los serializados se venden y se reciben con sus series).
 /// </summary>
 public sealed class BusinessScreenTests
 {
@@ -37,10 +39,12 @@ public sealed class BusinessScreenTests
         Assert.True(pos.IsClosed);
         Assert.NotEmpty(pos.Products.Cast<PosProduct>());
         Assert.All(pos.Products.Cast<PosProduct>(), p => Assert.NotNull(p.Image));
+        pos.Register = pos.Registers.First(r => r.Code == "CAJA03");   // la caja libre (las demás tienen el turno de su cajero)
         await pos.OpenSession.ExecuteAsync();
         Assert.True(pos.IsOpen);
 
-        var products = pos.Products.Cast<PosProduct>().Where(p => p.Available >= 3).Take(2).ToList();
+        var serialized = await DemoData.SerializedAsync(shell.App);
+        var products = pos.Products.Cast<PosProduct>().Where(p => p.Available >= 3 && !serialized.Contains(p.Sku)).Take(2).ToList();
         foreach (var product in products)
         {
             pos.Add.Execute(product);
@@ -65,7 +69,8 @@ public sealed class BusinessScreenTests
         var sale = sales.Rows.Cast<SaleItem>().First(s => s.Invoice == pos.LastSale.InvoiceNumber);
         sales.Selected = sale;
         await Wpf.UntilAsync(() => sales.Lines.Count == 2);
-        Assert.Equal("1", sales.TicketsKpi.Value);
+        Assert.Equal(sales.Rows.Cast<SaleItem>().Count(s => !s.IsVoided).ToString("N0", Fmt.Culture), sales.TicketsKpi.Value);
+        var voided = sales.Rows.Cast<SaleItem>().Count(s => s.IsVoided);
 
         // Anular con motivo (combo editable del cuadro): el stock vuelve y la factura queda ANULADA
         var run = sales.Void.ExecuteAsync();
@@ -74,7 +79,7 @@ public sealed class BusinessScreenTests
         shell.Dialogs.Current.Confirm.Execute(null);
         await run;
         Assert.Contains(sales.Rows.Cast<SaleItem>(), s => s.Invoice == pos.LastSale.InvoiceNumber && s.IsVoided);
-        Assert.Equal("1", sales.VoidedKpi.Value);
+        Assert.Equal((voided + 1).ToString("N0", Fmt.Culture), sales.VoidedKpi.Value);
     });
 
     [Fact]
@@ -87,17 +92,33 @@ public sealed class BusinessScreenTests
         shell.Navigate("compras");
         var purchases = (PurchaseOrdersViewModel)shell.Current;
         await purchases.EnsureLoadedAsync();
-        Assert.True(purchases.IsEmpty);
+        Assert.False(purchases.IsEmpty);   // la demostración trae órdenes recibidas, aprobadas y un borrador
+        var before = purchases.Rows.Cast<PurchaseOrderItem>().Select(o => o.Row.Id).ToHashSet();
 
         // Pedido sugerido → órdenes en borrador (el cuadro de confirmación se acepta)
         var run = purchases.FromSuggestion.ExecuteAsync();
         await Wpf.UntilAsync(() => shell.Dialogs.Current is not null);
         shell.Dialogs.Current!.Confirm.Execute(null);
         await run;
-        var drafts = purchases.Rows.Cast<PurchaseOrderItem>().Where(o => o.Status == PurchaseOrderStatus.Draft).ToList();
+        var drafts = purchases.Rows.Cast<PurchaseOrderItem>().Where(o => o.Status == PurchaseOrderStatus.Draft && !before.Contains(o.Row.Id)).ToList();
         Assert.NotEmpty(drafts);
 
         purchases.Selected = drafts[0];
+        run = purchases.Approve.ExecuteAsync();
+        await Wpf.UntilAsync(() => shell.Dialogs.Current is not null);
+        shell.Dialogs.Current!.Confirm.Execute(null);
+        await run;
+        Assert.Equal(PurchaseOrderStatus.Approved, purchases.Selected!.Status);
+
+        // V4.2 · La recepción desde esta pantalla es la de una orden SIN productos serializados (un serializado entra con sus
+        // series): se aprueba y se recibe un borrador de un producto sin serie de su proveedor
+        var serialized = await DemoData.SerializedAsync(shell.App);
+        var item = (await shell.App.SendAsync(new MINV.Application.Catalog.GetCatalogQuery()))
+            .First(c => c.SupplierCode is not null && c.Unit != "SERV" && !serialized.Contains(c.Sku));
+        var order = await shell.App.SendAsync(new MINV.Application.Purchasing.CreatePurchaseOrderCommand(item.SupplierCode!, null, "Prueba de la pantalla",
+            [new MINV.Application.Purchasing.PurchaseLineInput(item.Sku, 2, item.UnitCost)]));
+        await purchases.LoadAsync(force: true);
+        purchases.Selected = purchases.Rows.Cast<PurchaseOrderItem>().First(o => o.Row.Id == order.Id);
         run = purchases.Approve.ExecuteAsync();
         await Wpf.UntilAsync(() => shell.Dialogs.Current is not null);
         shell.Dialogs.Current!.Confirm.Execute(null);

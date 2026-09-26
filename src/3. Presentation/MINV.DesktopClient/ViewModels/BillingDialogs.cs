@@ -111,13 +111,30 @@ public sealed class ReturnLineItem : ObservableObject
     private readonly Action _changed;
     private string _quantity = string.Empty;
 
-    public ReturnLineItem(ReturnableLine line, Action changed)
+    public ReturnLineItem(ReturnableLine line, Action changed, IReadOnlyList<string>? serials = null)
     {
         Line = line;
         _changed = changed;
+        // V4.2 · Un producto serializado se devuelve por sus series (las de esta venta que siguen vendidas, regla T-02)
+        SerialOptions = (serials ?? []).Select(s => new ReturnSerialOption(s, () =>
+        {
+            OnPropertiesChanged(nameof(Parsed), nameof(HasError), nameof(Refund), nameof(SelectedText));
+            _changed();
+        })).ToList();
     }
 
     public ReturnableLine Line { get; }
+
+    /// <summary>V4.2 · Series vendidas en la línea que se pueden devolver (vacío si el producto no lleva serie).</summary>
+    public IReadOnlyList<ReturnSerialOption> SerialOptions { get; }
+
+    public bool HasSerials => SerialOptions.Count > 0;
+
+    public bool HasNoSerials => !HasSerials;
+
+    public IReadOnlyList<string> SelectedSerials => SerialOptions.Where(o => o.IsChecked).Select(o => o.Serial).ToList();
+
+    public string SelectedText => $"{SelectedSerials.Count} de {SerialOptions.Count} series";
 
     public decimal Available => Line.Sold - Line.Returned;
 
@@ -140,38 +157,84 @@ public sealed class ReturnLineItem : ObservableObject
         }
     }
 
-    public decimal Parsed => Numbers.TryParse(_quantity, out var q, emptyIsZero: true) ? q : -1;
+    public decimal Parsed => HasSerials ? SelectedSerials.Count : Numbers.TryParse(_quantity, out var q, emptyIsZero: true) ? q : -1;
+
+    /// <summary>Marca todo lo que queda por devolver (cantidad o todas las series).</summary>
+    public void SelectAll()
+    {
+        if (HasSerials)
+        {
+            foreach (var option in SerialOptions)
+            {
+                option.IsChecked = true;
+            }
+            return;
+        }
+        Quantity = Numbers.Plain(Available);
+    }
 
     public bool HasError => Parsed < 0 || Parsed > Available;
 
     public decimal Refund => Parsed > 0 ? decimal.Round(Parsed * Line.UnitPrice * (1 - Line.DiscountPercent / 100m), 2, MidpointRounding.AwayFromZero) : 0m;
 }
 
+/// <summary>V4.2 · Serie vendida que se puede marcar para devolver.</summary>
+public sealed class ReturnSerialOption(string serial, Action changed) : ObservableObject
+{
+    private bool _checked;
+
+    public string Serial { get; } = serial;
+
+    public bool IsChecked
+    {
+        get => _checked;
+        set
+        {
+            if (Set(ref _checked, value))
+            {
+                changed();
+            }
+        }
+    }
+}
+
 /// <summary>Devolución parcial o total de una venta: stock de vuelta, reembolso, asiento y, si la venta tiene factura
-/// válida, nota crédito-débito (sector 24).</summary>
+/// válida, nota crédito-débito (sector 24). V4.2 · Los productos serializados se devuelven marcando sus series y la
+/// devolución puede ser POR FALLA (se reembolsa, pero la mercadería queda en garantía y no vuelve al stock vendible).</summary>
 public sealed class SalesReturnDialog : FormDialog
 {
     private readonly AppServices _app;
     private readonly string _invoice;
     private PosOption? _method;
     private string _reason = string.Empty;
+    private bool _defective;
 
-    private SalesReturnDialog(AppServices app, string invoiceNumber, IReadOnlyList<ReturnableLine> lines, IReadOnlyList<PosOption> methods)
+    private SalesReturnDialog(AppServices app, string invoiceNumber, IReadOnlyList<ReturnableLine> lines, IReadOnlyList<PosOption> methods,
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? serials = null)
         : base($"Devolución de la venta {invoiceNumber}", "Registrar devolución", Glyphs.Undo, width: 640)
     {
         _app = app;
         _invoice = invoiceNumber;
-        Lines = lines.Select(l => new ReturnLineItem(l, () => OnPropertiesChanged(nameof(RefundText), nameof(ReturnsSomething)))).ToList();
+        Lines = lines.Select(l => new ReturnLineItem(l, () => OnPropertiesChanged(nameof(RefundText), nameof(ReturnsSomething)),
+            serials?.GetValueOrDefault(l.Sku))).ToList();
         Methods = methods;
         _method = methods.FirstOrDefault(m => m.Code == "EFECTIVO") ?? methods.FirstOrDefault();
         ReturnAll = new RelayCommand(() =>
         {
             foreach (var line in Lines.Where(l => l.CanReturn))
             {
-                line.Quantity = Numbers.Plain(line.Available);
+                line.SelectAll();
             }
         });
     }
+
+    /// <summary>V4.2 · Devolución por falla: sin entrada al stock vendible; las series quedan «en garantía (RMA)».</summary>
+    public bool Defective { get => _defective; set => Set(ref _defective, value); }
+
+    public bool HasSerials => Lines.Any(l => l.HasSerials);
+
+    public string DefectiveHelp => "Se reembolsa al cliente, pero la mercadería NO vuelve al stock vendible: queda en garantía para devolverla al " +
+                                   "proveedor, repararla o darla de baja (pantalla Series e IMEI).";
 
     public override string Subtitle =>
         "Vuelve el stock (devolución de cliente), se registra el reembolso y, si la venta tiene factura válida, se emite la nota crédito-débito.";
@@ -204,7 +267,7 @@ public sealed class SalesReturnDialog : FormDialog
             return null;
         }
         var state = await app.SendAsync(new GetPosStateQuery());
-        var dialog = new SalesReturnDialog(app, invoiceNumber, lines, state.PaymentMethods);
+        var dialog = new SalesReturnDialog(app, invoiceNumber, lines, state.PaymentMethods, await ReturnableSerialsAsync(app, invoiceNumber));
         return await app.Dialogs.ShowAsync(dialog) ? dialog.Result : null;
     }
 
@@ -217,9 +280,32 @@ public sealed class SalesReturnDialog : FormDialog
             Error = $"Revise la cantidad de {wrong.Line.Name}: puede devolver de 0 a {Fmt.Qty(wrong.Available)}.";
             return false;
         }
-        var inputs = Lines.Where(l => l.Parsed > 0).Select(l => new ReturnLineInput(l.Line.Sku, l.Parsed)).ToList();
-        Result = await _app.SendAsync(new CreateSalesReturnCommand(_invoice, _reason.Trim(), _method!.Code, inputs));
+        var inputs = Lines.Where(l => l.Parsed > 0).Select(l => new ReturnLineInput(l.Line.Sku, l.Parsed, l.HasSerials ? l.SelectedSerials : null)).ToList();
+        Result = await _app.SendAsync(new CreateSalesReturnCommand(_invoice, _reason.Trim(), _method!.Code, inputs, _defective));
         return true;
+    }
+
+    /// <summary>V4.2 · Series de la venta que siguen vendidas (las demás ya se devolvieron o están en garantía), por SKU.</summary>
+    private static async Task<IReadOnlyDictionary<string, IReadOnlyList<string>>> ReturnableSerialsAsync(AppServices app, string invoiceNumber)
+    {
+        var sold = (await app.SendAsync(new GetSaleLinesQuery(invoiceNumber))).Where(l => l.Serials is { Count: > 0 })
+            .GroupBy(l => l.Sku, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.SelectMany(l => l.Serials!).Distinct().ToList(),
+                StringComparer.OrdinalIgnoreCase);
+        var result = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (sku, serials) in sold)
+        {
+            try
+            {
+                var stillSold = (await app.SendAsync(new MINV.Application.Tech.SearchSerialsQuery(Status: MINV.Domain.Inventory.SerialNumberStatus.Sold, Sku: sku,
+                    Max: 2000))).Select(r => r.Serial).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                result[sku] = serials.Where(stillSold.Contains).ToList();
+            }
+            catch (Exception ex) when (AppServices.IsExpected(ex))
+            {
+                result[sku] = serials;   // sin permiso para consultar series: se ofrecen todas (el dominio valida al guardar)
+            }
+        }
+        return result;
     }
 }
 
@@ -824,7 +910,13 @@ public sealed class SuggestionsDialog : FormDialog
 }
 
 // --------------------------------------------------------------------------------------------------- factura del proveedor
-/// <summary>Registrar la factura del proveedor de una recepción (entra al libro de compras con su crédito fiscal).</summary>
+/// <summary>
+/// Registrar la factura del proveedor de una recepción (entra al libro de compras con su crédito fiscal). V4.2 · Las compras
+/// entran al costo NETO de IVA (el 87 % del importe facturado: en Bolivia el crédito fiscal es el 13 % de la factura), así
+/// que el importe que se propone es el de la factura con IVA que corresponde a esa recepción: recepción / 0,87
+/// (<see cref="FiscalRules.InvoiceForNetCost"/>). Con ese importe el crédito fiscal es exactamente el IVA que se suma a la
+/// deuda con el proveedor y el inventario no cambia; <see cref="AccountingText"/> explica el asiento de lo que se escriba.
+/// </summary>
 public sealed class SupplierInvoiceDialog : FormDialog
 {
     private readonly AppServices _app;
@@ -844,7 +936,7 @@ public sealed class SupplierInvoiceDialog : FormDialog
         _app = app;
         _receipt = receipt;
         _date = receipt.ReceivedOn.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
-        _total = Numbers.Plain(receipt.Total);
+        _total = Numbers.Plain(ProposedTotal(receipt.Total));
         Types =
         [
             new("1 · Compras para el mercado interno (actividades gravadas)", 1),
@@ -856,7 +948,15 @@ public sealed class SupplierInvoiceDialog : FormDialog
         _type = Types[0];
     }
 
-    public override string Subtitle => $"{_receipt.Supplier} · recibida el {_receipt.ReceivedOn:dd/MM/yyyy} · {Fmt.Money(_receipt.Total)}";
+    public override string Subtitle => $"{_receipt.Supplier} · recibida el {_receipt.ReceivedOn:dd/MM/yyyy} · {Fmt.Money(_receipt.Total)} al costo neto";
+
+    /// <summary>Importe con IVA que se propone para una recepción al costo neto: recepción / 0,87.</summary>
+    public static decimal ProposedTotal(decimal receiptTotal) => FiscalRules.InvoiceForNetCost(receiptTotal);
+
+    /// <summary>Por qué se propone ese importe.</summary>
+    public string ProposalText =>
+        $"La recepción entró al costo neto de IVA ({Fmt.Money(_receipt.Total)}, el 87 % de lo facturado): se propone el importe con IVA " +
+        $"que le corresponde, {Fmt.Money(ProposedTotal(_receipt.Total))} = recepción ÷ 0,87. Escriba el importe que dice la factura del proveedor.";
 
     public string InvoiceNumber { get => _number; set => Set(ref _number, value ?? string.Empty); }
 
@@ -872,6 +972,7 @@ public sealed class SupplierInvoiceDialog : FormDialog
             if (Set(ref _total, value ?? string.Empty))
             {
                 OnPropertyChanged(nameof(CreditText));
+                OnPropertyChanged(nameof(AccountingText));
             }
         }
     }
@@ -884,6 +985,7 @@ public sealed class SupplierInvoiceDialog : FormDialog
             if (Set(ref _discounts, value ?? string.Empty))
             {
                 OnPropertyChanged(nameof(CreditText));
+                OnPropertyChanged(nameof(AccountingText));
             }
         }
     }
@@ -896,6 +998,7 @@ public sealed class SupplierInvoiceDialog : FormDialog
             if (Set(ref _notSubject, value ?? string.Empty))
             {
                 OnPropertyChanged(nameof(CreditText));
+                OnPropertyChanged(nameof(AccountingText));
             }
         }
     }
@@ -915,7 +1018,40 @@ public sealed class SupplierInvoiceDialog : FormDialog
             Numbers.TryParse(_discounts, out var discounts, emptyIsZero: true);
             Numbers.TryParse(_notSubject, out var notSubject, emptyIsZero: true);
             var taxBase = Math.Max(0, total - discounts - notSubject);
-            return $"Base para crédito fiscal {Fmt.Money(taxBase)} · crédito fiscal IVA 13 % {Fmt.Money(decimal.Round(taxBase * 0.13m, 2, MidpointRounding.AwayFromZero))}";
+            return $"Base para crédito fiscal {Fmt.Money(taxBase)} · crédito fiscal IVA 13 % {Fmt.Money(FiscalRules.Vat(taxBase))}";
+        }
+    }
+
+    /// <summary>
+    /// El asiento que dejará la factura (el mismo cálculo que <c>RegisterSupplierInvoiceHandler</c>): el crédito fiscal va al
+    /// Debe de 1.1.04, la deuda con el proveedor pasa al importe de la factura menos descuentos y el inventario (1.1.05) absorbe
+    /// la diferencia. Con el importe propuesto el inventario no cambia: sigue en el valor del stock.
+    /// </summary>
+    public string AccountingText
+    {
+        get
+        {
+            if (!Numbers.TryParse(_total, out var total) || !Numbers.TryParse(_discounts, out var discounts, emptyIsZero: true)
+                                                         || !Numbers.TryParse(_notSubject, out var notSubject, emptyIsZero: true))
+            {
+                return "Revise los importes para ver el asiento.";
+            }
+            var credit = FiscalRules.Vat(Math.Max(0, total - discounts - notSubject));
+            var payable = FiscalRules.Round2(total - discounts) - _receipt.Total;
+            var inventory = credit - payable;
+            var debt = payable switch
+            {
+                > 0 => $"la deuda con el proveedor sube {Fmt.Money(payable)}",
+                < 0 => $"la deuda con el proveedor baja {Fmt.Money(-payable)}",
+                _ => "la deuda con el proveedor no cambia",
+            };
+            var stock = inventory switch
+            {
+                > 0 => $"el inventario (1.1.05) baja {Fmt.Money(inventory)} y se aparta del valor del stock (el costo promedio no se recalcula)",
+                < 0 => $"el inventario (1.1.05) sube {Fmt.Money(-inventory)} y se aparta del valor del stock (el costo promedio no se recalcula)",
+                _ => "el inventario (1.1.05) no cambia",
+            };
+            return $"Asiento: crédito fiscal {Fmt.Money(credit)} al Debe de 1.1.04 · {debt} · {stock}.";
         }
     }
 

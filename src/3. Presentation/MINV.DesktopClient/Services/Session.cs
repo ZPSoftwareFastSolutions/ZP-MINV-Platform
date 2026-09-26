@@ -10,7 +10,7 @@ namespace MINV.DesktopClient.Services;
 /// memoria de la demostración.</summary>
 public sealed record ConnectionInfo(bool IsDemo, string Server, string Database, string User, bool IsCloud = false)
 {
-    public string Description => IsDemo ? "Demostración en memoria (datos de la V2.1)"
+    public string Description => IsDemo ? "Demostración en memoria (Tech Zone Gaming)"
         : IsCloud ? $"Nube · servidor {Server}" : $"PostgreSQL · {Server} · {Database}";
 }
 

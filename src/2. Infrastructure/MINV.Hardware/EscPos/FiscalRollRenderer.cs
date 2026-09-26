@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using MINV.Application.Abstractions;
+using MINV.Application.Tech;
 using MINV.Domain.Billing;
 
 namespace MINV.Hardware.EscPos;
@@ -187,6 +188,15 @@ public sealed class FiscalRollRenderer : IFiscalRollRenderer
                 detail += $" - {Money(l.Discount)}";
             }
             Pair(doc, width, detail + " =", Money(l.Subtotal));
+            // V4.2 · Series o IMEI de la línea (los del XML) y garantía derivada de la emisión (reglas T-03 y T-04)
+            foreach (var text in Wrap(l.SerialsText, width - 2))
+            {
+                doc.Line("  " + text);
+            }
+            if (l.WarrantyUntil is { } until)
+            {
+                doc.Line("  " + TechPrint.Warranty(until));
+            }
         }
     }
 

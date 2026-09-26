@@ -3,7 +3,22 @@
 M-INV es el sistema de inventarios B2B de Z&P Software Fast Solutions: libros de Excel arquitectados como aplicación
 transaccional inmutable (CQRS, append-only), preparados para migrar a SQL/.NET.
 
-Versión en desarrollo: **4.1.0-alpha.1** en la rama `Inventario-V4.1` (sobre `Inventario-V4.-BaseDeDatosNube`):
+Versión en desarrollo: **4.2.0-alpha.1** en la rama `Inventario-V4.2` (sobre `Inventario-V4.1`): **edición
+Tecnología**, M-INV EXCLUSIVO para tiendas de computadoras, componentes, periféricos, consolas (PS4 y PS5, Xbox Series X
+y Series S, Nintendo Switch y Switch 2), videojuegos, accesorios, redes y software, **con datos y no con código a
+medida**: fichas técnicas tipadas por categoría (herencia, facetas, plataformas y condición como especificaciones de
+opción), **productos serializados** con número de serie o IMEI (Luhn) en la recepción, la venta, las transferencias y las
+devoluciones, con bitácora append-only por serie y `inventory.v_serial_breaches` (series en stock = stock), series en la
+factura del SIN (`numeroSerie`/`numeroImei`, línea dividida si pasa de 1500 caracteres), **garantía derivada** (venta +
+meses), **garantías y RMA** (`service.warranty_claims`, reposición con REPOSICIÓN POR GARANTÍA y asiento 5.1.10),
+**armador de PC** (`PcCompatibility`, cotización con precios congelados que se cobra en la caja), tablero Tecnología y
+**tema gaming** (oscuro por defecto). Migración `V42TechRetail`: PostgreSQL de **152 tablas en 10 esquemas** (esquema
+`service`). Empresa de prueba **Tech Zone Gaming S.R.L.** (`TECHZONE`, sucursales CM La Paz, CB Cochabamba y SC Santa
+Cruz) desde `Seeding/Tecnologia/catalogo-tecnologia.json`; la demostración es la misma empresa en memoria (8 días,
+~17 s en frío; T-09 prevalece sobre A-12). Reglas: `.claude/v42-tech-rules.md`; diseño:
+`docs/architecture/edicion-tecnologia-v4.2.md`; paso a paso: `docs/deployment/inicio-rapido-v4.2.md`.
+
+Versión anterior: **4.1.0-alpha.1** en la rama `Inventario-V4.1` (sobre `Inventario-V4.-BaseDeDatosNube`):
 **facturación SIAT** de Bolivia, modalidad **Facturación Computarizada en Línea**: factura Compra Venta (sector 1) al
 vender (caja, API y transcripción CAFC) y nota Crédito-Débito (sector 24) en las devoluciones, dentro de la misma
 transacción que la venta; envío al SIN después del COMMIT (`DispatchFiscalDocumentsCommand`, despachador en
@@ -16,18 +31,18 @@ datos de prueba facturan los últimos 25 días contra el simulador en proceso (e
 demostración factura en memoria. Reglas: `.claude/v41-billing-rules.md`; diseño: `docs/architecture/facturacion-siat-v4.1.md`;
 qué falta confirmar con el SIN: `docs/billing/README.md`.
 
-Versión anterior: **4.0.0-alpha.1** en la rama `Inventario-V4.-BaseDeDatosNube` (sobre
+Versión previa: **4.0.0-alpha.1** en la rama `Inventario-V4.-BaseDeDatosNube` (sobre
 `Inventario-V3.-BaseDeDatosLocal`): M-INV **multi-sucursal en la nube**. Sucursales aisladas (`IBranchScoped` /
 `IInterBranch`, filtros de EF Core, guardas, FK compuestas con la sucursal y RLS RESTRICTIVA con `minv.branch_ids`),
 transferencias con mercadería en tránsito (manifiesto por lote, faltantes, asientos 1.1.06 / 2.1.04), servidor en la
 nube `src/3. Presentation/MINV.CloudServer` (el escritorio envía sus comandos de MediatR por HTTPS: login, RPC
 idempotente), API Gateway B2B `src/3. Presentation/MINV.ApiGateway` (API Keys con alcances, pedidos idempotentes,
 webhooks firmados desde un outbox transaccional, OpenAPI), modelo de lectura (`MinvReadDbContext`, esquema
-`reporting`), PostgreSQL de **110 tablas en 8 esquemas** (V4.1: 140 en 9) con los roles `minv_owner`, `minv_server` (NOBYPASSRLS) y
+`reporting`), PostgreSQL de **110 tablas en 8 esquemas** (V4.1: 140 en 9; V4.2: 152 en 10) con los roles `minv_owner`, `minv_server` (NOBYPASSRLS) y
 `minv_app`. `MINVDbContext` se llama ahora `MinvWriteDbContext` (hay dos contextos: `dotnet ef … --context
 MinvWriteDbContext`). Reglas: `.claude/v4-architecture-rules.md`; arquitectura: `docs/architecture/arquitectura-v4.md`.
 
-Versión previa: **3.1.0-alpha.1** en la rama `Inventario-V3.-BaseDeDatosLocal` (sobre `Inventario-V3.1`): solución
+Versión de la V3: **3.1.0-alpha.1** en la rama `Inventario-V3.-BaseDeDatosLocal` (sobre `Inventario-V3.1`): solución
 .NET 8 (`MINV.sln`, Clean Architecture) con PostgreSQL (97 tablas, 5FN, multi-tenant; local con `tools\bd_local.ps1` y
 datos de prueba `minv datos-prueba`), hardware ESC/POS y el cliente de escritorio completo `M-INV.exe` (WPF/MVVM:
 pantalla de carga, login con demostración en memoria, tablero, stock y catálogo en galería con imágenes, punto de venta,
@@ -48,10 +63,19 @@ rama `Inventario-V1.2`). Idioma del producto y la documentación: español.
 @.claude/v3-architecture-rules.md
 @.claude/v4-architecture-rules.md
 @.claude/v41-billing-rules.md
+@.claude/v42-tech-rules.md
 
 ## Comandos
 
 ```powershell
+powershell -ExecutionPolicy Bypass -File tools\bd_local.ps1 -Accion recrear     # V4.2: base local con Tech Zone Gaming (TECHZONE): 60 días, series, RMA, armados y facturación (~2 min de carga)
+dotnet run --project "src/4. Tools/MINV.Cli" -- datos-prueba --conexion "…"      # V4.2: empresa TECHZONE por defecto (--codigo, --dias 60, --semilla 2026)
+dotnet run --project "src/4. Tools/MINV.Cli" -- verify --codigo TECHZONE --conexion "…"   # V4.2: además, series en stock = stock (v_serial_breaches)
+& "src\3. Presentation\MINV.DesktopClient\bin\Release\net8.0-windows\M-INV.exe" --capturas "<carpeta temporal>" [--tema oscuro]   # V4.2: capturas 01 a 98 con la demostración (MINV_CAPTURAS_USUARIOS vacía)
+.venv\Scripts\python tools\tecnologia\generar_catalogo.py                     # V4.2: regenerar y validar catalogo-tecnologia.json (armados y compatibilidad)
+.venv\Scripts\python tools\tecnologia\generar_imagenes_tecnologia.py          # V4.2: ilustraciones propias de los productos (sin logotipos)
+.venv\Scripts\python tools\tecnologia\generar_icono_gaming.py [--vista-previa] # V4.2: ícono y logotipo de la edición
+.venv\Scripts\python tools\tecnologia\verificar_paleta.py <Theme original> <Theme nueva>   # V4.2: mismas claves y contraste WCAG AA de las paletas
 powershell -ExecutionPolicy Bypass -File tools\bd_local.ps1 -Accion recrear     # V4.1: base local + datos de prueba QUE FACTURAN (-SinFacturacion) + claves y token de simulación
 powershell -ExecutionPolicy Bypass -File tools\servidores_locales.ps1 -Accion iniciar   # V4.1: simulador del SIN :5095 + CloudServer :5080 + ApiGateway :5090 (detener, estado; -SinSimulador)
 dotnet run --project "src/4. Tools/MINV.Cli" -- siat estado|preparar|sincronizar|procesar [--codigo MINV] [--conexion …]   # V4.1: facturación de una empresa
@@ -88,6 +112,11 @@ variables); los Office Scripts, TypeScript sin `any` ni sintaxis no borrable.
 
 ## Documentación
 
+- V4.2: edición Tecnología: el algoritmo paso a paso `docs/deployment/inicio-rapido-v4.2.md` · diseño (modelo,
+  ciclo de vida de la serie, RMA, armador, factura, decisiones y límites) `docs/architecture/edicion-tecnologia-v4.2.md` ·
+  reglas T-01 a T-10 `.claude/v42-tech-rules.md` · interfaz `docs/product/escritorio-v4.2.md` (capturas en
+  `docs/product/capturas/v4.2`) · tema gaming `docs/product/ux-ui-guidelines.md` §13 · tablas `docs/database/ERD-MINV-V3.md`
+  §9 · migración V4.1 → V4.2 `.claude/database-migration-guide.md` §9 · guía para todos `GUIA-DE-INICIO.md` §5
 - V4.1: facturación SIAT: el algoritmo paso a paso `docs/deployment/inicio-rapido-v4.1.md` · qué es, investigación del
   SIN y huecos por confirmar `docs/billing/README.md` · del simulador al SIN real (autorización, Fases I-III, producción)
   `docs/billing/puesta-en-produccion-siat.md` · diseño `docs/architecture/facturacion-siat-v4.1.md` · reglas F-01 a

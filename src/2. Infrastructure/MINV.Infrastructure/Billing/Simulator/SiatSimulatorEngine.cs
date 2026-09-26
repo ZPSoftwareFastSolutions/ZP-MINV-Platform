@@ -216,7 +216,7 @@ public sealed partial class SiatSimulatorEngine
     {
         ArgumentNullException.ThrowIfNull(caller);
         ArgumentNullException.ThrowIfNull(place);
-        var rows = SiatSimulatorCatalogs.Rows((catalog ?? string.Empty).Trim().ToUpperInvariant())
+        var rows = SiatSimulatorCatalogs.Rows((catalog ?? string.Empty).Trim().ToUpperInvariant(), caller.Nit)   // V4.2: padrón por NIT
                    ?? throw new ArgumentOutOfRangeException(nameof(catalog), catalog, "El simulador no conoce ese catálogo.");
         EnsureAvailable();
         lock (_gate)

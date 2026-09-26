@@ -1,5 +1,7 @@
 # Inicio rápido · M-INV V4 (multi-sucursal, nube y API) · paso a paso
 
+> **Rama `Inventario-V4.2`:** esta guía describe la edición de su rama con la ferretería de ejemplo (empresa **MINV**). En la V4.2 los mismos scripts cargan la tienda de tecnología **Tech Zone Gaming** (empresa **TECHZONE**, sucursales CM, CB y SC): siga [`inicio-rapido-v4.2.md`](inicio-rapido-v4.2.md).
+
 La **V4** (4.0.0-alpha.1, rama `Inventario-V4.-BaseDeDatosNube`) agrega a M-INV **varias sucursales** (cada una ve lo
 suyo), **transferencias** con mercadería en tránsito, un **servidor en la nube** para que el escritorio trabaje por
 internet y un **API** para la tienda en línea. Esta guía lo prueba TODO en su propio equipo, sin contratar nada; al

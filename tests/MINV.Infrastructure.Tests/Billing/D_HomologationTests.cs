@@ -15,6 +15,7 @@ public sealed class D_HomologationTests
 {
     private const string Hardware = "4752100";      // ferretería (simulador)
     private const string Construction = "4752400";  // materiales de construcción (simulador)
+    private const string Computers = "4741100";     // V4.2: computadoras, periféricos y software (actividad principal del simulador)
 
     [Fact]
     public async Task Homologa_productos_unidades_y_medios_de_pago_contra_el_catalogo_sincronizado()
@@ -30,7 +31,7 @@ public sealed class D_HomologationTests
         var before = await admin.Send(new GetHomologationQuery());
         Assert.Equal(3, before.PendingProducts);   // el inactivo no cuenta
         Assert.Equal(4, before.Products.Count);
-        Assert.Equal(2, before.Activities.Count);
+        Assert.Equal(5, before.Activities.Count);   // V4.2: 3 de tecnología + 2 de ferretería (simulador)
         Assert.All(before.Activities, a => Assert.Equal([1, 24], a.Sectors));
         Assert.Contains(before.SinUnits, u => u.Code == 57 && u.Description == "UNIDAD (BIENES)");
         Assert.Contains(before.SinPaymentMethods, m => m.Code == 1 && m.Description == "EFECTIVO");
@@ -90,10 +91,10 @@ public sealed class D_HomologationTests
         var methods = await admin.Send(new GetSiatCatalogQuery("tipo_metodo_pago"));
         Assert.Contains(methods, m => m.Code == 2 && m.Description == "TARJETA" && m.IsCurrent);
         Assert.NotEmpty(await admin.Send(new GetSiatCatalogQuery(SiatCatalogNames.Products)));
-        Assert.Equal(12, (await admin.Send(new GetSiatCatalogQuery(SiatCatalogNames.Legends))).Count);
+        Assert.Equal(30, (await admin.Send(new GetSiatCatalogQuery(SiatCatalogNames.Legends))).Count);   // 6 leyendas × 5 actividades
         Assert.Equal("siat.catalog_unknown", (await Assert.ThrowsAsync<DomainException>(() => admin.Send(new GetSiatCatalogQuery("NADA")))).Code);
         var activities = await admin.Send(new GetSiatActivitiesQuery());
-        Assert.Equal(Hardware, activities[0].Code);   // la principal (P) primero
+        Assert.Equal(Computers, activities[0].Code);   // la principal (P) primero (V4.2: computadoras)
         Assert.Equal("P", activities[0].ActivityType);
 
         await D_BillingTestHost.CreateProductAsync(admin, "FER-001", "Juego de destornilladores (6 piezas)", stock: 0);

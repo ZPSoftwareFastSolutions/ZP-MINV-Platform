@@ -37,7 +37,8 @@ public sealed class ShellViewModel : ObservableObject, INavigator
         CustomersViewModel customers, PurchaseOrdersViewModel purchases, SuppliersViewModel suppliers, ReportsViewModel reports,
         AccountingViewModel accounting, UsersViewModel users, BranchesViewModel branches, TransfersViewModel transfers,
         IntegrationsViewModel integrations, FiscalDocumentsViewModel fiscalDocuments, SiatStatusViewModel siatStatus,
-        HomologationViewModel homologation, FiscalBooksViewModel fiscalBooks, BillingSettingsViewModel billingSettings, BillingWorkService billingWork)
+        HomologationViewModel homologation, FiscalBooksViewModel fiscalBooks, BillingSettingsViewModel billingSettings, BillingWorkService billingWork,
+        PcBuilderViewModel pcBuilder, SerialsViewModel serials, WarrantyClaimsViewModel warranty)
     {
         _app = app;
         _billingWork = billingWork;
@@ -49,6 +50,12 @@ public sealed class ShellViewModel : ObservableObject, INavigator
             (pos, s.Can(PermissionCodes.PosOperate)),
             (sales, s.Can(PermissionCodes.SalesView)),
             (customers, s.Can(PermissionCodes.CustomersManage) || s.Can(PermissionCodes.SalesView)));
+        // V4.2 · Edición Tecnología: armador de PC, series e IMEI y garantías
+        Add(sections, "Tecnología",
+            // Cada página se muestra solo si la sesión puede leer su lista (las acciones se ocultan o deshabilitan por permiso)
+            (pcBuilder, s.Can(PermissionCodes.SalesView) && s.Can(PermissionCodes.StockView)),
+            (serials, s.Can(PermissionCodes.SerialsView)),
+            (warranty, s.Can(PermissionCodes.SerialsView)));
         Add(sections, "Inventario",
             (stock, true),
             (catalog, true),
@@ -315,6 +322,11 @@ public sealed class ShellViewModel : ObservableObject, INavigator
     /// <summary>Lectura del escáner: la pantalla actual decide qué hacer (registro, conteo); si no, abre la ficha.</summary>
     public void OnScanned(string code)
     {
+        // V4.2 · Un formulario abierto que usa el escáner (series e IMEI) tiene prioridad sobre la pantalla
+        if (_app.Dialogs.Form is IScannerTarget form && form.OnScanned(code))
+        {
+            return;
+        }
         if (Current is IScannerTarget target && target.OnScanned(code))
         {
             return;

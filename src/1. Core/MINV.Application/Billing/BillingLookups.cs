@@ -171,7 +171,7 @@ public sealed class BillingLookups(IMinvDbContext db, ISecretProtector? protecto
         var legends = await db.Set<SiatLegend>().Where(l => l.ActivityCode == activityCode && l.IsCurrent).Select(l => l.Text).ToListAsync(ct);
         if (legends.Count == 0)
         {
-            legends = await db.Set<SiatLegend>().Where(l => l.IsCurrent).Select(l => l.Text).Take(50).ToListAsync(ct);
+            legends = await db.Set<SiatLegend>().Where(l => l.IsCurrent).OrderBy(l => l.Text).Select(l => l.Text).Take(50).ToListAsync(ct);
         }
         return legends.Count > 0
             ? legends[Random.Shared.Next(legends.Count)]

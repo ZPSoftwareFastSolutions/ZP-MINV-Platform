@@ -22,7 +22,9 @@ public sealed record FiscalLineItem(FiscalDocumentLineView Line)
     public string Detail => $"{Fmt.Qty(Line.Quantity)} {Line.Unit} × {Fmt.Money(Line.UnitPrice)}" +
                             (Line.Discount > 0 ? $" − desc. {Fmt.Money(Line.Discount)}" : string.Empty) +
                             $" · SIN {Line.SinProductCode} (act. {Line.ActivityCode})" +
-                            (Line.TransactionCode is { } tx ? tx == 1 ? " · factura original" : " · devuelto" : string.Empty);
+                            (Line.TransactionCode is { } tx ? tx == 1 ? " · factura original" : " · devuelto" : string.Empty) +
+                            // V4.2: series o IMEI de la línea (T-03), en su propio renglón para que «S/N:» no se parta
+                            (Line.SerialsText is { } serials ? "\n" + serials : string.Empty);
 
     public string SubtotalText => Fmt.Money(Line.Subtotal);
 }
@@ -331,7 +333,9 @@ public sealed class FiscalDocumentsViewModel : PageViewModel
         OnPropertyChanged(nameof(Rows));
         var valid = rows.Where(r => r.Status == FiscalDocumentStatus.Valid && r.Kind == FiscalDocumentKind.Invoice).ToList();
         DocumentsKpi.Value = rows.Count.ToString("N0", Fmt.Culture);
-        DocumentsKpi.Detail = $"{rows.Count(r => r.Kind == FiscalDocumentKind.Invoice)} facturas · {rows.Count(r => r.Kind == FiscalDocumentKind.CreditDebitNote)} notas";
+        var invoices = rows.Count(r => r.Kind == FiscalDocumentKind.Invoice);
+        var notes = rows.Count(r => r.Kind == FiscalDocumentKind.CreditDebitNote);
+        DocumentsKpi.Detail = $"{invoices} {(invoices == 1 ? "factura" : "facturas")} · {notes} {(notes == 1 ? "nota" : "notas")}";
         ValidKpi.Value = Fmt.Money(valid.Sum(r => r.Total));
         ValidKpi.Detail = $"{valid.Count} facturas válidas en el SIN";
         var waiting = rows.Where(r => r.Status is FiscalDocumentStatus.Pending or FiscalDocumentStatus.Offline or FiscalDocumentStatus.InPackage

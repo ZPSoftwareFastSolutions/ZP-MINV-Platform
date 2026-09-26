@@ -4,6 +4,7 @@ using System.Windows.Data;
 using MINV.Application.Catalog;
 using MINV.Application.Corporate;
 using MINV.Application.Inventory.Transfers;
+using MINV.Application.Tech;
 using MINV.DesktopClient.Controls;
 using MINV.DesktopClient.Mvvm;
 using MINV.DesktopClient.Services;
@@ -425,7 +426,7 @@ public sealed class TransferEditor : ObservableObject
     private async Task SaveAsync()
     {
         Error = null;
-        var lines = new List<TransferLineInput>();
+        var parsed = new List<(CatalogItem Product, decimal Quantity)>();
         foreach (var line in Lines)
         {
             if (!Numbers.TryParse(line.Quantity, out var quantity) || quantity <= 0)
@@ -433,17 +434,69 @@ public sealed class TransferEditor : ObservableObject
                 Error = $"Revise la cantidad de {line.Product.Name}.";
                 return;
             }
-            lines.Add(new TransferLineInput(line.Product.Sku, quantity));
+            parsed.Add((line.Product, quantity));
         }
-        try
+        var from = _from!;
+        var to = _to!;
+        var notes = string.IsNullOrWhiteSpace(_notes) ? null : _notes.Trim();
+
+        // V4.2 · Productos serializados: las unidades que viajan, una serie por unidad (regla T-02). Se eligen de las
+        // disponibles del almacén de origen (o se escanean); el dominio vuelve a validarlas al solicitar y al despachar.
+        var serialized = new List<SerialCaptureLineSpec>();
+        foreach (var (product, quantity) in parsed)
         {
-            var created = await _app.SendAsync(new CreateTransferCommand(_to!.Code, lines, string.IsNullOrWhiteSpace(_notes) ? null : _notes.Trim(), _from!.Code));
+            if (await TechCatalog.ProductAsync(_app, product.Sku) is not { TrackSerials: true } tech)
+            {
+                continue;
+            }
+            if (decimal.Truncate(quantity) != quantity)
+            {
+                Error = $"{product.Name} lleva {TechText.KindLabel(tech.SerialKind)}: la cantidad debe ser entera (una serie por unidad).";
+                return;
+            }
+            IReadOnlyList<SerialRow> available = [];
+            try
+            {
+                available = await _app.SendAsync(new GetAvailableSerialsQuery(product.Sku, from.Code));
+            }
+            catch (Exception ex) when (AppServices.IsExpected(ex))
+            {
+                System.Diagnostics.Trace.TraceWarning("M-INV · series disponibles de {0}: {1}", product.Sku, ex.Message);
+            }
+            serialized.Add(new SerialCaptureLineSpec(product.Sku, product.Name, tech.SerialKind, (int)quantity,
+                available.Count > 0 ? SerialCaptureMode.Pick : SerialCaptureMode.Entry, available.Count > 0 ? available : null));
+        }
+
+        async Task<TransferRef> CreateAsync(IReadOnlyList<SkuSerials>? serials) =>
+            await _app.SendAsync(new CreateTransferCommand(to.Code, parsed.Select(p => new TransferLineInput(p.Product.Sku, p.Quantity,
+                serials?.FirstOrDefault(s => s.Sku.Equals(p.Product.Sku, StringComparison.OrdinalIgnoreCase))?.Serials)).ToList(), notes, from.Code));
+
+        TransferRef? created = null;
+        if (serialized.Count > 0)
+        {
+            await SerialsDialog.AskAsync(_app, "Series de la transferencia",
+                $"Elija (o escanee) las unidades que viajan de {from.Label} a {to.Label}: una serie por unidad.", "Solicitar transferencia", serialized,
+                async serials =>
+                {
+                    created = await CreateAsync(serials);
+                    return true;
+                });
+        }
+        else
+        {
+            try
+            {
+                created = await CreateAsync(null);
+            }
+            catch (Exception ex) when (AppServices.IsExpected(ex))
+            {
+                Error = AppServices.Describe(ex);
+            }
+        }
+        if (created is not null)
+        {
             _app.Notify.Success("Transferencia solicitada", created.Message);
             await _owner.AfterChangeAsync(created);
-        }
-        catch (Exception ex) when (AppServices.IsExpected(ex))
-        {
-            Error = AppServices.Describe(ex);
         }
     }
 }
@@ -479,6 +532,11 @@ public sealed class ReceiptLine : ObservableObject
     public bool HasShortage => Numbers.TryParse(_received, out var q) && q < Line.Quantity;
 
     public string ShippedText => $"Despachado {Fmt.Qty(Line.Quantity)} {Line.Unit}";
+
+    /// <summary>V4.2 · Series (o IMEI) que viajan en la línea: si falta alguna, al confirmar se indica cuáles no llegaron.</summary>
+    public bool HasSerials => Line.Serials is { Count: > 0 };
+
+    public string SerialsText => Line.Serials is { Count: > 0 } serials ? string.Join(", ", serials) : string.Empty;
 }
 
 /// <summary>
@@ -518,6 +576,7 @@ public sealed class TransferReceiptEditor : ObservableObject
     {
         Error = null;
         var inputs = new List<TransferReceiptInput>();
+        var missing = new List<SerialCaptureLineSpec>();
         foreach (var line in Lines)
         {
             if (!Numbers.TryParse(line.Received, out var received, emptyIsZero: true) || received < 0)
@@ -531,16 +590,52 @@ public sealed class TransferReceiptEditor : ObservableObject
                 return;
             }
             inputs.Add(new TransferReceiptInput(line.Line.Sku, received, received < line.Line.Quantity ? line.Reason.Trim() : null));
+            // V4.2 · Faltante de un producto serializado: se indica QUÉ series no llegaron (regla T-02); las demás entran
+            if (line.Line.Serials is { Count: > 0 } travelling && received < line.Line.Quantity)
+            {
+                if (decimal.Truncate(received) != received)
+                {
+                    Error = $"{line.Line.Name} lleva serie: lo recibido debe ser un número entero.";
+                    return;
+                }
+                var kind = (await TechCatalog.ProductAsync(_app, line.Line.Sku))?.SerialKind ?? MINV.Domain.Catalog.SerialKind.Serial;
+                missing.Add(new SerialCaptureLineSpec(line.Line.Sku, line.Line.Name, kind, (int)(line.Line.Quantity - received), SerialCaptureMode.Pick,
+                    travelling.Select(s => new SerialRow(s, kind, line.Line.Sku, line.Line.Name, SerialNumberStatus.InTransit, _detail.Header.FromBranch,
+                        null, null, null, null, null, null)).ToList()));
+            }
         }
-        try
+
+        async Task<TransferRef> ReceiveAsync(IReadOnlyList<SkuSerials>? lost) =>
+            await _app.SendAsync(new ReceiveTransferCommand(_detail.Header.Id, inputs.Select(i =>
+                lost?.FirstOrDefault(s => s.Sku.Equals(i.Sku, StringComparison.OrdinalIgnoreCase)) is { } serials ? i with { MissingSerials = serials.Serials } : i)
+                .ToList()));
+
+        TransferRef? result = null;
+        if (missing.Count > 0)
         {
-            var result = await _app.SendAsync(new ReceiveTransferCommand(_detail.Header.Id, inputs));
+            await SerialsDialog.AskAsync(_app, "Series que no llegaron",
+                "Marque las unidades que faltan (quedan como faltante en tránsito); las demás entran al stock del destino.", "Confirmar recepción", missing,
+                async lost =>
+                {
+                    result = await ReceiveAsync(lost);
+                    return true;
+                });
+        }
+        else
+        {
+            try
+            {
+                result = await ReceiveAsync(null);
+            }
+            catch (Exception ex) when (AppServices.IsExpected(ex))
+            {
+                Error = AppServices.Describe(ex);
+            }
+        }
+        if (result is not null)
+        {
             _app.Notify.Success("Transferencia recibida", result.Message);
             await _owner.AfterChangeAsync(result);
-        }
-        catch (Exception ex) when (AppServices.IsExpected(ex))
-        {
-            Error = AppServices.Describe(ex);
         }
     }
 }

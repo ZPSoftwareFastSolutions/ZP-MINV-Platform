@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using MINV.Application.Abstractions;
 using MINV.Application.Common;
 using MINV.Domain.Billing;
+using MINV.Domain.Catalog;
 using MINV.Domain.Common;
 using MINV.Domain.Iam;
 using MINV.Domain.Sales;
@@ -54,9 +55,28 @@ public static class FiscalPrintModelBuilder
 
         // Líneas con la DESCRIPCIÓN de la unidad (no el código) y el código interno del producto (no el del SIN)
         var units = await FiscalCatalogText.DescriptionsAsync(db, SiatCatalogNames.UnitsOfMeasure, document.Lines.Select(l => l.SinUnitCode).Distinct().ToList(), ct);
+        // V4.2 · Series o IMEI de cada línea (los mismos del XML, regla T-03) y garantía derivada de la FECHA DE LA VENTA (regla
+        // T-04: la misma que el ticket y que «Series e IMEI»; una factura re-emitida fuera de línea o transcrita de un CAFC
+        // puede tener otra fecha de emisión). Sin venta vinculada, la fecha de emisión.
+        var isNote = document.Kind == FiscalDocumentKind.CreditDebitNote;
+        var variantIds = document.Lines.Where(l => l.VariantId is not null).Select(l => l.VariantId!.Value).Distinct().ToList();
+        var productOf = variantIds.Count == 0 || isNote
+            ? new Dictionary<Guid, Guid>()
+            : await db.Set<ProductVariant>().AsNoTracking().Where(v => variantIds.Contains(v.Id)).ToDictionaryAsync(v => v.Id, v => v.ProductId, ct);
+        var warranty = await Tech.TechPrint.WarrantyMonthsAsync(db, productOf.Values.Distinct().ToList(), ct);
+        var soldOn = warranty.Count > 0 && document.InvoiceId is { } soldInvoice
+            ? await (from i in db.Set<Invoice>().AsNoTracking()
+                     join o in db.Set<SalesOrder>().AsNoTracking() on i.SalesOrderId equals o.Id
+                     where i.Id == soldInvoice
+                     select (DateOnly?)o.OrderDate).FirstOrDefaultAsync(ct)
+            : null;
+        var issuedOn = soldOn ?? DateOnly.FromDateTime(document.IssuedAt);
         var lines = document.Lines.OrderBy(l => l.LineNumber).Select(l => new FiscalPrintLine(l.ProductCode, l.Description,
             units.GetValueOrDefault(l.SinUnitCode, l.SinUnitCode.ToString(CultureInfo.InvariantCulture)), l.Quantity, l.UnitPrice, l.Discount ?? 0m,
-            l.Subtotal, l.TransactionCode)).ToList();
+            l.Subtotal, l.TransactionCode, Tech.TechPrint.Serials(l.SerialNumber, l.Imei),
+            l.VariantId is { } variant && productOf.TryGetValue(variant, out var product)
+                ? Tech.TechPrint.WarrantyUntil(issuedOn, warranty.GetValueOrDefault(product))
+                : null)).ToList();
 
         // Medio de pago con la descripción del catálogo (la tarjeta, solo enmascarada) y el cajero que emitió
         string? payment = null;
@@ -96,7 +116,6 @@ public static class FiscalPrintModelBuilder
                 ? settings?.OfflineLegend ?? SiatSettings.DefaultOfflineLegend
                 : settings?.OnlineLegend ?? SiatSettings.DefaultOnlineLegend,
         };
-        var isNote = document.Kind == FiscalDocumentKind.CreditDebitNote;
         var qr = QrUrl(profile.QrBaseUrl, nit, document.Cuf, document.Number, 2);
 
         if (isNote)

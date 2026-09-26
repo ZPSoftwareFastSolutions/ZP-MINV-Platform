@@ -1,5 +1,5 @@
 -- =====================================================================================================================
--- M-INV V4.1 · Inicialización de la base de datos PostgreSQL (140 tablas, 9 esquemas + modelo de lectura, 5FN)
+-- M-INV V4.2 · Inicialización de la base de datos PostgreSQL (152 tablas, 10 esquemas + modelo de lectura, 5FN)
 -- Z&P Software Fast Solutions
 --
 -- ARCHIVO GENERADO por tools/build_v3.ps1 (cabecera + «dotnet ef migrations script --idempotent»). No lo edite a mano:
@@ -20,13 +20,15 @@
 --      servidores: MINV_DB = "Host=…;Database=minv;Username=minv_server;Password=…;SSL Mode=VerifyFull"
 --      escritorio directo (base local): MINV_DB = "Host=localhost;Port=5432;Database=minv;Username=minv_app;Password=…"
 --
--- Contenido: esquemas iam, catalog, warehouse, inventory, purchasing, sales, accounting, integration y billing (V4.1:
--- facturación SIAT computarizada en línea); tablas con PK, FK compuestas (tenant_id, id) y (tenant_id, branch_id, id);
--- restricciones CHECK e índices únicos; catálogo de módulos comerciales; triggers append-only, un valor por atributo y
--- asientos cuadrados; Row Level Security por empresa y política restrictiva por sucursal; funciones SECURITY DEFINER
--- para el servidor (V4.1: billing.siat_active_tenants); esquema reporting (vistas materializadas + vistas filtradas);
--- vistas v_stock_by_variant, v_conservation_breaches, v_transfer_breaches, v_activity y (V4.1)
--- billing.v_fiscal_document_totals (totales fiscales derivados); privilegios de minv_app y minv_server.
+-- Contenido: esquemas iam, catalog, warehouse, inventory, purchasing, sales, accounting, integration, billing (V4.1:
+-- facturación SIAT computarizada en línea) y service (V4.2: garantías y RMA); tablas con PK, FK compuestas (tenant_id, id)
+-- y (tenant_id, branch_id, id); restricciones CHECK e índices únicos; catálogo de módulos comerciales; triggers
+-- append-only, un valor por atributo, asientos cuadrados y (V4.2) valores de fichas técnicas del tipo de su
+-- especificación; Row Level Security por empresa y política restrictiva por sucursal; funciones SECURITY DEFINER para el
+-- servidor (V4.1: billing.siat_active_tenants); esquema reporting (vistas materializadas + vistas filtradas); vistas
+-- v_stock_by_variant, v_conservation_breaches, v_transfer_breaches, v_activity, (V4.1) billing.v_fiscal_document_totals
+-- (totales fiscales derivados) y (V4.2) inventory.v_serial_breaches (series en stock = stock); privilegios de minv_app y
+-- minv_server.
 -- =====================================================================================================================
 
 DO $$
@@ -10019,6 +10021,1106 @@ BEGIN
     IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926033017_V41CafcNumbering') THEN
     INSERT INTO iam.__ef_migrations_history ("MigrationId", "ProductVersion")
     VALUES ('20260926033017_V41CafcNumbering', '8.0.31');
+    END IF;
+END $EF$;
+COMMIT;
+
+START TRANSACTION;
+
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    DO $$
+    DECLARE n bigint;
+    BEGIN
+        SELECT count(*) INTO n FROM (
+            SELECT s.tenant_id, b.variant_id, s.serial
+            FROM inventory.serial_numbers s JOIN inventory.batches b ON b.id = s.batch_id
+            GROUP BY s.tenant_id, b.variant_id, s.serial
+            HAVING count(*) > 1) d;
+        IF n > 0 THEN
+            RAISE EXCEPTION 'M-INV V4.2: % series se repiten en lotes distintos de la misma variante (la serie pasa a ser única por variante): resuélvalas antes de migrar.', n;
+        END IF;
+        IF EXISTS (SELECT 1 FROM inventory.serial_numbers WHERE length(serial) = 0 OR serial ~ '[[:space:],;]') THEN
+            RAISE EXCEPTION 'M-INV V4.2: hay series vacías o con espacios, comas o punto y coma: corríjalas antes de migrar.';
+        END IF;
+        IF EXISTS (SELECT 1 FROM inventory.serial_numbers WHERE (status IN ('InStock', 'Reserved')) <> (stock_level_id IS NOT NULL)) THEN
+            RAISE EXCEPTION 'M-INV V4.2: hay series en stock sin existencia o fuera de stock con existencia: corríjalas antes de migrar.';
+        END IF;
+        IF EXISTS (SELECT 1 FROM inventory.serial_numbers s JOIN inventory.stock_levels l ON l.id = s.stock_level_id
+                   WHERE l.batch_id <> s.batch_id) THEN
+            RAISE EXCEPTION 'M-INV V4.2: hay series en una existencia de otro lote: corríjalas antes de migrar.';
+        END IF;
+    END;
+    $$;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    ALTER TABLE inventory.serial_numbers DROP CONSTRAINT fk_serial_numbers_tenant_id_batch_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    ALTER TABLE inventory.serial_numbers DROP CONSTRAINT fk_serial_numbers_tenant_id_stock_level_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    DROP INDEX inventory.ix_stock_levels_tenant_id_batch_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    DROP INDEX inventory.ix_serial_numbers_tenant_id_batch_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    DROP INDEX inventory.ix_serial_numbers_tenant_id_stock_level_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    DROP INDEX inventory.ux_serial_numbers_batch_id_serial;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    DROP INDEX inventory.ix_batches_tenant_id_variant_id;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+        IF NOT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = 'service') THEN
+            CREATE SCHEMA service;
+        END IF;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    ALTER TABLE inventory.serial_numbers ADD kind character varying(10) NOT NULL DEFAULT '';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    ALTER TABLE inventory.serial_numbers ADD received_at timestamp with time zone NOT NULL DEFAULT TIMESTAMPTZ '-infinity';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    ALTER TABLE inventory.serial_numbers ADD variant_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    ALTER TABLE inventory.stock_levels ADD CONSTRAINT ak_stock_levels_tenant_id_batch_id_id UNIQUE (tenant_id, batch_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    ALTER TABLE inventory.batches ADD CONSTRAINT ak_batches_tenant_id_variant_id_id UNIQUE (tenant_id, variant_id, id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    UPDATE inventory.serial_numbers s SET variant_id = b.variant_id FROM inventory.batches b WHERE b.id = s.batch_id;
+    UPDATE inventory.serial_numbers SET kind = 'Serial', received_at = created_at;
+    DO $$
+    DECLARE n bigint;
+    BEGIN
+        SELECT count(*) INTO n FROM inventory.serial_numbers
+        WHERE variant_id = '00000000-0000-0000-0000-000000000000' OR kind = '' OR received_at < timestamptz '0002-01-01 00:00:00+00';
+        IF n > 0 THEN
+            RAISE EXCEPTION 'M-INV V4.2: % series quedaron sin variante, tipo o fecha de ingreso', n;
+        END IF;
+    END;
+    $$;
+    ALTER TABLE inventory.serial_numbers
+        ALTER COLUMN variant_id DROP DEFAULT,
+        ALTER COLUMN kind DROP DEFAULT,
+        ALTER COLUMN received_at DROP DEFAULT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE TABLE sales.pc_builds (
+        id uuid NOT NULL,
+        branch_id uuid NOT NULL,
+        number character varying(40) NOT NULL,
+        name character varying(150) NOT NULL,
+        customer_id uuid,
+        valid_until date NOT NULL,
+        status character varying(20) NOT NULL,
+        quoted_with_errors boolean NOT NULL,
+        created_by_user_id uuid NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        quoted_at timestamp with time zone,
+        invoice_id uuid,
+        created_by uuid,
+        updated_at timestamp with time zone,
+        updated_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_pc_builds PRIMARY KEY (id),
+        CONSTRAINT ak_pc_builds_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id),
+        CONSTRAINT ak_pc_builds_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_pc_builds_cotizacion CHECK (status <> 'Quoted' OR quoted_at IS NOT NULL),
+        CONSTRAINT ck_pc_builds_estado CHECK (status IN ('Draft', 'Quoted', 'Sold', 'Cancelled')),
+        CONSTRAINT ck_pc_builds_marcado CHECK (NOT quoted_with_errors OR quoted_at IS NOT NULL),
+        CONSTRAINT ck_pc_builds_venta CHECK ((status = 'Sold') = (invoice_id IS NOT NULL)),
+        CONSTRAINT fk_pc_builds_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_pc_builds_tenant_id_branch_id FOREIGN KEY (tenant_id, branch_id) REFERENCES warehouse.branches (tenant_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_pc_builds_tenant_id_branch_id_invoice_id FOREIGN KEY (tenant_id, branch_id, invoice_id) REFERENCES sales.invoices (tenant_id, branch_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_pc_builds_tenant_id_created_by_user_id FOREIGN KEY (tenant_id, created_by_user_id) REFERENCES iam.users (tenant_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_pc_builds_tenant_id_customer_id FOREIGN KEY (tenant_id, customer_id) REFERENCES sales.customers (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE TABLE catalog.product_tech_profiles (
+        tenant_id uuid NOT NULL,
+        product_id uuid NOT NULL,
+        serial_kind character varying(10) NOT NULL,
+        warranty_months integer NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        updated_at timestamp with time zone,
+        updated_by uuid,
+        CONSTRAINT pk_product_tech_profiles PRIMARY KEY (tenant_id, product_id),
+        CONSTRAINT ck_product_tech_profiles_garantia CHECK (warranty_months BETWEEN 0 AND 120),
+        CONSTRAINT ck_product_tech_profiles_serie CHECK (serial_kind IN ('Serial', 'Imei')),
+        CONSTRAINT fk_product_tech_profiles_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_product_tech_profiles_tenant_id_product_id FOREIGN KEY (tenant_id, product_id) REFERENCES catalog.products (tenant_id, id) ON DELETE CASCADE
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE TABLE sales.sales_order_line_serials (
+        id uuid NOT NULL,
+        branch_id uuid NOT NULL,
+        sales_order_line_id uuid NOT NULL,
+        serial_number_id uuid NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_sales_order_line_serials PRIMARY KEY (id),
+        CONSTRAINT ak_sales_order_line_serials_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id),
+        CONSTRAINT ak_sales_order_line_serials_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT fk_sales_order_line_serials_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_sales_order_line_serials_tenant_id_branch_id_sales__8cfea487 FOREIGN KEY (tenant_id, branch_id, sales_order_line_id) REFERENCES sales.sales_order_lines (tenant_id, branch_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_sales_order_line_serials_tenant_id_serial_number_id FOREIGN KEY (tenant_id, serial_number_id) REFERENCES inventory.serial_numbers (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE TABLE sales.sales_return_line_serials (
+        id uuid NOT NULL,
+        branch_id uuid NOT NULL,
+        sales_return_line_id uuid NOT NULL,
+        serial_number_id uuid NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_sales_return_line_serials PRIMARY KEY (id),
+        CONSTRAINT ak_sales_return_line_serials_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id),
+        CONSTRAINT ak_sales_return_line_serials_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT fk_sales_return_line_serials_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_sales_return_line_serials_tenant_id_branch_id_sales_0a3fc4a1 FOREIGN KEY (tenant_id, branch_id, sales_return_line_id) REFERENCES sales.sales_return_lines (tenant_id, branch_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_sales_return_line_serials_tenant_id_serial_number_id FOREIGN KEY (tenant_id, serial_number_id) REFERENCES inventory.serial_numbers (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE TABLE inventory.serial_events (
+        id uuid NOT NULL,
+        serial_number_id uuid NOT NULL,
+        action character varying(30) NOT NULL,
+        branch_id uuid,
+        document_number character varying(40),
+        note character varying(300),
+        user_id uuid,
+        occurred_at timestamp with time zone NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_serial_events PRIMARY KEY (id),
+        CONSTRAINT ak_serial_events_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_serial_events_accion CHECK (action IN ('Received', 'Sold', 'Returned', 'TransferDispatched', 'TransferReceived', 'RmaReceived', 'SentToSupplier', 'Repaired', 'Replaced', 'ReplacementIssued', 'ReturnedToSupplier', 'Scrapped', 'Adjusted', 'Restocked', 'ReturnedToCustomer')),
+        CONSTRAINT fk_serial_events_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_serial_events_tenant_id_branch_id FOREIGN KEY (tenant_id, branch_id) REFERENCES warehouse.branches (tenant_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_serial_events_tenant_id_serial_number_id FOREIGN KEY (tenant_id, serial_number_id) REFERENCES inventory.serial_numbers (tenant_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_serial_events_tenant_id_user_id FOREIGN KEY (tenant_id, user_id) REFERENCES iam.users (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE TABLE catalog.spec_definitions (
+        id uuid NOT NULL,
+        category_id uuid NOT NULL,
+        code character varying(40) NOT NULL,
+        name character varying(80) NOT NULL,
+        unit character varying(20),
+        data_type character varying(10) NOT NULL,
+        is_multi_valued boolean NOT NULL,
+        is_filterable boolean NOT NULL,
+        is_required boolean NOT NULL,
+        compatibility_key character varying(40),
+        sort_order integer NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        updated_at timestamp with time zone,
+        updated_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_spec_definitions PRIMARY KEY (id),
+        CONSTRAINT ak_spec_definitions_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_spec_definitions_clave CHECK (compatibility_key IS NULL OR compatibility_key ~ '^[a-z0-9_]+$'),
+        CONSTRAINT ck_spec_definitions_codigo CHECK (code ~ '^[a-z0-9_]+$'),
+        CONSTRAINT ck_spec_definitions_multivalor CHECK (NOT is_multi_valued OR data_type = 'Option'),
+        CONSTRAINT ck_spec_definitions_tipo CHECK (data_type IN ('Text', 'Number', 'Option')),
+        CONSTRAINT fk_spec_definitions_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_spec_definitions_tenant_id_category_id FOREIGN KEY (tenant_id, category_id) REFERENCES catalog.categories (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE TABLE inventory.stock_transfer_line_serials (
+        id uuid NOT NULL,
+        from_branch_id uuid NOT NULL,
+        to_branch_id uuid NOT NULL,
+        stock_transfer_line_id uuid NOT NULL,
+        serial_number_id uuid NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_stock_transfer_line_serials PRIMARY KEY (id),
+        CONSTRAINT ak_stock_transfer_line_serials_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT fk_stock_transfer_line_serials_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_stock_transfer_line_serials_tenant_id_from_branch_i_661e4667 FOREIGN KEY (tenant_id, from_branch_id, to_branch_id, stock_transfer_line_id) REFERENCES inventory.stock_transfer_lines (tenant_id, from_branch_id, to_branch_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_stock_transfer_line_serials_tenant_id_serial_number_id FOREIGN KEY (tenant_id, serial_number_id) REFERENCES inventory.serial_numbers (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE TABLE service.warranty_claims (
+        id uuid NOT NULL,
+        branch_id uuid NOT NULL,
+        number character varying(40) NOT NULL,
+        serial_number_id uuid NOT NULL,
+        customer_id uuid NOT NULL,
+        invoice_id uuid,
+        issue character varying(500) NOT NULL,
+        is_in_warranty boolean NOT NULL,
+        supplier_id uuid,
+        status character varying(20) NOT NULL,
+        resolution character varying(500),
+        replacement_serial_id uuid,
+        opened_by_user_id uuid NOT NULL,
+        received_at timestamp with time zone NOT NULL,
+        closed_at timestamp with time zone,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        updated_at timestamp with time zone,
+        updated_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_warranty_claims PRIMARY KEY (id),
+        CONSTRAINT ak_warranty_claims_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id),
+        CONSTRAINT ak_warranty_claims_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_warranty_claims_cierre CHECK ((status = 'Delivered') = (closed_at IS NOT NULL)),
+        CONSTRAINT ck_warranty_claims_estado CHECK (status IN ('Received', 'Diagnosing', 'SentToSupplier', 'Repaired', 'Replaced', 'Rejected', 'Delivered')),
+        CONSTRAINT ck_warranty_claims_otra_unidad CHECK (replacement_serial_id IS NULL OR replacement_serial_id <> serial_number_id),
+        CONSTRAINT ck_warranty_claims_proveedor CHECK (status <> 'SentToSupplier' OR supplier_id IS NOT NULL),
+        CONSTRAINT ck_warranty_claims_reemplazo CHECK (status <> 'Replaced' OR replacement_serial_id IS NOT NULL),
+        CONSTRAINT ck_warranty_claims_resolucion CHECK (status NOT IN ('Repaired', 'Replaced', 'Rejected', 'Delivered') OR resolution IS NOT NULL),
+        CONSTRAINT fk_warranty_claims_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_warranty_claims_tenant_id_branch_id FOREIGN KEY (tenant_id, branch_id) REFERENCES warehouse.branches (tenant_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_warranty_claims_tenant_id_branch_id_invoice_id FOREIGN KEY (tenant_id, branch_id, invoice_id) REFERENCES sales.invoices (tenant_id, branch_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_warranty_claims_tenant_id_customer_id FOREIGN KEY (tenant_id, customer_id) REFERENCES sales.customers (tenant_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_warranty_claims_tenant_id_opened_by_user_id FOREIGN KEY (tenant_id, opened_by_user_id) REFERENCES iam.users (tenant_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_warranty_claims_tenant_id_replacement_serial_id FOREIGN KEY (tenant_id, replacement_serial_id) REFERENCES inventory.serial_numbers (tenant_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_warranty_claims_tenant_id_serial_number_id FOREIGN KEY (tenant_id, serial_number_id) REFERENCES inventory.serial_numbers (tenant_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_warranty_claims_tenant_id_supplier_id FOREIGN KEY (tenant_id, supplier_id) REFERENCES purchasing.suppliers (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE TABLE sales.pc_build_lines (
+        id uuid NOT NULL,
+        branch_id uuid NOT NULL,
+        pc_build_id uuid NOT NULL,
+        slot character varying(20) NOT NULL,
+        variant_id uuid NOT NULL,
+        quantity integer NOT NULL,
+        quoted_unit_price numeric(19,4) NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        updated_at timestamp with time zone,
+        updated_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_pc_build_lines PRIMARY KEY (id),
+        CONSTRAINT ak_pc_build_lines_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id),
+        CONSTRAINT ak_pc_build_lines_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_pc_build_lines_cantidad CHECK (quantity BETWEEN 1 AND 16),
+        CONSTRAINT ck_pc_build_lines_precio CHECK (quoted_unit_price >= 0),
+        CONSTRAINT ck_pc_build_lines_ranura CHECK (slot IN ('Cpu', 'Motherboard', 'Ram', 'Gpu', 'Storage', 'Psu', 'Case', 'Cooler', 'Monitor', 'Peripheral', 'Software', 'Service')),
+        CONSTRAINT fk_pc_build_lines_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_pc_build_lines_tenant_id_branch_id_pc_build_id FOREIGN KEY (tenant_id, branch_id, pc_build_id) REFERENCES sales.pc_builds (tenant_id, branch_id, id) ON DELETE CASCADE,
+        CONSTRAINT fk_pc_build_lines_tenant_id_variant_id FOREIGN KEY (tenant_id, variant_id) REFERENCES catalog.product_variants (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE TABLE catalog.spec_options (
+        id uuid NOT NULL,
+        spec_definition_id uuid NOT NULL,
+        value character varying(60) NOT NULL,
+        sort_order integer NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        updated_at timestamp with time zone,
+        updated_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_spec_options PRIMARY KEY (id),
+        CONSTRAINT ak_spec_options_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ak_spec_options_tenant_id_spec_definition_id_id UNIQUE (tenant_id, spec_definition_id, id),
+        CONSTRAINT fk_spec_options_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_spec_options_tenant_id_spec_definition_id FOREIGN KEY (tenant_id, spec_definition_id) REFERENCES catalog.spec_definitions (tenant_id, id) ON DELETE CASCADE
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE TABLE service.warranty_claim_events (
+        id uuid NOT NULL,
+        branch_id uuid NOT NULL,
+        claim_id uuid NOT NULL,
+        action character varying(20) NOT NULL,
+        status character varying(20) NOT NULL,
+        note character varying(500),
+        user_id uuid NOT NULL,
+        occurred_at timestamp with time zone NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_warranty_claim_events PRIMARY KEY (id),
+        CONSTRAINT ak_warranty_claim_events_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id),
+        CONSTRAINT ak_warranty_claim_events_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_warranty_claim_events_accion CHECK (action IN ('Opened', 'StatusChanged', 'NoteAdded', 'ReplacementIssued', 'Closed')),
+        CONSTRAINT fk_warranty_claim_events_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_warranty_claim_events_tenant_id_branch_id_claim_id FOREIGN KEY (tenant_id, branch_id, claim_id) REFERENCES service.warranty_claims (tenant_id, branch_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_warranty_claim_events_tenant_id_user_id FOREIGN KEY (tenant_id, user_id) REFERENCES iam.users (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE TABLE catalog.product_spec_values (
+        id uuid NOT NULL,
+        product_id uuid NOT NULL,
+        spec_definition_id uuid NOT NULL,
+        number_value numeric(18,4),
+        text_value character varying(200),
+        option_id uuid,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        updated_at timestamp with time zone,
+        updated_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_product_spec_values PRIMARY KEY (id),
+        CONSTRAINT ak_product_spec_values_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_product_spec_values_arco CHECK (num_nonnulls(number_value, text_value, option_id) = 1),
+        CONSTRAINT ck_product_spec_values_texto CHECK (text_value IS NULL OR length(btrim(text_value)) > 0),
+        CONSTRAINT fk_product_spec_values_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_product_spec_values_tenant_id_product_id FOREIGN KEY (tenant_id, product_id) REFERENCES catalog.products (tenant_id, id) ON DELETE CASCADE,
+        CONSTRAINT fk_product_spec_values_tenant_id_spec_definition_id FOREIGN KEY (tenant_id, spec_definition_id) REFERENCES catalog.spec_definitions (tenant_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_product_spec_values_tenant_id_spec_definition_id_option_id FOREIGN KEY (tenant_id, spec_definition_id, option_id) REFERENCES catalog.spec_options (tenant_id, spec_definition_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE INDEX ix_serial_numbers_tenant_id_batch_id_stock_level_id ON inventory.serial_numbers (tenant_id, batch_id, stock_level_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE INDEX ix_serial_numbers_tenant_id_serial ON inventory.serial_numbers (tenant_id, serial);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE INDEX ix_serial_numbers_tenant_id_status ON inventory.serial_numbers (tenant_id, status);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE INDEX ix_serial_numbers_tenant_id_variant_id_batch_id ON inventory.serial_numbers (tenant_id, variant_id, batch_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE UNIQUE INDEX ux_serial_numbers_tenant_id_variant_id_serial ON inventory.serial_numbers (tenant_id, variant_id, serial);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    ALTER TABLE inventory.serial_numbers ADD CONSTRAINT ck_serial_numbers_estado CHECK (status IN ('InStock', 'Reserved', 'Sold', 'Returned', 'Scrapped', 'InTransit', 'InRma', 'ReturnedToSupplier'));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    ALTER TABLE inventory.serial_numbers ADD CONSTRAINT ck_serial_numbers_imei CHECK (kind <> 'Imei' OR serial ~ '^[0-9]{15}$');
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    ALTER TABLE inventory.serial_numbers ADD CONSTRAINT ck_serial_numbers_serie CHECK (length(serial) > 0 AND serial !~ '[[:space:],;]');
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    ALTER TABLE inventory.serial_numbers ADD CONSTRAINT ck_serial_numbers_tipo CHECK (kind IN ('Serial', 'Imei'));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    ALTER TABLE inventory.serial_numbers ADD CONSTRAINT ck_serial_numbers_ubicacion CHECK ((status IN ('InStock', 'Reserved')) = (stock_level_id IS NOT NULL));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE INDEX ix_pc_build_lines_tenant_id_branch_id_pc_build_id ON sales.pc_build_lines (tenant_id, branch_id, pc_build_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE INDEX ix_pc_build_lines_tenant_id_variant_id ON sales.pc_build_lines (tenant_id, variant_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE INDEX ix_pc_builds_tenant_id_branch_id_invoice_id ON sales.pc_builds (tenant_id, branch_id, invoice_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE INDEX ix_pc_builds_tenant_id_created_by_user_id ON sales.pc_builds (tenant_id, created_by_user_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE INDEX ix_pc_builds_tenant_id_customer_id ON sales.pc_builds (tenant_id, customer_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE INDEX ix_pc_builds_tenant_id_status ON sales.pc_builds (tenant_id, status);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE UNIQUE INDEX ux_pc_builds_invoice_id ON sales.pc_builds (invoice_id) WHERE invoice_id IS NOT NULL;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE UNIQUE INDEX ux_pc_builds_tenant_id_branch_id_number ON sales.pc_builds (tenant_id, branch_id, number);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE INDEX ix_product_spec_values_tenant_id_spec_definition_id_option_id ON catalog.product_spec_values (tenant_id, spec_definition_id, option_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE UNIQUE INDEX ux_product_spec_values_tenant_id_product_id_spec_defin_2d2c8dd0 ON catalog.product_spec_values (tenant_id, product_id, spec_definition_id, option_id) NULLS NOT DISTINCT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE INDEX ix_sales_order_line_serials_serial_number_id ON sales.sales_order_line_serials (serial_number_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE INDEX ix_sales_order_line_serials_tenant_id_branch_id_sales__e7c7c1fa ON sales.sales_order_line_serials (tenant_id, branch_id, sales_order_line_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE INDEX ix_sales_order_line_serials_tenant_id_serial_number_id ON sales.sales_order_line_serials (tenant_id, serial_number_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE UNIQUE INDEX ux_sales_order_line_serials_sales_order_line_id_serial_980878dd ON sales.sales_order_line_serials (sales_order_line_id, serial_number_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE INDEX ix_sales_return_line_serials_serial_number_id ON sales.sales_return_line_serials (serial_number_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE INDEX ix_sales_return_line_serials_tenant_id_branch_id_sales_0a8c1b00 ON sales.sales_return_line_serials (tenant_id, branch_id, sales_return_line_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE INDEX ix_sales_return_line_serials_tenant_id_serial_number_id ON sales.sales_return_line_serials (tenant_id, serial_number_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE UNIQUE INDEX ux_sales_return_line_serials_sales_return_line_id_seri_b31662bb ON sales.sales_return_line_serials (sales_return_line_id, serial_number_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE INDEX ix_serial_events_serial_number_id_occurred_at ON inventory.serial_events (serial_number_id, occurred_at);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE INDEX ix_serial_events_tenant_id_branch_id ON inventory.serial_events (tenant_id, branch_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE INDEX ix_serial_events_tenant_id_document_number ON inventory.serial_events (tenant_id, document_number) WHERE document_number IS NOT NULL;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE INDEX ix_serial_events_tenant_id_serial_number_id ON inventory.serial_events (tenant_id, serial_number_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE INDEX ix_serial_events_tenant_id_user_id ON inventory.serial_events (tenant_id, user_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE INDEX ix_spec_definitions_tenant_id_compatibility_key ON catalog.spec_definitions (tenant_id, compatibility_key) WHERE compatibility_key IS NOT NULL;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE UNIQUE INDEX ux_spec_definitions_tenant_id_category_id_code ON catalog.spec_definitions (tenant_id, category_id, code);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE UNIQUE INDEX ux_spec_options_tenant_id_spec_definition_id_value ON catalog.spec_options (tenant_id, spec_definition_id, value);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE INDEX ix_stock_transfer_line_serials_serial_number_id ON inventory.stock_transfer_line_serials (serial_number_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE INDEX ix_stock_transfer_line_serials_tenant_id_from_branch_i_79344d9f ON inventory.stock_transfer_line_serials (tenant_id, from_branch_id, to_branch_id, stock_transfer_line_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE INDEX ix_stock_transfer_line_serials_tenant_id_serial_number_id ON inventory.stock_transfer_line_serials (tenant_id, serial_number_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE UNIQUE INDEX ux_stock_transfer_line_serials_stock_transfer_line_id__499197be ON inventory.stock_transfer_line_serials (stock_transfer_line_id, serial_number_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE INDEX ix_warranty_claim_events_claim_id_occurred_at ON service.warranty_claim_events (claim_id, occurred_at);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE INDEX ix_warranty_claim_events_tenant_id_branch_id_claim_id ON service.warranty_claim_events (tenant_id, branch_id, claim_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE INDEX ix_warranty_claim_events_tenant_id_user_id ON service.warranty_claim_events (tenant_id, user_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE INDEX ix_warranty_claims_tenant_id_branch_id_invoice_id ON service.warranty_claims (tenant_id, branch_id, invoice_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE INDEX ix_warranty_claims_tenant_id_customer_id ON service.warranty_claims (tenant_id, customer_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE INDEX ix_warranty_claims_tenant_id_opened_by_user_id ON service.warranty_claims (tenant_id, opened_by_user_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE INDEX ix_warranty_claims_tenant_id_replacement_serial_id ON service.warranty_claims (tenant_id, replacement_serial_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE INDEX ix_warranty_claims_tenant_id_status ON service.warranty_claims (tenant_id, status);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE INDEX ix_warranty_claims_tenant_id_supplier_id ON service.warranty_claims (tenant_id, supplier_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE UNIQUE INDEX ux_warranty_claims_tenant_id_branch_id_number ON service.warranty_claims (tenant_id, branch_id, number);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE UNIQUE INDEX ux_warranty_claims_tenant_id_serial_number_id ON service.warranty_claims (tenant_id, serial_number_id) WHERE status <> 'Delivered';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    ALTER TABLE inventory.serial_numbers ADD CONSTRAINT fk_serial_numbers_tenant_id_batch_id_stock_level_id FOREIGN KEY (tenant_id, batch_id, stock_level_id) REFERENCES inventory.stock_levels (tenant_id, batch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    ALTER TABLE inventory.serial_numbers ADD CONSTRAINT fk_serial_numbers_tenant_id_variant_id FOREIGN KEY (tenant_id, variant_id) REFERENCES catalog.product_variants (tenant_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    ALTER TABLE inventory.serial_numbers ADD CONSTRAINT fk_serial_numbers_tenant_id_variant_id_batch_id FOREIGN KEY (tenant_id, variant_id, batch_id) REFERENCES inventory.batches (tenant_id, variant_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE TRIGGER trg_append_only BEFORE UPDATE OR DELETE ON inventory.serial_events
+        FOR EACH ROW EXECUTE FUNCTION iam.minv_append_only();
+    CREATE TRIGGER trg_append_only_truncate BEFORE TRUNCATE ON inventory.serial_events
+        FOR EACH STATEMENT EXECUTE FUNCTION iam.minv_append_only();
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE TRIGGER trg_append_only BEFORE UPDATE OR DELETE ON inventory.stock_transfer_line_serials
+        FOR EACH ROW EXECUTE FUNCTION iam.minv_append_only();
+    CREATE TRIGGER trg_append_only_truncate BEFORE TRUNCATE ON inventory.stock_transfer_line_serials
+        FOR EACH STATEMENT EXECUTE FUNCTION iam.minv_append_only();
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE TRIGGER trg_append_only BEFORE UPDATE OR DELETE ON sales.sales_order_line_serials
+        FOR EACH ROW EXECUTE FUNCTION iam.minv_append_only();
+    CREATE TRIGGER trg_append_only_truncate BEFORE TRUNCATE ON sales.sales_order_line_serials
+        FOR EACH STATEMENT EXECUTE FUNCTION iam.minv_append_only();
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE TRIGGER trg_append_only BEFORE UPDATE OR DELETE ON sales.sales_return_line_serials
+        FOR EACH ROW EXECUTE FUNCTION iam.minv_append_only();
+    CREATE TRIGGER trg_append_only_truncate BEFORE TRUNCATE ON sales.sales_return_line_serials
+        FOR EACH STATEMENT EXECUTE FUNCTION iam.minv_append_only();
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE TRIGGER trg_append_only BEFORE UPDATE OR DELETE ON service.warranty_claim_events
+        FOR EACH ROW EXECUTE FUNCTION iam.minv_append_only();
+    CREATE TRIGGER trg_append_only_truncate BEFORE TRUNCATE ON service.warranty_claim_events
+        FOR EACH STATEMENT EXECUTE FUNCTION iam.minv_append_only();
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    DO $$
+    DECLARE r record;
+    BEGIN
+        FOR r IN
+            SELECT c.table_schema, c.table_name
+            FROM information_schema.columns c
+            JOIN information_schema.tables t
+              ON t.table_schema = c.table_schema AND t.table_name = c.table_name AND t.table_type = 'BASE TABLE'
+            WHERE c.column_name = 'tenant_id' AND c.table_schema IN ('iam', 'catalog', 'warehouse', 'inventory', 'purchasing', 'sales', 'accounting', 'integration', 'billing', 'service')
+              AND NOT EXISTS (SELECT 1 FROM pg_policies p
+                              WHERE p.schemaname = c.table_schema AND p.tablename = c.table_name AND p.policyname = 'tenant_isolation')
+        LOOP
+            EXECUTE format('ALTER TABLE %I.%I ENABLE ROW LEVEL SECURITY', r.table_schema, r.table_name);
+            EXECUTE format('CREATE POLICY tenant_isolation ON %I.%I USING (tenant_id = iam.current_tenant_id()) '
+                           'WITH CHECK (tenant_id = iam.current_tenant_id())', r.table_schema, r.table_name);
+        END LOOP;
+    END;
+    $$;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE POLICY branch_isolation ON sales.sales_order_line_serials AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE POLICY branch_isolation ON sales.sales_return_line_serials AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE POLICY branch_isolation ON sales.pc_builds AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE POLICY branch_isolation ON sales.pc_build_lines AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE POLICY branch_isolation ON service.warranty_claims AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE POLICY branch_isolation ON service.warranty_claim_events AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE POLICY branch_isolation ON inventory.stock_transfer_line_serials AS RESTRICTIVE
+        USING (iam.branch_visible(from_branch_id) OR iam.branch_visible(to_branch_id))
+        WITH CHECK (iam.branch_visible(from_branch_id) OR iam.branch_visible(to_branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE OR REPLACE FUNCTION catalog.minv_spec_value_matches() RETURNS trigger
+    LANGUAGE plpgsql AS $$
+    DECLARE d record;
+    BEGIN
+        IF num_nonnulls(NEW.number_value, NEW.text_value, NEW.option_id) <> 1 THEN
+            RETURN NEW;   -- el CHECK del arco (ck_product_spec_values_arco) lo rechaza
+        END IF;
+        SELECT s.name, s.data_type, s.is_multi_valued INTO d FROM catalog.spec_definitions s WHERE s.id = NEW.spec_definition_id;
+        IF NOT FOUND THEN
+            RETURN NEW;   -- la FK lo rechaza
+        END IF;
+        IF (d.data_type = 'Number' AND NEW.number_value IS NULL) OR (d.data_type = 'Text' AND NEW.text_value IS NULL)
+           OR (d.data_type = 'Option' AND NEW.option_id IS NULL) THEN
+            RAISE EXCEPTION 'M-INV: el valor de «%» no es del tipo de la especificación (%)', d.name, d.data_type
+                USING ERRCODE = 'P0001';
+        END IF;
+        IF NOT d.is_multi_valued AND EXISTS (
+            SELECT 1 FROM catalog.product_spec_values v
+            WHERE v.product_id = NEW.product_id AND v.spec_definition_id = NEW.spec_definition_id AND v.id <> NEW.id) THEN
+            RAISE EXCEPTION 'M-INV: «%» admite un solo valor por producto', d.name USING ERRCODE = 'P0001';
+        END IF;
+        RETURN NEW;
+    END;
+    $$;
+    CREATE TRIGGER trg_spec_value_matches BEFORE INSERT OR UPDATE ON catalog.product_spec_values
+        FOR EACH ROW EXECUTE FUNCTION catalog.minv_spec_value_matches();
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    CREATE OR REPLACE VIEW inventory.v_serial_breaches WITH (security_invoker = true) AS
+    WITH stock AS (
+        SELECT l.tenant_id, l.branch_id, b.variant_id, sum(l.quantity_on_hand) AS on_hand
+        FROM inventory.stock_levels l
+        JOIN inventory.batches b ON b.id = l.batch_id
+        GROUP BY l.tenant_id, l.branch_id, b.variant_id),
+    serials AS (
+        SELECT s.tenant_id, l.branch_id, s.variant_id, count(*) AS in_stock
+        FROM inventory.serial_numbers s
+        JOIN inventory.stock_levels l ON l.id = s.stock_level_id
+        WHERE s.status IN ('InStock', 'Reserved')
+        GROUP BY s.tenant_id, l.branch_id, s.variant_id)
+    SELECT v.tenant_id, coalesce(st.branch_id, se.branch_id) AS branch_id, v.id AS variant_id, v.sku,
+           coalesce(st.on_hand, 0) AS stock, coalesce(se.in_stock, 0) AS serials_in_stock,
+           coalesce(se.in_stock, 0) - coalesce(st.on_hand, 0) AS difference
+    FROM stock st
+    FULL JOIN serials se ON se.tenant_id = st.tenant_id AND se.branch_id = st.branch_id AND se.variant_id = st.variant_id
+    JOIN catalog.product_variants v ON v.id = coalesce(st.variant_id, se.variant_id)
+    JOIN catalog.products p ON p.id = v.product_id
+    WHERE p.tracking_mode = 'Serial' AND coalesce(st.on_hand, 0) <> coalesce(se.in_stock, 0);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    INSERT INTO iam.permissions (id, tenant_id, code, description)
+    SELECT gen_random_uuid(), t.id, p.code, p.description
+    FROM iam.tenants t
+    CROSS JOIN (VALUES ('catalog.specs.manage', 'Fichas técnicas: especificaciones por categoría, valores de cada producto, garantía y control por serie o IMEI'), ('inventory.serials.view', 'Consultar series e IMEI, su trazabilidad, la garantía de una unidad y los casos RMA'), ('inventory.serials.manage', 'Registrar series e IMEI de unidades en stock (inventario inicial) y dar de baja unidades serializadas'), ('service.rma.open', 'Abrir casos de garantía (RMA) al recibir un equipo del cliente'), ('service.rma.manage', 'Garantías y RMA: diagnosticar, enviar al proveedor, reponer con otra unidad y entregar equipos'), ('sales.pcbuild.manage', 'Armador de PC: armar, cotizar y anular armados (cotizaciones con precio congelado)')) AS p(code, description)
+    WHERE NOT EXISTS (SELECT 1 FROM iam.permissions x WHERE x.tenant_id = t.id AND x.code = p.code);
+
+    INSERT INTO iam.role_permissions (tenant_id, role_id, permission_id)
+    SELECT r.tenant_id, r.id, p.id
+    FROM iam.roles r
+    JOIN (VALUES ('ADMIN', 'catalog.specs.manage'), ('ADMIN', 'inventory.serials.view'), ('ADMIN', 'inventory.serials.manage'), ('ADMIN', 'service.rma.open'), ('ADMIN', 'service.rma.manage'), ('ADMIN', 'sales.pcbuild.manage'), ('BODEGA', 'catalog.specs.manage'), ('BODEGA', 'inventory.serials.view'), ('BODEGA', 'inventory.serials.manage'), ('BODEGA', 'service.rma.open'), ('BODEGA', 'service.rma.manage'), ('VENTAS', 'inventory.serials.view'), ('VENTAS', 'service.rma.open'), ('VENTAS', 'sales.pcbuild.manage'), ('CAJERO', 'inventory.serials.view'), ('CAJERO', 'service.rma.open'), ('CAJERO', 'sales.pcbuild.manage'), ('GERENCIA', 'catalog.specs.manage'), ('GERENCIA', 'inventory.serials.view'), ('GERENCIA', 'inventory.serials.manage'), ('GERENCIA', 'service.rma.open'), ('GERENCIA', 'service.rma.manage'), ('GERENCIA', 'sales.pcbuild.manage'), ('CONSULTA', 'inventory.serials.view')) AS m(role_code, permission_code) ON m.role_code = r.code
+    JOIN iam.permissions p ON p.tenant_id = r.tenant_id AND p.code = m.permission_code
+    WHERE NOT EXISTS (SELECT 1 FROM iam.role_permissions x WHERE x.role_id = r.id AND x.permission_id = p.id);
+
+    INSERT INTO inventory.movement_types (id, tenant_id, code, name, description, stock_factor, domain, requires_notes,
+                                         is_initial_balance, is_system)
+    SELECT gen_random_uuid(), t.id, 'REPOSICION_GARANTIA', 'REPOSICIÓN POR GARANTÍA', 'Salida de una unidad nueva entregada al cliente en reemplazo de otra en garantía (RMA). Asiento: 5.1.10 Costo de garantías.',
+           -1, 'Warehouse', false, false, true
+    FROM iam.tenants t
+    WHERE NOT EXISTS (SELECT 1 FROM inventory.movement_types x WHERE x.tenant_id = t.id AND x.code = 'REPOSICION_GARANTIA');
+
+    INSERT INTO accounting.accounts (id, tenant_id, code, name, account_type, parent_account_id, is_postable)
+    SELECT gen_random_uuid(), g.tenant_id, '5.1.10', 'Costo de garantías', 'Expense', g.id, true
+    FROM accounting.accounts g
+    WHERE g.code = '5.1'
+      AND NOT EXISTS (SELECT 1 FROM accounting.accounts x WHERE x.tenant_id = g.tenant_id AND x.code = '5.1.10');
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    DO $$
+    DECLARE r text;
+    BEGIN
+        FOREACH r IN ARRAY ARRAY['minv_app', 'minv_server'] LOOP
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
+                EXECUTE format('GRANT USAGE ON SCHEMA service TO %I', r);
+                EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON catalog.spec_definitions, catalog.spec_options, catalog.product_spec_values, catalog.product_tech_profiles, inventory.serial_events, inventory.stock_transfer_line_serials, sales.sales_order_line_serials, sales.sales_return_line_serials, sales.pc_builds, sales.pc_build_lines, service.warranty_claims, service.warranty_claim_events TO %I', r);
+                EXECUTE format('REVOKE UPDATE, DELETE, TRUNCATE ON inventory.serial_events, inventory.stock_transfer_line_serials, sales.sales_order_line_serials, sales.sales_return_line_serials, service.warranty_claim_events FROM %I', r);
+                EXECUTE format('GRANT SELECT ON inventory.v_serial_breaches TO %I', r);
+            END IF;
+        END LOOP;
+    END;
+    $$;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926082719_V42TechRetail') THEN
+    INSERT INTO iam.__ef_migrations_history ("MigrationId", "ProductVersion")
+    VALUES ('20260926082719_V42TechRetail', '8.0.31');
     END IF;
 END $EF$;
 COMMIT;

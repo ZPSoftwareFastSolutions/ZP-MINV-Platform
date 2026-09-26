@@ -23,9 +23,9 @@ using MINV.Infrastructure.Services;
 //   minv import-v21 --archivo libro.xlsx --codigo DEMO --admin correo --nombre "…" [--clave …] [--zona America/Bogota]
 //   minv user password --codigo DEMO --correo x@y [--clave …]
 //   minv verify [--codigo DEMO]
-//   minv datos-prueba [--codigo MINV] [--dias 60] [--semilla 2026] [--credenciales archivo.txt] [--integracion archivo.txt]
+//   minv datos-prueba [--codigo TECHZONE] [--dias 60] [--semilla 2026] [--credenciales archivo.txt] [--integracion archivo.txt]
 //                     [--dias-facturacion 25] [--sin-facturacion] [--siat-estado archivo.json] [--simulador http://localhost:5095]
-//   minv siat estado|preparar|sincronizar|procesar [--codigo MINV] [--forzar]                  V4.1: facturación SIAT de una empresa
+//   minv siat estado|preparar|sincronizar|procesar [--codigo TECHZONE] [--forzar]        V4.1: facturación SIAT de una empresa
 //   minv siat simulador-estado|simulador-apagar|simulador-encender [--simulador http://localhost:5095]
 // Conexión: --conexion "Host=…" o variable MINV_DB. La clave también puede venir de MINV_CLAVE o se pide sin eco.
 // =====================================================================================================================
@@ -49,6 +49,9 @@ catch (Exception ex)
 
 internal static class Cli
 {
+    /// <summary>V4.2 · Código de la empresa de prueba (Tech Zone Gaming S.R.L.) cuando no se indica --codigo.</summary>
+    public const string DefaultCompany = "TECHZONE";
+
     public static async Task<int> RunAsync(string[] args)
     {
         if (args.Length == 0 || args[0] is "-h" or "--help" or "ayuda")
@@ -217,21 +220,25 @@ internal static class Cli
     }
 
     /// <summary>Comprobaciones de la base: tablas, triggers append-only, RLS y conservación (Σ existencias = Σ movimientos).
-    /// Mínimos de la V4.1: 140 tablas en 9 esquemas (27 de facturación en <c>billing</c>), 24 libros append-only, RLS por
-    /// empresa en las 138 tablas con <c>tenant_id</c> y política restrictiva por sucursal en 55.</summary>
+    /// Mínimos de la V4.2: 152 tablas en 10 esquemas (27 de facturación en <c>billing</c>, 2 de garantías en
+    /// <c>service</c>), 29 libros append-only, RLS por empresa en las 150 tablas con <c>tenant_id</c> y política restrictiva
+    /// por sucursal en 62; con empresa, además, series en stock = stock (<c>inventory.v_serial_breaches</c>).</summary>
     private static async Task<int> VerifyAsync(MinvWriteDbContext db, ITenantContext tenantContext, string? tenantCode)
     {
-        const int MinTables = 140, MinBilling = 27, MinLedgers = 24, MinRls = 138, MinBranch = 55;
+        const int MinTables = 152, MinBilling = 27, MinService = 2, MinLedgers = 29, MinRls = 150, MinBranch = 62;
         var schemas = string.Join(",", Schemas.All.Select(s => $"'{s}'"));
         async Task<int> Scalar(string sql) => await db.Database.SqlQueryRaw<int>(sql).SingleAsync();
         var tables = await Scalar($"SELECT count(*)::int AS \"Value\" FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema IN ({schemas}) AND table_name <> '__ef_migrations_history'");
         var billing = await Scalar($"SELECT count(*)::int AS \"Value\" FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema = '{Schemas.Billing}'");
+        var service = await Scalar($"SELECT count(*)::int AS \"Value\" FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema = '{Schemas.Service}'");
         var triggers = await Scalar("SELECT count(*)::int AS \"Value\" FROM pg_trigger WHERE tgname = 'trg_append_only'");
         var rls = await Scalar($"SELECT count(*)::int AS \"Value\" FROM pg_tables WHERE rowsecurity AND schemaname IN ({schemas})");
         var branchPolicies = await Scalar("SELECT count(*)::int AS \"Value\" FROM pg_policies WHERE policyname = 'branch_isolation'");
-        var ok = tables >= MinTables && billing >= MinBilling && triggers >= MinLedgers && rls >= MinRls && branchPolicies >= MinBranch;
+        var ok = tables >= MinTables && billing >= MinBilling && service >= MinService && triggers >= MinLedgers && rls >= MinRls
+                 && branchPolicies >= MinBranch;
         Console.WriteLine($"{(tables >= MinTables ? "✔" : "✖")} {tables} tablas en {Schemas.All.Count} esquemas");
         Console.WriteLine($"{(billing >= MinBilling ? "✔" : "✖")} Facturación SIAT: {billing} tablas en el esquema {Schemas.Billing}");
+        Console.WriteLine($"{(service >= MinService ? "✔" : "✖")} Garantías y RMA: {service} tablas en el esquema {Schemas.Service}");
         Console.WriteLine($"{(triggers >= MinLedgers ? "✔" : "✖")} {triggers} libros mayores protegidos (append-only)");
         Console.WriteLine($"{(rls >= MinRls ? "✔" : "✖")} Row Level Security activa en {rls} tablas");
         Console.WriteLine($"{(branchPolicies >= MinBranch ? "✔" : "✖")} Aislamiento por sucursal (política restrictiva) en {branchPolicies} tablas");
@@ -250,6 +257,12 @@ internal static class Cli
             ok &= transferBreaches == 0;
             Console.WriteLine($"{(transferBreaches == 0 ? "✔" : "✖")} Transferencias: {transfers} en total, {transferBreaches} líneas que no cuadran " +
                               "(despachado = recibido + faltante + en tránsito)");
+            // V4.2 · En cada sucursal, las series en stock de una variante serializada = su stock (regla T-02)
+            var serialBreaches = await Scalar($"SELECT count(*)::int AS \"Value\" FROM inventory.v_serial_breaches WHERE tenant_id = '{tenant.Id}'");
+            var serials = await db.SerialNumbers.CountAsync();
+            ok &= serialBreaches == 0;
+            Console.WriteLine($"{(serialBreaches == 0 ? "✔" : "✖")} Series e IMEI: {serials} en total, {serialBreaches} variantes con series en stock " +
+                              "distintas de su stock en una sucursal");
             // V4.1 · Facturación: el total fiscal (derivado de las líneas) es el cobrado y cada venta tiene UN documento vigente
             var fiscal = await Scalar($"SELECT count(*)::int AS \"Value\" FROM billing.fiscal_documents WHERE tenant_id = '{tenant.Id}'");
             if (fiscal > 0)
@@ -279,7 +292,7 @@ internal static class Cli
     /// </summary>
     private static async Task<int> SeedAsync(IServiceProvider services, MinvWriteDbContext db, Dictionary<string, string> options)
     {
-        var code = (options.GetValueOrDefault("codigo") ?? "MINV").Trim().ToUpperInvariant();
+        var code = (options.GetValueOrDefault("codigo") ?? DefaultCompany).Trim().ToUpperInvariant();
         if (await db.Tenants.AnyAsync(t => t.Code == code))
         {
             Console.Error.WriteLine($"✖ La empresa {code} ya existe. Recree la base (tools\\bd_local.ps1 -Accion recrear) o use otro --codigo.");
@@ -314,7 +327,7 @@ internal static class Cli
             };
             if (result.WebhookSecret is { } secret)
             {
-                lines.Add("Secreto del webhook de prueba (https://tienda.elconstructor.example/webhooks/minv):");
+                lines.Add("Secreto del webhook de prueba (https://tienda.techzone.example/webhooks/minv):");
                 lines.Add("MINV_WEBHOOK_SECRET=" + secret);
             }
             if (result.Billing is { } billed)
@@ -337,10 +350,17 @@ internal static class Cli
         var sb = new StringBuilder();
         sb.AppendLine("M-INV · base de datos de PRUEBA · usuarios");
         sb.AppendLine($"Empresa: {r.CompanyName} · código de empresa: {r.TenantCode}");
-        sb.AppendLine($"Sucursales: {string.Join(", ", r.Branches)} (CM = casa matriz, EA = El Alto, SC = Santa Cruz)");
+        sb.AppendLine($"Sucursales: {string.Join(", ", r.Branches)} (CM = casa matriz La Paz, CB = Cochabamba, SC = Santa Cruz)");
         sb.AppendLine($"Datos: {r.Products} productos con imagen, {r.Suppliers} proveedores, {r.Customers} clientes, {r.Tickets} ventas en caja, " +
                       $"{r.ExternalOrders} pedidos web, {r.Transfers} transferencias, {r.PurchaseOrders} órdenes de compra, {r.Movements} movimientos y " +
                       $"{r.JournalEntries} asientos ({r.From:dd/MM/yyyy} a {r.To:dd/MM/yyyy}).");
+        if (r.Tech is { } t)
+        {
+            // V4.2 · Edición Tecnología: fichas técnicas, series e IMEI, garantías (RMA) y armados de PC
+            sb.AppendLine($"Tecnología: {t.Categories} categorías, {t.SpecDefinitions} especificaciones ({t.SpecValues} valores), {t.Brands} marcas, " +
+                          $"{t.SerializedProducts} productos con serie o IMEI ({t.Serials} series, {t.SerialsInStock} en stock), {t.WarrantyClaims} casos RMA, " +
+                          $"{t.PcBuilds} armados de PC ({t.PcBuildsSold} vendidos, {t.PcBuildsIncompatible} incompatibles marcados) y {t.Returns} devoluciones.");
+        }
         if (r.Billing is { } b)
         {
             // V4.1 · Facturación SIAT (el token de simulación NO va aquí: está en el archivo de claves de integración)
@@ -412,14 +432,14 @@ internal static class Cli
           minv migrate
           minv tenant create --codigo DEMO --razon-social "Mi empresa" --admin admin@empresa.com --nombre "Administrador" [--clave …] [--moneda BOB] [--zona America/La_Paz]
           minv import-v21 --archivo src/M-INV_V2_Colaborativo.xlsx --codigo DEMO --admin admin@distribuidorademo.example --nombre "Administrador" [--clave …] [--zona America/Bogota] [--moneda COP] [--pais CO --pais-nombre Colombia]
-          minv user password --codigo DEMO --correo ana.gomez@distribuidorademo.example [--clave …]
+          minv user password --codigo TECHZONE --correo admin@techzone.example [--clave …]
           minv verify [--codigo DEMO]
-          minv datos-prueba [--codigo MINV] [--dias 60] [--semilla 2026] [--credenciales %LOCALAPPDATA%\M-INV\usuarios-prueba.txt] [--integracion %LOCALAPPDATA%\M-INV\claves-integracion.txt]
+          minv datos-prueba [--codigo TECHZONE] [--dias 60] [--semilla 2026] [--credenciales %LOCALAPPDATA%\M-INV\usuarios-prueba.txt] [--integracion %LOCALAPPDATA%\M-INV\claves-integracion.txt]
                             [--dias-facturacion 25] [--sin-facturacion] [--siat-estado %LOCALAPPDATA%\M-INV\siat-simulador.json] [--simulador http://localhost:5095]
-          minv siat estado [--codigo MINV]                  (V4.1: modo de cada punto de venta, CUIS, CUFD, pendientes y alertas)
-          minv siat preparar [--codigo MINV]                (hora del SIN, CUIS y CUFD del día en cada punto de venta, catálogos)
-          minv siat sincronizar [--codigo MINV]             (los 18 catálogos del SIN)
-          minv siat procesar [--codigo MINV] [--forzar]     (envía pendientes, recupera fuera de línea, paquetes, notas y correos)
+          minv siat estado [--codigo TECHZONE]             (V4.1: modo de cada punto de venta, CUIS, CUFD, pendientes y alertas)
+          minv siat preparar [--codigo TECHZONE]           (hora del SIN, CUIS y CUFD del día en cada punto de venta, catálogos)
+          minv siat sincronizar [--codigo TECHZONE]        (los 18 catálogos del SIN)
+          minv siat procesar [--codigo TECHZONE] [--forzar] (envía pendientes, recupera fuera de línea, paquetes, notas y correos)
           minv siat simulador-estado | simulador-apagar | simulador-encender [--simulador http://localhost:5095]   (corte de internet simulado)
         Conexión: --conexion "Host=localhost;Database=minv;Username=minv_owner;Password=…" o variable MINV_DB.
         """;

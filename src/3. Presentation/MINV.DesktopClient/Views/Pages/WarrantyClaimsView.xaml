@@ -1,0 +1,190 @@
+<UserControl x:Class="MINV.DesktopClient.Views.Pages.WarrantyClaimsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:MINV.DesktopClient.Controls"
+             xmlns:vm="clr-namespace:MINV.DesktopClient.ViewModels">
+    <!-- V4.2 · Garantías y RMA: casos por estado, detalle con bitácora y acciones según el estado -->
+    <Grid Margin="28,6,28,24">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <DockPanel Grid.ColumnSpan="2" Margin="0,0,0,14">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button Style="{StaticResource PrimaryButton}" Content="Abrir caso" c:Ui.Icon="{x:Static c:Glyphs.Add}" Command="{Binding OpenNew}" Margin="0,0,8,0"
+                        c:Ui.IsBusy="{Binding OpenNew.IsRunning}" Visibility="{Binding CanOpen, Converter={StaticResource Visible}}"
+                        ToolTip="Recibir un equipo en garantía (escanee su serie o IMEI)" />
+                <Button Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Refresh}" Command="{Binding Refresh}" ToolTip="Actualizar (F5)" />
+            </StackPanel>
+            <StackPanel>
+                <TextBlock Text="{Binding Title}" Style="{StaticResource H1}" />
+                <TextBlock Text="{Binding Subtitle}" Style="{StaticResource Caption}" FontSize="13" Margin="0,4,0,0" />
+            </StackPanel>
+        </DockPanel>
+
+        <UniformGrid Grid.Row="1" Grid.ColumnSpan="2" Columns="4" Margin="-6,0,-6,10">
+            <ContentControl Content="{Binding OpenKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+            <ContentControl Content="{Binding WorkshopKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+            <ContentControl Content="{Binding ChargeableKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+            <ContentControl Content="{Binding ClosedKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+        </UniformGrid>
+
+        <DockPanel Grid.Row="2" Margin="0,0,0,4">
+            <TextBlock DockPanel.Dock="Right" Text="{Binding Summary}" Style="{StaticResource Caption}" VerticalAlignment="Top" Margin="10,8,0,0" />
+            <ItemsControl ItemsSource="{Binding Filters}" ItemTemplate="{StaticResource FilterChipTemplate}" ItemsPanel="{StaticResource WrapPanelTemplate}" Focusable="False" />
+        </DockPanel>
+
+        <Border Grid.Row="3" Style="{StaticResource CardFlat}" Padding="4,2,4,4">
+            <Grid>
+                <DataGrid ItemsSource="{Binding Rows}" SelectedItem="{Binding Selected}" RowHeight="56">
+                    <DataGrid.Columns>
+                        <DataGridTemplateColumn Header="CASO" Width="135" SortMemberPath="Number" CanUserSort="True">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:WarrantyClaimItem}">
+                                    <StackPanel VerticalAlignment="Center">
+                                        <Border Style="{StaticResource Pill}" Background="{DynamicResource BrandSoft}">
+                                            <TextBlock Text="{Binding Number}" Style="{StaticResource Mono}" Foreground="{DynamicResource BrandText}" FontWeight="SemiBold" />
+                                        </Border>
+                                        <TextBlock Text="{Binding ReceivedText}" Style="{StaticResource Caption}" FontSize="11" Margin="0,2,0,0" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTemplateColumn Header="EQUIPO Y CLIENTE" Width="1.5*" MinWidth="170" SortMemberPath="Product" CanUserSort="True">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:WarrantyClaimItem}">
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Product}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Style="{StaticResource Caption}" FontSize="11.5" TextTrimming="CharacterEllipsis">
+                                            <Run Text="{Binding Serial, Mode=OneWay}" FontFamily="{StaticResource MonoFont}" /><Run Text=" · " /><Run Text="{Binding Customer, Mode=OneWay}" />
+                                        </TextBlock>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTextColumn Header="FALLA" Binding="{Binding Issue}" Width="*" MinWidth="110" ElementStyle="{StaticResource CellText}" />
+                        <DataGridTemplateColumn Header="COBERTURA" Width="118">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:WarrantyClaimItem}">
+                                    <Border Style="{StaticResource StatusPill}" c:Ui.BrushKey="{Binding CoverageSoftBrush}">
+                                        <TextBlock Text="{Binding CoverageText}" FontSize="11" FontWeight="SemiBold" c:Ui.BrushKey="{Binding CoverageBrush}" />
+                                    </Border>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTemplateColumn Header="ESTADO" Width="135" SortMemberPath="Status" CanUserSort="True">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:WarrantyClaimItem}">
+                                    <StackPanel VerticalAlignment="Center">
+                                        <Border Style="{StaticResource StatusPill}" c:Ui.BrushKey="{Binding StatusSoftBrush}">
+                                            <TextBlock Text="{Binding StatusText}" FontSize="11" FontWeight="SemiBold" c:Ui.BrushKey="{Binding StatusBrush}" />
+                                        </Border>
+                                        <TextBlock Text="{Binding DaysText}" Style="{StaticResource Caption}" FontSize="11" Margin="0,2,0,0" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+                <ContentControl Style="{StaticResource EmptyState}" Tag="{x:Static c:Glyphs.Shield}" Visibility="{Binding IsEmpty, Converter={StaticResource Visible}}">
+                    <StackPanel>
+                        <TextBlock Text="{Binding EmptyTitle}" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" HorizontalAlignment="Center" />
+                        <TextBlock Text="Reciba un equipo en garantía con «Abrir caso» o desde «Series e IMEI»." Style="{StaticResource Caption}"
+                                   HorizontalAlignment="Center" Margin="0,4,0,0" />
+                    </StackPanel>
+                </ContentControl>
+            </Grid>
+        </Border>
+
+        <!-- Detalle del caso -->
+        <Border Grid.Row="2" Grid.RowSpan="2" Grid.Column="1" Style="{StaticResource EditorPanel}" Width="380"
+                Visibility="{Binding HasSelection, Converter={StaticResource Visible}}">
+            <DockPanel Margin="20,16">
+                <StackPanel DockPanel.Dock="Top">
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Close}" ToolTip="Cerrar" Click="OnClose" />
+                        <TextBlock Text="{Binding Selected.Number}" Style="{StaticResource H2}" FontFamily="{StaticResource MonoFont}" VerticalAlignment="Center" />
+                    </DockPanel>
+                    <TextBlock Text="{Binding Selected.Product}" FontWeight="SemiBold" Margin="0,6,0,0" TextWrapping="Wrap" />
+                    <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap">
+                        <Run Text="{Binding Selected.Serial, Mode=OneWay}" FontFamily="{StaticResource MonoFont}" /><Run Text=" · " /><Run Text="{Binding Selected.Customer, Mode=OneWay}" />
+                    </TextBlock>
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                        <Border Style="{StaticResource StatusPill}" c:Ui.BrushKey="{Binding Selected.StatusSoftBrush}">
+                            <TextBlock Text="{Binding Selected.StatusText}" FontSize="11" FontWeight="SemiBold" c:Ui.BrushKey="{Binding Selected.StatusBrush}" />
+                        </Border>
+                        <Border Style="{StaticResource StatusPill}" c:Ui.BrushKey="{Binding Selected.CoverageSoftBrush}" Margin="6,0,0,0">
+                            <TextBlock Text="{Binding Selected.CoverageText}" FontSize="11" FontWeight="SemiBold" c:Ui.BrushKey="{Binding Selected.CoverageBrush}" />
+                        </Border>
+                    </StackPanel>
+                    <Border Style="{StaticResource Panel}" Margin="0,12,0,0" Padding="12,10">
+                        <StackPanel>
+                            <TextBlock Text="FALLA REPORTADA" Style="{StaticResource Overline}" />
+                            <TextBlock Text="{Binding Selected.Issue}" TextWrapping="Wrap" Margin="0,2,0,0" Foreground="{DynamicResource TextPrimary}" />
+                        </StackPanel>
+                    </Border>
+                    <Border CornerRadius="10" Padding="12,8" Margin="0,8,0,0" c:Ui.BrushKey="{Binding WarrantySoftBrush}"
+                            Visibility="{Binding WarrantyText, Converter={StaticResource HasValue}}">
+                        <StackPanel>
+                            <TextBlock Text="{Binding WarrantyText}" FontWeight="SemiBold" c:Ui.BrushKey="{Binding WarrantyBrush}" />
+                            <TextBlock Text="{Binding SaleText}" Style="{StaticResource Caption}" FontSize="11.5" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                    <TextBlock Text="{Binding ResolutionText}" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,8,0,0"
+                               Visibility="{Binding HasResolution, Converter={StaticResource Visible}}" />
+                </StackPanel>
+                <StackPanel DockPanel.Dock="Bottom">
+                    <Border Height="1" Background="{DynamicResource Border}" Margin="0,10" />
+                    <ItemsControl ItemsSource="{Binding Actions}" Focusable="False">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:ClaimActionItem}">
+                                <Grid Margin="0,0,0,6">
+                                    <Button Style="{StaticResource PrimaryButton}" Content="{Binding Label}" c:Ui.Icon="{Binding Glyph}" HorizontalAlignment="Stretch"
+                                            Command="{Binding DataContext.RunAction, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"
+                                            Visibility="{Binding IsPrimary, Converter={StaticResource Visible}}" />
+                                    <Button Style="{StaticResource DangerButton}" Content="{Binding Label}" c:Ui.Icon="{Binding Glyph}" HorizontalAlignment="Stretch"
+                                            Command="{Binding DataContext.RunAction, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"
+                                            Visibility="{Binding IsDanger, Converter={StaticResource Visible}}" />
+                                    <Button Content="{Binding Label}" c:Ui.Icon="{Binding Glyph}" HorizontalAlignment="Stretch"
+                                            Command="{Binding DataContext.RunAction, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"
+                                            Visibility="{Binding IsNormal, Converter={StaticResource Visible}}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <UniformGrid Columns="2">
+                        <Button Content="Agregar nota" c:Ui.Icon="{x:Static c:Glyphs.Clipboard}" Command="{Binding AddNote}" Margin="0,0,4,0" />
+                        <Button Content="Ver la serie" c:Ui.Icon="{x:Static c:Glyphs.Barcode}" Command="{Binding OpenSerial}" Margin="4,0,0,0" />
+                    </UniformGrid>
+                </StackPanel>
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,12,0,0">
+                    <StackPanel>
+                        <TextBlock Text="BITÁCORA DEL CASO" Style="{StaticResource Overline}" Margin="0,0,0,6" />
+                        <ItemsControl ItemsSource="{Binding Events}" Focusable="False">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:ClaimEventItem}">
+                                    <DockPanel Margin="0,4">
+                                        <Ellipse DockPanel.Dock="Left" Width="9" Height="9" c:Ui.BrushKey="{Binding Brush}" VerticalAlignment="Top" Margin="0,5,10,0" />
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding Note}" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondary}" FontSize="12"
+                                                       Visibility="{Binding HasNote, Converter={StaticResource Visible}}" />
+                                            <TextBlock Text="{Binding Detail}" Style="{StaticResource Caption}" FontSize="11" />
+                                        </StackPanel>
+                                    </DockPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
+    </Grid>
+</UserControl>

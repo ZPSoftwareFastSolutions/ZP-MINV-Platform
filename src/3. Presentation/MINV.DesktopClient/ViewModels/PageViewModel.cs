@@ -25,7 +25,7 @@ public sealed class AppServices(SerialMediator mediator, NotificationService not
     /// <summary>Imágenes de los productos (miniaturas compartidas por todas las pantallas).</summary>
     public ImageCache Images { get; } = images;
 
-    /// <summary>Ahora según el reloj de la aplicación (en la demostración, el día de los datos de la V2.1).</summary>
+    /// <summary>Ahora según el reloj de la aplicación (en la demostración, el último día de operación de Tech Zone Gaming).</summary>
     public DateTimeOffset Now => clock.UtcNow;
 
     public NotificationService Notify { get; } = notify;

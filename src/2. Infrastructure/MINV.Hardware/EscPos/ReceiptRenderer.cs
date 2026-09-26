@@ -1,5 +1,6 @@
 using System.Globalization;
 using MINV.Application.Abstractions;
+using MINV.Application.Tech;
 
 namespace MINV.Hardware.EscPos;
 
@@ -26,6 +27,15 @@ public static class ReceiptRenderer
             doc.Line(line.Description)
                 .Columns2($"  {line.Quantity.ToString("0.###", CultureInfo.InvariantCulture)} x {EscPosDocument.Money(line.UnitPrice)}",
                     EscPosDocument.Money(line.Amount));
+            // V4.2 · Series o IMEI vendidos y garantía derivada de la venta (reglas T-03 y T-04)
+            foreach (var extra in FiscalRollRenderer.Wrap(line.SerialsText, columns - 2))
+            {
+                doc.Line("  " + extra);
+            }
+            if (line.WarrantyUntil is { } until)
+            {
+                doc.Line("  " + TechPrint.Warranty(until));
+            }
         }
         doc.Separator().Bold(true).Size(1, 2)
             .Columns2("TOTAL " + receipt.CurrencySymbol, EscPosDocument.Money(receipt.Total))

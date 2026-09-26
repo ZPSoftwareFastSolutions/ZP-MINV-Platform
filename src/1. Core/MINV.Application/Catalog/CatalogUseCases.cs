@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using MINV.Application.Abstractions;
 using MINV.Application.Common;
 using MINV.Application.Inventory;
+using MINV.Application.Tech;
 using MINV.Domain.Accounting;
 using MINV.Domain.Catalog;
 using MINV.Domain.Common;
@@ -18,9 +19,11 @@ public sealed record OptionItem(string Code, string Name);
 
 public sealed record UnitOption(string Code, string Name, bool AllowsDecimals);
 
-/// <summary>Listas para los combos del catálogo: categorías, unidades, proveedores e impuesto vigente.</summary>
+/// <summary>Listas para los combos del catálogo: categorías, unidades, proveedores e impuesto vigente. V4.2 ·
+/// <see cref="VatOnInvoicedAmount"/>: el IVA se calcula sobre el importe facturado (Bolivia): el neto del precio es su 87 %
+/// (<see cref="VatRules"/>).</summary>
 public sealed record CatalogOptions(IReadOnlyList<OptionItem> Categories, IReadOnlyList<UnitOption> Units, IReadOnlyList<OptionItem> Suppliers,
-    decimal TaxRate, string PriceListName);
+    decimal TaxRate, string PriceListName, bool VatOnInvoicedAmount = true);
 
 [RequiresPermission(PermissionCodes.StockView)]
 public sealed record GetCatalogOptionsQuery : IRequest<CatalogOptions>;
@@ -36,7 +39,7 @@ public sealed class GetCatalogOptionsHandler(IMinvDbContext db, IClock clock) : 
         var config = await new InventoryLookups(db).ConfigAsync(ct);
         var rate = await Pricing.TaxRateAsync(db, clock.TodayIn(config.TimeZoneId), ct);
         var list = await db.Set<PriceList>().Where(p => p.IsDefault).Select(p => p.Name).FirstOrDefaultAsync(ct) ?? "GENERAL";
-        return new CatalogOptions(categories, units, suppliers, rate, list);
+        return new CatalogOptions(categories, units, suppliers, rate, list, await Pricing.VatOnInvoicedAmountAsync(db, ct));
     }
 }
 
@@ -45,8 +48,10 @@ public sealed record CatalogItem(Guid VariantId, string Sku, string Name, string
     string? SupplierCode, string? Supplier, decimal SalePrice, decimal UnitCost, decimal Minimum, decimal Maximum, string? Barcode,
     bool IsActive, bool HasImage, string? BinCode);
 
+/// <summary>Catálogo de productos. V4.2 · Filtrable por especificaciones técnicas (<see cref="SpecFilters"/>: opción o rango,
+/// todas a la vez) y por categoría (incluye sus subcategorías).</summary>
 [RequiresPermission(PermissionCodes.StockView)]
-public sealed record GetCatalogQuery : IRequest<IReadOnlyList<CatalogItem>>;
+public sealed record GetCatalogQuery(IReadOnlyList<SpecFilter>? SpecFilters = null, string? CategoryCode = null) : IRequest<IReadOnlyList<CatalogItem>>;
 
 public sealed class GetCatalogHandler(IMinvDbContext db) : IRequestHandler<GetCatalogQuery, IReadOnlyList<CatalogItem>>
 {
@@ -63,8 +68,20 @@ public sealed class GetCatalogHandler(IMinvDbContext db) : IRequestHandler<GetCa
                           select new
                           {
                               v.Id, v.Sku, Name = v.Name == null ? p.Name : p.Name + " · " + v.Name, p.Description, CategoryCode = c.Code,
-                              Category = c.Name, Unit = u.Code, Active = p.IsActive && v.IsActive, ProductId = p.Id,
+                              Category = c.Name, Unit = u.Code, Active = p.IsActive && v.IsActive, ProductId = p.Id, p.CategoryId,
                           }).ToListAsync(ct);
+        // V4.2 · Filtros por categoría (con sus subcategorías) y por especificaciones técnicas
+        var reader = new TechCatalogReader(db);
+        if (!string.IsNullOrWhiteSpace(request.CategoryCode))
+        {
+            var subtree = await reader.SubtreeAsync((await reader.CategoryAsync(request.CategoryCode, ct)).Id, ct);
+            rows = rows.Where(r => subtree.Contains(r.CategoryId)).ToList();
+        }
+        if (request.SpecFilters is { Count: > 0 } filters)
+        {
+            var matched = await reader.MatchAsync(filters, rows.Select(r => r.ProductId).Distinct().ToList(), ct);
+            rows = rows.Where(r => matched.Contains(r.ProductId)).ToList();
+        }
         var suppliers = (await (from ps in db.Set<ProductSupplier>()
                                 join s in db.Set<Supplier>() on ps.SupplierId equals s.Id
                                 where ps.IsPreferred
@@ -326,11 +343,12 @@ public sealed class RemoveProductImageHandler(IMinvDbContext db) : IRequestHandl
     }
 }
 
-/// <summary>Crea una categoría (raíz) del catálogo.</summary>
+/// <summary>Crea (o renombra) una categoría del catálogo. V4.2 · Con <see cref="ParentCode"/> se crea como subcategoría (hereda
+/// las especificaciones técnicas de sus madres); una categoría existente no cambia de madre.</summary>
 [RequiresPermission(PermissionCodes.CatalogManage)]
-public sealed record SaveCategoryCommand(string Code, string Name) : IRequest<string>, IAuditableRequest
+public sealed record SaveCategoryCommand(string Code, string Name, string? ParentCode = null) : IRequest<string>, IAuditableRequest
 {
-    public object AuditDetails => new { Code, Name };
+    public object AuditDetails => new { Code, Name, ParentCode };
 }
 
 public sealed class SaveCategoryHandler(IMinvDbContext db, ITenantContext tenant) : IRequestHandler<SaveCategoryCommand, string>
@@ -339,6 +357,19 @@ public sealed class SaveCategoryHandler(IMinvDbContext db, ITenantContext tenant
     {
         var code = Guard.Code(request.Code, "El código de la categoría", 20);
         var existing = await db.Set<Category>().FirstOrDefaultAsync(c => c.Code == code, ct);
+        IReadOnlyList<CategoryHierarchy> parentRows = [];
+        if (!string.IsNullOrWhiteSpace(request.ParentCode))
+        {
+            var parentCode = request.ParentCode.Trim().ToUpperInvariant();
+            var parent = await db.Set<Category>().FirstOrDefaultAsync(c => c.Code == parentCode, ct)
+                         ?? throw new NotFoundException($"La categoría madre {parentCode} no existe.");
+            Guard.That(parent.Code != code, "category.parent", "Una categoría no puede ser su propia madre.");
+            parentRows = await db.Set<CategoryHierarchy>().Where(h => h.DescendantId == parent.Id).ToListAsync(ct);
+            if (parentRows.Count == 0)
+            {
+                parentRows = [new CategoryHierarchy(parent.TenantId, parent.Id, parent.Id, 0)];
+            }
+        }
         if (existing is not null)
         {
             existing.Rename(request.Name.Trim());
@@ -347,7 +378,7 @@ public sealed class SaveCategoryHandler(IMinvDbContext db, ITenantContext tenant
         {
             var category = new Category(tenant.TenantId, code, request.Name.Trim());
             db.Set<Category>().Add(category);
-            db.Set<CategoryHierarchy>().AddRange(CategoryTree.ForNewCategory(category, []));
+            db.Set<CategoryHierarchy>().AddRange(CategoryTree.ForNewCategory(category, parentRows));
         }
         await db.SaveChangesAsync(ct);
         return code;
@@ -365,7 +396,26 @@ public static class Pricing
                orderby r.ValidFrom descending
                select (decimal?)r.Rate).FirstOrDefaultAsync(ct) ?? 0m;
 
-    /// <summary>Impuesto incluido en un importe (los precios de venta incluyen IVA).</summary>
-    public static decimal IncludedTax(decimal amount, decimal ratePercent) =>
-        ratePercent <= 0 ? 0 : JournalPoster.Money(amount * ratePercent / (100 + ratePercent));
+    /// <summary>Impuesto incluido en un importe (los precios de venta incluyen IVA), con la convención del país de la empresa
+    /// (<see cref="VatRules"/>: en Bolivia, el 13 % del importe facturado, como el débito fiscal del libro de ventas).</summary>
+    public static decimal IncludedTax(decimal amount, decimal ratePercent, bool onInvoicedAmount) =>
+        VatRules.IncludedTax(amount, ratePercent, onInvoicedAmount);
+
+    /// <summary>
+    /// V4.2 · ¿El IVA de la empresa se calcula sobre el importe facturado (Bolivia, <see cref="VatRules.OnInvoicedAmount"/>)? Lo
+    /// dice el país de la dirección de sus sucursales (la primera por código que tenga dirección; la casa matriz «CM»); sin
+    /// dirección, Bolivia (el país por defecto del aprovisionamiento).
+    /// </summary>
+    public static async Task<bool> VatOnInvoicedAmountAsync(IMinvDbContext db, CancellationToken ct)
+    {
+        var country = await (from b in db.Set<Branch>()
+                             join a in db.Set<Address>() on b.AddressId equals (Guid?)a.Id
+                             join p in db.Set<PostalCode>() on a.PostalCodeId equals p.Id
+                             join c in db.Set<City>() on p.CityId equals c.Id
+                             join s in db.Set<State>() on c.StateId equals s.Id
+                             join k in db.Set<Country>() on s.CountryId equals k.Id
+                             orderby b.Code
+                             select k.IsoCode).FirstOrDefaultAsync(ct);
+        return VatRules.OnInvoicedAmount(country);
+    }
 }

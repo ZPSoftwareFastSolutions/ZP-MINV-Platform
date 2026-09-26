@@ -1,29 +1,33 @@
-# M-INV V3, V4 y V4.1 · Modelo relacional (ERD) · PostgreSQL 15+
+# M-INV V3, V4, V4.1 y V4.2 · Modelo relacional (ERD) · PostgreSQL 15+
 
 Fuente de verdad: el modelo Code-First de `src/2. Infrastructure/MINV.Infrastructure` (entidades en
 `src/1. Core/MINV.Domain`, configuraciones en `Persistence/Configurations`, migraciones en `Persistence/Migrations`).
 Script equivalente: `scripts/db_init.sql`. La prueba `MINV.Infrastructure.Tests.ModelTests` verifica este documento
-contra el modelo real: cada tabla del modelo debe aparecer aquí como `` `esquema.tabla` `` (V4.1: **140 tablas en 9
-esquemas**, FK compuestas por tenant y por sucursal, xmin, 24 libros append-only). La V3.1 tenía 97 tablas en 7
-esquemas y la V4 110 en 8; los cambios de la V4 (sucursal en las tablas transaccionales, transferencias rediseñadas,
-integraciones, idempotencia y modelo de lectura) están resumidos en el §7 y ya incorporados en el §4; la facturación
-SIAT de la V4.1 (esquema `billing`, devoluciones de venta, datos fiscales de compras y del cliente) está en el §8.
-Arquitectura: `docs/architecture/arquitectura-v4.md` y `docs/architecture/facturacion-siat-v4.1.md`.
+contra el modelo real: cada tabla del modelo debe aparecer aquí como `` `esquema.tabla` `` (V4.2: **152 tablas en 10
+esquemas**, FK compuestas por tenant y por sucursal, xmin, 29 libros append-only). La V3.1 tenía 97 tablas en 7
+esquemas, la V4 110 en 8 y la V4.1 140 en 9; los cambios de la V4 (sucursal en las tablas transaccionales,
+transferencias rediseñadas, integraciones, idempotencia y modelo de lectura) están resumidos en el §7 y ya incorporados
+en el §4; la facturación SIAT de la V4.1 (esquema `billing`, devoluciones de venta, datos fiscales de compras y del
+cliente) está en el §8; la edición Tecnología de la V4.2 (fichas técnicas, series e IMEI con su bitácora, armador de PC
+y garantías y RMA en el esquema `service`) está en el §9.
+Arquitectura: `docs/architecture/arquitectura-v4.md`, `docs/architecture/facturacion-siat-v4.1.md` y
+`docs/architecture/edicion-tecnologia-v4.2.md`.
 
 ## 1. Resumen
 
-| Contexto delimitado | Esquema | Tablas V3.1 | Tablas V4 | Tablas V4.1 | Nuevas en la V4 | Nuevas en la V4.1 |
-|---|---|---:|---:|---:|---|---|
-| IAM y tenants (identidad, RBAC, licencias, auditoría) | `iam` | 14 | 15 | 15 | `iam.processed_requests` | — |
-| Catálogo y datos maestros | `catalog` | 19 | 19 | 19 | — | — |
-| Topología de almacén | `warehouse` | 10 | 10 | 10 | — | — |
-| Motor transaccional de stock | `inventory` | 14 | 18 | 18 | `inventory.stock_transfer_movements`, `inventory.stock_transfer_discrepancies`, `inventory.stock_transfer_events`, `inventory.stock_transfer_line_batches` | — |
-| Compras y proveedores | `purchasing` | 11 | 11 | 12 | — | `purchasing.supplier_invoice_fiscal` |
-| Ventas y POS | `sales` | 19 | 20 | 22 | `sales.external_orders` | `sales.sales_returns`, `sales.sales_return_lines` |
-| Costos y contabilidad | `accounting` | 10 | 10 | 10 | — | — |
-| Integraciones B2B (V4) | `integration` | — | 7 | 7 | las 7 del esquema | — |
-| Facturación SIAT (V4.1) | `billing` | — | — | 27 | — | las 27 del esquema (§8) |
-| **Total** | 7 → 8 → **9** | **97** | **110** | **140** | **13** | **30** |
+| Contexto delimitado | Esquema | Tablas V3.1 | Tablas V4 | Tablas V4.1 | Tablas V4.2 | Nuevas en la V4 | Nuevas en la V4.1 | Nuevas en la V4.2 |
+|---|---|---:|---:|---:|---:|---|---|---|
+| IAM y tenants (identidad, RBAC, licencias, auditoría) | `iam` | 14 | 15 | 15 | 15 | `iam.processed_requests` | — | — |
+| Catálogo y datos maestros | `catalog` | 19 | 19 | 19 | 23 | — | — | `catalog.spec_definitions`, `catalog.spec_options`, `catalog.product_spec_values`, `catalog.product_tech_profiles` |
+| Topología de almacén | `warehouse` | 10 | 10 | 10 | 10 | — | — | — |
+| Motor transaccional de stock | `inventory` | 14 | 18 | 18 | 20 | `inventory.stock_transfer_movements`, `inventory.stock_transfer_discrepancies`, `inventory.stock_transfer_events`, `inventory.stock_transfer_line_batches` | — | `inventory.serial_events`, `inventory.stock_transfer_line_serials` |
+| Compras y proveedores | `purchasing` | 11 | 11 | 12 | 12 | — | `purchasing.supplier_invoice_fiscal` | — |
+| Ventas y POS | `sales` | 19 | 20 | 22 | 26 | `sales.external_orders` | `sales.sales_returns`, `sales.sales_return_lines` | `sales.sales_order_line_serials`, `sales.sales_return_line_serials`, `sales.pc_builds`, `sales.pc_build_lines` |
+| Costos y contabilidad | `accounting` | 10 | 10 | 10 | 10 | — | — | — |
+| Integraciones B2B (V4) | `integration` | — | 7 | 7 | 7 | las 7 del esquema | — | — |
+| Facturación SIAT (V4.1) | `billing` | — | — | 27 | 27 | — | las 27 del esquema (§8) | — |
+| Servicio técnico: garantías y RMA (V4.2) | `service` | — | — | — | 2 | — | — | `service.warranty_claims`, `service.warranty_claim_events` (§9) |
+| **Total** | 7 → 8 → 9 → **10** | **97** | **110** | **140** | **152** | **13** | **30** | **12** |
 
 Además, el esquema `reporting` (V4) contiene el modelo de lectura: vistas materializadas y vistas filtradas, no
 tablas del modelo EF (§7.5).
@@ -37,8 +41,8 @@ tablas del modelo EF (§7.5).
 | Multi-tenant | Toda tabla (salvo `iam.tenants` e `iam.modules`) tiene `tenant_id uuid NOT NULL` → `iam.tenants(id)`, filtro global en EF Core y **Row Level Security** (`tenant_id = iam.current_tenant_id()`) |
 | Integridad entre empresas | Cada entidad expone la clave alterna `(tenant_id, id)` y **toda FK es compuesta** `(tenant_id, x_id) → (tenant_id, id)`: una fila no puede referenciar datos de otra empresa (lo garantiza PostgreSQL) |
 | Concurrencia optimista | Las tablas transaccionales usan la columna de sistema `xmin` como token (`RowVersion` en C#); un conflicto aborta la transacción y el caso de uso reintenta con los valores actuales |
-| Append-only | `inventory.stock_movements`, `iam.audit_logs`, `iam.access_logs`, `sales.cash_movements`, `sales.payments`, `accounting.exchange_rates`, `accounting.average_cost_history` y (V4) `inventory.stock_transfer_movements`, `inventory.stock_transfer_discrepancies`, `inventory.stock_transfer_events`, `inventory.stock_transfer_line_batches`, `integration.outbox_events`, `integration.webhook_deliveries`, `sales.external_orders`, `iam.processed_requests` y (V4.1) `billing.siat_cuis`, `billing.siat_cufds`, `billing.siat_sync_runs`, `billing.customer_nit_checks`, `billing.siat_service_calls`, `billing.fiscal_document_lines`, `billing.fiscal_document_files`, `billing.fiscal_document_events`, `billing.fiscal_deliveries`: triggers que rechazan UPDATE, DELETE y TRUNCATE; los roles `minv_app` y `minv_server` no tienen esos privilegios |
-| Sucursal (V4) | 35 tablas «por sucursal» (`IBranchScoped`; 50 en la V4.1, §8.4) llevan `branch_id uuid NOT NULL`; 5 tablas «entre sucursales» (`IInterBranch`) llevan `from_branch_id` y `to_branch_id`. Filtro global de EF Core por el alcance de la sesión, guardas de escritura y **Row Level Security RESTRICTIVA** `branch_isolation` (`iam.branch_visible(…)`, variable `minv.branch_ids`). Lista completa en el §7.1 |
+| Append-only | `inventory.stock_movements`, `iam.audit_logs`, `iam.access_logs`, `sales.cash_movements`, `sales.payments`, `accounting.exchange_rates`, `accounting.average_cost_history` y (V4) `inventory.stock_transfer_movements`, `inventory.stock_transfer_discrepancies`, `inventory.stock_transfer_events`, `inventory.stock_transfer_line_batches`, `integration.outbox_events`, `integration.webhook_deliveries`, `sales.external_orders`, `iam.processed_requests` y (V4.1) `billing.siat_cuis`, `billing.siat_cufds`, `billing.siat_sync_runs`, `billing.customer_nit_checks`, `billing.siat_service_calls`, `billing.fiscal_document_lines`, `billing.fiscal_document_files`, `billing.fiscal_document_events`, `billing.fiscal_deliveries` y (V4.2) `inventory.serial_events`, `inventory.stock_transfer_line_serials`, `sales.sales_order_line_serials`, `sales.sales_return_line_serials`, `service.warranty_claim_events`: triggers que rechazan UPDATE, DELETE y TRUNCATE; los roles `minv_app` y `minv_server` no tienen esos privilegios |
+| Sucursal (V4) | 35 tablas «por sucursal» (`IBranchScoped`; 50 en la V4.1, §8.4; 56 en la V4.2, §9.5) llevan `branch_id uuid NOT NULL`; 5 tablas «entre sucursales» (`IInterBranch`; 6 en la V4.2) llevan `from_branch_id` y `to_branch_id`. Filtro global de EF Core por el alcance de la sesión, guardas de escritura y **Row Level Security RESTRICTIVA** `branch_isolation` (`iam.branch_visible(…)`, variable `minv.branch_ids`). Lista completa en el §7.1 |
 | Integridad entre sucursales (V4) | Las tablas por sucursal exponen la clave alterna `(tenant_id, branch_id, id)` y sus hijos la referencian con `(tenant_id, branch_id, padre_id)`: un hijo nunca tiene otra sucursal que su padre, y la cadena termina en el almacén (`warehouses.branch_id`). Las de transferencias usan `(tenant_id, from_branch_id, to_branch_id, id)` |
 | Auditoría técnica | `created_at` (default `now()`), `created_by`; en las tablas no append-only también `updated_at`, `updated_by` |
 | Tipos | cantidades `numeric(18,6)` (regla `r6` de la V2.1), dinero `numeric(19,4)`, tasas `numeric(18,8)`, porcentajes `numeric(9,4)`, fechas de negocio `date`, instantes `timestamptz` (UTC), estados como texto (`varchar(20)`). V4.1: montos fiscales `numeric(18,2)`, cantidades, precios y descuentos del detalle fiscal `numeric(20,10)` (notas crédito-débito con hasta 10 decimales), hora fiscal del SIN `timestamp without time zone` (la misma del CUF y del XML) |
@@ -609,10 +613,13 @@ erDiagram
     serial_numbers {
         uuid id PK
         uuid tenant_id FK
+        uuid variant_id FK
         uuid batch_id FK
+        varchar kind
         varchar serial
         uuid stock_level_id FK
         varchar status
+        timestamptz received_at
     }
     stock_reservations {
         uuid id PK
@@ -765,7 +772,7 @@ erDiagram
 | `inventory.batches` | Lote de una variante (con caducidad). Toda variante tiene un lote por defecto «SIN-LOTE». | (id) | variant_id → catalog.product_variants | único (variant_id, lot_number)<br>único (variant_id) WHERE is_default<br>CHECK expires_on IS NULL OR manufactured_on IS NULL OR expires_on >= manufactured_on |
 | `inventory.stock_levels` | Existencia de un lote en una posición: estado materializado con control optimista (xmin). · OCC xmin | (id) | bin_id → warehouse.bins<br>batch_id → inventory.batches | único (bin_id, batch_id)<br>CHECK quantity_on_hand >= 0<br>CHECK quantity_reserved >= 0 AND quantity_reserved <= quantity_on_hand |
 | `inventory.stock_movements` | Movimiento de inventario: event store inmutable (append-only). · **append-only** | (id) | stock_level_id → inventory.stock_levels<br>movement_type_id → inventory.movement_types<br>recorded_by_user_id → iam.users<br>adjustment_reason_id → inventory.adjustment_reasons | único (tenant_id, legacy_reference) WHERE legacy_reference IS NOT NULL<br>CHECK quantity > 0 |
-| `inventory.serial_numbers` | Número de serie (trazabilidad 1 a 1). · OCC xmin | (id) | batch_id → inventory.batches<br>stock_level_id → inventory.stock_levels | único (batch_id, serial) |
+| `inventory.serial_numbers` | Número de serie o IMEI de una unidad (trazabilidad 1 a 1). V4.2: de una variante, con su tipo (`Serial` o `Imei`), fecha de ingreso y estado según la regla T-02; solo las series en stock (o reservadas, estado de la V3) ocupan una existencia (§9.2). · OCC xmin | (id) | variant_id → catalog.product_variants<br>(variant_id, batch_id) → inventory.batches<br>(batch_id, stock_level_id) → inventory.stock_levels | único (tenant_id, variant_id, serial)<br>índices (tenant_id, serial), (tenant_id, status)<br>CHECK status IN ('InStock', 'Reserved', 'Sold', 'Returned', 'Scrapped', 'InTransit', 'InRma', 'ReturnedToSupplier')<br>CHECK kind IN ('Serial', 'Imei')<br>CHECK (status IN ('InStock', 'Reserved')) = (stock_level_id IS NOT NULL)<br>CHECK kind <> 'Imei' OR serial ~ '^[0-9]{15}$'<br>CHECK length(serial) > 0 AND serial !~ '[[:space:],;]' |
 | `inventory.stock_reservations` | Reserva temporal de stock (carrito del POS o pedido). · OCC xmin | (id) | stock_level_id → inventory.stock_levels<br>pos_session_id → sales.pos_sessions<br>sales_order_line_id → sales.sales_order_lines | CHECK quantity > 0<br>CHECK num_nonnulls(pos_session_id, sales_order_line_id) <= 1 |
 | `inventory.stock_adjustments` | Documento de ajuste de inventario. · OCC xmin | (id) | warehouse_id → warehouse.warehouses<br>adjustment_reason_id → inventory.adjustment_reasons<br>posted_by_user_id → iam.users | único (tenant_id, number) |
 | `inventory.stock_adjustment_lines` | Línea de un ajuste. | (id) | stock_adjustment_id → inventory.stock_adjustments<br>stock_level_id → inventory.stock_levels<br>movement_type_id → inventory.movement_types<br>stock_movement_id → inventory.stock_movements | único (stock_movement_id) WHERE stock_movement_id IS NOT NULL<br>CHECK quantity > 0 |
@@ -1438,6 +1445,10 @@ V2.1).
 | (V4.1) políticas `tenant_isolation` y `branch_isolation` en las tablas nuevas | 138 tablas con `tenant_isolation`; 55 con `branch_isolation` RESTRICTIVA (50 por sucursal y 5 entre sucursales) |
 | (V4.1) `billing.siat_active_tenants()` | SECURITY DEFINER (`search_path` fijo, sin EXECUTE para PUBLIC, solo `minv_server`): empresas con la facturación activa (`siat_settings.is_enabled`); la usa el despachador del servidor antes de conocer la empresa. Devuelve solo el id |
 | (V4.1) `billing.v_fiscal_document_totals` | Vista `security_barrier` (y `security_invoker`: aplica la RLS del que consulta) con los totales DERIVADOS de cada documento fiscal con las fórmulas del SIN: subtotal de líneas (transacción nula o 1), total, base del IVA, débito o crédito del 13 % y devuelto de las notas. Los totales no se guardan (regla F-06) |
+| (V4.2) `trg_append_only` en 5 tablas nuevas | 29 libros inmutables en total (bitácora de series, series por línea de venta, devolución y transferencia, bitácora de RMA) |
+| (V4.2) políticas `tenant_isolation` y `branch_isolation` en las tablas nuevas | 150 tablas con `tenant_isolation`; 62 con `branch_isolation` RESTRICTIVA (56 por sucursal y 6 entre sucursales) |
+| (V4.2) `catalog.minv_spec_value_matches()` + `trg_spec_value_matches` | El valor de una ficha técnica usa la columna del tipo de su especificación (número, texto u opción) y una especificación de un solo valor tiene una sola fila por producto (regla T-01) |
+| (V4.2) `inventory.v_serial_breaches` | Vista `security_invoker`: por sucursal y variante serializada (`products.tracking_mode = 'Serial'`), las series en stock que no coinciden con el stock de esa variante en esa sucursal (regla T-02). Debe estar vacía |
 
 ## 7. V4 · Multi-sucursal, transferencias, integraciones e idempotencia
 
@@ -2063,3 +2074,274 @@ documento emitido no cambia si mañana cambian el cliente o el catálogo. Son es
 `minv_server` y `minv_app` (solo si existen al migrar): `USAGE` en `billing`; SELECT, INSERT, UPDATE y DELETE en las 30
 tablas nuevas, salvo UPDATE, DELETE y TRUNCATE en los 9 libros append-only; SELECT en `billing.v_fiscal_document_totals`.
 `EXECUTE` en `billing.siat_active_tenants()` SOLO para `minv_server` (con las 4 de la V4, 5 funciones SECURITY DEFINER).
+
+## 9. V4.2 · Edición Tecnología (fichas técnicas, series e IMEI, armador de PC, garantías y RMA)
+
+Migración `V42TechRetail` (`Persistence/Migrations/20260926082719_V42TechRetail.cs` y su parcial `.Sql.cs`). Reglas T-01
+a T-10: `.claude/v42-tech-rules.md`; diseño: `docs/architecture/edicion-tecnologia-v4.2.md`. La V4.2 agrega 12 tablas
+(4 en `catalog`, 2 en `inventory`, 4 en `sales` y el esquema nuevo `service` con 2) y completa
+`inventory.serial_numbers`. Resultado: **152 tablas en 10 esquemas**, 150 políticas `tenant_isolation`, 62
+`branch_isolation` RESTRICTIVAS (56 por sucursal y 6 entre sucursales) y 29 triggers append-only.
+
+Todas las tablas nuevas tienen `tenant_id` (RLS `tenant_isolation`, FK compuestas con la empresa). Lo que ocurre en una
+sucursal (series vendidas o devueltas, armados, casos RMA y su bitácora) es **por sucursal** (`IBranchScoped`: RLS
+`branch_isolation` y FK compuestas `(tenant_id, branch_id, x_id)`); las series que viajan en una transferencia son
+**entre sucursales**. Las fichas técnicas, la serie y su bitácora son de la empresa: la serie viaja entre sucursales y
+su bitácora guarda la sucursal de cada hecho como dato.
+
+### 9.1 Fichas técnicas · esquema `catalog` (4 tablas)
+
+```mermaid
+erDiagram
+    spec_definitions {
+        uuid id PK
+        uuid tenant_id FK
+        uuid category_id FK
+        varchar code
+        varchar name
+        varchar unit
+        varchar data_type
+        boolean is_multi_valued
+        boolean is_filterable
+        boolean is_required
+        varchar compatibility_key
+        integer sort_order
+    }
+    spec_options {
+        uuid id PK
+        uuid tenant_id FK
+        uuid spec_definition_id FK
+        varchar value
+        integer sort_order
+    }
+    product_spec_values {
+        uuid id PK
+        uuid tenant_id FK
+        uuid product_id FK
+        uuid spec_definition_id FK
+        numeric number_value
+        varchar text_value
+        uuid option_id FK
+    }
+    product_tech_profiles {
+        uuid tenant_id PK, FK
+        uuid product_id PK, FK
+        varchar serial_kind
+        integer warranty_months
+    }
+    categories ||--o{ spec_definitions : "category_id"
+    spec_definitions ||--o{ spec_options : "spec_definition_id"
+    spec_definitions ||--o{ product_spec_values : "spec_definition_id"
+    spec_options |o--o{ product_spec_values : "(spec_definition_id, option_id)"
+    products ||--o{ product_spec_values : "product_id"
+    products ||--o| product_tech_profiles : "product_id"
+```
+
+| Tabla | Descripción | Clave | Referencias (FK) | Únicos / CHECK |
+|---|---|---|---|---|
+| `catalog.spec_definitions` | V4.2 · Especificación técnica de una categoría (Socket, VRAM, Tipo de RAM, Plataforma, Condición…): tipo texto, número (con unidad) u opción; multivalor solo para opciones; filtrable; clave de compatibilidad del armador (constante de `CompatibilityKeys`). La heredan las subcategorías. | (id) | category_id → catalog.categories | único (tenant_id, category_id, code)<br>índice (tenant_id, compatibility_key) WHERE compatibility_key IS NOT NULL<br>CHECK data_type IN ('Text', 'Number', 'Option')<br>CHECK NOT is_multi_valued OR data_type = 'Option'<br>CHECK code ~ '^[a-z0-9_]+$'<br>CHECK compatibility_key IS NULL OR compatibility_key ~ '^[a-z0-9_]+$' |
+| `catalog.spec_options` | V4.2 · Opción de una especificación de tipo opción (AM5, DDR5, ATX, PS5, Nuevo…). Clave alterna (tenant_id, spec_definition_id, id): destino de la FK de los valores. | (id) | spec_definition_id → catalog.spec_definitions (en cascada) | único (tenant_id, spec_definition_id, value) |
+| `catalog.product_spec_values` | V4.2 · Valor de una especificación para un producto: número, texto u opción (arco exclusivo). Las multivalor tienen una fila por opción. La opción es de ESA especificación (FK compuesta con el padre); el trigger `trg_spec_value_matches` exige la columna del tipo de la especificación y una sola fila si no es multivalor. No duplica marca, precio, unidad ni stock (T-01). | (id) | product_id → catalog.products (en cascada)<br>spec_definition_id → catalog.spec_definitions<br>(spec_definition_id, option_id) → catalog.spec_options | único (tenant_id, product_id, spec_definition_id, option_id) NULLS NOT DISTINCT<br>CHECK num_nonnulls(number_value, text_value, option_id) = 1<br>CHECK text_value IS NULL OR length(btrim(text_value)) > 0 |
+| `catalog.product_tech_profiles` | V4.2 · Subtipo 1:1 del producto de tecnología: tipo de identificador por unidad (`Serial` o `Imei`) y meses de garantía. Que el producto lleve serie lo dice `products.tracking_mode = 'Serial'`. La garantía vigente se DERIVA (fecha de la venta + meses, T-04): no se guarda ningún fin de garantía. · OCC xmin | (tenant_id, product_id) | product_id → catalog.products (en cascada) | CHECK serial_kind IN ('Serial', 'Imei')<br>CHECK warranty_months BETWEEN 0 AND 120 |
+
+### 9.2 Series e IMEI · esquemas `inventory` y `sales` (4 tablas nuevas + `inventory.serial_numbers`)
+
+```mermaid
+erDiagram
+    serial_numbers {
+        uuid id PK
+        uuid tenant_id FK
+        uuid variant_id FK
+        uuid batch_id FK
+        varchar kind
+        varchar serial
+        uuid stock_level_id FK
+        varchar status
+        timestamptz received_at
+    }
+    serial_events {
+        uuid id PK
+        uuid tenant_id FK
+        uuid serial_number_id FK
+        varchar action
+        uuid branch_id FK
+        varchar document_number
+        varchar note
+        uuid user_id FK
+        timestamptz occurred_at
+    }
+    sales_order_line_serials {
+        uuid id PK
+        uuid tenant_id FK
+        uuid branch_id FK
+        uuid sales_order_line_id FK
+        uuid serial_number_id FK
+    }
+    sales_return_line_serials {
+        uuid id PK
+        uuid tenant_id FK
+        uuid branch_id FK
+        uuid sales_return_line_id FK
+        uuid serial_number_id FK
+    }
+    stock_transfer_line_serials {
+        uuid id PK
+        uuid tenant_id FK
+        uuid from_branch_id FK
+        uuid to_branch_id FK
+        uuid stock_transfer_line_id FK
+        uuid serial_number_id FK
+    }
+    serial_numbers ||--o{ serial_events : "serial_number_id"
+    serial_numbers ||--o{ sales_order_line_serials : "serial_number_id"
+    serial_numbers ||--o{ sales_return_line_serials : "serial_number_id"
+    serial_numbers ||--o{ stock_transfer_line_serials : "serial_number_id"
+    sales_order_lines ||--o{ sales_order_line_serials : "(branch_id, sales_order_line_id)"
+    sales_return_lines ||--o{ sales_return_line_serials : "(branch_id, sales_return_line_id)"
+    stock_transfer_lines ||--o{ stock_transfer_line_serials : "(from_branch_id, to_branch_id, stock_transfer_line_id)"
+```
+
+| Tabla | Descripción | Clave | Referencias (FK) | Únicos / CHECK |
+|---|---|---|---|---|
+| `inventory.serial_events` | V4.2 · Bitácora de cada serie o IMEI: ingreso, venta, devolución, transferencia (despacho y recepción), RMA (recepción, envío al proveedor, reparación, reemplazo), reposición entregada, devolución al proveedor, reingreso al stock, entrega al cliente y baja, con la sucursal del hecho, el documento y el usuario. Cada cambio de estado de `serial_numbers` deja su fila (T-02). · **append-only** | (id) | serial_number_id → inventory.serial_numbers<br>branch_id → warehouse.branches<br>user_id → iam.users | índice (serial_number_id, occurred_at)<br>índice (tenant_id, document_number) WHERE document_number IS NOT NULL<br>CHECK action IN (15 acciones) |
+| `sales.sales_order_line_serials` | V4.2 · Series vendidas en cada línea de venta (N:M línea ↔ serie): salen en el ticket, en la factura del SIN (`numeroSerie`/`numeroImei`, T-03) y en la garantía. Una serie puede venderse más de una vez en su vida (vendida, devuelta y vuelta a vender). · **append-only** · **por sucursal** | (id) | (branch_id, sales_order_line_id) → sales.sales_order_lines<br>serial_number_id → inventory.serial_numbers | único (sales_order_line_id, serial_number_id)<br>índice (serial_number_id) |
+| `sales.sales_return_line_serials` | V4.2 · Series devueltas en cada línea de devolución (van en la nota crédito-débito). · **append-only** · **por sucursal** | (id) | (branch_id, sales_return_line_id) → sales.sales_return_lines<br>serial_number_id → inventory.serial_numbers | único (sales_return_line_id, serial_number_id)<br>índice (serial_number_id) |
+| `inventory.stock_transfer_line_serials` | V4.2 · Series que viajan en cada línea de transferencia (las ven origen y destino). · **append-only** · **entre sucursales** | (id) | (from_branch_id, to_branch_id, stock_transfer_line_id) → inventory.stock_transfer_lines<br>serial_number_id → inventory.serial_numbers | único (stock_transfer_line_id, serial_number_id)<br>índice (serial_number_id) |
+
+**Columnas nuevas de `inventory.serial_numbers`** (§4): `variant_id` (la serie es de una variante; FK compuesta
+`(tenant_id, variant_id, batch_id)` → `batches`: el lote es de SU variante), `kind` (`Serial` o `Imei`, 15 dígitos con
+dígito de Luhn validado en el dominio) y `received_at` (primer ingreso). La existencia se referencia con `(tenant_id,
+batch_id, stock_level_id)` → `stock_levels`: una serie en stock ocupa una existencia de su propio lote y producto. La
+unicidad pasa de (lote, serie) a **(empresa, variante, serie)**. Estados (T-02): `InStock` → `Sold` →
+`Returned`/`InRma` → `InStock`/`ReturnedToSupplier`/`Scrapped`, y `InStock` → `InTransit` → `InStock` en las
+transferencias; solo `InStock` (y el `Reserved` de la V3) ocupan una existencia (CHECK `ck_serial_numbers_ubicacion`).
+Las transiciones las hacen SOLO los métodos de `SerialNumber` (Receive, Sell, IssueAsReplacement, Return, Restock,
+SendToRma, SendToSupplier, MarkRepaired, MarkReplaced, ReturnFromRma, ReturnToSupplier, Scrap, TransferOut,
+TransferIn), que validan el estado, la sucursal y la posición (códigos `serial.*`) y agregan su fila a `serial_events`.
+
+**Relleno de la migración** (regla B-15): guardia previa (ninguna serie repetida en lotes distintos de la misma variante,
+sin espacios ni separadores, existencia solo si está en stock y del mismo lote); `variant_id` desde el lote,
+`kind = 'Serial'` y `received_at = created_at`; verificación de que ninguna fila quedó sin valor y retiro de los valores
+provisionales. `serial_numbers` no tiene triggers: no hay nada que pausar.
+
+**Vista de control** `inventory.v_serial_breaches` (`security_invoker`): por sucursal y variante serializada, series en
+stock ≠ stock de la variante en la sucursal (columnas `stock`, `serials_in_stock` y `difference`). Debe estar vacía.
+
+### 9.3 Armador de PC · esquema `sales` (2 tablas)
+
+```mermaid
+erDiagram
+    pc_builds {
+        uuid id PK
+        uuid tenant_id FK
+        uuid branch_id FK
+        varchar number
+        varchar name
+        uuid customer_id FK
+        date valid_until
+        varchar status
+        boolean quoted_with_errors
+        uuid created_by_user_id FK
+        timestamptz created_at
+        timestamptz quoted_at
+        uuid invoice_id FK
+    }
+    pc_build_lines {
+        uuid id PK
+        uuid tenant_id FK
+        uuid branch_id FK
+        uuid pc_build_id FK
+        varchar slot
+        uuid variant_id FK
+        integer quantity
+        numeric quoted_unit_price
+    }
+    pc_builds ||--o{ pc_build_lines : "(branch_id, pc_build_id)"
+    invoices |o--o| pc_builds : "(branch_id, invoice_id)"
+```
+
+| Tabla | Descripción | Clave | Referencias (FK) | Únicos / CHECK |
+|---|---|---|---|---|
+| `sales.pc_builds` | V4.2 · Armado de PC y cotización (ARM-CM-000001): borrador → cotizado (precios y vigencia congelados) → vendido (con la venta que lo cobró, de la misma sucursal) o anulado. Un armado con errores de compatibilidad solo se cotiza con confirmación explícita y queda marcado (`quoted_with_errors`, T-06). El total no se guarda. · OCC xmin · **por sucursal** | (id) | branch_id → warehouse.branches<br>customer_id → sales.customers<br>created_by_user_id → iam.users<br>(branch_id, invoice_id) → sales.invoices | único (tenant_id, branch_id, number)<br>único (invoice_id) WHERE invoice_id IS NOT NULL<br>índice (tenant_id, status)<br>CHECK status IN ('Draft', 'Quoted', 'Sold', 'Cancelled')<br>CHECK (status = 'Sold') = (invoice_id IS NOT NULL)<br>CHECK status <> 'Quoted' OR quoted_at IS NOT NULL<br>CHECK NOT quoted_with_errors OR quoted_at IS NOT NULL |
+| `sales.pc_build_lines` | V4.2 · Pieza del armado por ranura (CPU, placa, RAM, GPU, almacenamiento, fuente, gabinete, refrigeración, monitor, periférico, software, servicio) con su **precio cotizado**: redundancia comercial documentada (es la oferta hecha al cliente, vale mientras la cotización esté vigente aunque cambie la lista de precios). · **por sucursal** | (id) | (branch_id, pc_build_id) → sales.pc_builds (en cascada)<br>variant_id → catalog.product_variants | CHECK slot IN (12 ranuras)<br>CHECK quantity BETWEEN 1 AND 16<br>CHECK quoted_unit_price >= 0 |
+
+### 9.4 Garantías y RMA · esquema `service` (2 tablas)
+
+```mermaid
+erDiagram
+    warranty_claims {
+        uuid id PK
+        uuid tenant_id FK
+        uuid branch_id FK
+        varchar number
+        uuid serial_number_id FK
+        uuid customer_id FK
+        uuid invoice_id FK
+        varchar issue
+        boolean is_in_warranty
+        uuid supplier_id FK
+        varchar status
+        varchar resolution
+        uuid replacement_serial_id FK
+        uuid opened_by_user_id FK
+        timestamptz received_at
+        timestamptz closed_at
+    }
+    warranty_claim_events {
+        uuid id PK
+        uuid tenant_id FK
+        uuid branch_id FK
+        uuid claim_id FK
+        varchar action
+        varchar status
+        varchar note
+        uuid user_id FK
+        timestamptz occurred_at
+    }
+    warranty_claims ||--o{ warranty_claim_events : "(branch_id, claim_id)"
+    serial_numbers ||--o{ warranty_claims : "serial_number_id"
+    serial_numbers |o--o{ warranty_claims : "replacement_serial_id"
+```
+
+| Tabla | Descripción | Clave | Referencias (FK) | Únicos / CHECK |
+|---|---|---|---|---|
+| `service.warranty_claims` | V4.2 · Caso de garantía (RMA-CM-000001) de una unidad vendida: serie, cliente, venta original (de la MISMA sucursal; si se vendió en otra, el vínculo es la serie y su bitácora), falla, decisión al abrirlo (en garantía o servicio con cargo, `is_in_warranty`), proveedor, resolución y unidad de reemplazo. Estados según la tabla de transiciones de `WarrantyClaim` (T-05). El producto sale de la serie y la vigencia de la garantía se deriva: no se guardan. · OCC xmin · **por sucursal** | (id) | branch_id → warehouse.branches<br>serial_number_id → inventory.serial_numbers<br>replacement_serial_id → inventory.serial_numbers<br>customer_id → sales.customers<br>(branch_id, invoice_id) → sales.invoices<br>supplier_id → purchasing.suppliers<br>opened_by_user_id → iam.users | único (tenant_id, branch_id, number)<br>único (tenant_id, serial_number_id) WHERE status <> 'Delivered' (un caso abierto por serie)<br>índice (tenant_id, status)<br>CHECK status IN (7 estados)<br>CHECK status NOT IN ('Repaired', 'Replaced', 'Rejected', 'Delivered') OR resolution IS NOT NULL<br>CHECK status <> 'SentToSupplier' OR supplier_id IS NOT NULL<br>CHECK status <> 'Replaced' OR replacement_serial_id IS NOT NULL<br>CHECK replacement_serial_id IS NULL OR replacement_serial_id <> serial_number_id<br>CHECK (status = 'Delivered') = (closed_at IS NOT NULL) |
+| `service.warranty_claim_events` | V4.2 · Bitácora del caso: apertura, cambio de estado, nota, reposición entregada y cierre, con el estado resultante y el usuario. · **append-only** · **por sucursal** | (id) | (branch_id, claim_id) → service.warranty_claims<br>user_id → iam.users | índice (claim_id, occurred_at)<br>CHECK action IN ('Opened', 'StatusChanged', 'NoteAdded', 'ReplacementIssued', 'Closed') |
+
+### 9.5 Sucursal, append-only y normalización
+
+**Por sucursal** (6 tablas nuevas, 56 en total; política `branch_isolation` RESTRICTIVA sobre `branch_id`, lista
+`BranchTablesV42` de la migración): `sales.sales_order_line_serials`, `sales.sales_return_line_serials`,
+`sales.pc_builds`, `sales.pc_build_lines`, `service.warranty_claims`, `service.warranty_claim_events`.
+
+**Entre sucursales** (1 tabla nueva, 6 en total; visible si el origen o el destino está en el alcance, lista
+`InterBranchTablesV42`): `inventory.stock_transfer_line_serials`.
+
+**Append-only** (5 libros nuevos, 29 en total; `trg_append_only` y privilegios revocados, lista `AppendOnlyTablesV42`):
+`inventory.serial_events`, `inventory.stock_transfer_line_serials`, `sales.sales_order_line_serials`,
+`sales.sales_return_line_serials`, `service.warranty_claim_events`.
+
+**Normalización y redundancia controlada.** La garantía vigente se deriva (T-04). El total del armado sale de sus
+líneas; el precio cotizado de cada línea es una redundancia comercial documentada (la oferta hecha al cliente, T-06). Son
+estado materializado con su bitácora `serial_numbers.status` (cada cambio deja su fila en `serial_events`) y
+`warranty_claims.status` (en `warranty_claim_events`). Las FK compuestas con el padre (`(spec_definition_id, option_id)`
+→ `spec_options`, `(variant_id, batch_id)` → `batches`, `(batch_id, stock_level_id)` → `stock_levels`) garantizan en la
+base que una opción es de su especificación, que el lote de una serie es de su variante y que la existencia donde está
+es de su lote.
+
+### 9.6 Datos que agrega la migración
+
+- Permisos `catalog.specs.manage`, `inventory.serials.view`, `inventory.serials.manage`, `service.rma.open`,
+  `service.rma.manage` y `sales.pcbuild.manage` en todas las empresas existentes, con la matriz de
+  `PermissionCodes.ForRole`: ADMIN y GERENCIA (los seis), BODEGA (fichas, series —consulta y registro— y RMA completo),
+  VENTAS y CAJERO (armador, consulta de series y abrir RMA), CONSULTA (consulta de series y casos). Las empresas nuevas
+  los reciben del aprovisionamiento.
+- Tipo de movimiento `REPOSICION_GARANTIA` «REPOSICIÓN POR GARANTÍA» (factor −1, dominio bodega) y cuenta `5.1.10` Costo
+  de garantías (gasto, bajo 5.1): la reposición de una unidad por garantía se asienta Debe 5.1.10 / Haber 1.1.05 al costo
+  promedio (T-05). Sin módulo comercial nuevo: la edición Tecnología es parte del motor base (DATA_ENGINE).
+
+### 9.7 Roles
+
+`minv_server` y `minv_app` (solo si existen al migrar): `USAGE` en `service`; SELECT, INSERT, UPDATE y DELETE en las 12
+tablas nuevas, salvo UPDATE, DELETE y TRUNCATE en los 5 libros append-only; SELECT en `inventory.v_serial_breaches`.
+Ninguna función SECURITY DEFINER nueva.

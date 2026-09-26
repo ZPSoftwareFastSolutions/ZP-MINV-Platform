@@ -23,8 +23,21 @@ public sealed class ClientSettings
 
     public bool Remember { get; set; } = true;
 
-    /// <summary>«sistema», «claro» u «oscuro».</summary>
-    public string Theme { get; set; } = "sistema";
+    /// <summary>
+    /// «sistema», «claro» u «oscuro». V4.2 · Edición Tecnología: una instalación nueva empieza en el tema oscuro; si el
+    /// usuario ya eligió uno (está guardado en cliente.json), manda su preferencia.
+    /// </summary>
+    public string Theme { get; set; } = ThemeService.DefaultName;
+
+    /// <summary>
+    /// V4.2 · Edición de las preferencias de tema. Hasta la V4.1 «sistema» era el valor por defecto que se guardaba solo, no
+    /// una elección del usuario: al abrir la V4.2 por primera vez ese valor pasa UNA vez al tema oscuro de la edición
+    /// Tecnología (ver <see cref="ApplyEditionDefaults"/>). «claro» u «oscuro» elegidos antes se respetan.
+    /// </summary>
+    public int ThemeEdition { get; set; }
+
+    /// <summary>Edición actual de las preferencias de tema (4.2).</summary>
+    public const int CurrentThemeEdition = 42;
 
     public bool CompactSidebar { get; set; }
 
@@ -47,12 +60,28 @@ public sealed class ClientSettings
     {
         try
         {
-            return File.Exists(FilePath) ? JsonSerializer.Deserialize<ClientSettings>(File.ReadAllText(FilePath)) ?? new() : new();
+            var settings = File.Exists(FilePath) ? JsonSerializer.Deserialize<ClientSettings>(File.ReadAllText(FilePath)) ?? new() : new();
+            settings.ApplyEditionDefaults();
+            return settings;
         }
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
         {
-            return new ClientSettings();
+            return new ClientSettings { ThemeEdition = CurrentThemeEdition };
         }
+    }
+
+    /// <summary>Pasa UNA vez al tema oscuro las preferencias guardadas antes de la V4.2 con el «sistema» por defecto.</summary>
+    public void ApplyEditionDefaults()
+    {
+        if (ThemeEdition >= CurrentThemeEdition)
+        {
+            return;
+        }
+        if (string.Equals(Theme, "sistema", StringComparison.OrdinalIgnoreCase))
+        {
+            Theme = ThemeService.DefaultName;
+        }
+        ThemeEdition = CurrentThemeEdition;
     }
 
     public void Save()

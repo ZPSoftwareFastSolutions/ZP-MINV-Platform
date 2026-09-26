@@ -235,6 +235,27 @@ public sealed class HelpViewModel(AppServices app) : PageViewModel(app, "ayuda",
 
     public IReadOnlyList<HelpGuide> Guides { get; } =
     [
+        // V4.2 · Edición Tecnología
+        new("Vender equipos con serie o IMEI", "Cajero y Ventas", Glyphs.Barcode,
+        [
+            "En la caja, los productos con la insignia «Serie» o «IMEI» piden la unidad al agregarlos: escanéela o elíjala de las disponibles.",
+            "Filtre rápido con los chips de categoría y de plataforma (PC, PS5, Xbox, Switch…).",
+            "El ticket y la factura del SIN llevan la serie o el IMEI de cada unidad y «Garantía hasta dd/mm/aaaa».",
+            "Una devolución de un equipo se hace por sus series; «Devolución por falla» lo deja en garantía, fuera del stock vendible.",
+        ]),
+        new("Armar y cotizar una PC", "Ventas", Glyphs.Monitor,
+        [
+            "En «Armador de PC» elija una pieza por ranura: la lista muestra lo compatible de la sucursal y atenúa lo incompatible con el motivo.",
+            "El panel de la derecha revisa la compatibilidad en vivo y calcula el consumo y la fuente recomendada.",
+            "«Guardar cotización» congela los precios con su vigencia (si hay errores, pide confirmarlo); «Proforma» la imprime o la guarda en PDF.",
+            "«Vender en caja» (o «Desde armado» en la caja) cobra la cotización a sus precios, con la serie de cada pieza.",
+        ]),
+        new("Garantías y RMA", "Servicio técnico", Glyphs.Shield,
+        [
+            "En «Series e IMEI» busque la unidad: su línea de tiempo muestra cada hecho con documento y usuario, y su garantía vigente.",
+            "«Abrir RMA» (o «Abrir caso» en Garantías y RMA) recibe el equipo; fuera de garantía solo como reparación con cargo.",
+            "Avance el caso según su estado: diagnóstico, proveedor, reparado, reemplazar con otra unidad, rechazar o entregar.",
+        ]),
         new("Registrar una entrada o una salida", "Bodega y Ventas", Glyphs.Swap,
         [
             "Abra «Registrar movimiento» (Ctrl+N) y elija el tipo: Entrada, Salida, Ajuste…",

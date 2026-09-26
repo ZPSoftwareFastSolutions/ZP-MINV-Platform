@@ -6,7 +6,7 @@
     Genera dist\M-INV-<version>-win-x64\ con:
       M-INV.exe            ejecutable unico (icono, pantalla de carga, inicio de sesion y demostracion)
       appsettings.json     cadena de conexion a PostgreSQL y perifericos (editable)
-      Demo\                libro de la V2.1 para "Explorar la demostracion"
+    V4.2: la demostracion genera en memoria la empresa de prueba Tech Zone Gaming (ya no lleva el libro de la V2.1).
     Por defecto depende del runtime de escritorio de .NET 8 o superior instalado en la estacion (RollForward=Major).
     Con -Autocontenido incluye el runtime (no necesita .NET instalado; la primera vez descarga los paquetes del runtime
     de nuget.org, unos 150 MB). Script ASCII a proposito (PowerShell 5.1).

@@ -30,7 +30,7 @@
                 <TextBlock DockPanel.Dock="Right" Text="{Binding TotalText}" FontSize="28" FontWeight="SemiBold" Foreground="#FFFFFF" VerticalAlignment="Center" />
                 <StackPanel Margin="16,0,0,0" VerticalAlignment="Center">
                     <TextBlock Text="Total del pedido sugerido" Foreground="#FFFFFF" FontWeight="SemiBold" FontSize="15" />
-                    <TextBlock Text="{Binding Summary}" Foreground="#D6E6FF" />
+                    <TextBlock Text="{Binding Summary}" Foreground="#EDE9FE" />
                 </StackPanel>
             </DockPanel>
         </Border>

@@ -241,7 +241,10 @@ public sealed class GetRecentMovementsHandler(IMinvDbContext db) : IRequestHandl
 [RequiresPermission(PermissionCodes.StockView)]
 public sealed record GetMovementTrendQuery(int Days = 14) : IRequest<IReadOnlyList<MovementTrendDay>>;
 
-public sealed record MovementTrendDay(DateOnly Date, decimal Entries, decimal Issues, int Movements);
+/// <summary>Un día del gráfico: <see cref="Entries"/> son las entradas de la OPERACIÓN (compras, transferencias recibidas,
+/// devoluciones, ajustes…) SIN el saldo inicial, que es la apertura del inventario y va aparte en <see cref="Opening"/>;
+/// <see cref="Movements"/> cuenta todos los movimientos del día (también los de saldo inicial).</summary>
+public sealed record MovementTrendDay(DateOnly Date, decimal Entries, decimal Issues, int Movements, decimal Opening = 0);
 
 public sealed class GetMovementTrendHandler(IMinvDbContext db, IClock clock) : IRequestHandler<GetMovementTrendQuery, IReadOnlyList<MovementTrendDay>>
 {
@@ -254,16 +257,19 @@ public sealed class GetMovementTrendHandler(IMinvDbContext db, IClock clock) : I
         var totals = await (from m in db.Set<StockMovement>()
                             join t in db.Set<MovementType>() on m.MovementTypeId equals t.Id
                             where m.BusinessDate >= start && m.BusinessDate <= today
-                            group new { m.Quantity, t.StockFactor } by m.BusinessDate into g
+                            group new { m.Quantity, t.StockFactor, t.IsInitialBalance } by m.BusinessDate into g
                             select new
                             {
                                 Date = g.Key,
-                                Entries = g.Sum(x => x.StockFactor > 0 ? x.Quantity : 0m),
+                                // El saldo inicial es la apertura del inventario, no operación: fuera de la serie de entradas
+                                // (si no, el día de la apertura aplasta el gráfico); se informa aparte (Opening)
+                                Entries = g.Sum(x => x.StockFactor > 0 && !x.IsInitialBalance ? x.Quantity : 0m),
+                                Opening = g.Sum(x => x.IsInitialBalance ? x.Quantity : 0m),
                                 Issues = g.Sum(x => x.StockFactor < 0 ? x.Quantity : 0m),
                                 Count = g.Count(),
                             }).ToDictionaryAsync(x => x.Date, ct);
         return Enumerable.Range(0, days).Select(i => start.AddDays(i)).Select(d => totals.TryGetValue(d, out var x)
-            ? new MovementTrendDay(d, Quantities.Round6(x.Entries), Quantities.Round6(x.Issues), x.Count)
+            ? new MovementTrendDay(d, Quantities.Round6(x.Entries), Quantities.Round6(x.Issues), x.Count, Quantities.Round6(x.Opening))
             : new MovementTrendDay(d, 0, 0, 0)).ToList();
     }
 }

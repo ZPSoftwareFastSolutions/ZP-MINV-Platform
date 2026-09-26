@@ -24,10 +24,14 @@ public static class Schemas
     /// <summary>V4.1 · Facturación SIAT (documentos fiscales, códigos del SIN, catálogos, contingencia).</summary>
     public const string Billing = "billing";
 
+    /// <summary>V4.2 · Servicio técnico: garantías y RMA.</summary>
+    public const string Service = "service";
+
     /// <summary>Vistas materializadas y vistas de seguridad del modelo de lectura (no son tablas del modelo EF).</summary>
     public const string Reporting = "reporting";
 
-    public static readonly IReadOnlyList<string> All = [Iam, Catalog, Warehousing, Inventory, Purchasing, Sales, Accounting, Integration, Billing];
+    public static readonly IReadOnlyList<string> All =
+        [Iam, Catalog, Warehousing, Inventory, Purchasing, Sales, Accounting, Integration, Billing, Service];
 }
 
 /// <summary>Reglas transversales del modelo (se aplican después de las configuraciones de cada entidad).</summary>

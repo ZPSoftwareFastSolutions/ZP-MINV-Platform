@@ -41,7 +41,8 @@ public sealed class MovementReportItem(MovementReportRow r)
 /// </summary>
 public sealed class ReportsViewModel : PageViewModel
 {
-    private static readonly string[] Palette = ["Brand", "Info", "Success", "Warning", "Danger", "StatusOverstock", "StatusLow", "ChartIssues"];
+    // V4.2 · violeta, cian y magenta primero (acentos de la edición gaming); todas son claves de la paleta
+    private static readonly string[] Palette = ["Brand", "Info", "ChartIssues", "Success", "Warning", "StatusOverstock", "Danger", "StatusLow"];
     private PeriodOption? _period;
     private Choice<string> _groupBy;
     private Choice<string?> _movementType;

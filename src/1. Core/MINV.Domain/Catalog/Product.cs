@@ -80,6 +80,25 @@ public sealed class Product : Entity, IConcurrencyAware, IAggregateRoot
 
     public void AssignModel(Guid? modelId) => ModelId = Guard.NotEmptyIfPresent(modelId, nameof(modelId));
 
+    /// <summary>
+    /// V4.2 · Cambia el control de trazabilidad (regla T-02: <see cref="TrackingMode.Serial"/> = lleva serie o IMEI). El caso
+    /// de uso verifica antes que las unidades en stock y en tránsito lo permitan: al pasar a serie, cada unidad en stock ya
+    /// tiene su serie; al dejar la serie, no queda ninguna unidad serializada en stock ni en tránsito.
+    /// </summary>
+    public void ChangeTracking(TrackingMode trackingMode, int unitsWithoutSerial, int serialsOnHand)
+    {
+        var next = Guard.Defined(trackingMode, "El control de lotes/series");
+        if (next == TrackingMode)
+        {
+            return;
+        }
+        Guard.That(next != TrackingMode.Serial || unitsWithoutSerial == 0, "tech.serials_pending",
+            $"El producto {Code} tiene {unitsWithoutSerial} unidad(es) en stock sin serie: registre antes sus series (o IMEI).");
+        Guard.That(TrackingMode != TrackingMode.Serial || serialsOnHand == 0, "tech.serials_on_hand",
+            $"El producto {Code} tiene {serialsOnHand} unidad(es) con serie en stock o en tránsito: no puede dejar de controlar series.");
+        TrackingMode = next;
+    }
+
     /// <summary>Descontinúa el producto y todas sus variantes (V2.1: <c>Activo = NO</c>). Nunca se borra.</summary>
     public void Deactivate()
     {

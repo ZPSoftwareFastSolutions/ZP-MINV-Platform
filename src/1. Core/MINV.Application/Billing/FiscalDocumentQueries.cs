@@ -127,7 +127,7 @@ public sealed class GetFiscalDocumentHandler(IMinvDbContext db, IClock clock) : 
         var units = await FiscalCatalogText.DescriptionsAsync(db, SiatCatalogNames.UnitsOfMeasure, unitCodes, ct);
         var lines = document.Lines.OrderBy(l => l.LineNumber).Select(l => new FiscalDocumentLineView(l.LineNumber, l.ProductCode, l.Description, l.Quantity,
             l.SinUnitCode, units.GetValueOrDefault(l.SinUnitCode, l.SinUnitCode.ToString(System.Globalization.CultureInfo.InvariantCulture)), l.UnitPrice,
-            l.Discount ?? 0m, l.Subtotal, l.ActivityCode, l.SinProductCode, l.TransactionCode)).ToList();
+            l.Discount ?? 0m, l.Subtotal, l.ActivityCode, l.SinProductCode, l.TransactionCode, Tech.TechPrint.Serials(l.SerialNumber, l.Imei))).ToList();
         var events = await db.Set<FiscalDocumentEvent>().AsNoTracking().Where(e => e.DocumentId == document.Id).OrderBy(e => e.OccurredAt).ToListAsync(ct);
         var deliveries = await db.Set<FiscalDelivery>().AsNoTracking().Where(e => e.DocumentId == document.Id).OrderBy(e => e.OccurredAt).ToListAsync(ct);
         var userIds = events.Select(e => e.UserId).OfType<Guid>().Distinct().ToList();

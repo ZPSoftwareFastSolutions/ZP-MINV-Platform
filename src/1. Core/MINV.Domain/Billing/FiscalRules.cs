@@ -17,6 +17,18 @@ public static class FiscalRules
     /// ventas.</summary>
     public static decimal Vat(decimal amount) => Round2(amount * SiatCodes.VatRate);
 
+    /// <summary>V4.2 · Costo neto de una compra facturada con el IVA incluido: el importe menos su crédito fiscal (el 87 %
+    /// del importe, ver <see cref="Accounting.VatRules"/>), redondeado.</summary>
+    public static decimal NetCost(decimal amountWithVat) => Round2(amountWithVat * (1 - SiatCodes.VatRate));
+
+    /// <summary>
+    /// V4.2 · Importe de la factura del proveedor de una compra recibida al costo NETO: neto / 0,87, redondeado. Con ese
+    /// importe el crédito fiscal (13 % de la factura) es exactamente la diferencia con el neto (hasta en el redondeo: el
+    /// 13 % de un error de medio centavo no llega a mover el crédito), así que el asiento de la factura solo lleva IVA crédito
+    /// fiscal y deuda con el proveedor, y el inventario (1.1.05) sigue en el valor del stock.
+    /// </summary>
+    public static decimal InvoiceForNetCost(decimal netCost) => Round2(netCost / (1 - SiatCodes.VatRate));
+
     /// <summary>¿El valor tiene como máximo <paramref name="decimals"/> decimales? (el sector 1 admite 2 en cantidades y
     /// precios).</summary>
     public static bool HasAtMostDecimals(decimal value, int decimals) =>

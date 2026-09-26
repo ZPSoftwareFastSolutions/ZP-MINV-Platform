@@ -24,9 +24,7 @@ public sealed class BillingScreenTests
         using var admin = await host.SignInDemoAsync(demo, DemoWorkspace.AdminEmail);
         var shell = admin.Services.GetRequiredService<ShellViewModel>();
         await shell.StartAsync();
-        var message = await DesktopDemoBilling.ConfigureAsync(shell.App);
-        Assert.Contains("activa", message, StringComparison.Ordinal);   // la demostración ya factura desde el inicio (DemoBillingSetup)
-        Assert.True(shell.Session.IsBillingEnabled);
+        Assert.True(shell.Session.IsBillingEnabled);   // V4.2: la demostración de Tech Zone Gaming factura desde el inicio
 
         // Caja: banda fiscal, datos del comprador y cobro con envío inmediato al SIN
         shell.Navigate("pos");
@@ -36,6 +34,7 @@ public sealed class BillingScreenTests
         Assert.NotNull(pos.Buyer);
         if (pos.IsClosed)
         {
+            pos.Register = pos.Registers.First(r => r.Code == "CAJA03");   // la caja libre (las demás tienen el turno de su cajero)
             await pos.OpenSession.ExecuteAsync();
         }
         Assert.StartsWith("Facturación en línea", pos.FiscalTitle, StringComparison.Ordinal);
@@ -43,7 +42,8 @@ public sealed class BillingScreenTests
         pos.Buyer!.DocumentNumber = "5115889";
         pos.Buyer.Name = "Juan Pérez";
         Assert.True(pos.Buyer.IsCi);
-        foreach (var product in pos.Products.Cast<PosProduct>().Where(p => p.Available >= 2).Take(2).ToList())
+        var serialized = await DemoData.SerializedAsync(shell.App);
+        foreach (var product in pos.Products.Cast<PosProduct>().Where(p => p.Available >= 2 && !serialized.Contains(p.Sku)).Take(2).ToList())
         {
             pos.Add.Execute(product);
         }
@@ -118,18 +118,20 @@ public sealed class BillingScreenTests
         using var admin = await host.SignInDemoAsync(demo, DemoWorkspace.AdminEmail);
         var shell = admin.Services.GetRequiredService<ShellViewModel>();
         await shell.StartAsync();
-        await DesktopDemoBilling.ConfigureAsync(shell.App);
+        Assert.True(shell.Session.IsBillingEnabled);
 
         shell.Navigate("pos");
         var pos = (PosViewModel)shell.Current;
         await pos.LoadAsync(force: true);
         if (pos.IsClosed)
         {
+            pos.Register = pos.Registers.First(r => r.Code == "CAJA03");
             await pos.OpenSession.ExecuteAsync();
         }
         pos.Buyer!.UseSpecial.Execute(BuyerForm.SpecialNits[0]);   // 99003 ventas menores del día
         Assert.True(pos.Buyer.IsNit);
-        var product = pos.Products.Cast<PosProduct>().First(p => p.Available >= 3);
+        var serialized = await DemoData.SerializedAsync(shell.App);
+        var product = pos.Products.Cast<PosProduct>().First(p => p.Available >= 3 && !serialized.Contains(p.Sku));
         pos.Add.Execute(product);
         pos.Increase.Execute(pos.Cart[0]);
         await pos.Checkout.ExecuteAsync();
@@ -151,8 +153,7 @@ public sealed class BillingScreenTests
         await dialog.Confirm.ExecuteAsync();
         await returning;
         Assert.True(sales.IsReturnsTab);
-        var row = Assert.Single(sales.Returns);
-        Assert.Equal(invoice, row.Row.InvoiceNumber);
+        var row = Assert.Single(sales.Returns, r => r.Row.InvoiceNumber == invoice);   // la demostración ya trae una devolución por falla
         Assert.True(row.HasNote);
     });
 
@@ -171,9 +172,9 @@ public sealed class BillingScreenTests
         Assert.Equal(("5115889", "1A"), ReissueDialog.SplitDocument("5115889-1A"));
         Assert.Equal(5, ReissueDialog.DocumentTypeFromXml("<facturaComputarizadaCompraVenta><cabecera><codigoTipoDocumentoIdentidad>5</codigoTipoDocumentoIdentidad></cabecera></facturaComputarizadaCompraVenta>"));
 
-        var model = new FiscalPrintModel("FACTURA", "(Con Derecho A Crédito Fiscal)", "Ferretería Demo S.R.L.", 1003579028, "Casa Matriz", 0, "Av. 6 de Agosto 100",
+        var model = new FiscalPrintModel("FACTURA", "(Con Derecho A Crédito Fiscal)", "Tech Zone Gaming S.R.L.", 1023456029, "Casa Matriz", 0, "Av. 6 de Agosto 100",
             "2800000", "La Paz", 12, "8727F63A15F8976591FDDE5B387C5D015A29E06A1A19E23EF34124CD", new DateTime(2026, 9, 25, 10, 30, 0), "Juan Pérez",
-            "5115889", "CF", [new FiscalPrintLine("FER-001", "Martillo", "UNIDAD", 2, 45, 0, 90)], 90, 0, 90, 0, 90, 90, "NOVENTA 00/100 BOLIVIANOS",
+            "5115889", "CF", [new FiscalPrintLine("PER-001", "Mouse pad gamer", "UNIDAD", 2, 45, 0, 90)], 90, 0, 90, 0, 90, 90, "NOVENTA 00/100 BOLIVIANOS",
             "EFECTIVO", "Cajero", ["Ley N° 453: prueba.", "Este documento es la representación gráfica…"], "https://pilotosiat.impuestos.gob.bo/consulta/QR?nit=1",
             IsTest: true, IsVoided: false, IsOffline: false);
         var text = FiscalTicketText.Render(model);
@@ -181,6 +182,29 @@ public sealed class BillingScreenTests
         Assert.Contains("SIN VALOR LEGAL", text, StringComparison.Ordinal);
         Assert.All(text.Split(Environment.NewLine), line => Assert.True(line.Length <= 42, line));
     }
+
+    /// <summary>
+    /// V4.2 · «Registrar factura del proveedor» propone el importe con IVA de una recepción al costo neto (recepción ÷ 0,87) y
+    /// explica el asiento: con ese importe el crédito fiscal es el IVA sumado a la deuda y el inventario no cambia; con
+    /// recepción × 1,13 el inventario bajaría (y se apartaría del valor del stock).
+    /// </summary>
+    [Fact]
+    public void La_factura_del_proveedor_propone_el_importe_con_IVA_que_cuadra_con_el_inventario() => Wpf.Run(() =>
+    {
+        var dialog = new SupplierInvoiceDialog(null!, new MINV.Application.Billing.PendingSupplierInvoiceRow("RC-CM-000062", new DateOnly(2026, 9, 24),
+            "PRV-01", "GráficaPro Distribuciones S.A.", 1000m));
+        Assert.Equal(1149.43m, SupplierInvoiceDialog.ProposedTotal(1000m));
+        Assert.True(Numbers.TryParse(dialog.Total, out var proposed));
+        Assert.Equal(1149.43m, proposed);
+        Assert.Contains("÷ 0,87", dialog.ProposalText, StringComparison.Ordinal);
+        Assert.Contains(Fmt.Money(149.43m), dialog.CreditText, StringComparison.Ordinal);
+        Assert.Contains("la deuda con el proveedor sube " + Fmt.Money(149.43m), dialog.AccountingText, StringComparison.Ordinal);
+        Assert.Contains("el inventario (1.1.05) no cambia", dialog.AccountingText, StringComparison.Ordinal);
+
+        dialog.Total = "1130";   // recepción × 1,13: el crédito (146,90) supera al IVA sumado a la deuda (130,00)
+        Assert.Contains("el inventario (1.1.05) baja " + Fmt.Money(16.90m), dialog.AccountingText, StringComparison.Ordinal);
+        return Task.CompletedTask;
+    });
 
     [Fact]
     public void La_clave_maestra_se_toma_del_archivo_de_claves_si_no_hay_variable()

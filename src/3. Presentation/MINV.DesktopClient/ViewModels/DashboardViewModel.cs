@@ -1,5 +1,6 @@
 using MINV.Application.Iam;
 using MINV.Application.Inventory.Queries;
+using MINV.Application.Tech;
 using MINV.DesktopClient.Controls;
 using MINV.DesktopClient.Mvvm;
 using MINV.DesktopClient.Services;
@@ -88,6 +89,100 @@ public sealed class DashboardViewModel : PageViewModel
 
     public BulkObservableCollection<ActivityItem> Activity { get; } = [];
 
+    // ------------------------------------------------------------------------------------------------ V4.2 · Tecnología
+    private static readonly string[] TechPalette = ["Brand", "ChartEntries", "ChartIssues", "Success", "Warning", "StatusOverstock", "Danger", "Info"];
+    private bool _hasTech;
+
+    /// <summary>La sección Tecnología (ventas por categoría y plataforma, GPU y consolas, RMA y armados) se ve con reportes.</summary>
+    public bool CanSeeTech => App.Session.Can(PermissionCodes.ReportsView);
+
+    public bool HasTech { get => _hasTech; private set => Set(ref _hasTech, value); }
+
+    public KpiCard SerialsKpi { get; } = new("Unidades con serie en stock", Glyphs.Barcode, "Info", "InfoSoft");
+
+    public KpiCard ClaimsKpi { get; } = new("Casos RMA abiertos", Glyphs.Shield, "Warning", "WarningSoft");
+
+    public KpiCard QuotesKpi { get; } = new("Armados cotizados vigentes", Glyphs.Report, "Brand", "BrandSoft");
+
+    public KpiCard BuildsKpi { get; } = new("Armados vendidos · 30 días", Glyphs.Monitor, "Success", "SuccessSoft");
+
+    public BulkObservableCollection<TechBarItem> SalesByCategory { get; } = [];
+
+    public BulkObservableCollection<ChartSegment> PlatformSegments { get; } = [];
+
+    public BulkObservableCollection<LegendRow> PlatformLegend { get; } = [];
+
+    public BulkObservableCollection<TechBarItem> TopGpus { get; } = [];
+
+    public BulkObservableCollection<TechBarItem> TopConsoles { get; } = [];
+
+    public BulkObservableCollection<TechBarItem> ClaimsByStatus { get; } = [];
+
+    public BulkObservableCollection<TechBarItem> QuotesVsSold { get; } = [];
+
+    public string TechWarning { get; private set; } = string.Empty;
+
+    public bool HasTechWarning => TechWarning.Length > 0;
+
+    /// <summary>Sección Tecnología: una lectura aparte (si falla, el resto del tablero sigue).</summary>
+    private async Task LoadTechAsync()
+    {
+        if (!CanSeeTech)
+        {
+            HasTech = false;
+            return;
+        }
+        try
+        {
+            var t = await App.SendAsync(new GetTechDashboardQuery(30));
+            SerialsKpi.Value = t.SerialsInStock.ToString("N0", Fmt.Culture);
+            SerialsKpi.Detail = t.SerialsInStockByCategory.Count == 0 ? "Sin productos serializados" : string.Join(" · ", t.SerialsInStockByCategory.Take(3).Select(c => $"{c.Name} {c.Count}"));
+            ClaimsKpi.Value = t.OpenClaims.ToString("N0", Fmt.Culture);
+            ClaimsKpi.Detail = t.ClaimsOutOfWarranty > 0 ? $"{t.ClaimsOutOfWarranty} con cargo (fuera de garantía)" : "Todos en garantía";
+            QuotesKpi.Value = t.QuotesOpen.ToString("N0", Fmt.Culture);
+            QuotesKpi.Detail = Fmt.Money(t.QuotesValue) + " por cobrar";
+            BuildsKpi.Value = t.BuildsSold.ToString("N0", Fmt.Culture);
+            BuildsKpi.Detail = Fmt.Money(t.BuildsSoldValue);
+            SalesByCategory.ReplaceAll(Bars(t.SalesByCategory, money: true));
+            var platformTotal = t.SalesByPlatform.Sum(p => p.Amount);
+            PlatformSegments.ReplaceAll(t.SalesByPlatform.Select((p, i) => new ChartSegment(p.Name, (double)p.Amount, TechPalette[i % TechPalette.Length])));
+            PlatformLegend.ReplaceAll(t.SalesByPlatform.Select((p, i) => new LegendRow(p.Name, Fmt.MoneyShort(p.Amount),
+                platformTotal > 0 ? (p.Amount / platformTotal).ToString("P0", Fmt.Culture) : "—", TechPalette[i % TechPalette.Length])));
+            TopGpus.ReplaceAll(Bars(t.TopGpus, money: false));
+            TopConsoles.ReplaceAll(Bars(t.TopConsoles, money: false));
+            var claimMax = Math.Max(1, t.OpenClaimsByStatus.Select(c => c.Count).DefaultIfEmpty(0).Max());
+            ClaimsByStatus.ReplaceAll(t.OpenClaimsByStatus.Select(c => new TechBarItem(Fmt.SentenceCase(c.Name), c.Count.ToString("N0", Fmt.Culture), string.Empty,
+                (double)c.Count / claimMax, "Warning")));
+            var buildMax = Math.Max(1m, Math.Max(t.QuotesValue, t.BuildsSoldValue));
+            QuotesVsSold.ReplaceAll(
+            [
+                new TechBarItem($"Cotizados vigentes ({t.QuotesOpen})", Fmt.MoneyShort(t.QuotesValue), string.Empty, (double)(t.QuotesValue / buildMax), "Info"),
+                new TechBarItem($"Vendidos ({t.BuildsSold})", Fmt.MoneyShort(t.BuildsSoldValue), string.Empty, (double)(t.BuildsSoldValue / buildMax), "Success"),
+            ]);
+            // Existencias (producto y sucursal) cuyo stock no coincide con sus series en stock (regla T-02)
+            TechWarning = t.SerializedWithoutSerials switch
+            {
+                0 => string.Empty,
+                1 => "1 producto serializado no tiene todas sus unidades con serie en su sucursal: regístrelas en «Series e IMEI».",
+                var n => $"{n} existencias de productos serializados (producto y sucursal) no tienen todas sus unidades con serie: regístrelas en «Series e IMEI».",
+            };
+            OnPropertiesChanged(nameof(TechWarning), nameof(HasTechWarning));
+            HasTech = true;
+        }
+        catch (Exception ex) when (AppServices.IsExpected(ex))
+        {
+            System.Diagnostics.Trace.TraceWarning("M-INV · tablero Tecnología: {0}", ex.Message);
+            HasTech = false;
+        }
+    }
+
+    private static IEnumerable<TechBarItem> Bars(IReadOnlyList<NamedAmount> rows, bool money)
+    {
+        var max = money ? Math.Max(1m, rows.Select(r => r.Amount).DefaultIfEmpty(0).Max()) : Math.Max(1m, rows.Select(r => r.Quantity).DefaultIfEmpty(0).Max());
+        return rows.Take(6).Select(r => new TechBarItem(r.Name, money ? Fmt.MoneyShort(r.Amount) : $"{Fmt.Qty(r.Quantity)} u.",
+            money ? $"{Fmt.Qty(r.Quantity)} u." : Fmt.MoneyShort(r.Amount), (double)((money ? r.Amount : r.Quantity) / max), "Brand"));
+    }
+
     public bool CanSeeActivity => App.Session.Can(PermissionCodes.AuditView);
 
     public bool CanRegister => App.Session.Can(PermissionCodes.MovementsRegisterWarehouse) || App.Session.Can(PermissionCodes.MovementsRegisterSales);
@@ -141,9 +236,12 @@ public sealed class DashboardViewModel : PageViewModel
         TodayDetail = today is null || today.Movements == 0
             ? "Sin movimientos hoy"
             : $"+{Fmt.Qty(today.Entries)} entradas · −{Fmt.Qty(today.Issues)} salidas";
+        // El gráfico muestra la OPERACIÓN: el saldo inicial (apertura del inventario) no es una entrada; se nombra aparte
         var totalEntries = trend.Sum(t => t.Entries);
         var totalIssues = trend.Sum(t => t.Issues);
-        TrendSummary = $"{trend.Sum(t => t.Movements)} movimientos · entradas {Fmt.Qty(totalEntries)} · salidas {Fmt.Qty(totalIssues)}";
+        var totalOpening = trend.Sum(t => t.Opening);
+        TrendSummary = $"{trend.Sum(t => t.Movements)} movimientos · entradas {Fmt.Qty(totalEntries)} · salidas {Fmt.Qty(totalIssues)}"
+                       + (totalOpening > 0 ? $" · saldo inicial aparte: {Fmt.Qty(totalOpening)}" : string.Empty);
 
         var counts = r.Stock.GroupBy(s => s.Status).ToDictionary(g => g.Key, g => g.Count());
         var total = Math.Max(1, r.Stock.Count);
@@ -152,7 +250,8 @@ public sealed class DashboardViewModel : PageViewModel
         Legend.ReplaceAll(ChartOrder.Where(counts.ContainsKey).Select(s => new LegendItem(Fmt.StatusName(s), counts[s],
             (counts[s] * 100.0 / total).ToString("0", Fmt.Culture) + " %", Fmt.StatusBrushKey(s), s)));
         Trend.ReplaceAll(trend.Select(d => new ColumnPoint(d.Date.ToString("dd/MM", Fmt.Culture), (double)d.Entries, (double)d.Issues,
-            $"{Fmt.LongDate(d.Date)}\nEntradas: {Fmt.Qty(d.Entries)}\nSalidas: {Fmt.Qty(d.Issues)}\nMovimientos: {d.Movements}")));
+            $"{Fmt.LongDate(d.Date)}\nEntradas: {Fmt.Qty(d.Entries)}\nSalidas: {Fmt.Qty(d.Issues)}\nMovimientos: {d.Movements}"
+            + (d.Opening > 0 ? $"\nSaldo inicial: {Fmt.Qty(d.Opening)} (apertura, fuera del gráfico)" : string.Empty))));
         var ranked = r.Stock.Where(s => s.SalesRank is not null).OrderBy(s => s.SalesRank).Take(5).ToList();
         var top = ranked.Count > 0 ? (double)ranked.Max(s => s.Sales30Days) : 1;
         TopSellers.ReplaceAll(ranked.Select(s => new TopSellerItem(s.SalesRank!.Value, s.Sku, s.Name, $"{Fmt.Qty(s.Sales30Days)} {s.Unit}",
@@ -160,6 +259,7 @@ public sealed class DashboardViewModel : PageViewModel
         UrgentAlerts.ReplaceAll(r.Alerts.Take(5).Select(a => new AlertItem(a)));
         Recent.ReplaceAll(recent.Select(m => new MovementItem(m, now)));
         Activity.ReplaceAll(activity.Select(a => new ActivityItem(a, now)));
+        await LoadTechAsync();
 
         NextStep = r.Stock.Count == 0
             ? "Cargue su catálogo e inventario inicial (minv import-v21 o SALDO INICIAL por producto)."
@@ -172,3 +272,6 @@ public sealed class DashboardViewModel : PageViewModel
                     : "Todo en orden: el inventario está dentro de los niveles definidos.";
     }
 }
+
+/// <summary>V4.2 · Barra de un ranking del tablero Tecnología (texto principal, secundario y proporción 0..1).</summary>
+public sealed record TechBarItem(string Name, string ValueText, string DetailText, double Share, string BrushKey);

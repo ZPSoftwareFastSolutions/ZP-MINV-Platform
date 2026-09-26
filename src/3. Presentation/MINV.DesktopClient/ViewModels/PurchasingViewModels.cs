@@ -310,19 +310,62 @@ public sealed class PurchaseOrdersViewModel : PageViewModel
     private async Task ReceiveAsync()
     {
         var order = _selected!;
+        // V4.2 · Los productos serializados pendientes se reciben con sus series o IMEI (regla T-02)
+        var serialized = new List<SerialCaptureLineSpec>();
+        try
+        {
+            var detail = await App.SendAsync(new GetPurchaseOrderQuery(order.Row.Id));
+            foreach (var line in detail.Lines.Where(l => l.Quantity - l.Received > 0))
+            {
+                if (await TechCatalog.ProductAsync(App, line.Sku) is { TrackSerials: true } tech)
+                {
+                    serialized.Add(new SerialCaptureLineSpec(line.Sku, line.Name, tech.SerialKind, (int)Math.Ceiling(line.Quantity - line.Received),
+                        SerialCaptureMode.Entry));
+                }
+            }
+        }
+        catch (Exception ex) when (AppServices.IsExpected(ex))
+        {
+            App.Notify.Error("No se pudo leer la orden", AppServices.Describe(ex));
+            return;
+        }
         var document = await App.Dialogs.PromptAsync($"Recibir {order.Number}",
             $"Entra al stock todo lo pendiente de {order.Supplier} ({order.TotalText}), se actualiza el costo promedio y se registra el asiento " +
-            "(inventario contra proveedores).", "Factura o remisión del proveedor (opcional)", [], "Recibir mercadería",
+            "(inventario contra proveedores)." + (serialized.Count > 0 ? $" Después se piden las series de {serialized.Count} producto(s) serializado(s)." : ""),
+            "Factura o remisión del proveedor (opcional)", [], serialized.Count > 0 ? "Continuar con las series" : "Recibir mercadería",
             placeholder: "Ej.: FAC-12345", glyph: Glyphs.Box);
         if (document is null)
         {
             return;
         }
-        try
+        var supplierDocument = string.IsNullOrWhiteSpace(document) ? null : document;
+
+        async Task ReceiveWithAsync(IReadOnlyList<MINV.Application.Tech.SkuSerials>? serials)
         {
-            var result = await App.SendAsync(new ReceivePurchaseOrderCommand(order.Row.Id, string.IsNullOrWhiteSpace(document) ? null : document));
+            var result = await App.SendAsync(new ReceivePurchaseOrderCommand(order.Row.Id, supplierDocument, serials));
             App.Notify.Success($"Recepción {result.ReceiptNumber} registrada", $"{result.Lines} líneas · {Fmt.Money(result.Total)} · asiento {result.JournalNumber}");
             App.Data.Invalidate();
+        }
+
+        if (serialized.Count > 0)
+        {
+            var units = serialized.Sum(l => l.Expected);
+            var captured = await SerialsDialog.AskAsync(App, $"Series de la recepción de {order.Number}",
+                $"Escanee (o pegue) las {units} series o IMEI de las unidades que llegan de {order.Supplier}: una por unidad.", "Recibir mercadería",
+                serialized, async serials =>
+                {
+                    await ReceiveWithAsync(serials);
+                    return true;
+                });
+            if (captured is not null)
+            {
+                await LoadAsync(force: true);
+            }
+            return;
+        }
+        try
+        {
+            await ReceiveWithAsync(null);
             await LoadAsync(force: true);
         }
         catch (Exception ex) when (AppServices.IsExpected(ex))

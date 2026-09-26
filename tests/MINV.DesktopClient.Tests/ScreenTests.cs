@@ -8,8 +8,10 @@ using MINV.Infrastructure.Demo;
 namespace MINV.DesktopClient.Tests;
 
 /// <summary>
-/// Pantallas del cliente con la demostración (libro real de la V2.1 migrado a memoria) y los casos de uso reales: lo
-/// que ve y hace una persona, sin ventanas (las vistas se revisan con <c>M-INV.exe --capturas</c>).
+/// Pantallas del cliente con la demostración (V4.2: la empresa de prueba Tech Zone Gaming S.R.L., generada en memoria con
+/// los casos de uso reales) y los casos de uso reales: lo que ve y hace una persona, sin ventanas (las vistas se revisan
+/// con <c>M-INV.exe --capturas</c>). Los productos con serie se registran con sus series (regla T-02): las pruebas que
+/// registran movimientos o cuentan desde la pantalla usan productos sin serie.
 /// </summary>
 public sealed class ScreenTests
 {
@@ -20,9 +22,9 @@ public sealed class ScreenTests
         var demo = await host.PrepareDemoAsync();
         using var admin = await host.SignInDemoAsync(demo, DemoWorkspace.AdminEmail);
         var shell = admin.Services.GetRequiredService<ShellViewModel>();
-        Assert.Equal(["General", "Ventas", "Inventario", "Compras y reposición", "Sucursales", "Facturación", "Análisis", "Administración"],
+        Assert.Equal(["General", "Ventas", "Tecnología", "Inventario", "Compras y reposición", "Sucursales", "Facturación", "Análisis", "Administración"],
             shell.Sections.Select(s => s.Title));
-        Assert.Equal(["inicio", "pos", "ventas", "clientes", "stock", "catalogo", "registro", "conteo", "alertas", "pedido", "compras", "proveedores",
+        Assert.Equal(["inicio", "pos", "ventas", "clientes", "armador", "series", "garantias", "stock", "catalogo", "registro", "conteo", "alertas", "pedido", "compras", "proveedores",
                 "sucursales", "transferencias", "documentos-fiscales", "estado-siat", "homologacion", "libros-fiscales", "reportes", "contabilidad", "usuarios",
                 "integraciones", "facturacion-siat", "actividad", "configuracion", "ayuda"],
             shell.AllPages.Select(p => p.Key));
@@ -52,7 +54,7 @@ public sealed class ScreenTests
         using var admin = await host.SignInDemoAsync(demo, DemoWorkspace.AdminEmail);
         var shell = admin.Services.GetRequiredService<ShellViewModel>();
         await shell.StartAsync();
-        Assert.False(shell.ShowBranchSelector);   // la demostración de la V2.1 tiene una sola sucursal
+        Assert.True(shell.ShowBranchSelector);   // V4.2: la demostración tiene tres sucursales (CM, CB y SC)
         Assert.Contains("·", shell.BranchText, StringComparison.Ordinal);
         foreach (var key in new[] { "sucursales", "transferencias", "integraciones" })
         {
@@ -62,10 +64,10 @@ public sealed class ScreenTests
             Assert.False(shell.Current.HasError, $"{key}: {shell.Current.ErrorMessage}");
         }
         var branches = (BranchesViewModel)shell.AllPages.First(p => p.Key == "sucursales");
-        Assert.Single(branches.Cards);
+        Assert.Equal(3, branches.Cards.Count);
         Assert.NotEmpty(branches.Stock);
         var transfers = (TransfersViewModel)shell.AllPages.First(p => p.Key == "transferencias");
-        Assert.True(transfers.IsEmpty);
+        Assert.False(transfers.IsEmpty);   // transferencias recibidas, en tránsito y pendientes entre las sucursales
     });
 
     [Fact]
@@ -168,7 +170,9 @@ public sealed class ScreenTests
         using var session = await host.SignInDemoAsync(demo, DemoWorkspace.AdminEmail);
         var shell = session.Services.GetRequiredService<ShellViewModel>();
         await shell.StartAsync();
-        var product = (await shell.App.Data.ProjectionAsync()).Result.Stock.First(r => r.IsActive && r.Stock > 0 && r.Unit == "UND");
+        var serialized = await DemoData.SerializedAsync(shell.App);
+        var product = (await shell.App.Data.ProjectionAsync()).Result.Stock
+            .First(r => r.IsActive && r.Stock > 0 && r.Unit == "UND" && !serialized.Contains(r.Sku));
 
         shell.Navigate("registro", new MovementPrefill(product.Sku, MovementTypeCodes.Receipt));
         var movement = (MovementViewModel)shell.Current;
@@ -222,20 +226,24 @@ public sealed class ScreenTests
         shell.Navigate("conteo");
         var count = (PhysicalCountViewModel)shell.Current;
         await count.EnsureLoadedAsync();
-        Assert.True(count.HasOpenCount);          // la toma en curso de la V2.1 se migró
-        Assert.Equal(2, count.LineCount);
+        Assert.True(count.HasOpenCount);          // la carga deja una toma en curso (periféricos y consolas)
+        var lines = count.LineCount;
+        Assert.True(lines > 0);
 
-        var sku = (await shell.App.Data.LookupAsync()).First(p => count.Lines.All(l => l.Sku != p.Sku)).Sku;
+        // Un producto sin serie (una diferencia en un serializado se registra con sus series, no por conteo)
+        var serialized = await DemoData.SerializedAsync(shell.App);
+        var sku = (await shell.App.Data.LookupAsync())
+            .First(p => count.Lines.All(l => l.Sku != p.Sku) && !serialized.Contains(p.Sku) && p.Unit != "SERV").Sku;
         Assert.True(count.Picker.TrySelectCode(sku));
         await Wpf.UntilAsync(() => count.HasProduct);
         count.CountedText = "7";
         Assert.True(count.CanRecord);
         await count.Record.ExecuteAsync();
-        Assert.Equal(3, count.LineCount);
+        Assert.Equal(lines + 1, count.LineCount);
         Assert.False(count.HasProduct);
 
         count.RemoveLine.Execute(count.Lines.First(l => l.Sku == sku));
-        await Wpf.UntilAsync(() => count.LineCount == 2);
+        await Wpf.UntilAsync(() => count.LineCount == lines);
 
         var posting = count.Post.ExecuteAsync();
         await Wpf.UntilAsync(() => shell.Dialogs.Current is not null);
@@ -257,18 +265,18 @@ public sealed class ScreenTests
         var search = shell.Search;
         Assert.True(search.CatalogSize > 30);
 
-        search.Query = "fer-001";
-        Assert.Equal("FER-001", search.Suggestions[0].Sku);
-        search.Query = "electricos";                 // «ELÉCTRICOS» sin tilde
+        search.Query = "cpu-amd-7600";
+        Assert.Equal("CPU-AMD-7600", search.Suggestions[0].Sku);
+        search.Query = "refrigeracion";              // «Refrigeración» sin tilde
         Assert.NotEmpty(search.Suggestions);
-        Assert.All(search.Suggestions, s => Assert.Equal("ELÉCTRICOS", s.Category));
+        Assert.All(search.Suggestions, s => Assert.Equal("Refrigeración", s.Category));
         search.Query = "zzz-no-existe";
         Assert.True(search.HasNoResults);
 
-        search.Query = "FER-001";
+        search.Query = "CPU-AMD-7600";
         Assert.True(search.Commit());                // Enter: abre la ficha
         await Wpf.UntilAsync(() => shell.ProductDetail is { IsLoading: false });
-        Assert.Equal("FER-001", shell.ProductDetail!.Sku);
+        Assert.Equal("CPU-AMD-7600", shell.ProductDetail!.Sku);
         Assert.Equal(shell.ProductDetail.Card!.TotalMovements, shell.ProductDetail.Kardex.Count);
         Assert.Equal((double)shell.ProductDetail.Card.OnHand, shell.ProductDetail.Balances[^1]);
         Assert.Equal(string.Empty, search.Query);

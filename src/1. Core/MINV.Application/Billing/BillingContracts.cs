@@ -238,8 +238,11 @@ public sealed record FiscalDocumentRow(Guid Id, FiscalDocumentKind Kind, long Nu
 public sealed record GetFiscalDocumentsQuery(DateOnly From, DateOnly To, FiscalDocumentStatus? Status = null, FiscalDocumentKind? Kind = null,
     string? Search = null) : IRequest<IReadOnlyList<FiscalDocumentRow>>;
 
+/// <summary>Línea del documento fiscal. V4.2 · <see cref="SerialsText"/>: las series o IMEI que lleva la línea en el XML
+/// («S/N: …», «IMEI: …», T-03).</summary>
 public sealed record FiscalDocumentLineView(int LineNumber, string ProductCode, string Description, decimal Quantity, int SinUnitCode,
-    string Unit, decimal UnitPrice, decimal Discount, decimal Subtotal, string ActivityCode, int SinProductCode, int? TransactionCode);
+    string Unit, decimal UnitPrice, decimal Discount, decimal Subtotal, string ActivityCode, int SinProductCode, int? TransactionCode,
+    string? SerialsText = null);
 
 public sealed record FiscalDocumentEventView(DateTimeOffset OccurredAt, FiscalDocumentAction Action, int? SiatCode, string? Description,
     string? ReceptionCode, string? Messages, string? User);
@@ -328,16 +331,21 @@ public sealed record ReissueFiscalDocumentCommand(Guid DocumentId, FiscalBuyerIn
 }
 
 // --------------------------------------------------------------------------------------------------- devoluciones y notas
-public sealed record ReturnLineInput(string Sku, decimal Quantity);
+/// <summary>Línea devuelta. V4.2 · <see cref="Serials"/>: series (o IMEI) de las unidades devueltas de un producto serializado,
+/// una por unidad y todas de esa venta (regla T-02).</summary>
+public sealed record ReturnLineInput(string Sku, decimal Quantity, IReadOnlyList<string>? Serials = null);
 
 /// <summary>Devolución parcial o total de una venta: stock de vuelta (DEVOLUCIÓN DE CLIENTE), reembolso, asiento y, si la
-/// venta tiene factura válida, nota crédito-débito (sector 24).</summary>
+/// venta tiene factura válida, nota crédito-débito (sector 24). V4.2 · Con <see cref="Defective"/> = true la devolución es
+/// POR FALLA: se reembolsa, pero la mercadería NO vuelve al stock vendible (sin movimiento; el costo sigue en el costo de
+/// ventas hasta que el proveedor lo reconozca) y las series quedan «en garantía (RMA)» para devolverlas al proveedor, darlas
+/// de baja o reponerlas después de repararlas.</summary>
 [RequiresPermission(PermissionCodes.PosOperate)]
 [RequiresPermission(PermissionCodes.BillingVoid)]
 public sealed record CreateSalesReturnCommand(string InvoiceNumber, string Reason, string RefundPaymentMethodCode,
-    IReadOnlyList<ReturnLineInput> Lines) : IRequest<SalesReturnResult>, IAuditableRequest
+    IReadOnlyList<ReturnLineInput> Lines, bool Defective = false) : IRequest<SalesReturnResult>, IAuditableRequest
 {
-    public object AuditDetails => new { InvoiceNumber, Reason, RefundPaymentMethodCode, Lines };
+    public object AuditDetails => new { InvoiceNumber, Reason, RefundPaymentMethodCode, Lines, Defective };
 }
 
 public sealed record SalesReturnResult(string Number, decimal Refund, Guid? CreditNoteId, long? CreditNoteNumber, FiscalDocumentStatus? CreditNoteStatus,
@@ -495,8 +503,12 @@ public interface ISiatWorker
 // --------------------------------------------------------------------------------------------------- facturas de proveedores
 /// <summary>
 /// V4.1 · Registra la factura del proveedor de una recepción (número, CUF/código de autorización, fecha, importe): entra
-/// al libro de compras y reclasifica el crédito fiscal (Debe 1.1.04 IVA crédito fiscal / Haber 1.1.05 Inventario, 13 %
-/// de la base). El costo promedio histórico no se recalcula (limitación documentada).
+/// al libro de compras con su crédito fiscal (Debe 1.1.04 IVA crédito fiscal, 13 % de la base) y fija la deuda con el
+/// proveedor en el importe de la factura menos los descuentos: con la recepción al costo con IVA el crédito sale del
+/// inventario (Haber 1.1.05); con la recepción al costo neto, el IVA se suma a 2.1.01 Proveedores. V4.2 · Para una
+/// recepción al costo neto (el 87 % de lo facturado) el importe que corresponde es recepción / 0,87
+/// (<c>FiscalRules.InvoiceForNetCost</c>): el crédito fiscal es exactamente el IVA sumado a la deuda y el inventario no
+/// cambia. El costo promedio histórico no se recalcula (limitación documentada, L-06 del diseño de la V4.2).
 /// </summary>
 [RequiresPermission(PermissionCodes.PurchasingManage)]
 public sealed record RegisterSupplierInvoiceCommand(string ReceiptNumber, string InvoiceNumber, string AuthorizationCode, DateOnly InvoiceDate,

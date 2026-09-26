@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using MINV.Application.Abstractions;
 using MINV.Application.Common;
 using MINV.Application.Purchasing;
+using MINV.Application.Tech;
 using MINV.Domain.Accounting;
 using MINV.Domain.Catalog;
 using MINV.Domain.Common;
@@ -20,7 +21,7 @@ public sealed record TransferRow(Guid Id, string Number, string FromBranch, stri
     string ToBranchCode = "");
 
 public sealed record TransferLineRow(Guid LineId, string Sku, string Name, string Unit, decimal Quantity, decimal? UnitCost, decimal Received,
-    decimal Shortage, string? ShortageReason, IReadOnlyList<string> Lots);
+    decimal Shortage, string? ShortageReason, IReadOnlyList<string> Lots, IReadOnlyList<string>? Serials = null);
 
 public sealed record TransferHistoryRow(DateTimeOffset OccurredAt, string StatusLabel, string User, string Detail);
 
@@ -77,6 +78,10 @@ public sealed class GetTransferHandler(IMinvDbContext db) : IRequestHandler<GetT
         var users = await db.Set<User>().Where(u => userIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.DisplayName, ct);
         var history = transfer.History.OrderBy(h => h.OccurredAt).Select(h => new TransferHistoryRow(h.OccurredAt, TransferStatuses.Label(h.Status),
             users.GetValueOrDefault(h.UserId, "?"), h.Detail)).ToList();
+        // V4.2 · Series que viajan en cada línea
+        var serials = await TransferRules.SerialsAsync(db, transfer.Lines.Select(l => l.Id).ToList(), ct);
+        lines = lines.Select(l => serials[l.LineId].Any() ? l with { Serials = serials[l.LineId].Select(s => s.Serial).Order(StringComparer.Ordinal).ToList() } : l)
+            .ToList();
         return new TransferDetail(header, lines, history);
     }
 }
@@ -116,7 +121,9 @@ internal static class TransferViews
 }
 
 // ================================================================================================ comandos
-public sealed record TransferLineInput(string Sku, decimal Quantity);
+/// <summary>Línea de una transferencia. V4.2 · <see cref="Serials"/>: series (o IMEI) de las unidades que viajan de un
+/// producto serializado, una por unidad, en stock en el almacén de origen (regla T-02).</summary>
+public sealed record TransferLineInput(string Sku, decimal Quantity, IReadOnlyList<string>? Serials = null);
 
 public sealed record TransferRef(Guid Id, string Number, string Message);
 
@@ -167,12 +174,21 @@ public sealed class CreateTransferHandler(IMinvDbContext db, ICurrentUser user, 
                 var number = await Documents.NextForBranchAsync<StockTransfer>(db, t => t.Number, "TR", from.BranchId, ct);
                 var transfer = new StockTransfer(from.TenantId, number, from.BranchId, from.Id, to.BranchId, to.Id, userId, clock.UtcNow,
                     request.Notes?.Trim());
+                var ledger = new SerialLedger(db);
+                var bins = lookups.BinIdsOf(from.Id);
                 foreach (var input in request.Lines)
                 {
                     var item = await lookups.VariantBySkuAsync(input.Sku, ct);
                     Guard.That(item.Product.IsActive && item.Variant.IsActive, "product.inactive", $"El producto {item.Variant.Sku} está inactivo.");
                     Quantities.EnsureAllowed(input.Quantity, item.Unit.AllowsDecimals, item.Unit.UnitCode);
-                    transfer.AddLine(item.Variant.Id, input.Quantity);
+                    var line = transfer.AddLine(item.Variant.Id, input.Quantity);
+                    // V4.2 · Las series que viajarán: en stock en el almacén de origen (se vuelven a verificar al despachar)
+                    var serials = await ledger.ExpectAsync(item, input.Quantity, input.Serials, ct);
+                    var units = serials.Count == 0 ? [] : (await ledger.OnHandAsync(item, serials, from.BranchId, bins, ct)).SelectMany(g => g.Units);
+                    foreach (var unit in units)
+                    {
+                        db.Set<StockTransferLineSerial>().Add(new StockTransferLineSerial(from.TenantId, from.BranchId, to.BranchId, line.Id, unit.Id));
+                    }
                 }
                 db.Set<StockTransfer>().Add(transfer);
                 await db.SaveChangesAsync(ct);
@@ -235,10 +251,35 @@ public sealed class DispatchTransferHandler(IMinvDbContext db, ICurrentUser user
         var toBranch = await db.Set<Branch>().Where(b => b.Id == transfer.ToBranchId).Select(b => b.Name).FirstAsync(ct);
         var dispatches = new List<LineDispatch>();
         var value = 0m;
+        var travelling = await TransferRules.SerialsAsync(db, transfer.Lines.Select(l => l.Id).ToList(), ct);
+        var ledger = new SerialLedger(db);
         foreach (var line in transfer.Lines)
         {
             var item = await TransferRules.ItemAsync(db, line.VariantId, ct);
             var unitCost = await AverageCosts.CurrentAsync(db, line.VariantId, transfer.FromWarehouseId, ct);
+            if (SerialLedger.Tracks(item.Product))
+            {
+                // V4.2 · Salen las series de la línea (siguen en stock en el origen) y quedan EN TRÁNSITO
+                Guard.That(travelling[line.Id].Any(), SerialErrorCodes.Required,
+                    $"{item.Variant.Sku} lleva serie y la transferencia {transfer.Number} no indica sus series: anúlela y solicítela de nuevo con las series.");
+                var serials = await ledger.ExpectAsync(item, line.Quantity, travelling[line.Id].Select(s => s.Serial).ToList(), ct);
+                var serialContext = new SerialContext(transfer.FromBranchId, userId, now, transfer.Number, $"Transferencia {transfer.Number} → {toBranch}");
+                foreach (var group in await ledger.OnHandAsync(item, serials, transfer.FromBranchId, bins, ct))
+                {
+                    var context = new MovementContext(userId, today, now, transfer.Number, $"Transferencia {transfer.Number} → {toBranch}",
+                        CorrelationId: transfer.Id);
+                    var movement = group.Level.Register(outType, group.Units.Count, item.Unit, context);
+                    db.Set<StockMovement>().Add(movement);
+                    dispatches.Add(new LineDispatch(line.Id, new TransferMovement(movement.Id, transfer.FromBranchId, group.Level.BatchId, group.Units.Count),
+                        unitCost));
+                    foreach (var unit in group.Units)
+                    {
+                        unit.TransferOut(group.Level, serialContext);
+                    }
+                }
+                value += JournalPoster.Money(line.Quantity * unitCost);
+                continue;
+            }
             var levels = await (from l in db.Set<StockLevel>()
                                 join b in db.Set<Batch>() on l.BatchId equals b.Id
                                 where b.VariantId == line.VariantId && bins.Contains(l.BinId) && l.QuantityOnHand - l.QuantityReserved > 0
@@ -279,7 +320,9 @@ public sealed class DispatchTransferHandler(IMinvDbContext db, ICurrentUser user
     }
 }
 
-public sealed record TransferReceiptInput(string Sku, decimal ReceivedQuantity, string? ShortageReason = null);
+/// <summary>Lo recibido de una línea. V4.2 · En un producto serializado, un faltante DEBE indicar qué series no llegaron
+/// (<see cref="MissingSerials"/>): esas se dan de baja como faltante en tránsito y las demás entran al stock del destino.</summary>
+public sealed record TransferReceiptInput(string Sku, decimal ReceivedQuantity, string? ShortageReason = null, IReadOnlyList<string>? MissingSerials = null);
 
 /// <summary>
 /// V4 · Recibe una transferencia despachada (lo hace el DESTINO) en UNA transacción: entradas TRASLADO (ENTRADA) con los
@@ -341,6 +384,8 @@ public sealed class ReceiveTransferHandler(IMinvDbContext db, ICurrentUser user,
         var inputs = (request.Lines ?? []).ToDictionary(l => l.Sku.Trim().ToUpperInvariant(), StringComparer.Ordinal);
         var receipts = new List<LineReceipt>();
         decimal received = 0m, shortage = 0m, total = 0m;
+        var travelling = await TransferRules.SerialsAsync(db, transfer.Lines.Select(l => l.Id).ToList(), ct);
+        var ledger = new SerialLedger(db);
         foreach (var line in transfer.Lines)
         {
             var item = await TransferRules.ItemAsync(db, line.VariantId, ct);
@@ -358,21 +403,53 @@ public sealed class ReceiveTransferHandler(IMinvDbContext db, ICurrentUser user,
             var averageBefore = await AverageCosts.CurrentAsync(db, line.VariantId, transfer.ToWarehouseId, ct);
             var binId = await Receipts.BinForAsync(db, line.VariantId, transfer.ToWarehouseId, bins, ct);
             var movements = new List<TransferMovement>();
-            var remaining = quantity;
-            foreach (var shipped in line.Batches.OrderBy(b => b.BatchId))
+
+            // Lo que entra por lote: en el orden del manifiesto o, si el producto lleva serie, el lote de cada serie recibida
+            var takes = new List<(Guid BatchId, decimal Quantity, IReadOnlyList<SerialNumber> Units)>();
+            var units = travelling[line.Id].ToList();
+            if (units.Count > 0)
             {
-                if (remaining <= 0)
+                var missing = TransferRules.Missing(item, line, units, quantity, input?.MissingSerials);
+                var lost = new SerialContext(transfer.ToBranchId, userId, now, transfer.Number,
+                    $"Faltante en la transferencia {transfer.Number} de {fromBranch}: {input?.ShortageReason ?? "sin motivo"}");
+                foreach (var unit in missing)
                 {
-                    break;
+                    unit.Scrap(null, lost);
                 }
-                var take = Math.Min(shipped.Quantity, remaining);
-                var (level, _) = await lookups.StockLevelAsync(transfer.TenantId, binId, shipped.BatchId, ct);
+                takes.AddRange(units.Except(missing).GroupBy(u => u.BatchId)
+                    .Select(g => (g.Key, (decimal)g.Count(), (IReadOnlyList<SerialNumber>)g.ToList())));
+            }
+            else
+            {
+                var pending = quantity;
+                foreach (var shipped in line.Batches.OrderBy(b => b.BatchId))
+                {
+                    if (pending <= 0)
+                    {
+                        break;
+                    }
+                    var take = Math.Min(shipped.Quantity, pending);
+                    takes.Add((shipped.BatchId, take, []));
+                    pending = Quantities.Round6(pending - take);
+                }
+            }
+            foreach (var (batchId, take, arrived) in takes)
+            {
+                var (level, _) = await lookups.StockLevelAsync(transfer.TenantId, binId, batchId, ct);
                 var context = new MovementContext(userId, today, now, transfer.Number, $"Transferencia {transfer.Number} ← {fromBranch}",
                     CorrelationId: transfer.Id);
                 var movement = level.Register(inType, take, item.Unit, context);
                 db.Set<StockMovement>().Add(movement);
-                movements.Add(new TransferMovement(movement.Id, transfer.ToBranchId, shipped.BatchId, take));
-                remaining = Quantities.Round6(remaining - take);
+                movements.Add(new TransferMovement(movement.Id, transfer.ToBranchId, batchId, take));
+                if (arrived.Count > 0)
+                {
+                    var batch = await ledger.BatchAsync(batchId, ct);
+                    var came = new SerialContext(transfer.ToBranchId, userId, now, transfer.Number, $"Transferencia {transfer.Number} ← {fromBranch}");
+                    foreach (var unit in arrived)
+                    {
+                        unit.TransferIn(level, batch, came);
+                    }
+                }
             }
             receipts.Add(new LineReceipt(line.Id, movements, input?.ShortageReason));
             var lineValue = JournalPoster.Money(line.Quantity * unitCost);
@@ -453,6 +530,40 @@ internal static class TransferRules
         {
             throw new AccessDeniedException($"No puede {action} esa sucursal: no está entre las suyas.");
         }
+    }
+
+    /// <summary>V4.2 · Unidades que viajan en cada línea (las ven origen y destino).</summary>
+    public static async Task<ILookup<Guid, SerialNumber>> SerialsAsync(IMinvDbContext db, IReadOnlyCollection<Guid> lineIds, CancellationToken ct) =>
+        (await (from x in db.Set<StockTransferLineSerial>()
+                join s in db.Set<SerialNumber>() on x.SerialNumberId equals s.Id
+                where lineIds.Contains(x.StockTransferLineId)
+                select new { x.StockTransferLineId, Unit = s }).ToListAsync(ct))
+        .ToLookup(x => x.StockTransferLineId, x => x.Unit);
+
+    /// <summary>
+    /// V4.2 · Series que NO llegaron de una línea serializada: si se recibe menos de lo despachado, el faltante DEBE decir qué
+    /// series faltan (tantas como unidades faltantes, todas de la línea); si llegó completa, no se indican.
+    /// </summary>
+    public static IReadOnlyList<SerialNumber> Missing(VariantInfo item, StockTransferLine line, IReadOnlyList<SerialNumber> units, decimal received,
+        IReadOnlyList<string>? missingSerials)
+    {
+        var sku = item.Variant.Sku;
+        Guard.That(received == decimal.Truncate(received), SerialErrorCodes.Quantity, $"{sku} lleva serie: lo recibido debe ser un número entero.");
+        var shortage = (int)(line.Quantity - received);
+        var listed = (missingSerials ?? []).Select(s => s.Trim().ToUpperInvariant()).Where(s => s.Length > 0).ToList();
+        Guard.That(listed.Count == listed.Distinct(StringComparer.Ordinal).Count(), SerialErrorCodes.Duplicate, $"{sku}: hay series faltantes repetidas.");
+        Guard.That(listed.Count == shortage, shortage > 0 && listed.Count == 0 ? SerialErrorCodes.Required : SerialErrorCodes.Count,
+            shortage == 0
+                ? $"{sku} llegó completo: no indique series faltantes."
+                : $"{sku}: faltan {shortage} unidad(es): indique exactamente qué series no llegaron.");
+        var result = new List<SerialNumber>();
+        foreach (var serial in listed)
+        {
+            var unit = units.FirstOrDefault(u => u.Serial == serial || u.Serial == Imei.Normalize(serial))
+                       ?? throw new DomainException(SerialErrorCodes.NotInDocument, $"La serie {serial} no viaja en esta transferencia ({sku}).");
+            result.Add(unit);
+        }
+        return result;
     }
 
     public static async Task<VariantInfo> ItemAsync(IMinvDbContext db, Guid variantId, CancellationToken ct)

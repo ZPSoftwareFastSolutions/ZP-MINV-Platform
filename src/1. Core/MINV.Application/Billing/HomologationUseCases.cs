@@ -31,7 +31,7 @@ internal static class SiatWords
         "unidad", "unidades", "kilo", "litro", "metro", "galon", "par", "rollo", "pieza", "piezas",
     };
 
-    /// <summary>Sin acentos y en minúsculas («Pintura látex» → «pintura latex»).</summary>
+    /// <summary>Sin acentos y en minúsculas («Teclado mecánico» → «teclado mecanico»).</summary>
     public static string Normalize(string? text)
     {
         if (string.IsNullOrWhiteSpace(text))
@@ -57,7 +57,7 @@ internal static class SiatWords
         Normalize(text).Split(' ', StringSplitOptions.RemoveEmptyEntries)
             .Where(w => w.Length >= 3 && w.Any(char.IsLetter) && !StopWords.Contains(w)).Distinct().ToList();
 
-    /// <summary>Raíz aproximada para comparar singular y plural («tornillos» ~ «tornillo», «destornilladores» ~ «destornillador»).</summary>
+    /// <summary>Raíz aproximada para comparar singular y plural («monitores» ~ «monitor», «auriculares» ~ «auricular»).</summary>
     public static string Stem(string word) =>
         word.Length > 5 && word.EndsWith("es", StringComparison.Ordinal) ? word[..^2]
         : word.Length > 4 && word.EndsWith('s') ? word[..^1]
@@ -236,7 +236,7 @@ public sealed class SaveProductHomologationHandler(IMinvDbContext db, ITenantCon
             if (sinProduct is null)
             {
                 var elsewhere = await db.Set<SiatProduct>().AsNoTracking().Where(p => p.ProductCode == item.SinProductCode)
-                    .Select(p => p.ActivityCode).Distinct().Take(5).ToListAsync(ct);
+                    .Select(p => p.ActivityCode).Distinct().OrderBy(a => a).Take(5).ToListAsync(ct);
                 throw new DomainException("siat.product_activity", elsewhere.Count == 0
                     ? $"{sku}: el producto {item.SinProductCode} no existe en el catálogo del SIN."
                     : $"{sku}: el producto SIN {item.SinProductCode} no pertenece a la actividad {activity} (es de {string.Join(", ", elsewhere)}).");

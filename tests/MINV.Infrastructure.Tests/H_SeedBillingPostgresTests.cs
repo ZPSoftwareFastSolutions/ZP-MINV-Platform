@@ -47,7 +47,7 @@ public sealed class H_SeedBillingPostgresTests(PostgresFixture pg) : IClassFixtu
             var billing = Assert.IsType<SeedBilling>(result.Billing);
             Assert.True(billing.ValidInvoices > 20, $"Solo {billing.ValidInvoices} facturas válidas");
             Assert.Equal(3, billing.CafcInvoices);
-            Assert.Equal(2, billing.CreditNotes);
+            Assert.True(billing.CreditNotes >= 2, $"Solo {billing.CreditNotes} notas crédito-débito");   // 2 devoluciones parciales (+ V4.2: la devolución por falla)
             Assert.Equal(1, billing.Reverted);
             Assert.Equal(stateFile, billing.SimulatorStateFile);
 
@@ -56,6 +56,7 @@ public sealed class H_SeedBillingPostgresTests(PostgresFixture pg) : IClassFixtu
             async Task<int> Count(string sql) => await db.Database.SqlQueryRaw<int>(sql).SingleAsync();
             Assert.Equal(0, await Count("SELECT count(*)::int AS \"Value\" FROM inventory.v_conservation_breaches"));
             Assert.Equal(0, await Count("SELECT count(*)::int AS \"Value\" FROM inventory.v_transfer_breaches"));
+            Assert.Equal(0, await Count("SELECT count(*)::int AS \"Value\" FROM inventory.v_serial_breaches"));   // V4.2: series en stock = stock
             Assert.Equal(0, await Count("SELECT count(*)::int AS \"Value\" FROM (SELECT journal_entry_id FROM accounting.journal_lines " +
                                         "GROUP BY journal_entry_id HAVING sum(debit) <> sum(credit)) x"));
             // Totales fiscales DERIVADOS (vista) = importe cobrado de cada venta con factura válida

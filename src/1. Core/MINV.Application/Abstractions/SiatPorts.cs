@@ -175,8 +175,10 @@ public sealed record FiscalPrintModel(
     bool IsTest, bool IsVoided, bool IsOffline, FiscalPrintOriginal? Original = null, decimal? ReturnedTotal = null,
     decimal? CreditDebitAmount = null, string? SaleNumber = null);
 
+/// <summary>Línea impresa. V4.2 · <see cref="SerialsText"/>: series o IMEI de la línea («S/N: …», «IMEI: …», los mismos del
+/// XML) y <see cref="WarrantyUntil"/>: fin de la garantía derivada de la fecha de emisión (regla T-04), solo en facturas.</summary>
 public sealed record FiscalPrintLine(string ProductCode, string Description, string Unit, decimal Quantity, decimal UnitPrice, decimal Discount,
-    decimal Subtotal, int? TransactionCode = null);
+    decimal Subtotal, int? TransactionCode = null, string? SerialsText = null, DateOnly? WarrantyUntil = null);
 
 /// <summary>Factura original que se imprime en una nota crédito-débito.</summary>
 public sealed record FiscalPrintOriginal(long Number, string Cuf, DateTime IssuedAt);

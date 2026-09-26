@@ -14,7 +14,7 @@
                     ToolTip="Actualizar (F5)" VerticalAlignment="Center" />
             <StackPanel>
                 <TextBlock Text="{Binding Title}" Style="{StaticResource H1}" />
-                <TextBlock Text="Registro inmutable: cada operación queda guardada con su resultado, también las rechazadas (como 14_ACTIVIDAD de la V2.1)"
+                <TextBlock Text="Registro inmutable: cada operación queda guardada con su resultado, también las rechazadas"
                            Style="{StaticResource Caption}" FontSize="13" Margin="0,4,0,0" />
             </StackPanel>
         </DockPanel>

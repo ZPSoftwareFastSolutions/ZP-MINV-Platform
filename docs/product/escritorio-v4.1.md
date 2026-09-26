@@ -16,7 +16,7 @@ depende de los permisos `billing.*` (la tubería los vuelve a comprobar en cada 
 que no se puede usar).
 
 Las imágenes de esta guía las genera la propia aplicación (`M-INV.exe --capturas`). Las pantallas de negocio y de
-facturación salen de la **base local de prueba** (`toolsd_local.ps1 -Accion recrear`: 25 días de facturas con el
+facturación salen de la **base local de prueba** (`tools\bd_local.ps1 -Accion recrear`: 25 días de facturas con el
 simulador del SIN, sin valor legal); la del resultado fiscal de la caja (76) sale de la **demostración en memoria**, que
 cobra dos ventas con el simulador del SIN en memoria. Nada de eso toca el SIN real. Carpeta:
 [`capturas/v4.1`](capturas/v4.1).

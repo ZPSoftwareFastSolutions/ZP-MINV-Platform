@@ -3858,6 +3858,79 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("MINV.Domain.Catalog.ProductSpecValue", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<decimal?>("NumberValue")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)")
+                        .HasColumnName("number_value");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("option_id");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("product_id");
+
+                    b.Property<Guid>("SpecDefinitionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("spec_definition_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("text_value");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_product_spec_values");
+
+                    b.HasAlternateKey("TenantId", "Id")
+                        .HasName("ak_product_spec_values_tenant_id_id");
+
+                    b.HasIndex("TenantId", "SpecDefinitionId", "OptionId")
+                        .HasDatabaseName("ix_product_spec_values_tenant_id_spec_definition_id_option_id");
+
+                    b.HasIndex("TenantId", "ProductId", "SpecDefinitionId", "OptionId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_product_spec_values_tenant_id_product_id_spec_defin_2d2c8dd0");
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("TenantId", "ProductId", "SpecDefinitionId", "OptionId"), false);
+
+                    b.ToTable("product_spec_values", "catalog", t =>
+                        {
+                            t.HasCheckConstraint("ck_product_spec_values_arco", "num_nonnulls(number_value, text_value, option_id) = 1");
+
+                            t.HasCheckConstraint("ck_product_spec_values_texto", "text_value IS NULL OR length(btrim(text_value)) > 0");
+                        });
+                });
+
             modelBuilder.Entity("MINV.Domain.Catalog.ProductStockPolicy", b =>
                 {
                     b.Property<Guid>("Id")
@@ -4050,6 +4123,61 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.ToTable("product_taxes", "catalog");
                 });
 
+            modelBuilder.Entity("MINV.Domain.Catalog.ProductTechProfile", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("product_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<string>("SerialKind")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasColumnName("serial_kind");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<int>("WarrantyMonths")
+                        .HasColumnType("integer")
+                        .HasColumnName("warranty_months");
+
+                    b.HasKey("TenantId", "ProductId")
+                        .HasName("pk_product_tech_profiles");
+
+                    b.ToTable("product_tech_profiles", "catalog", t =>
+                        {
+                            t.HasCheckConstraint("ck_product_tech_profiles_garantia", "warranty_months BETWEEN 0 AND 120");
+
+                            t.HasCheckConstraint("ck_product_tech_profiles_serie", "serial_kind IN ('Serial', 'Imei')");
+                        });
+                });
+
             modelBuilder.Entity("MINV.Domain.Catalog.ProductUnitConversion", b =>
                 {
                     b.Property<Guid>("Id")
@@ -4227,6 +4355,166 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_product_variant_attributes_tenant_id_variant_id");
 
                     b.ToTable("product_variant_attributes", "catalog");
+                });
+
+            modelBuilder.Entity("MINV.Domain.Catalog.SpecDefinition", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("CategoryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("category_id");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("code");
+
+                    b.Property<string>("CompatibilityKey")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("compatibility_key");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("DataType")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasColumnName("data_type");
+
+                    b.Property<bool>("IsFilterable")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_filterable");
+
+                    b.Property<bool>("IsMultiValued")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_multi_valued");
+
+                    b.Property<bool>("IsRequired")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_required");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("name");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Unit")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("unit");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_spec_definitions");
+
+                    b.HasAlternateKey("TenantId", "Id")
+                        .HasName("ak_spec_definitions_tenant_id_id");
+
+                    b.HasIndex("TenantId", "CompatibilityKey")
+                        .HasDatabaseName("ix_spec_definitions_tenant_id_compatibility_key")
+                        .HasFilter("compatibility_key IS NOT NULL");
+
+                    b.HasIndex("TenantId", "CategoryId", "Code")
+                        .IsUnique()
+                        .HasDatabaseName("ux_spec_definitions_tenant_id_category_id_code");
+
+                    b.ToTable("spec_definitions", "catalog", t =>
+                        {
+                            t.HasCheckConstraint("ck_spec_definitions_clave", "compatibility_key IS NULL OR compatibility_key ~ '^[a-z0-9_]+$'");
+
+                            t.HasCheckConstraint("ck_spec_definitions_codigo", "code ~ '^[a-z0-9_]+$'");
+
+                            t.HasCheckConstraint("ck_spec_definitions_multivalor", "NOT is_multi_valued OR data_type = 'Option'");
+
+                            t.HasCheckConstraint("ck_spec_definitions_tipo", "data_type IN ('Text', 'Number', 'Option')");
+                        });
+                });
+
+            modelBuilder.Entity("MINV.Domain.Catalog.SpecOption", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid>("SpecDefinitionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("spec_definition_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("value");
+
+                    b.HasKey("Id")
+                        .HasName("pk_spec_options");
+
+                    b.HasAlternateKey("TenantId", "Id")
+                        .HasName("ak_spec_options_tenant_id_id");
+
+                    b.HasAlternateKey("TenantId", "SpecDefinitionId", "Id")
+                        .HasName("ak_spec_options_tenant_id_spec_definition_id_id");
+
+                    b.HasIndex("TenantId", "SpecDefinitionId", "Value")
+                        .IsUnique()
+                        .HasDatabaseName("ux_spec_options_tenant_id_spec_definition_id_value");
+
+                    b.ToTable("spec_options", "catalog");
                 });
 
             modelBuilder.Entity("MINV.Domain.Catalog.Tax", b =>
@@ -6162,13 +6450,13 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_batches_tenant_id_id");
 
+                    b.HasAlternateKey("TenantId", "VariantId", "Id")
+                        .HasName("ak_batches_tenant_id_variant_id_id");
+
                     b.HasIndex("VariantId")
                         .IsUnique()
                         .HasDatabaseName("ux_batches_variant_id")
                         .HasFilter("is_default");
-
-                    b.HasIndex("TenantId", "VariantId")
-                        .HasDatabaseName("ix_batches_tenant_id_variant_id");
 
                     b.HasIndex("VariantId", "LotNumber")
                         .IsUnique()
@@ -6465,6 +6753,200 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("MINV.Domain.Inventory.SalesOrderLineSerial", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("SalesOrderLineId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("sales_order_line_id");
+
+                    b.Property<Guid>("SerialNumberId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("serial_number_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_sales_order_line_serials");
+
+                    b.HasAlternateKey("TenantId", "Id")
+                        .HasName("ak_sales_order_line_serials_tenant_id_id");
+
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_sales_order_line_serials_tenant_id_branch_id_id");
+
+                    b.HasIndex("SerialNumberId")
+                        .HasDatabaseName("ix_sales_order_line_serials_serial_number_id");
+
+                    b.HasIndex("SalesOrderLineId", "SerialNumberId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_sales_order_line_serials_sales_order_line_id_serial_980878dd");
+
+                    b.HasIndex("TenantId", "SerialNumberId")
+                        .HasDatabaseName("ix_sales_order_line_serials_tenant_id_serial_number_id");
+
+                    b.HasIndex("TenantId", "BranchId", "SalesOrderLineId")
+                        .HasDatabaseName("ix_sales_order_line_serials_tenant_id_branch_id_sales__e7c7c1fa");
+
+                    b.ToTable("sales_order_line_serials", "sales");
+                });
+
+            modelBuilder.Entity("MINV.Domain.Inventory.SalesReturnLineSerial", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("SalesReturnLineId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("sales_return_line_id");
+
+                    b.Property<Guid>("SerialNumberId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("serial_number_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_sales_return_line_serials");
+
+                    b.HasAlternateKey("TenantId", "Id")
+                        .HasName("ak_sales_return_line_serials_tenant_id_id");
+
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_sales_return_line_serials_tenant_id_branch_id_id");
+
+                    b.HasIndex("SerialNumberId")
+                        .HasDatabaseName("ix_sales_return_line_serials_serial_number_id");
+
+                    b.HasIndex("SalesReturnLineId", "SerialNumberId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_sales_return_line_serials_sales_return_line_id_seri_b31662bb");
+
+                    b.HasIndex("TenantId", "SerialNumberId")
+                        .HasDatabaseName("ix_sales_return_line_serials_tenant_id_serial_number_id");
+
+                    b.HasIndex("TenantId", "BranchId", "SalesReturnLineId")
+                        .HasDatabaseName("ix_sales_return_line_serials_tenant_id_branch_id_sales_0a8c1b00");
+
+                    b.ToTable("sales_return_line_serials", "sales");
+                });
+
+            modelBuilder.Entity("MINV.Domain.Inventory.SerialEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("action");
+
+                    b.Property<Guid?>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("DocumentNumber")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("document_number");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("note");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("occurred_at");
+
+                    b.Property<Guid>("SerialNumberId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("serial_number_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_serial_events");
+
+                    b.HasAlternateKey("TenantId", "Id")
+                        .HasName("ak_serial_events_tenant_id_id");
+
+                    b.HasIndex("SerialNumberId", "OccurredAt")
+                        .HasDatabaseName("ix_serial_events_serial_number_id_occurred_at");
+
+                    b.HasIndex("TenantId", "BranchId")
+                        .HasDatabaseName("ix_serial_events_tenant_id_branch_id");
+
+                    b.HasIndex("TenantId", "DocumentNumber")
+                        .HasDatabaseName("ix_serial_events_tenant_id_document_number")
+                        .HasFilter("document_number IS NOT NULL");
+
+                    b.HasIndex("TenantId", "SerialNumberId")
+                        .HasDatabaseName("ix_serial_events_tenant_id_serial_number_id");
+
+                    b.HasIndex("TenantId", "UserId")
+                        .HasDatabaseName("ix_serial_events_tenant_id_user_id");
+
+                    b.ToTable("serial_events", "inventory", t =>
+                        {
+                            t.HasCheckConstraint("ck_serial_events_accion", "action IN ('Received', 'Sold', 'Returned', 'TransferDispatched', 'TransferReceived', 'RmaReceived', 'SentToSupplier', 'Repaired', 'Replaced', 'ReplacementIssued', 'ReturnedToSupplier', 'Scrapped', 'Adjusted', 'Restocked', 'ReturnedToCustomer')");
+                        });
+                });
+
             modelBuilder.Entity("MINV.Domain.Inventory.SerialNumber", b =>
                 {
                     b.Property<Guid>("Id")
@@ -6484,6 +6966,16 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("CreatedBy")
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasColumnName("kind");
+
+                    b.Property<DateTimeOffset>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("received_at");
 
                     b.Property<uint>("RowVersion")
                         .IsConcurrencyToken()
@@ -6519,23 +7011,44 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("updated_by");
 
+                    b.Property<Guid>("VariantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("variant_id");
+
                     b.HasKey("Id")
                         .HasName("pk_serial_numbers");
 
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_serial_numbers_tenant_id_id");
 
-                    b.HasIndex("BatchId", "Serial")
+                    b.HasIndex("TenantId", "Serial")
+                        .HasDatabaseName("ix_serial_numbers_tenant_id_serial");
+
+                    b.HasIndex("TenantId", "Status")
+                        .HasDatabaseName("ix_serial_numbers_tenant_id_status");
+
+                    b.HasIndex("TenantId", "BatchId", "StockLevelId")
+                        .HasDatabaseName("ix_serial_numbers_tenant_id_batch_id_stock_level_id");
+
+                    b.HasIndex("TenantId", "VariantId", "BatchId")
+                        .HasDatabaseName("ix_serial_numbers_tenant_id_variant_id_batch_id");
+
+                    b.HasIndex("TenantId", "VariantId", "Serial")
                         .IsUnique()
-                        .HasDatabaseName("ux_serial_numbers_batch_id_serial");
+                        .HasDatabaseName("ux_serial_numbers_tenant_id_variant_id_serial");
 
-                    b.HasIndex("TenantId", "BatchId")
-                        .HasDatabaseName("ix_serial_numbers_tenant_id_batch_id");
+                    b.ToTable("serial_numbers", "inventory", t =>
+                        {
+                            t.HasCheckConstraint("ck_serial_numbers_estado", "status IN ('InStock', 'Reserved', 'Sold', 'Returned', 'Scrapped', 'InTransit', 'InRma', 'ReturnedToSupplier')");
 
-                    b.HasIndex("TenantId", "StockLevelId")
-                        .HasDatabaseName("ix_serial_numbers_tenant_id_stock_level_id");
+                            t.HasCheckConstraint("ck_serial_numbers_imei", "kind <> 'Imei' OR serial ~ '^[0-9]{15}$'");
 
-                    b.ToTable("serial_numbers", "inventory");
+                            t.HasCheckConstraint("ck_serial_numbers_serie", "length(serial) > 0 AND serial !~ '[[:space:],;]'");
+
+                            t.HasCheckConstraint("ck_serial_numbers_tipo", "kind IN ('Serial', 'Imei')");
+
+                            t.HasCheckConstraint("ck_serial_numbers_ubicacion", "(status IN ('InStock', 'Reserved')) = (stock_level_id IS NOT NULL)");
+                        });
                 });
 
             modelBuilder.Entity("MINV.Domain.Inventory.StockAdjustment", b =>
@@ -6781,15 +7294,15 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "Id")
                         .HasName("ak_stock_levels_tenant_id_id");
 
+                    b.HasAlternateKey("TenantId", "BatchId", "Id")
+                        .HasName("ak_stock_levels_tenant_id_batch_id_id");
+
                     b.HasAlternateKey("TenantId", "BranchId", "Id")
                         .HasName("ak_stock_levels_tenant_id_branch_id_id");
 
                     b.HasIndex("BinId", "BatchId")
                         .IsUnique()
                         .HasDatabaseName("ux_stock_levels_bin_id_batch_id");
-
-                    b.HasIndex("TenantId", "BatchId")
-                        .HasDatabaseName("ix_stock_levels_tenant_id_batch_id");
 
                     b.HasIndex("TenantId", "BranchId", "BinId")
                         .HasDatabaseName("ix_stock_levels_tenant_id_branch_id_bin_id");
@@ -7470,6 +7983,64 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("ck_stock_transfer_line_batches_cantidad", "quantity > 0");
                         });
+                });
+
+            modelBuilder.Entity("MINV.Domain.Inventory.StockTransferLineSerial", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("FromBranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("from_branch_id");
+
+                    b.Property<Guid>("SerialNumberId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("serial_number_id");
+
+                    b.Property<Guid>("StockTransferLineId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("stock_transfer_line_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("ToBranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("to_branch_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_stock_transfer_line_serials");
+
+                    b.HasAlternateKey("TenantId", "Id")
+                        .HasName("ak_stock_transfer_line_serials_tenant_id_id");
+
+                    b.HasIndex("SerialNumberId")
+                        .HasDatabaseName("ix_stock_transfer_line_serials_serial_number_id");
+
+                    b.HasIndex("StockTransferLineId", "SerialNumberId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_stock_transfer_line_serials_stock_transfer_line_id__499197be");
+
+                    b.HasIndex("TenantId", "SerialNumberId")
+                        .HasDatabaseName("ix_stock_transfer_line_serials_tenant_id_serial_number_id");
+
+                    b.HasIndex("TenantId", "FromBranchId", "ToBranchId", "StockTransferLineId")
+                        .HasDatabaseName("ix_stock_transfer_line_serials_tenant_id_from_branch_i_79344d9f");
+
+                    b.ToTable("stock_transfer_line_serials", "inventory");
                 });
 
             modelBuilder.Entity("MINV.Domain.Inventory.StockTransferMovement", b =>
@@ -9384,6 +9955,208 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.ToTable("payment_methods", "sales");
                 });
 
+            modelBuilder.Entity("MINV.Domain.Sales.PcBuild", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<Guid?>("CustomerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("customer_id");
+
+                    b.Property<Guid?>("InvoiceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("invoice_id");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("Number")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("number");
+
+                    b.Property<DateTimeOffset?>("QuotedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("quoted_at");
+
+                    b.Property<bool>("QuotedWithErrors")
+                        .HasColumnType("boolean")
+                        .HasColumnName("quoted_with_errors");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateOnly>("ValidUntil")
+                        .HasColumnType("date")
+                        .HasColumnName("valid_until");
+
+                    b.HasKey("Id")
+                        .HasName("pk_pc_builds");
+
+                    b.HasAlternateKey("TenantId", "Id")
+                        .HasName("ak_pc_builds_tenant_id_id");
+
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_pc_builds_tenant_id_branch_id_id");
+
+                    b.HasIndex("InvoiceId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_pc_builds_invoice_id")
+                        .HasFilter("invoice_id IS NOT NULL");
+
+                    b.HasIndex("TenantId", "CreatedByUserId")
+                        .HasDatabaseName("ix_pc_builds_tenant_id_created_by_user_id");
+
+                    b.HasIndex("TenantId", "CustomerId")
+                        .HasDatabaseName("ix_pc_builds_tenant_id_customer_id");
+
+                    b.HasIndex("TenantId", "Status")
+                        .HasDatabaseName("ix_pc_builds_tenant_id_status");
+
+                    b.HasIndex("TenantId", "BranchId", "InvoiceId")
+                        .HasDatabaseName("ix_pc_builds_tenant_id_branch_id_invoice_id");
+
+                    b.HasIndex("TenantId", "BranchId", "Number")
+                        .IsUnique()
+                        .HasDatabaseName("ux_pc_builds_tenant_id_branch_id_number");
+
+                    b.ToTable("pc_builds", "sales", t =>
+                        {
+                            t.HasCheckConstraint("ck_pc_builds_cotizacion", "status <> 'Quoted' OR quoted_at IS NOT NULL");
+
+                            t.HasCheckConstraint("ck_pc_builds_estado", "status IN ('Draft', 'Quoted', 'Sold', 'Cancelled')");
+
+                            t.HasCheckConstraint("ck_pc_builds_marcado", "NOT quoted_with_errors OR quoted_at IS NOT NULL");
+
+                            t.HasCheckConstraint("ck_pc_builds_venta", "(status = 'Sold') = (invoice_id IS NOT NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("MINV.Domain.Sales.PcBuildLine", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("PcBuildId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("pc_build_id");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("integer")
+                        .HasColumnName("quantity");
+
+                    b.Property<decimal>("QuotedUnitPrice")
+                        .HasPrecision(19, 4)
+                        .HasColumnType("numeric(19,4)")
+                        .HasColumnName("quoted_unit_price");
+
+                    b.Property<string>("Slot")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("slot");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<Guid>("VariantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("variant_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_pc_build_lines");
+
+                    b.HasAlternateKey("TenantId", "Id")
+                        .HasName("ak_pc_build_lines_tenant_id_id");
+
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_pc_build_lines_tenant_id_branch_id_id");
+
+                    b.HasIndex("TenantId", "VariantId")
+                        .HasDatabaseName("ix_pc_build_lines_tenant_id_variant_id");
+
+                    b.HasIndex("TenantId", "BranchId", "PcBuildId")
+                        .HasDatabaseName("ix_pc_build_lines_tenant_id_branch_id_pc_build_id");
+
+                    b.ToTable("pc_build_lines", "sales", t =>
+                        {
+                            t.HasCheckConstraint("ck_pc_build_lines_cantidad", "quantity BETWEEN 1 AND 16");
+
+                            t.HasCheckConstraint("ck_pc_build_lines_precio", "quoted_unit_price >= 0");
+
+                            t.HasCheckConstraint("ck_pc_build_lines_ranura", "slot IN ('Cpu', 'Motherboard', 'Ram', 'Gpu', 'Storage', 'Psu', 'Case', 'Cooler', 'Monitor', 'Peripheral', 'Software', 'Service')");
+                        });
+                });
+
             modelBuilder.Entity("MINV.Domain.Sales.PosRegister", b =>
                 {
                     b.Property<Guid>("Id")
@@ -10209,6 +10982,232 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_states_tenant_id_country_id");
 
                     b.ToTable("states", "sales");
+                });
+
+            modelBuilder.Entity("MINV.Domain.Service.WarrantyClaim", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
+
+                    b.Property<DateTimeOffset?>("ClosedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("closed_at");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("CustomerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("customer_id");
+
+                    b.Property<Guid?>("InvoiceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("invoice_id");
+
+                    b.Property<bool>("IsInWarranty")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_in_warranty");
+
+                    b.Property<string>("Issue")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("issue");
+
+                    b.Property<string>("Number")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("number");
+
+                    b.Property<Guid>("OpenedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("opened_by_user_id");
+
+                    b.Property<DateTimeOffset>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("received_at");
+
+                    b.Property<Guid?>("ReplacementSerialId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("replacement_serial_id");
+
+                    b.Property<string>("Resolution")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("resolution");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<Guid>("SerialNumberId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("serial_number_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid?>("SupplierId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("supplier_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_warranty_claims");
+
+                    b.HasAlternateKey("TenantId", "Id")
+                        .HasName("ak_warranty_claims_tenant_id_id");
+
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_warranty_claims_tenant_id_branch_id_id");
+
+                    b.HasIndex("TenantId", "CustomerId")
+                        .HasDatabaseName("ix_warranty_claims_tenant_id_customer_id");
+
+                    b.HasIndex("TenantId", "OpenedByUserId")
+                        .HasDatabaseName("ix_warranty_claims_tenant_id_opened_by_user_id");
+
+                    b.HasIndex("TenantId", "ReplacementSerialId")
+                        .HasDatabaseName("ix_warranty_claims_tenant_id_replacement_serial_id");
+
+                    b.HasIndex("TenantId", "SerialNumberId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_warranty_claims_tenant_id_serial_number_id")
+                        .HasFilter("status <> 'Delivered'");
+
+                    b.HasIndex("TenantId", "Status")
+                        .HasDatabaseName("ix_warranty_claims_tenant_id_status");
+
+                    b.HasIndex("TenantId", "SupplierId")
+                        .HasDatabaseName("ix_warranty_claims_tenant_id_supplier_id");
+
+                    b.HasIndex("TenantId", "BranchId", "InvoiceId")
+                        .HasDatabaseName("ix_warranty_claims_tenant_id_branch_id_invoice_id");
+
+                    b.HasIndex("TenantId", "BranchId", "Number")
+                        .IsUnique()
+                        .HasDatabaseName("ux_warranty_claims_tenant_id_branch_id_number");
+
+                    b.ToTable("warranty_claims", "service", t =>
+                        {
+                            t.HasCheckConstraint("ck_warranty_claims_cierre", "(status = 'Delivered') = (closed_at IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_warranty_claims_estado", "status IN ('Received', 'Diagnosing', 'SentToSupplier', 'Repaired', 'Replaced', 'Rejected', 'Delivered')");
+
+                            t.HasCheckConstraint("ck_warranty_claims_otra_unidad", "replacement_serial_id IS NULL OR replacement_serial_id <> serial_number_id");
+
+                            t.HasCheckConstraint("ck_warranty_claims_proveedor", "status <> 'SentToSupplier' OR supplier_id IS NOT NULL");
+
+                            t.HasCheckConstraint("ck_warranty_claims_reemplazo", "status <> 'Replaced' OR replacement_serial_id IS NOT NULL");
+
+                            t.HasCheckConstraint("ck_warranty_claims_resolucion", "status NOT IN ('Repaired', 'Replaced', 'Rejected', 'Delivered') OR resolution IS NOT NULL");
+                        });
+                });
+
+            modelBuilder.Entity("MINV.Domain.Service.WarrantyClaimEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("action");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
+
+                    b.Property<Guid>("ClaimId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("claim_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("note");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("occurred_at");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_warranty_claim_events");
+
+                    b.HasAlternateKey("TenantId", "Id")
+                        .HasName("ak_warranty_claim_events_tenant_id_id");
+
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_warranty_claim_events_tenant_id_branch_id_id");
+
+                    b.HasIndex("ClaimId", "OccurredAt")
+                        .HasDatabaseName("ix_warranty_claim_events_claim_id_occurred_at");
+
+                    b.HasIndex("TenantId", "UserId")
+                        .HasDatabaseName("ix_warranty_claim_events_tenant_id_user_id");
+
+                    b.HasIndex("TenantId", "BranchId", "ClaimId")
+                        .HasDatabaseName("ix_warranty_claim_events_tenant_id_branch_id_claim_id");
+
+                    b.ToTable("warranty_claim_events", "service", t =>
+                        {
+                            t.HasCheckConstraint("ck_warranty_claim_events_accion", "action IN ('Opened', 'StatusChanged', 'NoteAdded', 'ReplacementIssued', 'Closed')");
+                        });
                 });
 
             modelBuilder.Entity("MINV.Domain.Warehousing.Aisle", b =>
@@ -11839,6 +12838,39 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_product_images_tenant_id_variant_id");
                 });
 
+            modelBuilder.Entity("MINV.Domain.Catalog.ProductSpecValue", b =>
+                {
+                    b.HasOne("MINV.Domain.Iam.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_product_spec_values_tenant_id");
+
+                    b.HasOne("MINV.Domain.Catalog.Product", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ProductId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_product_spec_values_tenant_id_product_id");
+
+                    b.HasOne("MINV.Domain.Catalog.SpecDefinition", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "SpecDefinitionId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_product_spec_values_tenant_id_spec_definition_id");
+
+                    b.HasOne("MINV.Domain.Catalog.SpecOption", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "SpecDefinitionId", "OptionId")
+                        .HasPrincipalKey("TenantId", "SpecDefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_product_spec_values_tenant_id_spec_definition_id_option_id");
+                });
+
             modelBuilder.Entity("MINV.Domain.Catalog.ProductStockPolicy", b =>
                 {
                     b.HasOne("MINV.Domain.Iam.Tenant", null)
@@ -11917,6 +12949,24 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_product_taxes_tenant_id_tax_id");
                 });
 
+            modelBuilder.Entity("MINV.Domain.Catalog.ProductTechProfile", b =>
+                {
+                    b.HasOne("MINV.Domain.Iam.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_product_tech_profiles_tenant_id");
+
+                    b.HasOne("MINV.Domain.Catalog.Product", null)
+                        .WithOne()
+                        .HasForeignKey("MINV.Domain.Catalog.ProductTechProfile", "TenantId", "ProductId")
+                        .HasPrincipalKey("MINV.Domain.Catalog.Product", "TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_product_tech_profiles_tenant_id_product_id");
+                });
+
             modelBuilder.Entity("MINV.Domain.Catalog.ProductUnitConversion", b =>
                 {
                     b.HasOne("MINV.Domain.Iam.Tenant", null)
@@ -11985,6 +13035,42 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_product_variant_attributes_tenant_id_variant_id");
+                });
+
+            modelBuilder.Entity("MINV.Domain.Catalog.SpecDefinition", b =>
+                {
+                    b.HasOne("MINV.Domain.Iam.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_spec_definitions_tenant_id");
+
+                    b.HasOne("MINV.Domain.Catalog.Category", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "CategoryId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_spec_definitions_tenant_id_category_id");
+                });
+
+            modelBuilder.Entity("MINV.Domain.Catalog.SpecOption", b =>
+                {
+                    b.HasOne("MINV.Domain.Iam.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_spec_options_tenant_id");
+
+                    b.HasOne("MINV.Domain.Catalog.SpecDefinition", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "SpecDefinitionId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_spec_options_tenant_id_spec_definition_id");
                 });
 
             modelBuilder.Entity("MINV.Domain.Catalog.Tax", b =>
@@ -12555,6 +13641,90 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_physical_count_lines_tenant_id_branch_id_stock_movement_id");
                 });
 
+            modelBuilder.Entity("MINV.Domain.Inventory.SalesOrderLineSerial", b =>
+                {
+                    b.HasOne("MINV.Domain.Iam.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_sales_order_line_serials_tenant_id");
+
+                    b.HasOne("MINV.Domain.Inventory.SerialNumber", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "SerialNumberId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_sales_order_line_serials_tenant_id_serial_number_id");
+
+                    b.HasOne("MINV.Domain.Sales.SalesOrderLine", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BranchId", "SalesOrderLineId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_sales_order_line_serials_tenant_id_branch_id_sales__8cfea487");
+                });
+
+            modelBuilder.Entity("MINV.Domain.Inventory.SalesReturnLineSerial", b =>
+                {
+                    b.HasOne("MINV.Domain.Iam.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_sales_return_line_serials_tenant_id");
+
+                    b.HasOne("MINV.Domain.Inventory.SerialNumber", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "SerialNumberId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_sales_return_line_serials_tenant_id_serial_number_id");
+
+                    b.HasOne("MINV.Domain.Sales.SalesReturnLine", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BranchId", "SalesReturnLineId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_sales_return_line_serials_tenant_id_branch_id_sales_0a3fc4a1");
+                });
+
+            modelBuilder.Entity("MINV.Domain.Inventory.SerialEvent", b =>
+                {
+                    b.HasOne("MINV.Domain.Iam.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_serial_events_tenant_id");
+
+                    b.HasOne("MINV.Domain.Warehousing.Branch", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BranchId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_serial_events_tenant_id_branch_id");
+
+                    b.HasOne("MINV.Domain.Inventory.SerialNumber", null)
+                        .WithMany("History")
+                        .HasForeignKey("TenantId", "SerialNumberId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_serial_events_tenant_id_serial_number_id");
+
+                    b.HasOne("MINV.Domain.Iam.User", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "UserId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_serial_events_tenant_id_user_id");
+                });
+
             modelBuilder.Entity("MINV.Domain.Inventory.SerialNumber", b =>
                 {
                     b.HasOne("MINV.Domain.Iam.Tenant", null)
@@ -12564,20 +13734,28 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_serial_numbers_tenant_id");
 
-                    b.HasOne("MINV.Domain.Inventory.Batch", null)
+                    b.HasOne("MINV.Domain.Catalog.ProductVariant", null)
                         .WithMany()
-                        .HasForeignKey("TenantId", "BatchId")
+                        .HasForeignKey("TenantId", "VariantId")
                         .HasPrincipalKey("TenantId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
-                        .HasConstraintName("fk_serial_numbers_tenant_id_batch_id");
+                        .HasConstraintName("fk_serial_numbers_tenant_id_variant_id");
 
                     b.HasOne("MINV.Domain.Inventory.StockLevel", null)
                         .WithMany()
-                        .HasForeignKey("TenantId", "StockLevelId")
-                        .HasPrincipalKey("TenantId", "Id")
+                        .HasForeignKey("TenantId", "BatchId", "StockLevelId")
+                        .HasPrincipalKey("TenantId", "BatchId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("fk_serial_numbers_tenant_id_stock_level_id");
+                        .HasConstraintName("fk_serial_numbers_tenant_id_batch_id_stock_level_id");
+
+                    b.HasOne("MINV.Domain.Inventory.Batch", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "VariantId", "BatchId")
+                        .HasPrincipalKey("TenantId", "VariantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_serial_numbers_tenant_id_variant_id_batch_id");
                 });
 
             modelBuilder.Entity("MINV.Domain.Inventory.StockAdjustment", b =>
@@ -12899,6 +14077,32 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_stock_transfer_line_batches_tenant_id_from_branch_i_86ebd39b");
+                });
+
+            modelBuilder.Entity("MINV.Domain.Inventory.StockTransferLineSerial", b =>
+                {
+                    b.HasOne("MINV.Domain.Iam.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_stock_transfer_line_serials_tenant_id");
+
+                    b.HasOne("MINV.Domain.Inventory.SerialNumber", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "SerialNumberId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_stock_transfer_line_serials_tenant_id_serial_number_id");
+
+                    b.HasOne("MINV.Domain.Inventory.StockTransferLine", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "FromBranchId", "ToBranchId", "StockTransferLineId")
+                        .HasPrincipalKey("TenantId", "FromBranchId", "ToBranchId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_stock_transfer_line_serials_tenant_id_from_branch_i_661e4667");
                 });
 
             modelBuilder.Entity("MINV.Domain.Inventory.StockTransferMovement", b =>
@@ -13532,6 +14736,72 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_payment_methods_tenant_id");
                 });
 
+            modelBuilder.Entity("MINV.Domain.Sales.PcBuild", b =>
+                {
+                    b.HasOne("MINV.Domain.Iam.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_pc_builds_tenant_id");
+
+                    b.HasOne("MINV.Domain.Warehousing.Branch", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BranchId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_pc_builds_tenant_id_branch_id");
+
+                    b.HasOne("MINV.Domain.Iam.User", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "CreatedByUserId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_pc_builds_tenant_id_created_by_user_id");
+
+                    b.HasOne("MINV.Domain.Sales.Customer", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "CustomerId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_pc_builds_tenant_id_customer_id");
+
+                    b.HasOne("MINV.Domain.Sales.Invoice", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BranchId", "InvoiceId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_pc_builds_tenant_id_branch_id_invoice_id");
+                });
+
+            modelBuilder.Entity("MINV.Domain.Sales.PcBuildLine", b =>
+                {
+                    b.HasOne("MINV.Domain.Iam.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_pc_build_lines_tenant_id");
+
+                    b.HasOne("MINV.Domain.Catalog.ProductVariant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "VariantId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_pc_build_lines_tenant_id_variant_id");
+
+                    b.HasOne("MINV.Domain.Sales.PcBuild", null)
+                        .WithMany("Lines")
+                        .HasForeignKey("TenantId", "BranchId", "PcBuildId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_pc_build_lines_tenant_id_branch_id_pc_build_id");
+                });
+
             modelBuilder.Entity("MINV.Domain.Sales.PosRegister", b =>
                 {
                     b.HasOne("MINV.Domain.Iam.Tenant", null)
@@ -13841,6 +15111,95 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_states_tenant_id_country_id");
                 });
 
+            modelBuilder.Entity("MINV.Domain.Service.WarrantyClaim", b =>
+                {
+                    b.HasOne("MINV.Domain.Iam.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_warranty_claims_tenant_id");
+
+                    b.HasOne("MINV.Domain.Warehousing.Branch", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BranchId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_warranty_claims_tenant_id_branch_id");
+
+                    b.HasOne("MINV.Domain.Sales.Customer", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "CustomerId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_warranty_claims_tenant_id_customer_id");
+
+                    b.HasOne("MINV.Domain.Iam.User", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "OpenedByUserId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_warranty_claims_tenant_id_opened_by_user_id");
+
+                    b.HasOne("MINV.Domain.Inventory.SerialNumber", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ReplacementSerialId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_warranty_claims_tenant_id_replacement_serial_id");
+
+                    b.HasOne("MINV.Domain.Inventory.SerialNumber", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "SerialNumberId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_warranty_claims_tenant_id_serial_number_id");
+
+                    b.HasOne("MINV.Domain.Purchasing.Supplier", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "SupplierId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_warranty_claims_tenant_id_supplier_id");
+
+                    b.HasOne("MINV.Domain.Sales.Invoice", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BranchId", "InvoiceId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_warranty_claims_tenant_id_branch_id_invoice_id");
+                });
+
+            modelBuilder.Entity("MINV.Domain.Service.WarrantyClaimEvent", b =>
+                {
+                    b.HasOne("MINV.Domain.Iam.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_warranty_claim_events_tenant_id");
+
+                    b.HasOne("MINV.Domain.Iam.User", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "UserId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_warranty_claim_events_tenant_id_user_id");
+
+                    b.HasOne("MINV.Domain.Service.WarrantyClaim", null)
+                        .WithMany("History")
+                        .HasForeignKey("TenantId", "BranchId", "ClaimId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_warranty_claim_events_tenant_id_branch_id_claim_id");
+                });
+
             modelBuilder.Entity("MINV.Domain.Warehousing.Aisle", b =>
                 {
                     b.HasOne("MINV.Domain.Iam.Tenant", null)
@@ -14086,6 +15445,11 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.Navigation("Lines");
                 });
 
+            modelBuilder.Entity("MINV.Domain.Inventory.SerialNumber", b =>
+                {
+                    b.Navigation("History");
+                });
+
             modelBuilder.Entity("MINV.Domain.Inventory.StockAdjustment", b =>
                 {
                     b.Navigation("Lines");
@@ -14132,6 +15496,11 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.Navigation("Lines");
                 });
 
+            modelBuilder.Entity("MINV.Domain.Sales.PcBuild", b =>
+                {
+                    b.Navigation("Lines");
+                });
+
             modelBuilder.Entity("MINV.Domain.Sales.SalesOrder", b =>
                 {
                     b.Navigation("Lines");
@@ -14140,6 +15509,11 @@ namespace MINV.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("MINV.Domain.Sales.SalesReturn", b =>
                 {
                     b.Navigation("Lines");
+                });
+
+            modelBuilder.Entity("MINV.Domain.Service.WarrantyClaim", b =>
+                {
+                    b.Navigation("History");
                 });
 #pragma warning restore 612, 618
         }

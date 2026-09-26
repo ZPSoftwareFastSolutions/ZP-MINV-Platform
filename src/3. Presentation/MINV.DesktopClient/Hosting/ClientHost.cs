@@ -118,19 +118,19 @@ public sealed class ClientHost : IDisposable
         }
     }
 
-    /// <summary>Prepara la demostración (la primera vez migra el libro de la V2.1 a memoria).</summary>
+    /// <summary>Prepara la demostración (la primera vez genera en memoria la empresa de prueba Tech Zone Gaming, V4.2).</summary>
     public async Task<DemoSession> PrepareDemoAsync(CancellationToken ct = default)
     {
         _demo ??= BuildDemo();
         using var scope = _demo.Services.CreateScope();
-        return await scope.ServiceProvider.GetRequiredService<DemoWorkspace>().PrepareAsync(DemoWorkspace.DefaultWorkbookPath, ct);
+        return await scope.ServiceProvider.GetRequiredService<DemoWorkspace>().PrepareAsync(ct);
     }
 
     public async Task<SessionHandle> SignInDemoAsync(DemoSession demo, string email, CancellationToken ct = default)
     {
         _demo ??= BuildDemo();
         return await SignInAsync(_demo, demo.TenantCode, email, demo.Password,
-            new ConnectionInfo(true, "Memoria de este equipo", "Demostración V2.1", email), ct);
+            new ConnectionInfo(true, "Memoria de este equipo", "Demostración Tech Zone Gaming", email), ct);
     }
 
     private IHost BuildDemo() => Build(services => services.AddMinvDemoInfrastructure().AddScoped<IRequestTransport, LocalTransport>());
@@ -264,6 +264,10 @@ public static class ClientServices
         services.AddScoped<HomologationViewModel>();
         services.AddScoped<FiscalBooksViewModel>();
         services.AddScoped<BillingSettingsViewModel>();
+        // V4.2 · Edición Tecnología
+        services.AddScoped<PcBuilderViewModel>();
+        services.AddScoped<SerialsViewModel>();
+        services.AddScoped<WarrantyClaimsViewModel>();
         return services;
     }
 }

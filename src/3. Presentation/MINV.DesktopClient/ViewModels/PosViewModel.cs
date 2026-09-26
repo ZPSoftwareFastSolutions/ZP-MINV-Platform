@@ -8,10 +8,14 @@ using System.Windows.Threading;
 using MINV.Application.Abstractions;
 using MINV.Application.Billing;
 using MINV.Application.Sales;
+using MINV.Application.Tech;
 using MINV.DesktopClient.Controls;
 using MINV.DesktopClient.Mvvm;
 using MINV.DesktopClient.Services;
+using MINV.Domain.Accounting;
 using MINV.Domain.Billing;
+using MINV.Domain.Catalog;
+using MINV.Domain.Sales;
 using MINV.Hardware;
 using MINV.Hardware.EscPos;
 
@@ -51,6 +55,23 @@ public sealed class PosProduct(SellableProduct p, ImageSource? image) : Observab
     public bool IsOut => _available <= 0;
 
     public bool IsLow => !IsOut && _available <= 3;
+
+    /// <summary>V4.2 · Ficha resumida (serie o IMEI, garantía, plataformas).</summary>
+    public TechProductRow? Tech { get; init; }
+
+    public bool IsSerialized => Tech?.TrackSerials == true;
+
+    public SerialKind SerialKind => Tech?.SerialKind ?? SerialKind.Serial;
+
+    public string? SerialBadge => IsSerialized ? TechText.KindBadge(SerialKind) : null;
+
+    public bool HasSerialBadge => IsSerialized;
+
+    public IReadOnlyList<string> Platforms => Tech?.Platforms ?? [];
+
+    public bool HasPlatforms => Platforms.Count > 0;
+
+    public string? WarrantyBadge => Tech is { WarrantyMonths: > 0 } t ? TechText.Warranty(t.WarrantyMonths) : null;
 }
 
 /// <summary>Línea del carrito (cantidad y descuento editables; el importe incluye el IVA).</summary>
@@ -60,14 +81,48 @@ public sealed class CartLine : ObservableObject
     private decimal _quantity;
     private int _discount;
 
-    public CartLine(PosProduct product, decimal quantity, Action changed)
+    private readonly decimal? _unitPrice;
+
+    public CartLine(PosProduct product, decimal quantity, Action changed, decimal? unitPrice = null, bool locked = false)
     {
         Product = product;
         _quantity = quantity;
         _changed = changed;
+        _unitPrice = unitPrice;
+        IsLocked = locked;
+        Serials.CollectionChanged += (_, _) =>
+        {
+            if (IsSerialized && !IsLocked)
+            {
+                Quantity = Serials.Count;   // una unidad por serie (en un armado la cantidad es la cotizada)
+            }
+            OnPropertiesChanged(nameof(SerialsText), nameof(HasSerials), nameof(MissingSerials), nameof(SerialsNeeded));
+            _changed();
+        };
     }
 
     public PosProduct Product { get; }
+
+    /// <summary>V4.2 · Línea de un armado cotizado: precio congelado, cantidad y descuento fijos.</summary>
+    public bool IsLocked { get; }
+
+    public bool IsEditable => !IsLocked;
+
+    public decimal UnitPrice => _unitPrice ?? Product.Product.Price;
+
+    /// <summary>V4.2 · Series o IMEI de las unidades de la línea (una por unidad, regla T-02).</summary>
+    public ObservableCollection<string> Serials { get; } = [];
+
+    public bool IsSerialized => Product.IsSerialized;
+
+    public bool HasSerials => Serials.Count > 0;
+
+    public string SerialsText => Serials.Count == 0 ? string.Empty : $"{TechText.KindBadge(Product.SerialKind)}: {string.Join(", ", Serials)}";
+
+    /// <summary>Faltan series (p. ej. un armado cargado sin elegir sus unidades).</summary>
+    public bool MissingSerials => IsSerialized && Serials.Count != (int)_quantity;
+
+    public string SerialsNeeded => $"Elija {(int)_quantity} {(IsSerialized ? TechText.KindLabel(Product.SerialKind) : "")} (tiene {Serials.Count})";
 
     public string Name => Product.Name;
 
@@ -75,7 +130,7 @@ public sealed class CartLine : ObservableObject
 
     public ImageSource? Image => Product.Image;
 
-    public string UnitPriceText => $"{Fmt.Money(Product.Product.Price)} / {Product.Product.Unit}";
+    public string UnitPriceText => $"{Fmt.Money(UnitPrice)} / {Product.Product.Unit}" + (IsLocked ? " · precio cotizado" : string.Empty);
 
     public static IReadOnlyList<int> Discounts { get; } = [0, 5, 10, 15, 20, 25];
 
@@ -86,7 +141,8 @@ public sealed class CartLine : ObservableObject
         {
             if (Set(ref _quantity, value))
             {
-                OnPropertiesChanged(nameof(QuantityText), nameof(Amount), nameof(AmountText), nameof(ExceedsStock));
+                OnPropertiesChanged(nameof(QuantityText), nameof(Amount), nameof(AmountText), nameof(ExceedsStock), nameof(MissingSerials),
+                    nameof(SerialsNeeded));
                 _changed();
             }
         }
@@ -97,7 +153,7 @@ public sealed class CartLine : ObservableObject
         get => Fmt.Qty(_quantity);
         set
         {
-            if (Fmt.TryParseQuantity(value, out var q) && q > 0)
+            if (!IsSerialized && !IsLocked && Fmt.TryParseQuantity(value, out var q) && q > 0)
             {
                 Quantity = Product.Product.AllowsDecimals ? decimal.Round(q, 3) : decimal.Round(q, 0, MidpointRounding.AwayFromZero);
             }
@@ -120,7 +176,7 @@ public sealed class CartLine : ObservableObject
 
     public bool HasDiscount => _discount > 0;
 
-    public decimal Amount => decimal.Round(_quantity * Product.Product.Price * (1 - _discount / 100m), 2, MidpointRounding.AwayFromZero);
+    public decimal Amount => decimal.Round(_quantity * UnitPrice * (1 - _discount / 100m), 2, MidpointRounding.AwayFromZero);
 
     public string AmountText => Fmt.Money(Amount);
 
@@ -137,6 +193,7 @@ public sealed class CartLine : ObservableObject
 public sealed class PosViewModel : PageViewModel, IScannerTarget
 {
     private const string AllCategories = "ALL";
+    private const int CategoryChipsShown = 10;
     private readonly DispatcherTimer _debounce = new() { Interval = TimeSpan.FromMilliseconds(160) };
     private List<PosProduct> _products = [];
     private PosState? _state;
@@ -155,6 +212,11 @@ public sealed class PosViewModel : PageViewModel, IScannerTarget
     private string _cardNumber = string.Empty;
     private PosFiscalResult? _fiscalResult;
     private bool _buyerExpanded = true;
+    private IReadOnlyDictionary<string, TechProductRow> _tech = new Dictionary<string, TechProductRow>();
+    private string? _platform;
+    private bool _allCategories;
+    private PcBuildDetail? _build;
+    private string? _pendingBuild;
 
     public PosViewModel(AppServices app, BillingWorkService billingWork)
         : base(app, "pos", "Punto de venta", "Vender, cobrar y emitir la factura", Glyphs.Cart)
@@ -196,10 +258,32 @@ public sealed class PosViewModel : PageViewModel, IScannerTarget
             Products.Refresh();
             OnPropertyChanged(nameof(NoProducts));
         });
+        ToggleCategories = new RelayCommand(() =>
+        {
+            _allCategories = !_allCategories;
+            OnPropertiesChanged(nameof(CollapseCategories), nameof(MoreCategoriesText));
+        });
         Add = new RelayCommand<PosProduct>(AddProduct);
-        Increase = new RelayCommand<CartLine>(l => l.Quantity += l.Step);
+        Increase = new RelayCommand<CartLine>(l =>
+        {
+            if (l.IsSerialized)
+            {
+                _ = PickSerialsAsync(l.Product, l);   // V4.2 · otra unidad = otra serie
+                return;
+            }
+            l.Quantity += l.Step;
+        }, l => !l.IsLocked);
         Decrease = new RelayCommand<CartLine>(l =>
         {
+            if (l.IsSerialized && l.Serials.Count > 0)
+            {
+                l.Serials.RemoveAt(l.Serials.Count - 1);
+                if (l.Serials.Count == 0)
+                {
+                    Cart.Remove(l);
+                }
+                return;
+            }
             if (l.Quantity - l.Step <= 0)
             {
                 Cart.Remove(l);
@@ -208,9 +292,28 @@ public sealed class PosViewModel : PageViewModel, IScannerTarget
             {
                 l.Quantity -= l.Step;
             }
+        }, l => !l.IsLocked);
+        Remove = new RelayCommand<CartLine>(l => Cart.Remove(l), l => !l.IsLocked);
+        // V4.2 · Series de la línea, plataformas y venta de un armado cotizado
+        EditSerials = new AsyncRelayCommand<CartLine>(l => l.IsLocked ? EnsureBuildSerialsAsync(force: true) : PickSerialsAsync(l.Product, l, replace: true),
+            l => l.IsSerialized);
+        SelectPlatform = new RelayCommand<FilterChip>(chip =>
+        {
+            _platform = chip.Value as string;
+            foreach (var c in PlatformChips)
+            {
+                c.IsSelected = ReferenceEquals(c, chip);
+            }
+            Products.Refresh();
+            OnPropertyChanged(nameof(NoProducts));
         });
-        Remove = new RelayCommand<CartLine>(l => Cart.Remove(l));
-        ClearCart = new AsyncRelayCommand(ClearCartAsync, () => Cart.Count > 0);
+        FromBuild = new AsyncRelayCommand(FromBuildAsync, () => IsOpen);
+        ClearBuild = new RelayCommand(() =>
+        {
+            Build = null;
+            Cart.Clear();
+        }, () => _build is not null);
+        ClearCart = new AsyncRelayCommand(ClearCartAsync, () => Cart.Count > 0 || _build is not null);
         Checkout = new AsyncRelayCommand(CheckoutAsync, () => Cart.Count > 0 && IsOpen);
         OpenSession = new AsyncRelayCommand(OpenSessionAsync, () => _register is not null);
         CloseSession = new AsyncRelayCommand(CloseSessionAsync, () => IsOpen);
@@ -223,6 +326,51 @@ public sealed class PosViewModel : PageViewModel, IScannerTarget
     public ICollectionView Products { get; private set; }
 
     public BulkObservableCollection<FilterChip> CategoryChips { get; } = [];
+
+    /// <summary>V4.2 · Con muchas categorías (la edición Tecnología tiene decenas) los chips se pliegan a dos filas.</summary>
+    public bool HasManyCategories => CategoryChips.Count > CategoryChipsShown;
+
+    public bool CollapseCategories => HasManyCategories && !_allCategories;
+
+    public string MoreCategoriesText => _allCategories ? "Ver menos categorías" : $"Ver todas las categorías ({CategoryChips.Count - 1})";
+
+    public RelayCommand ToggleCategories { get; }
+
+    /// <summary>V4.2 · Chips de plataforma (opciones de la especificación «Plataforma», regla T-07).</summary>
+    public BulkObservableCollection<FilterChip> PlatformChips { get; } = [];
+
+    public bool HasPlatforms => PlatformChips.Count > 1;
+
+    public RelayCommand<FilterChip> SelectPlatform { get; }
+
+    public AsyncRelayCommand<CartLine> EditSerials { get; }
+
+    /// <summary>V4.2 · Cargar una cotización vigente del armador de PC para cobrarla a sus precios.</summary>
+    public AsyncRelayCommand FromBuild { get; }
+
+    public RelayCommand ClearBuild { get; }
+
+    /// <summary>V4.2 · Armado cotizado que se está cobrando (null = venta normal).</summary>
+    public PcBuildDetail? Build
+    {
+        get => _build;
+        private set
+        {
+            if (Set(ref _build, value))
+            {
+                OnPropertiesChanged(nameof(IsBuildMode), nameof(BuildTitle), nameof(BuildDetail), nameof(CheckoutText));
+            }
+        }
+    }
+
+    public bool IsBuildMode => _build is not null;
+
+    public string BuildTitle => _build is { } b ? $"Armado {b.Build.Number} · {b.Build.Name}" : string.Empty;
+
+    public string BuildDetail => _build is { } b
+        ? $"Cotización vigente hasta el {Fmt.Date(b.Build.ValidUntil)} · precios congelados{(b.Build.Customer is { } c ? " · " + c : string.Empty)}" +
+          (b.Build.QuotedWithErrors ? " · cotizado con errores de compatibilidad aceptados" : string.Empty)
+        : string.Empty;
 
     public ObservableCollection<CartLine> Cart { get; } = [];
 
@@ -326,7 +474,9 @@ public sealed class PosViewModel : PageViewModel, IScannerTarget
 
     public string TotalText => Fmt.Money(Total);
 
-    public string TaxText => $"IVA incluido ({TaxRate:0.##} %): {Fmt.Money(decimal.Round(Total * TaxRate / (100 + TaxRate), 2))}";
+    /// <summary>IVA incluido en el carrito, sobre el total como en la venta (V4.2: en Bolivia, el 13 % de lo facturado, el
+    /// débito fiscal de la factura; <see cref="VatRules"/>).</summary>
+    public string TaxText => $"IVA incluido ({TaxRate:0.##} %): {Fmt.Money(VatRules.IncludedTax(Total, TaxRate, _state?.VatOnInvoicedAmount ?? true))}";
 
     public string ItemsText => Cart.Count == 0 ? "Carrito vacío" : $"{Cart.Count} producto{(Cart.Count == 1 ? "" : "s")} · {Fmt.Qty(Cart.Sum(l => l.Quantity))} unidades";
 
@@ -352,7 +502,7 @@ public sealed class PosViewModel : PageViewModel, IScannerTarget
         }
     }
 
-    public string CheckoutText => Cart.Count == 0 ? "Agregue productos" : $"Cobrar {Fmt.Money(Total)}";
+    public string CheckoutText => Cart.Count == 0 ? "Agregue productos" : _build is { } b ? $"Cobrar el armado · {Fmt.Money(Total)}" : $"Cobrar {Fmt.Money(Total)}";
 
     public bool IsCartEmpty => Cart.Count == 0;
 
@@ -491,8 +641,9 @@ public sealed class PosViewModel : PageViewModel, IScannerTarget
         await RefreshFiscalAsync();
         var sellable = await App.SendAsync(new GetSellableProductsQuery());
         var images = await App.Images.AllAsync(force);
-        var inCart = Cart.ToDictionary(l => l.Sku, l => l);
-        _products = sellable.Select(p => new PosProduct(p, images.GetValueOrDefault(p.Sku))).ToList();
+        var inCart = Cart.GroupBy(l => l.Sku).ToDictionary(g => g.Key, g => g.First());
+        _tech = await TechCatalog.LoadAsync(App);
+        _products = sellable.Select(p => new PosProduct(p, images.GetValueOrDefault(p.Sku)) { Tech = _tech.GetValueOrDefault(p.Sku) }).ToList();
         Products = CollectionViewSource.GetDefaultView(_products);
         Products.Filter = Matches;
         OnPropertyChanged(nameof(Products));
@@ -509,9 +660,49 @@ public sealed class PosViewModel : PageViewModel, IScannerTarget
             .Select(g => new FilterChip(g.Key.Category, g.Key.CategoryCode, g.Count())));
         CategoryChips.ReplaceAll(chips);
         (CategoryChips.FirstOrDefault(c => (string?)c.Value == _category) ?? CategoryChips[0]).IsSelected = true;
+        OnPropertiesChanged(nameof(HasManyCategories), nameof(CollapseCategories), nameof(MoreCategoriesText));
+        // V4.2 · Plataformas: opciones de la especificación, con los productos vendibles de cada una
+        var platforms = (await TechCatalog.PlatformsAsync(App))
+            .Select(p => new FilterChip(p, p, _products.Count(x => x.Platforms.Contains(p, StringComparer.OrdinalIgnoreCase)))).Where(c => c.Count > 0).ToList();
+        PlatformChips.ReplaceAll(platforms.Count == 0 ? [] : [new FilterChip("Todas", null, _products.Count(x => x.HasPlatforms)), .. platforms]);
+        if (PlatformChips.FirstOrDefault(c => Equals(c.Value, _platform)) is { } platformChip)
+        {
+            platformChip.IsSelected = true;
+        }
+        else
+        {
+            _platform = null;
+            if (PlatformChips.FirstOrDefault() is { } all)
+            {
+                all.IsSelected = true;
+            }
+        }
+        OnPropertyChanged(nameof(HasPlatforms));
         Subtitle = $"{state.CompanyName} · {state.BranchName}";
         OnPropertyChanged(nameof(Subtitle));
         OnPropertyChanged(nameof(NoProducts));
+        if (_pendingBuild is { } number)
+        {
+            // Se carga al terminar la carga de la caja (pide confirmaciones y las series de las piezas)
+            _pendingBuild = null;
+            _ = Dispatcher.CurrentDispatcher.BeginInvoke(async () => await LoadBuildAsync(number), DispatcherPriority.Background);
+        }
+    }
+
+    /// <summary>V4.2 · «Vender en caja» desde el armador: la caja carga esa cotización.</summary>
+    public override void OnNavigatedTo(object? parameter)
+    {
+        if (parameter is PcBuildToSell sale)
+        {
+            if (HasLoaded && !IsBusy)
+            {
+                _ = LoadBuildAsync(sale.Number);
+            }
+            else
+            {
+                _pendingBuild = sale.Number;
+            }
+        }
     }
 
     public bool OnScanned(string code)
@@ -535,7 +726,9 @@ public sealed class PosViewModel : PageViewModel, IScannerTarget
         Registers.ReplaceAll(state.Registers);
         Customer = Customers.FirstOrDefault(c => c.Code == customer) ?? Customers.FirstOrDefault();
         PaymentMethod = PaymentMethods.FirstOrDefault(m => m.Code == method) ?? PaymentMethods.FirstOrDefault();
-        Register ??= Registers.FirstOrDefault();
+        // V4.2 · Caja preseleccionada: la del turno abierto del usuario o, si no tiene, una libre (la sugiere el caso de uso;
+        // antes era siempre la primera, aunque tuviera el turno de otro cajero)
+        Register = Registers.FirstOrDefault(r => r.Code == (state.Session?.RegisterCode ?? state.SuggestedRegister)) ?? Registers.FirstOrDefault();
         OnPropertiesChanged(nameof(IsOpen), nameof(IsClosed), nameof(Session), nameof(SessionTitle), nameof(SessionText), nameof(TaxText));
         System.Windows.Input.CommandManager.InvalidateRequerySuggested();
     }
@@ -598,6 +791,10 @@ public sealed class PosViewModel : PageViewModel, IScannerTarget
         {
             return false;
         }
+        if (_platform is not null && !p.Platforms.Contains(_platform, StringComparer.OrdinalIgnoreCase))
+        {
+            return false;
+        }
         var q = _search.Trim();
         return q.Length == 0
                || p.Sku.Contains(q, StringComparison.OrdinalIgnoreCase)
@@ -617,6 +814,17 @@ public sealed class PosViewModel : PageViewModel, IScannerTarget
             App.Notify.Warning("Producto agotado", $"{product.Name} no tiene stock disponible.");
             return;
         }
+        if (_build is { } build)
+        {
+            App.Notify.Warning("Está cobrando un armado", $"El carrito tiene el armado {build.Build.Number}: cóbrelo o quítelo antes de agregar otros productos.");
+            return;
+        }
+        if (product.IsSerialized)
+        {
+            // V4.2 · Producto con serie o IMEI: se elige (o escanea) la unidad que se lleva el cliente
+            _ = PickSerialsAsync(product, Cart.FirstOrDefault(l => l.Sku == product.Sku));
+            return;
+        }
         if (Cart.FirstOrDefault(l => l.Sku == product.Sku) is { } line)
         {
             line.Quantity += line.Step;
@@ -626,6 +834,170 @@ public sealed class PosViewModel : PageViewModel, IScannerTarget
             Cart.Add(new CartLine(product, 1, Recalculate));
         }
         Recalculate();
+    }
+
+    /// <summary>
+    /// V4.2 · Unidades de un producto serializado: las disponibles en la sucursal (sin las que ya están en el carrito), con
+    /// búsqueda y escáner. Agregar suma las elegidas; <paramref name="replace"/> vuelve a elegir todas las de la línea.
+    /// </summary>
+    private async Task PickSerialsAsync(PosProduct product, CartLine? line, bool replace = false)
+    {
+        IReadOnlyList<MINV.Application.Tech.SerialRow> available;
+        try
+        {
+            available = await App.SendAsync(new GetAvailableSerialsQuery(product.Sku));
+        }
+        catch (Exception ex) when (AppServices.IsExpected(ex))
+        {
+            App.Notify.Error("No se pudieron leer las series disponibles", AppServices.Describe(ex));
+            return;
+        }
+        var taken = Cart.Where(l => l.Sku == product.Sku && (!replace || !ReferenceEquals(l, line))).SelectMany(l => l.Serials)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var options = available.Where(a => replace && line is not null && line.Serials.Contains(a.Serial) || !taken.Contains(a.Serial)).ToList();
+        if (options.Count == 0)
+        {
+            App.Notify.Warning("Sin unidades disponibles", $"No quedan unidades de {product.Name} con {TechText.KindLabel(product.SerialKind)} en esta sucursal.");
+            return;
+        }
+        var chosen = await SerialsDialog.AskAsync(App, $"{TechText.KindLabel(product.SerialKind)} de {product.Name}",
+            "Escanee la unidad que se lleva el cliente o elíjala de la lista (disponibles en esta sucursal).", replace ? "Usar estas unidades" : "Agregar al carrito",
+            [new SerialCaptureLineSpec(product.Sku, product.Name, product.SerialKind, 1, SerialCaptureMode.Pick, options,
+                replace && line is not null ? line.Serials.ToList() : null, Flexible: true)]);
+        if (chosen is null || chosen[0].Serials.Count == 0)
+        {
+            return;
+        }
+        if (line is null || !Cart.Contains(line))
+        {
+            line = new CartLine(product, 0, Recalculate);
+            Cart.Add(line);
+        }
+        if (replace)
+        {
+            line.Serials.Clear();
+        }
+        foreach (var serial in chosen[0].Serials.Where(s => !line.Serials.Contains(s)))
+        {
+            line.Serials.Add(serial);
+        }
+        Recalculate();
+    }
+
+    /// <summary>V4.2 · Carga una cotización VIGENTE del armador: una línea por pieza a su precio cotizado (fijas).</summary>
+    public async Task LoadBuildAsync(string number)
+    {
+        if (!IsOpen)
+        {
+            App.Notify.Warning("Caja cerrada", "Abra la caja para cobrar el armado.");
+            return;
+        }
+        PcBuildDetail detail;
+        try
+        {
+            detail = await App.SendAsync(new GetPcBuildQuery(number));
+        }
+        catch (Exception ex) when (AppServices.IsExpected(ex))
+        {
+            App.Notify.Error("No se pudo cargar el armado", AppServices.Describe(ex));
+            return;
+        }
+        if (detail.Build.Status != PcBuildStatus.Quoted || detail.Build.IsExpired)
+        {
+            App.Notify.Warning("El armado no se puede cobrar",
+                $"{detail.Build.Number} está {TechText.BuildStatus(detail.Build.Status, detail.Build.IsExpired).ToLower(Fmt.Culture)}: solo se cobran cotizaciones vigentes.");
+            return;
+        }
+        if (Cart.Count > 0 && _build is null
+            && !await App.Dialogs.ConfirmAsync("Cargar el armado", $"Se quitan los {Cart.Count} productos del carrito para cobrar el armado {detail.Build.Number}.",
+                "Cargar armado", "Volver"))
+        {
+            return;
+        }
+        Cart.Clear();
+        foreach (var item in detail.QuotedItems)
+        {
+            var product = _products.FirstOrDefault(p => p.Sku.Equals(item.Sku, StringComparison.OrdinalIgnoreCase))
+                          ?? new PosProduct(new SellableProduct(Guid.Empty, item.Sku, item.Name, string.Empty, "Armado", "UND", false, item.UnitPrice, item.Stock, []),
+                              null) { Tech = _tech.GetValueOrDefault(item.Sku) };
+            Cart.Add(new CartLine(product, item.Quantity, Recalculate, item.UnitPrice, locked: true));
+        }
+        Build = detail;
+        if (detail.Build.Customer is { } name && Customers.FirstOrDefault(c => c.Name == name) is { } customer)
+        {
+            Customer = customer;
+        }
+        Recalculate();
+        App.Notify.Info($"Armado {detail.Build.Number} en el carrito", $"{detail.QuotedItems.Count} piezas a precio cotizado · {Fmt.Money(Total)}");
+        await EnsureBuildSerialsAsync(force: false);
+    }
+
+    /// <summary>V4.2 · Series de las piezas serializadas del armado (se eligen todas juntas).</summary>
+    private async Task<bool> EnsureBuildSerialsAsync(bool force)
+    {
+        var lines = Cart.Where(l => l.IsSerialized).ToList();
+        if (lines.Count == 0 || (!force && lines.All(l => !l.MissingSerials)))
+        {
+            return true;
+        }
+        var specs = new List<SerialCaptureLineSpec>();
+        foreach (var line in lines)
+        {
+            IReadOnlyList<MINV.Application.Tech.SerialRow> available;
+            try
+            {
+                available = await App.SendAsync(new GetAvailableSerialsQuery(line.Sku));
+            }
+            catch (Exception ex) when (AppServices.IsExpected(ex))
+            {
+                App.Notify.Error("No se pudieron leer las series disponibles", AppServices.Describe(ex));
+                return false;
+            }
+            specs.Add(new SerialCaptureLineSpec(line.Sku, line.Name, line.Product.SerialKind, (int)line.Quantity, SerialCaptureMode.Pick, available,
+                line.Serials.ToList()));
+        }
+        var chosen = await SerialsDialog.AskAsync(App, $"Series del armado {_build?.Build.Number}",
+            "Elija (o escanee) la unidad de cada pieza serializada que sale con el armado.", "Usar estas unidades", specs);
+        if (chosen is null)
+        {
+            return false;
+        }
+        foreach (var line in lines)
+        {
+            var serials = chosen.First(c => c.Sku.Equals(line.Sku, StringComparison.OrdinalIgnoreCase)).Serials;
+            line.Serials.Clear();
+            // Varias piezas del mismo producto: cada línea toma las suyas en orden
+            var mine = serials.Where(s => !lines.Where(o => !ReferenceEquals(o, line)).Any(o => o.Serials.Contains(s))).Take((int)line.Quantity).ToList();
+            foreach (var serial in mine)
+            {
+                line.Serials.Add(serial);
+            }
+        }
+        return true;
+    }
+
+    private async Task FromBuildAsync()
+    {
+        IReadOnlyList<PcBuildRow> builds;
+        try
+        {
+            builds = (await App.SendAsync(new GetPcBuildsQuery(PcBuildStatus.Quoted))).Where(b => !b.IsExpired).ToList();
+        }
+        catch (Exception ex) when (AppServices.IsExpected(ex))
+        {
+            App.Notify.Error("No se pudieron leer las cotizaciones", AppServices.Describe(ex));
+            return;
+        }
+        if (builds.Count == 0)
+        {
+            App.Notify.Info("Sin cotizaciones vigentes", "Arme y cotice una PC en «Armador de PC» para cobrarla aquí.");
+            return;
+        }
+        var dialog = new PickBuildDialog(builds);
+        if (await App.Dialogs.ShowAsync(dialog) && dialog.Selected is { } row)
+        {
+            await LoadBuildAsync(row.Number);
+        }
     }
 
     private void Recalculate()
@@ -641,6 +1013,7 @@ public sealed class PosViewModel : PageViewModel, IScannerTarget
         if (await App.Dialogs.ConfirmAsync("Vaciar el carrito", $"Se quitarán {Cart.Count} productos del carrito.", "Vaciar", "Volver", isDanger: true))
         {
             Cart.Clear();
+            Build = null;
             CashReceived = string.Empty;
         }
     }
@@ -743,10 +1116,32 @@ public sealed class PosViewModel : PageViewModel, IScannerTarget
                 card = digits;
             }
         }
+        // V4.2 · Cada unidad serializada con su serie (la validación que manda es la del dominio)
+        if (_build is not null && !await EnsureBuildSerialsAsync(force: false))
+        {
+            return;
+        }
+        if (Cart.FirstOrDefault(l => l.MissingSerials) is { } missing)
+        {
+            App.Notify.Warning("Faltan series", $"{missing.Name}: {missing.SerialsNeeded}.");
+            return;
+        }
         try
         {
-            var lines = Cart.Select(l => new SaleLineInput(l.Sku, l.Quantity, l.Discount)).ToList();
-            var result = await App.SendAsync(new CheckoutCommand(_customer.Code, _method.Code, lines, cash, NeedsReference ? _reference.Trim() : null, buyer, card));
+            CheckoutResult result;
+            if (_build is { } build)
+            {
+                var serials = Cart.Where(l => l.HasSerials).GroupBy(l => l.Sku)
+                    .Select(g => new SkuSerials(g.Key, g.SelectMany(l => l.Serials).ToList())).ToList();
+                result = await App.SendAsync(new SellPcBuildCommand(build.Build.Number, _method.Code, serials, cash, NeedsReference ? _reference.Trim() : null,
+                    buyer, card, _customer.Code));
+                Build = null;
+            }
+            else
+            {
+                var lines = Cart.Select(l => new SaleLineInput(l.Sku, l.Quantity, l.Discount, l.HasSerials ? l.Serials.ToList() : null)).ToList();
+                result = await App.SendAsync(new CheckoutCommand(_customer.Code, _method.Code, lines, cash, NeedsReference ? _reference.Trim() : null, buyer, card));
+            }
             CardNumber = string.Empty;
             LastSale = result;
             App.Notify.Success($"Venta {result.InvoiceNumber} cobrada",
@@ -899,6 +1294,18 @@ public sealed class PosViewModel : PageViewModel, IScannerTarget
         {
             sb.AppendLine(line.Description.Length > w ? line.Description[..w] : line.Description);
             Pair($"  {Fmt.Qty(line.Quantity)} x {line.UnitPrice.ToString("N2", Fmt.Culture)}", line.Amount.ToString("N2", Fmt.Culture));
+            // V4.2 · Series o IMEI vendidos y garantía derivada de la venta (reglas T-03 y T-04)
+            if (line.SerialsText is { Length: > 0 } serials)
+            {
+                foreach (var chunk in serials.Chunk(w - 2))
+                {
+                    sb.AppendLine("  " + new string(chunk));
+                }
+            }
+            if (line.WarrantyUntil is { } until)
+            {
+                sb.AppendLine("  " + TechPrint.Warranty(until));
+            }
         }
         sb.AppendLine(new string('-', w));
         Pair("TOTAL " + Fmt.CurrencySymbol, r.Total.ToString("N2", Fmt.Culture));
@@ -912,4 +1319,30 @@ public sealed class PosViewModel : PageViewModel, IScannerTarget
         Center("¡Gracias por su compra!");
         return sb.ToString();
     }
+}
+
+/// <summary>V4.2 · Parámetro de navegación «Vender en caja» (del armador a la caja).</summary>
+public sealed record PcBuildToSell(string Number);
+
+/// <summary>V4.2 · Elegir una cotización vigente del armador para cobrarla en la caja.</summary>
+public sealed class PickBuildDialog : FormDialog
+{
+    private PcBuildItem? _selected;
+
+    public PickBuildDialog(IReadOnlyList<PcBuildRow> builds)
+        : base("Cobrar un armado cotizado", "Cargar en el carrito", Glyphs.Monitor, width: 620)
+    {
+        Builds = builds.Select(b => new PcBuildItem(b)).ToList();
+        _selected = Builds.FirstOrDefault();
+    }
+
+    public override string? Subtitle => "Cotizaciones vigentes del armador de PC: se cobran a sus precios congelados, con las series de cada pieza.";
+
+    public IReadOnlyList<PcBuildItem> Builds { get; }
+
+    public PcBuildItem? Selected { get => _selected; set => Set(ref _selected, value); }
+
+    protected override bool CanConfirm() => _selected is not null;
+
+    protected override Task<bool> SubmitAsync() => Task.FromResult(_selected is not null);
 }

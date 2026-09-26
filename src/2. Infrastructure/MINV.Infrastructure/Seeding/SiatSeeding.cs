@@ -29,8 +29,9 @@ public sealed record SeedBilling(long Nit, string BusinessName, string SystemCod
 
 public sealed partial class LocalDataSeeder
 {
-    /// <summary>Cliente habitual generado (a quien se factura con su documento: NIT las empresas, CI las personas).</summary>
-    private sealed record SeedCustomer(string Code, string Name, string TaxId, string? Email, bool IsCompany);
+    /// <summary>Cliente habitual del catálogo (a quien se factura con su documento: NIT las empresas e instituciones, CI las
+    /// personas) con la sucursal donde suele comprar.</summary>
+    private sealed record SeedCustomer(string Code, string Name, string TaxId, string? Email, bool IsCompany, string Branch);
 
     /// <summary>Venta facturada y VÁLIDA en el SIN (candidata para anular, revertir o devolver).</summary>
     private sealed record BilledSale(DateOnly Day, string InvoiceNumber, Guid DocumentId, FiscalBuyerInput? Buyer, IReadOnlyList<SaleLineInput> Lines);
@@ -42,20 +43,23 @@ public sealed partial class LocalDataSeeder
     /// V4.1 · La empresa de prueba FACTURA desde la mitad del período (<see cref="SeedOptions.BillingDays"/>: «la empresa
     /// empezó a facturar con M-INV»), SIEMPRE contra el simulador del SIN EN PROCESO (nunca el SIN real) y con los mismos
     /// casos de uso de la caja, el trabajo automático y las pantallas de facturación. Escenarios: comprador en cada venta
-    /// (clientes habituales con NIT o CI y compradores eventuales con CI), un corte de internet de 3 horas en El Alto
+    /// (clientes habituales con NIT o CI y compradores eventuales con CI), un corte de internet de 3 horas en Cochabamba
     /// (simulador apagado → facturas fuera de línea → recuperación con evento y paquete validado), una contingencia manual
     /// por corte de energía en Santa Cruz con 3 facturas CAFC transcritas, 3 anulaciones (una con devolución de mercadería,
     /// otra re-emitida con el comprador corregido y otra revertida), 2 devoluciones parciales con nota crédito-débito, un
-    /// rechazo por NIT inválido re-emitido con excepción, pedidos web facturados y 4 facturas de proveedores.
+    /// rechazo por NIT inválido re-emitido con excepción, pedidos web facturados y 4 facturas de proveedores. V4.2: las
+    /// líneas de los productos serializados llevan sus series (la factura las lleva en numeroSerie/numeroImei y la nota
+    /// crédito-débito, las devueltas).
     /// </summary>
     private sealed class BillingScenario
     {
-        private const string ElAltoRegister = BranchElAlto + "-CAJA1";
+        private const string CochabambaRegister = BranchCochabamba + "-CAJA1";
         private const string SantaCruzRegister = BranchSantaCruz + "-CAJA1";
 
         /// <summary>NIT del comprador rechazado: termina en 999 (el Padrón simulado lo da por inactivo → 1037).</summary>
         private const string InvalidBuyerNit = "3456789999";
 
+        private readonly LocalDataSeeder _seeder;
         private readonly SeedOptions _o;
         private readonly DateOnly _today;
         private readonly Action<DateOnly, int, int> _at;
@@ -63,9 +67,7 @@ public sealed partial class LocalDataSeeder
         private readonly SignedIn _admin;
         private readonly SignedIn _gerencia;
         private readonly SignedIn _bodega;
-        private readonly MinvWriteDbContext _db;
         private readonly IReadOnlyDictionary<string, SeedCustomer> _customers;
-        private readonly IReadOnlyList<(string Sku, string Unit, int Pop)> _weighted;
         private readonly SiatSimulatorEngine _engine;
         private readonly CancellationToken _ct;
         private readonly Random _rng;
@@ -93,10 +95,10 @@ public sealed partial class LocalDataSeeder
         private int _webInvoices;
         private int _supplierInvoices;
 
-        private BillingScenario(SeedOptions o, DateOnly from, DateOnly today, Action<DateOnly, int, int> at, Action<string> log, SignedIn admin,
-            SignedIn gerencia, SignedIn bodega, MinvWriteDbContext db, IReadOnlyList<SeedCustomer> customers,
-            IReadOnlyList<(string Sku, string Unit, int Pop)> weighted, SiatSimulatorEngine engine, CancellationToken ct)
+        private BillingScenario(LocalDataSeeder seeder, SeedOptions o, DateOnly from, DateOnly today, Action<DateOnly, int, int> at, Action<string> log,
+            SignedIn admin, SignedIn gerencia, SignedIn bodega, IReadOnlyList<SeedCustomer> customers, SiatSimulatorEngine engine, CancellationToken ct)
         {
+            _seeder = seeder;
             _o = o;
             From = from;
             _today = today;
@@ -105,13 +107,11 @@ public sealed partial class LocalDataSeeder
             _admin = admin;
             _gerencia = gerencia;
             _bodega = bodega;
-            _db = db;
             _customers = customers.ToDictionary(c => c.Code, StringComparer.OrdinalIgnoreCase);
-            _weighted = weighted;
             _engine = engine;
             _ct = ct;
             _rng = new Random(o.Seed + 41);
-            var nit = long.TryParse(o.TaxId, NumberStyles.None, CultureInfo.InvariantCulture, out var n) && n > 0 ? n : 1023456028L;
+            var nit = long.TryParse(o.TaxId, NumberStyles.None, CultureInfo.InvariantCulture, out var n) && n > 0 ? n : 1023456029L;
             // Token delegado de SIMULACIÓN: aleatorio en cada carga (nunca versionado); el simulador HTTP lo acepta después
             var token = o.SiatToken is { Length: >= 10 } given ? given : "SIM-" + Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
             _profile = new SiatSeedProfile(nit, o.CompanyName.Trim().ToUpperInvariant(), "MINV-SIM-0041", token, o.SiatSimulatorUrl, today.AddYears(1));
@@ -152,6 +152,11 @@ public sealed partial class LocalDataSeeder
             _voidReissueDay = Day(0.65, 1);
             _return2Day = Day(0.8, 1);
             _voidRevertDay = Day(0.9, 1);
+            if (!o.BillingScenarios)
+            {
+                // Solo la facturación de cada venta (la demostración): sin corte de internet, CAFC, anulaciones ni notas
+                _nitDay = _outageDay = _voidGoodsDay = _return1Day = _contingencyDay = _voidReissueDay = _return2Day = _voidRevertDay = DateOnly.MaxValue;
+            }
         }
 
         /// <summary>Primer día facturado (desde ahí cada venta de caja lleva comprador y se envía al SIN).</summary>
@@ -167,9 +172,9 @@ public sealed partial class LocalDataSeeder
         /// Escenario de facturación si corresponde: la opción está activa, el SIN es el simulador EN PROCESO y hay una clave
         /// maestra para cifrar el token. Si no, se explica por qué se omite (la carga sigue sin facturación).
         /// </summary>
-        public static BillingScenario? TryCreate(IServiceProvider services, SeedOptions o, DateOnly from, DateOnly today, Action<DateOnly, int, int> at,
-            Action<string> log, SignedIn admin, SignedIn gerencia, SignedIn bodega, MinvWriteDbContext db, IReadOnlyList<SeedCustomer> customers,
-            IReadOnlyList<(string Sku, string Unit, int Pop)> weighted, CancellationToken ct)
+        public static BillingScenario? TryCreate(LocalDataSeeder seeder, IServiceProvider services, SeedOptions o, DateOnly from, DateOnly today,
+            Action<DateOnly, int, int> at, Action<string> log, SignedIn admin, SignedIn gerencia, SignedIn bodega, IReadOnlyList<SeedCustomer> customers,
+            CancellationToken ct)
         {
             if (!o.Billing)
             {
@@ -191,7 +196,7 @@ public sealed partial class LocalDataSeeder
                 return null;
             }
             engine.Available = true;
-            return new BillingScenario(o, from, today, at, log, admin, gerencia, bodega, db, customers, weighted, engine, ct);
+            return new BillingScenario(seeder, o, from, today, at, log, admin, gerencia, bodega, customers, engine, ct);
         }
 
         // ============================================================================================ día a día
@@ -242,8 +247,8 @@ public sealed partial class LocalDataSeeder
             }
             if (day == _outageDay)
             {
-                slots.AddRange([new SaleSlot(10 * 60 + 10, BranchElAlto, "offline"), new SaleSlot(11 * 60 + 5, BranchElAlto, "offline"),
-                    new SaleSlot(12 * 60 + 25, BranchElAlto, "offline")]);
+                slots.AddRange([new SaleSlot(10 * 60 + 10, BranchCochabamba, "offline"), new SaleSlot(11 * 60 + 5, BranchCochabamba, "offline"),
+                    new SaleSlot(12 * 60 + 25, BranchCochabamba, "offline")]);
             }
             foreach (var slot in slots.Where(s => s.Minute <= maxMinute))
             {
@@ -278,7 +283,7 @@ public sealed partial class LocalDataSeeder
             FiscalBuyerInput? buyer = tag switch
             {
                 "cf" => new FiscalBuyerInput(SiatCodes.DocumentNit, SiatCodes.SpecialMinorSales, null, null, null),
-                "nit" => new FiscalBuyerInput(SiatCodes.DocumentNit, InvalidBuyerNit, null, "IMPORTADORA CHUQUIAGO LTDA.", "compras@chuquiago.example"),
+                "nit" => new FiscalBuyerInput(SiatCodes.DocumentNit, InvalidBuyerNit, null, "CIBER GAMER CHUQUIAGO LTDA.", "compras@cibergamer.example"),
                 _ when _customers.TryGetValue(customerCode, out var customer) => BuyerOf(customer),
                 // Consumidor final: casi siempre da su CI; a veces no da datos y sale con el NIT especial 99003
                 _ => _rng.NextDouble() < 0.82 ? _buyers[_rng.Next(_buyers.Count)] : null,
@@ -307,8 +312,8 @@ public sealed partial class LocalDataSeeder
             }
         }
 
-        /// <summary>La caja, al terminar de cobrar, envía el documento al SIN (durante el corte de El Alto, las otras sucursales
-        /// lo envían cuando el simulador vuelve: su internet no se cortó).</summary>
+        /// <summary>La caja, al terminar de cobrar, envía el documento al SIN (durante el corte de Cochabamba, las otras
+        /// sucursales lo envían cuando el simulador vuelve: su internet no se cortó).</summary>
         public async Task AfterSaleAsync(SignedIn cashier, string branch, CheckoutResult result, IReadOnlyList<SaleLineInput> lines, DateOnly day,
             FiscalBuyerInput? buyer, string? tag)
         {
@@ -316,7 +321,7 @@ public sealed partial class LocalDataSeeder
             {
                 return;
             }
-            if (_outage && branch != BranchElAlto)
+            if (_outage && branch != BranchCochabamba)
             {
                 _deferred.Add(id);
                 return;
@@ -356,7 +361,7 @@ public sealed partial class LocalDataSeeder
             }
             if (day == _return1Day)
             {
-                await StepAsync(d => ReturnAsync(d, "Le sobró material de la obra"));
+                await StepAsync(d => ReturnAsync(d, "El cliente se arrepintió de la compra (dentro de los 7 días)"));
             }
             if (day == _voidReissueDay)
             {
@@ -364,7 +369,7 @@ public sealed partial class LocalDataSeeder
             }
             if (day == _return2Day)
             {
-                await StepAsync(d => ReturnAsync(d, "Producto con falla de fábrica"));
+                await StepAsync(d => ReturnAsync(d, "No era compatible con el equipo del cliente"));
             }
             if (day == _voidRevertDay)
             {
@@ -393,8 +398,12 @@ public sealed partial class LocalDataSeeder
             foreach (var receipt in receipts.OrderByDescending(r => r.ReceivedOn).ThenBy(r => r.ReceiptNumber, StringComparer.Ordinal).Take(4))
             {
                 var number = _rng.Next(1_000, 99_999).ToString(CultureInfo.InvariantCulture);
+                // V4.2 · Las compras de los datos de prueba van al costo NETO de IVA (el 87 % del costo con IVA del catálogo,
+                // TechSeedCatalog.NetCost): la factura del proveedor es recepción / 0,87 (el costo con IVA) y su crédito fiscal (13 %
+                // del importe) es exactamente el IVA que su asiento suma a la deuda (2.1.01); el inventario (1.1.05) no cambia
+                var total = FiscalRules.InvoiceForNetCost(receipt.Total);
                 await _bodega.Send(new RegisterSupplierInvoiceCommand(receipt.ReceiptNumber, number, Convert.ToHexString(Bytes(28)), receipt.ReceivedOn,
-                    receipt.Total), _ct);
+                    total), _ct);
                 _supplierInvoices++;
             }
             await _admin.Send(new RunSiatWorkCommand(Maintain: true), _ct);
@@ -426,12 +435,13 @@ public sealed partial class LocalDataSeeder
             await _admin.Send(new SaveCustomerCommand("CF", "Consumidor final", SiatCodes.SpecialMinorSales, null, null, "GENERAL", true), _ct);
             _points = await SiatSeedSetup.ConfigureAsync(_admin, _profile,
             [
-                new SiatSeedBranch(BranchMain, 0, "La Paz", "2-2441122"), new SiatSeedBranch(BranchElAlto, 1, "El Alto", "2-2825566"),
+                new SiatSeedBranch(BranchMain, 0, "La Paz", "2-2441122"), new SiatSeedBranch(BranchCochabamba, 1, "Cochabamba", "4-4251122"),
                 new SiatSeedBranch(BranchSantaCruz, 2, "Santa Cruz", "3-3345678"),
             ],
             [
                 new SiatSeedRegister(BranchMain, "CAJA01", "Caja 1"), new SiatSeedRegister(BranchMain, "CAJA02", "Caja 2"),
-                new SiatSeedRegister(BranchMain, "CAJA03", "Caja 3 (mostrador)"), new SiatSeedRegister(BranchElAlto, ElAltoRegister, "Caja El Alto"),
+                new SiatSeedRegister(BranchMain, "CAJA03", "Caja 3 (servicio técnico)"),
+                new SiatSeedRegister(BranchCochabamba, CochabambaRegister, "Caja Cochabamba"),
                 new SiatSeedRegister(BranchSantaCruz, SantaCruzRegister, "Caja Santa Cruz"),
             ], _log, _ct);
             // Correo de la empresa DESACTIVADO (dominio .example): la pantalla lo muestra; los avisos quedan «por otro medio»
@@ -444,12 +454,12 @@ public sealed partial class LocalDataSeeder
             _log($"{day:dd/MM/yyyy}: la empresa empezó a facturar con M-INV (facturación computarizada en línea, ambiente de pruebas).");
         }
 
-        // ============================================================================================ corte de internet (El Alto)
+        // ============================================================================================ corte de internet (Cochabamba)
         private Task OutageStartAsync(DateOnly day)
         {
             _engine.Available = false;
             _outage = true;
-            _log($"… {day:dd/MM/yyyy} 10:00: corte de internet en El Alto (simulador del SIN apagado): la caja no se bloquea, factura fuera de línea.");
+            _log($"… {day:dd/MM/yyyy} 10:00: corte de internet en Cochabamba (simulador del SIN apagado): la caja no se bloquea, factura fuera de línea.");
             return Task.CompletedTask;
         }
 
@@ -464,15 +474,15 @@ public sealed partial class LocalDataSeeder
             _deferred.Clear();
             // Recuperación automática: CUFD nuevo → evento significativo → verificación → paquete → validación
             await _admin.Send(new RunSiatWorkCommand(Maintain: true), _ct);
-            var point = await PointAsync(ElAltoRegister);
+            var point = await PointAsync(CochabambaRegister);
             if (point.Mode != SiatConnectionMode.Online)
             {
                 await _admin.Send(new RecoverPointOfSaleCommand(point.Id), _ct);
             }
             await _admin.Send(new RunSiatWorkCommand(Maintain: true), _ct);
             var events = await _admin.Send(new GetSignificantEventsQuery(day, day), _ct);
-            var evt = events.FirstOrDefault(e => e.BranchCode == BranchElAlto && e.Kind == SignificantEventKind.Offline);
-            _log($"… {day:dd/MM/yyyy} 13:00: volvió internet en El Alto: {evt?.Documents ?? 0} facturas fuera de línea enviadas en paquete " +
+            var evt = events.FirstOrDefault(e => e.BranchCode == BranchCochabamba && e.Kind == SignificantEventKind.Offline);
+            _log($"… {day:dd/MM/yyyy} 13:00: volvió internet en Cochabamba: {evt?.Documents ?? 0} facturas fuera de línea enviadas en paquete " +
                  $"(evento «{evt?.Description}», {Status(evt?.Status)}).");
         }
 
@@ -504,28 +514,28 @@ public sealed partial class LocalDataSeeder
             {
                 return;
             }
-            var warehouse = await _db.Warehouses.AsNoTracking().FirstAsync(w => w.Code == "ALMSC", _ct);
             var times = new[] { new TimeOnly(15, 20, 12), new TimeOnly(15, 52, 40), new TimeOnly(16, 37, 5) };
             var transcribed = 0;
             foreach (var time in times)
             {
-                var lines = new List<SaleLineInput>();
-                foreach (var item in _weighted.OrderBy(_ => _rng.Next()).DistinctBy(x => x.Sku).Take(12))
-                {
-                    var quantity = item.Unit is "KG" or "MT" or "LT" or "GL" ? 1m : _rng.Next(1, 3);
-                    if (lines.Count < 2 && await AvailableAsync(_db, item.Sku, warehouse.Id, _ct) >= quantity + 2)
-                    {
-                        lines.Add(new SaleLineInput(item.Sku, quantity));
-                    }
-                }
+                // Lo vendido a mano en el mostrador de Santa Cruz (con las series anotadas en la factura manual)
+                var lines = _seeder.PickLines(SantaCruzWarehouse, 2, allowServices: false);
                 if (lines.Count == 0)
                 {
                     continue;
                 }
                 var buyer = _rng.NextDouble() < 0.5 ? _buyers[_rng.Next(_buyers.Count)] : BuyerOf(_customers.Values.ElementAt(_rng.Next(_customers.Count)));
-                await _gerencia.Send(new TranscribeManualInvoiceCommand(evt.Id, _nextCafcNumber++, day.ToDateTime(time), buyer, "EFECTIVO", lines), _ct);
-                transcribed++;
-                ManualSales++;
+                try
+                {
+                    await _gerencia.Send(new TranscribeManualInvoiceCommand(evt.Id, _nextCafcNumber++, day.ToDateTime(time), buyer, "EFECTIVO", lines), _ct);
+                    transcribed++;
+                    ManualSales++;
+                }
+                catch (DomainException ex)
+                {
+                    _seeder._stock.GiveBack(SantaCruzWarehouse, lines);
+                    _log($"… {day:dd/MM/yyyy}: la factura manual CAFC N° {_nextCafcNumber - 1} no se transcribió: {ex.Message}");
+                }
             }
             await _admin.Send(new RunSiatWorkCommand(Maintain: true), _ct);
             _log($"… {day:dd/MM/yyyy} 17:30: volvió la energía en Santa Cruz: {transcribed} facturas manuales CAFC transcritas y enviadas en paquete.");
@@ -582,8 +592,10 @@ public sealed partial class LocalDataSeeder
             }
             var line = sale.Lines.FirstOrDefault(l => l.Quantity >= 2) ?? sale.Lines[0];
             var quantity = line.Quantity >= 2 ? 1m : line.Quantity;
-            var result = await _admin.Send(new CreateSalesReturnCommand(sale.InvoiceNumber, reason, "EFECTIVO", [new ReturnLineInput(line.Sku, quantity)]),
-                _ct);
+            // V4.2 · Un producto serializado se devuelve por su serie (una de las vendidas en esa línea)
+            var serials = line.Serials is { Count: > 0 } sold ? sold.Take((int)quantity).ToList() : null;
+            var result = await _admin.Send(new CreateSalesReturnCommand(sale.InvoiceNumber, reason, "EFECTIVO",
+                [new ReturnLineInput(line.Sku, quantity, serials)]), _ct);
             FiscalDocumentStatus? status = result.CreditNoteStatus;
             if (result.CreditNoteId is { } note)
             {

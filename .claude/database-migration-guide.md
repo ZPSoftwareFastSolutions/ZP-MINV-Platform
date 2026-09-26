@@ -1,14 +1,15 @@
-# Guía de migraciones de la base de datos · M-INV V3, V4 y V4.1
+# Guía de migraciones de la base de datos · M-INV V3, V4, V4.1 y V4.2
 
 Dos tipos de migración: **esquema** (EF Core Code-First, cambios del modelo) y **datos** (llevar un libro de la V2.1 a
-la V3, una base V3 a la V4 o una V4 a la V4.1). Reglas: `.claude/v3-architecture-rules.md` (A-06, A-07, A-08),
-`.claude/v4-architecture-rules.md` (B-12, B-13, B-15) y `.claude/v41-billing-rules.md` (F-11, F-14).
+la V3, una base V3 a la V4, una V4 a la V4.1 o una V4.1 a la V4.2). Reglas: `.claude/v3-architecture-rules.md` (A-06,
+A-07, A-08), `.claude/v4-architecture-rules.md` (B-12, B-13, B-15), `.claude/v41-billing-rules.md` (F-11, F-14) y
+`.claude/v42-tech-rules.md` (T-01, T-02, T-05).
 
 ## 0. Dos contextos desde la V4
 
 | Contexto | Archivo | Migraciones | Para qué |
 |---|---|---|---|
-| **`MinvWriteDbContext`** (antes `MINVDbContext`) | `Persistence/MinvWriteDbContext.cs` | **sí**: todas las de `Persistence/Migrations` | modelo transaccional (OLTP): las 140 tablas de la V4.1 (110 de la V4), outbox, guardas |
+| **`MinvWriteDbContext`** (antes `MINVDbContext`) | `Persistence/MinvWriteDbContext.cs` | **sí**: todas las de `Persistence/Migrations` | modelo transaccional (OLTP): las 152 tablas de la V4.2 (140 de la V4.1, 110 de la V4), outbox, guardas |
 | `MinvReadDbContext` | `Persistence/MinvReadDbContext.cs` | **no** | modelo de lectura (OLAP): lee las vistas `reporting.v_*`; sus vistas las crea una migración del contexto de escritura |
 
 - `MINVDbContext` se renombró a `MinvWriteDbContext` en la V4 (clase, archivo, `IDesignTimeDbContextFactory` →
@@ -201,15 +202,19 @@ base V3.1 (97 tablas, una sucursal por empresa) a la V4 (110 tablas, 8 esquemas)
 | `V41SiatBilling.BranchTablesV41` (15) | entidades `IBranchScoped` nuevas de la V4.1 (junto con `BranchTables`: 50) | `branch_isolation` RESTRICTIVA sobre `branch_id` |
 | `V41SiatBilling.AppendOnlyTablesV41` (9) | entidades `IAppendOnly` nuevas de la V4.1 (24 libros en total) | `trg_append_only`, `REVOKE UPDATE, DELETE, TRUNCATE` |
 | `V41SiatBilling.NewTablesV41` (30) | tablas creadas por la V4.1 | `GRANT` a `minv_app` y `minv_server` |
+| `V42TechRetail.BranchTablesV42` (6) | entidades `IBranchScoped` nuevas de la V4.2 (56 en total) | `branch_isolation` RESTRICTIVA sobre `branch_id` |
+| `V42TechRetail.InterBranchTablesV42` (1) | entidades `IInterBranch` nuevas de la V4.2 (6 en total) | `branch_isolation` sobre `from_branch_id OR to_branch_id` |
+| `V42TechRetail.AppendOnlyTablesV42` (5) | entidades `IAppendOnly` nuevas de la V4.2 (29 libros en total) | `trg_append_only`, `REVOKE UPDATE, DELETE, TRUNCATE` |
+| `V42TechRetail.NewTablesV42` (12) | tablas creadas por la V4.2 (la prueba las compara con las que el modelo tiene y `V41CafcNumbering` no) | `GRANT` a `minv_app` y `minv_server` |
 
 - Son listas **explícitas** a propósito: una migración publicada es inmutable y su resultado no debe cambiar si mañana
   aparece otra tabla con esas columnas. La política de empresa sí se genera por descubrimiento (`tenant_id`), porque
   toda tabla la necesita.
 - Una tabla nueva de sucursal, entre sucursales o append-only DEBE agregarse en una lista de la **migración nueva** que
   la crea (con su política, trigger y `REVOKE`), y la prueba de modelo DEBE comparar la unión de todas las listas con
-  las entidades del modelo (regla B-15). `ModelTests.Los_libros_mayores_son_append_only` fija los 24 libros y
-  `ModelTests.Las_listas_de_las_migraciones_coinciden_con_el_modelo` compara la unión de las listas V4 + V4.1 con el
-  modelo.
+  las entidades del modelo (regla B-15). `ModelTests.Los_libros_mayores_son_append_only` fija los 29 libros y
+  `ModelTests.Las_listas_de_las_migraciones_coinciden_con_el_modelo` compara la unión de las listas V4 + V4.1 + V4.2
+  con el modelo.
 
 ## 7. Revertir
 
@@ -285,3 +290,56 @@ Solo tiene sentido antes de emitir documentos fiscales: con documentos reales, r
   CUIS, CUFD y documentos de esa base (bastará con «Preparar» para pedir códigos nuevos).
 - `minv verify --codigo <EMPRESA>` comprueba además que el total de cada factura válida (derivado en
   `billing.v_fiscal_document_totals`) sea el cobrado y que ninguna venta tenga dos documentos fiscales vigentes.
+
+## 9. Migrar una base V4.1 a la V4.2 (`V42TechRetail`)
+
+La migración `20260926082719_V42TechRetail` (archivo generado + parcial `…V42TechRetail.Sql.cs`) agrega la edición
+Tecnología: 140 → **152 tablas en 10 esquemas** (esquema nuevo `service`). Tiene UN relleno: las series existentes
+(`inventory.serial_numbers`) ganan `variant_id`, `kind` y `received_at`, y su unicidad pasa de (lote, serie) a
+(empresa, variante, serie).
+
+**Qué hace, en orden** (`Up`):
+
+1. **Guardia** (`V42Guard`, antes de cualquier cambio): se detiene con un mensaje «M-INV V4.2: …» si una serie se repite
+   en dos lotes de la misma variante, si hay series vacías o con espacios, comas o punto y coma, si una serie en stock
+   no tiene existencia (o una fuera de stock la tiene) o si su existencia es de otro lote. La transacción de la migración
+   se deshace y la base queda en la V4.1: corrija esas filas y vuelva a migrar.
+2. Generado por EF: quita las FK e índices viejos de `serial_numbers` y agrega sus columnas con valor provisional;
+   claves alternas `(tenant_id, variant_id, id)` en `batches` y `(tenant_id, batch_id, id)` en `stock_levels` (destino de
+   las FK compuestas de las series).
+3. **Relleno** (`V42Backfill`): `variant_id` desde el lote, `kind = 'Serial'` y `received_at = created_at`; verificación
+   de que ninguna fila quedó con el valor provisional y retiro de los DEFAULT provisionales. `serial_numbers` no tiene
+   triggers: no se pausa nada.
+4. Generado por EF: las 12 tablas nuevas (fichas técnicas, bitácora de series, series por línea de venta, devolución y
+   transferencia, armados de PC, casos RMA y su bitácora), índices (serie única por variante, un caso RMA abierto por
+   serie, números únicos por sucursal), CHECK y FK compuestas con empresa, sucursal y padre.
+5. **Defensas y datos** (`V42Guards`): `trg_append_only` en `AppendOnlyTablesV42` (5: 29 en total); `tenant_isolation`
+   por descubrimiento (150 en total); `branch_isolation` RESTRICTIVA en `BranchTablesV42` (6) y por origen o destino en
+   `InterBranchTablesV42` (1): 62 en total; trigger `catalog.minv_spec_value_matches` (el valor usa la columna del tipo
+   de su especificación y una especificación de un solo valor tiene una sola fila); vista `inventory.v_serial_breaches`;
+   permisos `catalog.specs.manage`, `inventory.serials.view`, `inventory.serials.manage`, `service.rma.open`,
+   `service.rma.manage`, `sales.pcbuild.manage` con su matriz rol-permiso, tipo de movimiento `REPOSICION_GARANTIA` y
+   cuenta `5.1.10` Costo de garantías en las empresas existentes; privilegios de `minv_app` y `minv_server` (solo si
+   existen).
+
+`Down` (`V42DropGuards` + lo generado + `V42DropSchema`) borra la vista, el trigger, los permisos de la V4.2, el tipo de
+movimiento y la cuenta (si no se usaron), las tablas nuevas y las columnas nuevas de las series, restaura la unicidad
+por lote y por último borra el esquema `service` vacío. Solo tiene sentido antes de operar con series, RMA o armados.
+
+**Paso a paso**: respaldo (`pg_dump -Fc`) y prueba sobre una copia; `minv migrate --conexion "<cadena de minv_owner>"`
+(o `scripts/db_init.sql`); verificación con `minv verify --codigo <EMPRESA>` o, como dueño:
+
+```sql
+SELECT count(*) FROM information_schema.tables WHERE table_type = 'BASE TABLE'
+  AND table_schema IN ('iam','catalog','warehouse','inventory','purchasing','sales','accounting','integration','billing','service')
+  AND table_name <> '__ef_migrations_history';                            -- 152
+SELECT count(*) FROM pg_policies WHERE policyname = 'tenant_isolation';   -- 150
+SELECT count(*) FROM pg_policies WHERE policyname = 'branch_isolation';   -- 62
+SELECT count(*) FROM pg_trigger  WHERE tgname = 'trg_append_only';        -- 29
+SELECT count(*) FROM inventory.v_serial_breaches;                         -- 0
+SELECT count(*) FROM inventory.v_conservation_breaches;                   -- 0
+```
+
+La prueba `V42TechPostgresTests.V42_la_migracion_rellena_las_series_existentes_y_su_guardia_las_protege` (con
+`MINV_TEST_PG`) migra una base en la V4.1 con series a la V4.2, comprueba el relleno, los datos agregados y la reversa, y
+que la guardia detiene la migración con una serie repetida en dos lotes.

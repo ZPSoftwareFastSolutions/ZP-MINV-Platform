@@ -1,4 +1,5 @@
 using MediatR;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using MINV.Application;
 using MINV.Application.Accounting;
@@ -14,35 +15,75 @@ using MINV.Application.Partners;
 using MINV.Application.Purchasing;
 using MINV.Application.Reports;
 using MINV.Application.Sales;
+using MINV.Application.Tech;
+using MINV.Domain.Accounting;
 using MINV.Domain.Billing;
 using MINV.Domain.Common;
 using MINV.Domain.Iam;
 using MINV.Domain.Inventory;
 using MINV.Domain.Purchasing;
+using MINV.Domain.Sales;
+using MINV.Domain.Service;
+using MINV.Domain.Warehousing;
+using MINV.Infrastructure.Persistence;
 using MINV.Infrastructure.Seeding;
+using MINV.Infrastructure.Seeding.Tecnologia;
 
 namespace MINV.Infrastructure.Tests;
 
 /// <summary>
-/// Datos de prueba de la base LOCAL (<c>minv datos-prueba</c>) sobre la base en memoria: el generador recorre casi todos
-/// los casos de uso nuevos (usuarios, catálogo con imágenes, clientes, proveedores, caja, ventas, anulaciones, compras,
-/// recepciones, asientos, toma física) con la tubería completa, y el resultado debe ser coherente.
+/// Datos de prueba de la base LOCAL (<c>minv datos-prueba</c>) sobre la base en memoria. V4.2: la empresa es Tech Zone
+/// Gaming S.R.L. (catálogo de tecnología embebido): el generador recorre casi todos los casos de uso (usuarios, catálogo con
+/// fichas técnicas e imágenes, clientes, proveedores, compras con series, transferencias con series, caja con series,
+/// pedidos web, devoluciones, garantías, armados, toma física, asientos y facturación) con la tubería completa, y el
+/// resultado debe ser coherente.
 /// </summary>
 public sealed class LocalDataSeederTests
 {
-    private static async Task<(ServiceProvider Services, SeedResult Result)> SeedAsync(int days = 8)
+    internal static async Task<(ServiceProvider Services, SeedResult Result)> SeedAsync(int days = 8, string tenant = "PRUEBA", int seed = 7)
     {
         var services = new ServiceCollection();
         services.AddMinvApplication();
         services.AddMinvDemoInfrastructure();
         var sp = services.BuildServiceProvider();
         var logFile = Environment.GetEnvironmentVariable("MINV_SEED_LOG");
-        var result = await sp.GetRequiredService<LocalDataSeeder>().SeedAsync(new SeedOptions("PRUEBA", Days: days, Seed: 7),
-            line => { if (logFile is { Length: > 0 }) { File.AppendAllText(logFile, line + Environment.NewLine); } });
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var result = await sp.GetRequiredService<LocalDataSeeder>().SeedAsync(new SeedOptions(tenant, Days: days, Seed: seed),
+            line => { if (logFile is { Length: > 0 }) { File.AppendAllText(logFile, $"[{watch.Elapsed.TotalSeconds,6:N1} s] {line}{Environment.NewLine}"); } });
         return (sp, result);
     }
 
-    private static async Task<(IServiceScope Scope, IMediator Mediator)> SignInAsync(ServiceProvider sp, SeedUser user, string tenant = "PRUEBA")
+    /// <summary>
+    /// V4.2 · El mayor 1.1.05 Inventario de cada sucursal es el valor de su stock: Σ existencias × costo promedio vigente de la
+    /// variante en su almacén (una sucursal de los datos de prueba tiene un almacén). Así se vigila la «deriva» que dejaban las
+    /// mermas y la toma física sin asiento (+2.646,02 en la carga de 60 días) y la factura del proveedor calculada sobre un costo
+    /// neto de «importe / 1,13» (−2.193,23).
+    /// </summary>
+    internal static async Task AssertInventoryLedgerIsStockValueAsync(MinvWriteDbContext db)
+    {
+        var costs = (await db.Set<AverageCostHistory>().AsNoTracking().ToListAsync())
+            .GroupBy(h => (h.VariantId, h.BranchId)).ToDictionary(g => g.Key, g => g.MaxBy(h => h.Sequence)!.AverageCost);
+        var stock = await (from l in db.Set<StockLevel>()
+                           join b in db.Set<Batch>() on l.BatchId equals b.Id
+                           select new { l.BranchId, b.VariantId, l.QuantityOnHand }).ToListAsync();
+        var value = stock.GroupBy(x => x.BranchId)
+            .ToDictionary(g => g.Key, g => JournalPoster.Money(g.Sum(x => x.QuantityOnHand * costs.GetValueOrDefault((x.VariantId, x.BranchId)))));
+        var ledger = (await (from l in db.Set<JournalLine>()
+                             join e in db.Set<JournalEntry>() on l.JournalEntryId equals e.Id
+                             join a in db.Set<Account>() on l.AccountId equals a.Id
+                             where a.Code == AccountCodes.Inventory
+                             select new { e.BranchId, l.Debit, l.Credit }).ToListAsync())
+            .GroupBy(x => x.BranchId).ToDictionary(g => g.Key, g => g.Sum(x => x.Debit - x.Credit));
+        var branches = await db.Set<Branch>().AsNoTracking().ToDictionaryAsync(b => b.Id, b => b.Code);
+        Assert.NotEmpty(value);
+        foreach (var (branch, code) in branches)
+        {
+            Assert.True(value.GetValueOrDefault(branch) == ledger.GetValueOrDefault(branch),
+                $"Sucursal {code}: 1.1.05 = {ledger.GetValueOrDefault(branch):N2} y valor del stock = {value.GetValueOrDefault(branch):N2}");
+        }
+    }
+
+    internal static async Task<(IServiceScope Scope, IMediator Mediator)> SignInAsync(ServiceProvider sp, SeedUser user, string tenant = "PRUEBA")
     {
         var scope = sp.CreateScope();
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
@@ -54,22 +95,32 @@ public sealed class LocalDataSeederTests
     public async Task Genera_una_empresa_completa_y_coherente_con_usuarios_de_cada_rol()
     {
         var (sp, result) = await SeedAsync();
+        Assert.Equal("Tech Zone Gaming S.R.L.", result.CompanyName);
         Assert.Equal(12, result.Users.Count);   // administrador + 11 usuarios repartidos en 3 sucursales
         Assert.All(RoleCodes.All, r => Assert.Contains(result.Users, u => u.RoleCode == r.Code));
         Assert.All(result.Users, u => Assert.Matches(@"^[A-Za-z]+-\d{4}$", u.Password));
-        Assert.Equal(61, result.Products);
-        Assert.True(result.Tickets > 20, $"Solo {result.Tickets} ventas");
+        Assert.All(result.Users, u => Assert.EndsWith("@techzone.example", u.Email, StringComparison.Ordinal));
+        Assert.All(result.Users, u => Assert.DoesNotContain(u.Password, u.ToString(), StringComparison.Ordinal));
+        Assert.Equal(159, result.Products);
+        Assert.Equal(8, result.Suppliers);
+        Assert.True(result.Tickets > 60, $"Solo {result.Tickets} ventas");
         Assert.True(result.JournalEntries > result.Tickets);
 
         var admin = result.Users.First(u => u.RoleCode == RoleCodes.Admin);
         var (scope, m) = await SignInAsync(sp, admin);
         using (scope)
         {
-            // Catálogo: todos con imagen, precio y posición
+            // Catálogo: todos con imagen, precio sobre el costo y posición
             var catalog = await m.Send(new GetCatalogQuery());
-            Assert.Equal(61, catalog.Count);
+            Assert.Equal(159, catalog.Count);
             Assert.All(catalog, c => Assert.True(c.HasImage && c.SalePrice > c.UnitCost && c.BinCode is not null, c.Sku));
-            Assert.Equal(61, (await m.Send(new GetProductImagesQuery())).Count);
+            // El costo es NETO de IVA (el 87 % del costo con IVA; el precio incluye el IVA): el margen sobre el precio neto (el 87 %
+            // del precio, VatRules) que muestra el catálogo es el «margen_pct» del JSON y ninguno queda con «margen bajo» (< 15 %)
+            Assert.All(catalog, c => Assert.InRange((c.SalePrice * 0.87m - c.UnitCost) / (c.SalePrice * 0.87m)
+                                                    - TechSeedCatalog.Current.Product(c.Sku).ListMargin, -0.002m, 0.002m));
+            Assert.DoesNotContain(catalog, c => (c.SalePrice * 0.87m - c.UnitCost) / (c.SalePrice * 0.87m) < 0.15m);
+            Assert.Equal(159, (await m.Send(new GetProductImagesQuery())).Count);
+            Assert.Contains(catalog, c => c.Unit == "SERV");   // servicios técnicos con su unidad (SIN: 58)
 
             // Contabilidad: partida doble en todo el libro y resultado con ingresos, costo y gastos
             var chart = await m.Send(new GetChartOfAccountsQuery());
@@ -78,24 +129,26 @@ public sealed class LocalDataSeederTests
             var statement = await m.Send(new GetIncomeStatementQuery(result.From, result.To));
             Assert.True(statement.TotalRevenue > 0 && statement.TotalCosts > 0);
             Assert.Equal(statement.TotalRevenue - statement.TotalCosts - statement.TotalExpenses, statement.NetIncome);
+            // V4.2 · El mayor 1.1.05 Inventario de cada sucursal es el valor de su stock (mermas y toma física contabilizadas)
+            await AssertInventoryLedgerIsStockValueAsync(scope.ServiceProvider.GetRequiredService<MinvWriteDbContext>());
 
-            // Ventas: cada venta simulada es una factura; el reporte cuadra con el historial
+            // Ventas: caja (también los armados y las facturas manuales transcritas) + pedidos de la tienda en línea
             var sales = await m.Send(new GetSalesQuery(result.From, result.To));
-            Assert.Equal(result.Tickets + result.ExternalOrders, sales.Count);   // caja + pedidos del e-commerce
+            Assert.Equal(result.Tickets + result.ExternalOrders, sales.Count);
             var report = await m.Send(new GetSalesReportQuery(result.From, result.To));
-            Assert.Equal(sales.Count(s => s.Status == MINV.Domain.Sales.InvoiceStatus.Issued), report.Tickets);
-            Assert.True(report.MarginPercent is > 15 and < 45, $"Margen {report.MarginPercent} %");
+            Assert.Equal(sales.Count(s => s.Status == InvoiceStatus.Issued), report.Tickets);
+            Assert.True(report.MarginPercent is > 5 and < 45, $"Margen {report.MarginPercent} %");
 
             // Stock: nunca negativo (poka-yoke) y con productos en alerta para el pedido sugerido
             var projection = await m.Send(new GetStockProjectionQuery());
             Assert.All(projection.Result.Stock, s => Assert.True(s.Stock >= 0, s.Sku));
 
-            // Compras: recibidas, aprobadas por recibir y un borrador
+            // Compras: recibidas (con series), aprobadas por recibir y un borrador
             var orders = await m.Send(new GetPurchaseOrdersQuery());
             Assert.Contains(orders, o => o.Status == PurchaseOrderStatus.Received);
             Assert.Contains(orders, o => o.Status == PurchaseOrderStatus.Draft);
             Assert.Equal(8, (await m.Send(new GetSuppliersQuery())).Count);
-            Assert.True((await m.Send(new GetCustomersQuery())).Customers.Count >= 29);   // V4.1: más los compradores eventuales facturados
+            Assert.True((await m.Send(new GetCustomersQuery())).Customers.Count >= 31);   // 30 del catálogo + CF (+ compradores facturados)
             Assert.Equal(12, (await m.Send(new GetUsersQuery())).Count);
         }
 
@@ -106,7 +159,7 @@ public sealed class LocalDataSeederTests
         {
             var state = await cm.Send(new GetPosStateQuery());
             Assert.NotNull(state.Session);
-            Assert.Equal(61, (await cm.Send(new GetSellableProductsQuery())).Count);
+            Assert.Equal(159, (await cm.Send(new GetSellableProductsQuery())).Count);
         }
     }
 
@@ -121,6 +174,7 @@ public sealed class LocalDataSeederTests
             await Assert.ThrowsAsync<AccessDeniedException>(() => cm.Send(new GetChartOfAccountsQuery()));
             await Assert.ThrowsAsync<AccessDeniedException>(() => cm.Send(new GetUsersQuery()));
             await Assert.ThrowsAsync<AccessDeniedException>(() => cm.Send(new CreateSuggestedPurchaseOrdersCommand()));
+            await Assert.ThrowsAsync<AccessDeniedException>(() => cm.Send(new MoveWarrantyClaimCommand("RMA-CM-000001", WarrantyClaimStatus.Diagnosing)));
         }
         var keeper = result.Users.First(u => u.RoleCode == RoleCodes.Warehouse);
         var (ks, km) = await SignInAsync(sp, keeper);
@@ -145,9 +199,10 @@ public sealed class LocalDataSeederTests
     public async Task V4_tres_sucursales_con_transferencias_en_transito_y_aislamiento_por_sucursal()
     {
         var (sp, result) = await SeedAsync(days: 10);
-        Assert.Equal(["CM", "EA", "SC"], result.Branches);
+        Assert.Equal(["CM", "CB", "SC"], result.Branches);
         Assert.True(result.Transfers >= 4, $"Solo {result.Transfers} transferencias");
         Assert.StartsWith("minv_", result.ApiKeyToken, StringComparison.Ordinal);
+        Assert.DoesNotContain(result.ApiKeyToken, result.ToString(), StringComparison.Ordinal);
 
         // Gerencia global: ve todas las sucursales, el stock consolidado y lo que está en tránsito (contado una vez)
         var manager = result.Users.First(u => u.RoleCode == RoleCodes.Management);
@@ -168,22 +223,23 @@ public sealed class LocalDataSeederTests
             Assert.All(stock.Rows, r => Assert.Equal(r.Total, r.ByBranch.Sum() + r.InTransit));
         }
 
-        // Cajero de El Alto: solo ve su sucursal (ventas, stock y transferencias que llegan a ella)
-        var cashierEa = result.Users.First(u => u.RoleCode == RoleCodes.Cashier && u.Branches == "EA");
-        var (cs, cm) = await SignInAsync(sp, cashierEa);
+        // Cajero de Cochabamba: solo ve su sucursal (ventas, stock y transferencias que llegan a ella)
+        var cashierCb = result.Users.First(u => u.RoleCode == RoleCodes.Cashier && u.Branches == "CB");
+        var (cs, cm) = await SignInAsync(sp, cashierCb);
         using (cs)
         {
             var sales = await cm.Send(new GetSalesQuery(result.From, result.To));
             Assert.NotEmpty(sales);
-            Assert.All(sales, s => Assert.StartsWith("F-EA-", s.InvoiceNumber, StringComparison.Ordinal));
+            Assert.All(sales, s => Assert.StartsWith("F-CB-", s.InvoiceNumber, StringComparison.Ordinal));
             var state = await cm.Send(new GetPosStateQuery());
-            Assert.All(state.Registers, r => Assert.StartsWith("EA-", r.Code, StringComparison.Ordinal));
+            Assert.All(state.Registers, r => Assert.StartsWith("CB-", r.Code, StringComparison.Ordinal));
             var branches = await cm.Send(new GetBranchesQuery());
             Assert.Single(branches, b => b.IsVisible);
             Assert.Null(branches.First(b => b.Code == "CM").StockValue);
         }
 
-        // Bodega de Santa Cruz: recibe la transferencia en tránsito; no puede despacharla ni anular las ajenas
+        // Bodega de Santa Cruz: recibe la transferencia en tránsito; no puede despacharla ni anular las ajenas. Un faltante
+        // exige su motivo y, si el producto lleva serie, cuál serie no llegó (regla T-02)
         var keeperSc = result.Users.First(u => u.RoleCode == RoleCodes.Warehouse && u.Branches == "SC");
         var (ks, km) = await SignInAsync(sp, keeperSc);
         using (ks)
@@ -195,14 +251,15 @@ public sealed class LocalDataSeederTests
             var line = detail.Lines[0];
             await Assert.ThrowsAsync<DomainException>(() => km.Send(new ReceiveTransferCommand(inTransit.Id,
                 [new TransferReceiptInput(line.Sku, line.Quantity - 1)])));   // faltante sin motivo
+            ks.ServiceProvider.GetRequiredService<MINV.Application.Abstractions.IMinvDbContext>().ClearTracking();   // como el escritorio
             var received = await km.Send(new ReceiveTransferCommand(inTransit.Id,
-                [new TransferReceiptInput(line.Sku, line.Quantity - 1, "Una unidad llegó rota")]));
+                [new TransferReceiptInput(line.Sku, line.Quantity - 1, "Una unidad llegó rota", line.Serials is { Count: > 0 } s ? [s[0]] : null)]));
             Assert.Contains("faltante", received.Message, StringComparison.Ordinal);
             var after = await km.Send(new GetTransferQuery(inTransit.Id));
             Assert.Equal(TransferStatus.Received, after.Header.Status);
             Assert.Equal(1, after.Lines[0].Shortage);
             var pending = (await km.Send(new GetTransfersQuery(TransferStatus.Pending))).ToList();
-            Assert.Empty(pending);   // la pendiente va a El Alto: Santa Cruz no la ve
+            Assert.Empty(pending);   // la pendiente va a Cochabamba: Santa Cruz no la ve
         }
 
         // La API Key del e-commerce: su canal y sus alcances (no puede administrar usuarios)
@@ -211,7 +268,7 @@ public sealed class LocalDataSeederTests
         Assert.NotNull(principal);
         var apiMediator = api.ServiceProvider.GetRequiredService<IMediator>();
         var catalog = await apiMediator.Send(new GetApiCatalogQuery(1, 500));
-        Assert.Equal(61, catalog.Total);
+        Assert.Equal(159, catalog.Total);
         await Assert.ThrowsAsync<AccessDeniedException>(() => apiMediator.Send(new GetUsersQuery()));
         Assert.Null(await sp.CreateScope().ServiceProvider.GetRequiredService<Integration.ApiKeyAuthenticator>()
             .AuthenticateAsync(result.ApiKeyToken[..^2] + "xx", default));
@@ -219,24 +276,27 @@ public sealed class LocalDataSeederTests
 
     /// <summary>
     /// V4.1 · La empresa de prueba FACTURA desde la mitad del período con el simulador del SIN en proceso: cada venta de caja
-    /// tiene su documento fiscal válido cuyo total es el cobrado, hubo un corte de internet en El Alto (facturas fuera de
+    /// tiene su documento fiscal válido cuyo total es el cobrado, hubo un corte de internet en Cochabamba (facturas fuera de
     /// línea recuperadas en un paquete validado), una contingencia manual con facturas CAFC, anulaciones (una revertida),
     /// notas crédito-débito, un rechazo por NIT re-emitido con excepción y facturas de proveedores; al final todo está en
-    /// línea con CUFD vigente y los libros cuadran con los documentos.
+    /// línea con CUFD vigente y los libros cuadran con los documentos. V4.2: las facturas de productos serializados llevan
+    /// las series (numeroSerie o numeroImei).
     /// </summary>
     [Fact]
     public async Task V41_la_empresa_de_prueba_factura_y_los_totales_fiscales_cuadran_con_las_ventas()
     {
         var (sp, result) = await SeedAsync(days: 16);
         var billing = Assert.IsType<SeedBilling>(result.Billing);
-        Assert.Equal(1023456028L, billing.Nit);
+        Assert.Equal(1023456029L, billing.Nit);
+        Assert.Equal("TECH ZONE GAMING S.R.L.", billing.BusinessName);
         Assert.Equal(2, billing.Environment);
         Assert.StartsWith("SIM-", billing.SiatToken, StringComparison.Ordinal);
+        Assert.DoesNotContain(billing.SiatToken, billing.ToString(), StringComparison.Ordinal);
         Assert.Equal(8, billing.PointsOfSale);   // 5 cajas + el punto 0 de cada sucursal
         Assert.True(billing.ValidInvoices > 30, $"Solo {billing.ValidInvoices} facturas válidas");
         Assert.True(billing.OfflineRecovered >= 3, $"Solo {billing.OfflineRecovered} facturas fuera de línea recuperadas");
         Assert.Equal(3, billing.CafcInvoices);
-        Assert.Equal(2, billing.CreditNotes);
+        Assert.True(billing.CreditNotes >= 2, $"Solo {billing.CreditNotes} notas crédito-débito");   // 2 devoluciones parciales (+ la devolución por falla)
         Assert.Equal(2, billing.Voided);   // una con devolución de mercadería y otra re-emitida; la tercera se revirtió
         Assert.Equal(1, billing.Reverted);
         Assert.True(billing.WebInvoices > 0 && billing.SupplierInvoices > 0, $"{billing.WebInvoices} web · {billing.SupplierInvoices} proveedores");
@@ -257,7 +317,7 @@ public sealed class LocalDataSeederTests
                 billing.From.ToDateTime(new TimeOnly(9, 0)), TimeSpan.FromHours(-4))).ToList();
             var active = documents.Where(d => d.Kind == FiscalDocumentKind.Invoice && d.Status == FiscalDocumentStatus.Valid && d.SaleNumber is not null)
                 .GroupBy(d => d.SaleNumber!).ToDictionary(g => g.Key, g => g.ToList());
-            foreach (var sale in sales.Where(s => s.Status == MINV.Domain.Sales.InvoiceStatus.Issued))
+            foreach (var sale in sales.Where(s => s.Status == InvoiceStatus.Issued))
             {
                 Assert.True(active.TryGetValue(sale.InvoiceNumber, out var docs), $"La venta {sale.InvoiceNumber} ({sale.IssuedAt:dd/MM HH:mm}, " +
                     $"{sale.PaymentMethod}) no tiene factura válida: " + string.Join(", ", documents.Where(d => d.SaleNumber == sale.InvoiceNumber)
@@ -265,15 +325,15 @@ public sealed class LocalDataSeederTests
                 Assert.Equal(sale.Total, Assert.Single(docs!).Total);
             }
 
-            // Eventos: el corte de internet de El Alto (conciliado) y la contingencia manual CAFC de Santa Cruz
+            // Eventos: el corte de internet de Cochabamba (conciliado) y la contingencia manual CAFC de Santa Cruz
             var events = await m.Send(new GetSignificantEventsQuery(billing.From, result.To));
-            Assert.Contains(events, e => e is { BranchCode: "EA", Kind: SignificantEventKind.Offline, Status: SignificantEventStatus.Reconciled });
+            Assert.Contains(events, e => e is { BranchCode: "CB", Kind: SignificantEventKind.Offline, Status: SignificantEventStatus.Reconciled });
             var cafc = Assert.Single(events, e => e.Kind == SignificantEventKind.ManualCafc);
             Assert.Equal("SC", cafc.BranchCode);
             Assert.Equal(3, cafc.Documents);
             Assert.All(await m.Send(new GetFiscalPackagesQuery()), p => Assert.Equal(FiscalPackageStatus.Validated, p.Status));
 
-            // Estado SIAT: todos los puntos en línea con CUFD vigente; homologación completa
+            // Estado SIAT: todos los puntos en línea con CUFD vigente; homologación completa (UND → 57, SERV → 58)
             var status = await m.Send(new GetSiatStatusQuery());
             Assert.True(status.Enabled && status.HasToken);
             Assert.All(status.Points, p =>
@@ -281,7 +341,11 @@ public sealed class LocalDataSeederTests
                 Assert.Equal(SiatConnectionMode.Online, p.Mode);
                 Assert.True(p.CufdValidUntil > DateTimeOffset.UtcNow, $"CUFD vencido en {p.BranchCode} · {p.Code}");
             });
-            Assert.Equal(0, (await m.Send(new GetHomologationQuery())).PendingProducts);
+            var homologation = await m.Send(new GetHomologationQuery());
+            Assert.Equal(0, homologation.PendingProducts);
+            Assert.Equal(57, homologation.Units.Single(u => u.Code == "UND").SinUnitCode);
+            Assert.Equal(58, homologation.Units.Single(u => u.Code == "SERV").SinUnitCode);
+            Assert.Equal(["4741100", "4741200", "4742100"], homologation.Products.Select(p => p.ActivityCode!).Distinct().Order());
 
             // Libros del mes de hoy: el total del libro de ventas es la suma de las facturas válidas del mes
             var month = result.To;
@@ -290,17 +354,42 @@ public sealed class LocalDataSeederTests
                                                                                         && d.IssuedAt.Year == month.Year && d.IssuedAt.Month == month.Month).ToList();
             Assert.Equal(validThisMonth.Count, book.Valid);
             Assert.Equal(validThisMonth.Sum(d => d.Total), book.Total);
-            Assert.NotEmpty(await m.Send(new GetSupplierInvoicesQuery(billing.From.AddDays(-30), result.To)));
+            var supplierInvoices = await m.Send(new GetSupplierInvoicesQuery(billing.From.AddDays(-30), result.To));
+            Assert.NotEmpty(supplierInvoices);
+
+            // V4.2 · Las compras van al costo NETO de IVA (el 87 % de lo facturado): la factura del proveedor es recepción / 0,87 y su
+            // crédito fiscal (13 % del importe) es exactamente el IVA que se suma a la deuda: el inventario no cambia y el mayor
+            // 1.1.05 de cada sucursal sigue siendo el valor de su stock
+            var db = scope.ServiceProvider.GetRequiredService<MinvWriteDbContext>();
+            var invoiceLines = await db.Set<SupplierInvoiceLine>().AsNoTracking().ToListAsync();
+            Assert.All(supplierInvoices, i =>
+            {
+                var received = invoiceLines.Where(l => l.SupplierInvoiceId == i.Id).Sum(l => JournalPoster.Money(l.Quantity * l.UnitCost));
+                Assert.Equal(FiscalRules.InvoiceForNetCost(received), i.TotalAmount);
+                Assert.Equal(JournalPoster.Money(i.TotalAmount * 0.13m), i.TaxCredit);
+                Assert.Equal(i.TotalAmount - received, i.TaxCredit);
+            });
+            var accounts = await db.Set<Account>().AsNoTracking().ToDictionaryAsync(a => a.Id, a => a.Code);
+            var ids = supplierInvoices.Select(i => i.Id).ToList();
+            var entries = await db.Set<JournalEntry>().AsNoTracking().Include(e => e.Lines)
+                .Where(e => e.SourceCorrelationId != null && ids.Contains(e.SourceCorrelationId.Value)).ToListAsync();
+            Assert.Equal(supplierInvoices.Count, entries.Count);
+            Assert.All(entries, e => Assert.DoesNotContain(e.Lines, l => accounts[l.AccountId] == AccountCodes.Inventory));
+            await AssertInventoryLedgerIsStockValueAsync(db);
+
+            // V4.2 · Las facturas de productos serializados llevan las series en el XML del SIN (regla T-03)
+            var xmls = await db.Set<FiscalDocumentFile>().Select(f => f.Xml).ToListAsync();
+            Assert.Contains(xmls, x => x.Contains("<numeroSerie>", StringComparison.Ordinal));
         }
 
-        // El cajero de El Alto emite en línea (su punto volvió a estar en línea) y el comprobante es válido al enviarlo
-        var cashierEa = result.Users.First(u => u.RoleCode == RoleCodes.Cashier && u.Branches == "EA");
-        var (cs, cm) = await SignInAsync(sp, cashierEa);
+        // El cajero de Cochabamba emite en línea (su punto volvió a estar en línea) y el comprobante es válido al enviarlo
+        var cashierCb = result.Users.First(u => u.RoleCode == RoleCodes.Cashier && u.Branches == "CB");
+        var (cs, cm) = await SignInAsync(sp, cashierCb);
         using (cs)
         {
             var fiscal = await cm.Send(new GetPosFiscalStateQuery());
             Assert.True(fiscal.BillingEnabled && fiscal.Ready, fiscal.Message);
-            var product = (await cm.Send(new GetSellableProductsQuery())).First(p => p.Available >= 2);
+            var product = (await cm.Send(new GetSellableProductsQuery())).First(p => p.Available >= 2 && !TechSeedCatalog.Current.Product(p.Sku).TracksSerials);
             var sale = await cm.Send(new CheckoutCommand("CF", "EFECTIVO", [new SaleLineInput(product.Sku, 1)], 1000m, null,
                 new FiscalBuyerInput(SiatCodes.DocumentCi, "4455667", null, "Comprador de prueba", null)));
             var sent = await cm.Send(new DispatchFiscalDocumentsCommand(sale.FiscalDocumentId));
@@ -332,7 +421,7 @@ public sealed class LocalDataSeederTests
         var (scope, mediator, _) = await DemoWorkspaceTests.SignInAsync(sp, demo);
         using (scope)
         {
-            Assert.Equal(34, (await mediator.Send(new GetProductImagesQuery())).Count);
+            Assert.Equal(159, (await mediator.Send(new GetProductImagesQuery())).Count);
             Assert.All(await mediator.Send(new GetCatalogQuery()), c => Assert.True(c.HasImage && c.SalePrice > 0, c.Sku));
         }
     }

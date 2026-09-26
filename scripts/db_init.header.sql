@@ -1,5 +1,5 @@
 -- =====================================================================================================================
--- M-INV V4.1 · Inicialización de la base de datos PostgreSQL (140 tablas, 9 esquemas + modelo de lectura, 5FN)
+-- M-INV V4.2 · Inicialización de la base de datos PostgreSQL (152 tablas, 10 esquemas + modelo de lectura, 5FN)
 -- Z&P Software Fast Solutions
 --
 -- ARCHIVO GENERADO por tools/build_v3.ps1 (cabecera + «dotnet ef migrations script --idempotent»). No lo edite a mano:
@@ -20,13 +20,15 @@
 --      servidores: MINV_DB = "Host=…;Database=minv;Username=minv_server;Password=…;SSL Mode=VerifyFull"
 --      escritorio directo (base local): MINV_DB = "Host=localhost;Port=5432;Database=minv;Username=minv_app;Password=…"
 --
--- Contenido: esquemas iam, catalog, warehouse, inventory, purchasing, sales, accounting, integration y billing (V4.1:
--- facturación SIAT computarizada en línea); tablas con PK, FK compuestas (tenant_id, id) y (tenant_id, branch_id, id);
--- restricciones CHECK e índices únicos; catálogo de módulos comerciales; triggers append-only, un valor por atributo y
--- asientos cuadrados; Row Level Security por empresa y política restrictiva por sucursal; funciones SECURITY DEFINER
--- para el servidor (V4.1: billing.siat_active_tenants); esquema reporting (vistas materializadas + vistas filtradas);
--- vistas v_stock_by_variant, v_conservation_breaches, v_transfer_breaches, v_activity y (V4.1)
--- billing.v_fiscal_document_totals (totales fiscales derivados); privilegios de minv_app y minv_server.
+-- Contenido: esquemas iam, catalog, warehouse, inventory, purchasing, sales, accounting, integration, billing (V4.1:
+-- facturación SIAT computarizada en línea) y service (V4.2: garantías y RMA); tablas con PK, FK compuestas (tenant_id, id)
+-- y (tenant_id, branch_id, id); restricciones CHECK e índices únicos; catálogo de módulos comerciales; triggers
+-- append-only, un valor por atributo, asientos cuadrados y (V4.2) valores de fichas técnicas del tipo de su
+-- especificación; Row Level Security por empresa y política restrictiva por sucursal; funciones SECURITY DEFINER para el
+-- servidor (V4.1: billing.siat_active_tenants); esquema reporting (vistas materializadas + vistas filtradas); vistas
+-- v_stock_by_variant, v_conservation_breaches, v_transfer_breaches, v_activity, (V4.1) billing.v_fiscal_document_totals
+-- (totales fiscales derivados) y (V4.2) inventory.v_serial_breaches (series en stock = stock); privilegios de minv_app y
+-- minv_server.
 -- =====================================================================================================================
 
 DO $$

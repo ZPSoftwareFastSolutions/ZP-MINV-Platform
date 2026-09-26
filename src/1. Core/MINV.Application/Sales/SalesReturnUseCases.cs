@@ -6,6 +6,7 @@ using MINV.Application.Billing;
 using MINV.Application.Catalog;
 using MINV.Application.Common;
 using MINV.Application.Inventory;
+using MINV.Application.Tech;
 using MINV.Domain.Accounting;
 using MINV.Domain.Billing;
 using MINV.Domain.Catalog;
@@ -118,7 +119,14 @@ public sealed class CreateSalesReturnHandler(IMinvDbContext db, ICurrentUser use
         var refund = 0m;
         var cost = 0m;
         var eventLines = new List<SaleEventLine>();
-        foreach (var input in request.Lines.GroupBy(l => l.Sku.Trim().ToUpperInvariant()).Select(g => (Sku: g.Key, Quantity: g.Sum(l => l.Quantity))))
+        var ledger = new SerialLedger(db);
+        var detail = $"Devolución {returnNumber} de la venta {invoice.Number}{(request.Defective ? " (por falla)" : string.Empty)}: {request.Reason.Trim()}";
+        detail = detail.Length > 250 ? detail[..250] : detail;
+        var serialContext = new SerialContext(invoice.BranchId, userId, now, returnNumber, detail);
+        foreach (var input in request.Lines.GroupBy(l => l.Sku.Trim().ToUpperInvariant())
+                     .Select(g => (Sku: g.Key, Quantity: g.Sum(l => l.Quantity), Serials: g.Any(l => l.Serials is not null)
+                         ? g.SelectMany(l => l.Serials ?? []).ToList()
+                         : null)))
         {
             var item = await lookups.VariantBySkuAsync(input.Sku, ct);
             Quantities.EnsureAllowed(input.Quantity, item.Unit.AllowsDecimals, item.Unit.UnitCode);
@@ -128,35 +136,88 @@ public sealed class CreateSalesReturnHandler(IMinvDbContext db, ICurrentUser use
             Guard.That(input.Quantity <= available, "return.exceeds",
                 $"No se puede devolver más de lo vendido: {item.Variant.Sku} vendido {Quantities.Format(sold.Sum(l => l.Quantity))}, " +
                 $"ya devuelto {Quantities.Format(sold.Sum(l => returned.GetValueOrDefault(l.Id)))}.");
-            var pending = input.Quantity;
-            foreach (var orderLine in sold)
+
+            // V4.2 · Un producto serializado se devuelve por sus series: cada una es de ESTA venta y sigue vendida; la línea
+            // de la devolución es la de la venta de cada serie
+            var serials = await ledger.ExpectAsync(item, input.Quantity, input.Serials, ct);
+            var takes = new List<(SalesOrderLine OrderLine, decimal Quantity, IReadOnlyList<SerialNumber> Units)>();
+            if (serials.Count > 0)
             {
-                var already = returned.GetValueOrDefault(orderLine.Id);
-                var take = Math.Min(pending, orderLine.Quantity - already);
-                if (take <= 0)
+                var soldLineIds = sold.Select(l => l.Id).ToList();
+                var ofSale = (await (from x in db.Set<SalesOrderLineSerial>()
+                                     join s in db.Set<SerialNumber>() on x.SerialNumberId equals s.Id
+                                     where soldLineIds.Contains(x.SalesOrderLineId) && serials.Contains(s.Serial)
+                                     select new { x.SalesOrderLineId, Unit = s }).ToListAsync(ct))
+                    .ToDictionary(x => x.Unit.Serial, StringComparer.Ordinal);
+                foreach (var serial in serials)
                 {
+                    Guard.That(ofSale.ContainsKey(serial), SerialErrorCodes.NotInDocument, $"La serie {serial} de {item.Variant.Sku} no se vendió en {invoice.Number}.");
+                    var unit = ofSale[serial].Unit;
+                    Guard.That(unit.Status == SerialNumberStatus.Sold, SerialErrorCodes.NotAvailable,
+                        $"La serie {serial} de {item.Variant.Sku} no se puede devolver: está {SerialNumber.Describe(unit.Status)}.");
+                }
+                foreach (var group in serials.GroupBy(s => ofSale[s].SalesOrderLineId))
+                {
+                    takes.Add((sold.First(l => l.Id == group.Key), group.Count(), group.Select(s => ofSale[s].Unit).ToList()));
+                }
+            }
+            else
+            {
+                var pending = input.Quantity;
+                foreach (var orderLine in sold)
+                {
+                    var take = Math.Min(pending, orderLine.Quantity - returned.GetValueOrDefault(orderLine.Id));
+                    if (take > 0)
+                    {
+                        takes.Add((orderLine, take, []));
+                        pending -= take;
+                    }
+                    if (pending <= 0)
+                    {
+                        break;
+                    }
+                }
+            }
+
+            foreach (var (orderLine, take, units) in takes)
+            {
+                var line = salesReturn.AddLine(orderLine, take, returned.GetValueOrDefault(orderLine.Id));
+                refund += SalesReturn.RefundOf(orderLine, line.Quantity);
+                eventLines.Add(new SaleEventLine(item.Variant.Sku, line.Quantity, orderLine.UnitPrice, orderLine.DiscountPercent));
+                foreach (var unit in units)
+                {
+                    db.Set<SalesReturnLineSerial>().Add(new SalesReturnLineSerial(invoice.TenantId, invoice.BranchId, line.Id, unit.Id));
+                }
+                if (request.Defective)
+                {
+                    // Por falla: sin entrada de stock; la unidad queda devuelta y en garantía (no es stock vendible)
+                    foreach (var unit in units)
+                    {
+                        unit.Return(null, null, serialContext);
+                        unit.SendToRma(serialContext);
+                    }
                     continue;
                 }
-                var line = salesReturn.AddLine(orderLine, take, already);
                 // A la misma posición y lote de la salida original (como la anulación de la venta)
                 var original = await db.Set<StockMovement>().FirstAsync(m => m.Id == orderLine.StockMovementId, ct);
                 var level = await db.Set<StockLevel>().FirstAsync(l => l.Id == original.StockLevelId, ct);
-                var context = new MovementContext(userId, today, now, returnNumber, $"Devolución {returnNumber} de la venta {invoice.Number}: {request.Reason.Trim()}");
+                var context = new MovementContext(userId, today, now, returnNumber, detail);
                 var movement = level.Register(returnType, line.Quantity, item.Unit, context);
                 db.Set<StockMovement>().Add(movement);
                 line.LinkMovement(movement.Id);
-                refund += SalesReturn.RefundOf(orderLine, line.Quantity);
                 cost += line.Quantity * await AverageCosts.CurrentAsync(db, item.Variant.Id, warehouseId, ct);
-                eventLines.Add(new SaleEventLine(item.Variant.Sku, line.Quantity, orderLine.UnitPrice, orderLine.DiscountPercent));
-                pending -= take;
-                if (pending <= 0)
+                if (units.Count > 0)
                 {
-                    break;
+                    var batch = await ledger.BatchAsync(level.BatchId, ct);
+                    foreach (var unit in units)
+                    {
+                        unit.Return(level, batch, serialContext);
+                    }
                 }
             }
         }
         refund = JournalPoster.Money(refund);
-        var tax = Pricing.IncludedTax(refund, await Pricing.TaxRateAsync(db, today, ct));
+        var tax = Pricing.IncludedTax(refund, await Pricing.TaxRateAsync(db, today, ct), await Pricing.VatOnInvoicedAmountAsync(db, ct));
         db.Set<SalesReturn>().Add(salesReturn);
         await JournalPoster.PostAsync(db, invoice.TenantId, invoice.BranchId, userId, today,
             $"Devolución {returnNumber} de la venta {invoice.Number}: {request.Reason.Trim()}",
@@ -174,7 +235,8 @@ public sealed class CreateSalesReturnHandler(IMinvDbContext db, ICurrentUser use
         db.Publish(new SaleReturnedEvent(returnNumber, invoice.Number, invoice.BranchId, refund, eventLines, now));
 
         // Nota crédito-débito (sector 24): solo en línea y sobre una factura válida; si no, queda para el trabajo automático
-        var message = $"✔ Devolución {returnNumber} registrada: reembolso Bs {refund:N2} ({method.Name}); el stock volvió al almacén.";
+        var message = $"✔ Devolución {returnNumber} registrada: reembolso Bs {refund:N2} ({method.Name}); " +
+                      (request.Defective ? "por falla: la mercadería quedó en garantía (no vuelve al stock vendible)." : "el stock volvió al almacén.");
         FiscalDocument? note = null;
         if (fiscal is not null)
         {

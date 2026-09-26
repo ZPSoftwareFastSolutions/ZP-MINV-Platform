@@ -60,7 +60,7 @@ X-Api-Key: minv_<prefijo 8>_<secreto 43>
 
 | Alcance | Rutas | Permisos del dueño que usa |
 |---|---|---|
-| `catalog:read` | `GET /v1/catalog`, `GET /v1/branches` | `inventory.stock.view` |
+| `catalog:read` | `GET /v1/catalog`, `GET /v1/branches`, `GET /v1/products/{sku}/specs` (V4.2) | `inventory.stock.view` |
 | `stock:read` | `GET /v1/stock`, `GET /v1/stock/consolidated` | `inventory.stock.view` |
 | `orders:write` | `POST /v1/orders`, `GET /v1/orders/{externalId}` | `sales.pos.operate`, `inventory.movements.register.sales`, `sales.view` |
 | `transfers:read` | `GET /v1/transfers`, `GET /v1/transfers/{id}` | `inventory.stock.view` |
@@ -138,7 +138,7 @@ Parámetros: `page` (1), `pageSize` (100, máximo 500), `search` (SKU o parte de
 El catálogo es de toda la empresa.
 
 ```bash
-curl -s "$MINV_API/v1/catalog?page=1&pageSize=100&search=martillo" -H "Authorization: Bearer $MINV_KEY"
+curl -s "$MINV_API/v1/catalog?page=1&pageSize=100&search=4060" -H "Authorization: Bearer $MINV_KEY"
 ```
 
 ```json
@@ -148,16 +148,26 @@ curl -s "$MINV_API/v1/catalog?page=1&pageSize=100&search=martillo" -H "Authoriza
   "total": 1,
   "items": [
     {
-      "sku": "FER-004",
-      "name": "Martillo carpintero 16 oz",
-      "category": "Ferretería",
+      "sku": "GPU-MSI-4060-V2XB",
+      "name": "Tarjeta de video MSI GeForce RTX 4060 VENTUS 2X BLACK 8G OC",
+      "category": "Tarjetas de video",
       "unit": "UND",
-      "price": 79.2,
+      "price": 3199.0,
       "barcodes": ["7771234567897"],
       "isActive": true
     }
   ]
 }
+```
+
+#### `GET /v1/products/{sku}/specs` · `catalog:read` (V4.2)
+
+Ficha técnica de un producto de la edición Tecnología: especificaciones (código, nombre, unidad, tipo, valores y texto
+para mostrar, clave de compatibilidad del armador), si lleva serie o IMEI (`trackSerials`, `serialKind`), meses de
+garantía y cuántas unidades con serie hay en stock. `404` si el SKU no existe.
+
+```bash
+curl -s "$MINV_API/v1/products/GPU-MSI-4060-V2XB/specs" -H "Authorization: Bearer $MINV_KEY"
 ```
 
 #### `GET /v1/branches` · `catalog:read`
@@ -175,21 +185,21 @@ curl -s "$MINV_API/v1/branches" -H "Authorization: Bearer $MINV_KEY"
   {
     "id": "01926b3e-7a10-7c2e-9d41-5b0f2a8e1c01",
     "code": "CM",
-    "name": "Casa matriz · Av. 6 de Agosto",
+    "name": "Casa matriz La Paz · Av. 16 de Julio (El Prado)",
     "isActive": true,
     "warehouses": ["ALM01"],
     "users": 7,
     "isVisible": true,
-    "stockValue": 152340.55,
+    "stockValue": 1528340.55,
     "transfersOut": 2,
     "transfersIn": 0
   },
   {
     "id": "01926b3e-7a11-7f55-8a02-3c1d9e4f2b02",
-    "code": "EA",
-    "name": "Sucursal El Alto",
+    "code": "CB",
+    "name": "Sucursal Cochabamba",
     "isActive": true,
-    "warehouses": ["ALMEA"],
+    "warehouses": ["ALMCB"],
     "users": 4,
     "isVisible": false,
     "stockValue": null,
@@ -226,7 +236,7 @@ Existencias por SKU, sucursal y almacén (solo las sucursales de la llave). Par�
 `sku`, `page`, `pageSize` (máx. 500). `available` = `onHand` − `reserved`.
 
 ```bash
-curl -s "$MINV_API/v1/stock?branch=CM&sku=FER-004" -H "Authorization: Bearer $MINV_KEY"
+curl -s "$MINV_API/v1/stock?branch=CM&sku=JUE-PS5-GT7" -H "Authorization: Bearer $MINV_KEY"
 ```
 
 ```json
@@ -235,7 +245,7 @@ curl -s "$MINV_API/v1/stock?branch=CM&sku=FER-004" -H "Authorization: Bearer $MI
   "pageSize": 100,
   "total": 1,
   "items": [
-    { "sku": "FER-004", "branchCode": "CM", "warehouseCode": "ALM01", "onHand": 14, "reserved": 0, "available": 14 }
+    { "sku": "JUE-PS5-GT7", "branchCode": "CM", "warehouseCode": "ALM01", "onHand": 14, "reserved": 0, "available": 14 }
   ]
 }
 ```
@@ -247,24 +257,24 @@ recibidas, contado una sola vez). `total` = Σ `byBranch` + `inTransit`. Valoriz
 Parámetro: `search` (SKU o nombre). `byBranch` y `valueByBranch` siguen el orden de `branches`.
 
 ```bash
-curl -s "$MINV_API/v1/stock/consolidated?search=FER-004" -H "Authorization: Bearer $MINV_KEY"
+curl -s "$MINV_API/v1/stock/consolidated?search=JUE-PS5-GT7" -H "Authorization: Bearer $MINV_KEY"
 ```
 
 ```json
 {
   "branches": [
-    { "id": "01926b3e-7a10-7c2e-9d41-5b0f2a8e1c01", "code": "CM", "name": "Casa matriz · Av. 6 de Agosto" }
+    { "id": "01926b3e-7a10-7c2e-9d41-5b0f2a8e1c01", "code": "CM", "name": "Casa matriz La Paz · Av. 16 de Julio (El Prado)" }
   ],
   "rows": [
     {
-      "sku": "FER-004",
-      "name": "Martillo carpintero 16 oz",
-      "category": "Ferretería",
+      "sku": "JUE-PS5-GT7",
+      "name": "Gran Turismo 7 (PS5)",
+      "category": "Videojuegos",
       "unit": "UND",
       "byBranch": [14],
       "inTransit": 10,
       "total": 24,
-      "value": 1152.00
+      "value": 8832.00
     }
   ],
   "valueByBranch": [152340.55],
@@ -286,7 +296,7 @@ IVA incluido, pago, asiento contable y evento `sale.completed`), sin turno de ca
 | `customerCode` | sí | código del cliente en M-INV (`CF` = consumidor final) |
 | `paymentMethodCode` | sí | `EFECTIVO`, `QR`, `TARJETA` o `TRANSFERENCIA` |
 | `paymentReference` | con QR, tarjeta y transferencia | número de operación o voucher |
-| `lines[]` | sí (1 a 200) | `sku` (o código de barras), `quantity` > 0, `discountPercent` 0 a 100 (opcional) |
+| `lines[]` | sí (1 a 200) | `sku` (o código de barras), `quantity` > 0, `discountPercent` 0 a 100 (opcional) y, V4.2, `serials` (series o IMEI de las unidades de un producto serializado: una por unidad, en stock en el almacén que despacha; van en la factura del SIN y entran al hash de idempotencia solo si vienen) |
 | `warehouseCode` | no | almacén que despacha (por defecto, el de la sucursal de la llave); debe ser de una sucursal de la llave |
 | `buyer` | no (V4.1) | datos de facturación del comprador para la factura del SIAT (ver abajo). Si la empresa factura en el SIAT y el cliente no tiene datos de facturación, es obligatorio |
 | `buyer.documentType` | sí, si hay `buyer` | tipo de documento del SIN: `1` CI, `2` CEX, `3` pasaporte, `4` otro documento, `5` NIT |
@@ -313,10 +323,10 @@ curl -s -i -X POST "$MINV_API/v1/orders" \
         "paymentMethodCode": "QR",
         "paymentReference": "QR-88213344",
         "lines": [
-          { "sku": "FER-004", "quantity": 1 },
-          { "sku": "ELE-003", "quantity": 4, "discountPercent": 5 }
+          { "sku": "JUE-PS5-GT7", "quantity": 1 },
+          { "sku": "PAD-LOG-G240", "quantity": 2, "discountPercent": 5 }
         ],
-        "buyer": { "documentType": 5, "documentNumber": "1003579028", "name": "CONSTRUCTORA ANDINA S.R.L.", "email": "compras@andina.example" }
+        "buyer": { "documentType": 5, "documentNumber": "1020703023", "name": "ESTUDIO PIXEL ANDINO S.R.L.", "email": "compras@pixelandino.example" }
       }'
 ```
 
@@ -328,8 +338,8 @@ curl -s -i -X POST "$MINV_API/v1/orders" \
   "orderNumber": "PV-CM-000215",
   "invoiceNumber": "F-CM-000215",
   "branchCode": "CM",
-  "total": 145.70,
-  "tax": 16.76,
+  "total": 980.10,
+  "tax": 127.41,
   "issuedAt": "2026-09-25T15:04:05.1234567+00:00",
   "replayed": false,
   "cuf": "4128CF31A2C8606A3A19E23EF34124CD…",
@@ -339,7 +349,8 @@ curl -s -i -X POST "$MINV_API/v1/orders" \
 
 V4.1: `cuf` y `fiscalNumber` son el CUF y el número del documento fiscal del SIAT de la venta (`null` si la empresa no
 factura en el SIAT). Si el documento se re-emitió (rechazo o sin respuesta del SIN), `GET /v1/orders/{externalId}`
-devuelve el vigente.
+devuelve el vigente. V4.2: `tax` es el IVA incluido en `total`; en Bolivia, el 13 % del total facturado, redondeado una vez
+(el débito fiscal de la factura en el libro de ventas); una empresa de otro país conserva importe × tasa / (100 + tasa).
 
 `200 OK` con `Idempotent-Replayed: true` y `"replayed": true` si repite el mismo pedido; `422` con
 `"title": "idempotency"` si repite el `externalId` con otro contenido:
@@ -398,10 +409,10 @@ curl -s "$MINV_API/v1/transfers?status=Dispatched" -H "Authorization: Bearer $MI
   {
     "id": "01926c01-2b3d-7e8f-a1b2-c3d4e5f60718",
     "number": "TR-CM-000031",
-    "fromBranch": "Casa matriz · Av. 6 de Agosto",
+    "fromBranch": "Casa matriz La Paz · Av. 16 de Julio (El Prado)",
     "fromWarehouse": "ALM01",
-    "toBranch": "Sucursal El Alto",
-    "toWarehouse": "ALMEA",
+    "toBranch": "Sucursal Cochabamba",
+    "toWarehouse": "ALMCB",
     "status": "Dispatched",
     "statusLabel": "despachada (en tránsito)",
     "requestedAt": "2026-09-22T19:00:00+00:00",
@@ -409,7 +420,7 @@ curl -s "$MINV_API/v1/transfers?status=Dispatched" -H "Authorization: Bearer $MI
     "receivedAt": null,
     "lines": 1,
     "quantity": 10,
-    "value": 480.00,
+    "value": 3680.00,
     "shortage": 0,
     "notes": "Reposición semanal de la sucursal",
     "canDispatch": false,
@@ -433,11 +444,11 @@ curl -s "$MINV_API/v1/transfers/01926c01-2b3d-7e8f-a1b2-c3d4e5f60718" -H "Author
   "lines": [
     {
       "lineId": "01926c01-2b3e-71aa-9c0d-11aa22bb33cc",
-      "sku": "FER-004",
-      "name": "Martillo carpintero 16 oz",
+      "sku": "JUE-PS5-GT7",
+      "name": "Gran Turismo 7 (PS5)",
       "unit": "UND",
       "quantity": 10,
-      "unitCost": 48.00,
+      "unitCost": 368.00,
       "received": 9,
       "shortage": 1,
       "shortageReason": "Caja dañada en el camión",
@@ -445,9 +456,9 @@ curl -s "$MINV_API/v1/transfers/01926c01-2b3d-7e8f-a1b2-c3d4e5f60718" -H "Author
     }
   ],
   "history": [
-    { "occurredAt": "2026-09-22T19:00:00+00:00", "statusLabel": "pendiente", "user": "Luis Quispe", "detail": "Solicitada" },
-    { "occurredAt": "2026-09-22T19:02:11+00:00", "statusLabel": "despachada (en tránsito)", "user": "Luis Quispe", "detail": "Despachada: mercadería en tránsito" },
-    { "occurredAt": "2026-09-23T12:40:00+00:00", "statusLabel": "recibida", "user": "Carla Mamani", "detail": "Recibida con faltantes (1)" }
+    { "occurredAt": "2026-09-22T19:00:00+00:00", "statusLabel": "pendiente", "user": "Mariana Suárez", "detail": "Solicitada" },
+    { "occurredAt": "2026-09-22T19:02:11+00:00", "statusLabel": "despachada (en tránsito)", "user": "Mariana Suárez", "detail": "Despachada: mercadería en tránsito" },
+    { "occurredAt": "2026-09-23T12:40:00+00:00", "statusLabel": "recibida", "user": "Sergio Mamani", "detail": "Recibida con faltantes (1)" }
   ]
 }
 ```
@@ -462,7 +473,7 @@ la sucursal de la llave.
 ```bash
 curl -s -X POST "$MINV_API/v1/transfers" \
   -H "Authorization: Bearer $MINV_KEY" -H "Content-Type: application/json" \
-  -d '{ "toWarehouseCode": "ALMEA", "lines": [ { "sku": "FER-004", "quantity": 10 } ], "notes": "Reposición de fin de semana" }'
+  -d '{ "toWarehouseCode": "ALMCB", "lines": [ { "sku": "JUE-PS5-GT7", "quantity": 10 } ], "notes": "Reposición de fin de semana" }'
 ```
 
 `201 Created` (`Location: /v1/transfers/{id}`):
@@ -471,7 +482,7 @@ curl -s -X POST "$MINV_API/v1/transfers" \
 {
   "id": "01926c01-2b3d-7e8f-a1b2-c3d4e5f60718",
   "number": "TR-CM-000031",
-  "message": "✔ Transferencia TR-CM-000031 solicitada de ALM01 a ALMEA (1 productos)."
+  "message": "✔ Transferencia TR-CM-000031 solicitada de ALM01 a ALMCB (1 productos)."
 }
 ```
 
@@ -488,7 +499,7 @@ curl -s -X POST "$MINV_API/v1/transfers/01926c01-2b3d-7e8f-a1b2-c3d4e5f60718/dis
 {
   "id": "01926c01-2b3d-7e8f-a1b2-c3d4e5f60718",
   "number": "TR-CM-000031",
-  "message": "✔ Transferencia TR-CM-000031 despachada: la mercadería está en tránsito hacia Sucursal El Alto. Asiento AS-CM-000412 por 480.00."
+  "message": "✔ Transferencia TR-CM-000031 despachada: la mercadería está en tránsito hacia Sucursal Cochabamba. Asiento AS-CM-000412 por 3680.00."
 }
 ```
 
@@ -497,12 +508,15 @@ Sin stock suficiente: `422` con `"code": "transfer.insufficient_stock"`.
 #### `POST /v1/transfers/{id}/receive` · `transfers:write` (destino)
 
 Recibe todas las líneas de una vez. Cuerpo opcional: sin líneas (o `{}`) = llegó todo; por cada línea con diferencia,
-lo recibido y el **motivo** del faltante (obligatorio si recibe menos). Nunca más de lo despachado.
+lo recibido y el **motivo** del faltante (obligatorio si recibe menos). Nunca más de lo despachado. V4.2: las líneas de
+productos serializados se solicitan con sus series (`serials` en `POST /v1/transfers`) y un faltante de esos productos
+DEBE decir qué series no llegaron (`missingSerials`; `422` con `serial.required`, `serial.count` o
+`serial.not_in_document` si no).
 
 ```bash
 curl -s -X POST "$MINV_API/v1/transfers/01926c01-2b3d-7e8f-a1b2-c3d4e5f60718/receive" \
   -H "Authorization: Bearer $MINV_KEY" -H "Content-Type: application/json" \
-  -d '{ "lines": [ { "sku": "FER-004", "receivedQuantity": 9, "shortageReason": "Caja dañada en el camión" } ] }'
+  -d '{ "lines": [ { "sku": "JUE-PS5-GT7", "receivedQuantity": 9, "shortageReason": "Caja dañada en el camión" } ] }'
 ```
 
 ```json
@@ -657,9 +671,9 @@ curl -s "$MINV_API/v1/reports/branches?from=2026-09-01&to=2026-09-25" -H "Author
   "from": "2026-09-01",
   "to": "2026-09-25",
   "branches": [
-    { "code": "CM", "name": "Casa matriz · Av. 6 de Agosto", "tickets": 412, "revenue": 58210.40, "tax": 6696.73, "averageTicket": 141.29, "stockValue": 152340.55, "sharePercent": 61.4 },
-    { "code": "EA", "name": "Sucursal El Alto", "tickets": 198, "revenue": 21330.10, "tax": 2453.91, "averageTicket": 107.73, "stockValue": 30115.20, "sharePercent": 22.5 },
-    { "code": "SC", "name": "Sucursal Santa Cruz", "tickets": 150, "revenue": 15250.00, "tax": 1754.42, "averageTicket": 101.67, "stockValue": 27940.00, "sharePercent": 16.1 }
+    { "code": "CM", "name": "Casa matriz La Paz · Av. 16 de Julio (El Prado)", "tickets": 412, "revenue": 58210.40, "tax": 7567.35, "averageTicket": 141.29, "stockValue": 152340.55, "sharePercent": 61.4 },
+    { "code": "CB", "name": "Sucursal Cochabamba", "tickets": 198, "revenue": 21330.10, "tax": 2772.91, "averageTicket": 107.73, "stockValue": 30115.20, "sharePercent": 22.5 },
+    { "code": "SC", "name": "Sucursal Santa Cruz", "tickets": 150, "revenue": 15250.00, "tax": 1982.50, "averageTicket": 101.67, "stockValue": 27940.00, "sharePercent": 16.1 }
   ],
   "days": [
     { "day": "2026-09-01", "revenueByBranch": [2410.50, 980.00, 610.20] }
@@ -716,12 +730,12 @@ Cuerpo (sobre común):
   "orderNumber": "PV-CM-000215",
   "branchIdOfSale": "01926b3e-7a10-7c2e-9d41-5b0f2a8e1c01",
   "customerCode": "CF",
-  "total": 145.70,
-  "tax": 16.76,
+  "total": 980.10,
+  "tax": 127.41,
   "channel": "api",
   "lines": [
-    { "sku": "FER-004", "quantity": 1, "unitPrice": 79.2, "discountPercent": 0 },
-    { "sku": "ELE-003", "quantity": 4, "unitPrice": 17.5, "discountPercent": 5 }
+    { "sku": "JUE-PS5-GT7", "quantity": 1, "unitPrice": 469.0, "discountPercent": 0 },
+    { "sku": "PAD-LOG-G240", "quantity": 2, "unitPrice": 269.0, "discountPercent": 5 }
   ],
   "eventType": "sale.completed",
   "occurredAt": "2026-09-25T15:04:05.1234567+00:00",
@@ -766,8 +780,8 @@ Cuerpo (sobre común):
   "number": "TR-CM-000031",
   "fromBranchId": "01926b3e-7a10-7c2e-9d41-5b0f2a8e1c01",
   "toBranchId": "01926b3e-7a11-7f55-8a02-3c1d9e4f2b02",
-  "lines": [ { "variantId": "01926b3f-0001-7000-8000-00000000f004", "quantity": 10, "unitCost": 48.00 } ],
-  "totalCost": 480.00,
+  "lines": [ { "variantId": "01926b3f-0001-7000-8000-00000000f004", "quantity": 10, "unitCost": 368.00 } ],
+  "totalCost": 3680.00,
   "eventType": "transfer.dispatched",
   "occurredAt": "2026-09-22T19:02:11+00:00",
   "branchId": "01926b3e-7a10-7c2e-9d41-5b0f2a8e1c01"
@@ -782,7 +796,7 @@ Cuerpo (sobre común):
   "number": "TR-CM-000031",
   "fromBranchId": "01926b3e-7a10-7c2e-9d41-5b0f2a8e1c01",
   "toBranchId": "01926b3e-7a11-7f55-8a02-3c1d9e4f2b02",
-  "lines": [ { "variantId": "01926b3f-0001-7000-8000-00000000f004", "quantity": 9, "unitCost": 48.00 } ],
+  "lines": [ { "variantId": "01926b3f-0001-7000-8000-00000000f004", "quantity": 9, "unitCost": 368.00 } ],
   "shortage": 1,
   "eventType": "transfer.received",
   "occurredAt": "2026-09-23T12:40:00+00:00",

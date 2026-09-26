@@ -61,7 +61,7 @@
                     <StackPanel>
                         <DockPanel Margin="0,0,0,14">
                             <Border DockPanel.Dock="Left" Width="26" Height="26" CornerRadius="13" Background="{DynamicResource Brand}">
-                                <TextBlock Text="1" Foreground="#FFFFFF" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                <TextBlock Text="1" Foreground="{DynamicResource OnBrand}" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
                             </Border>
                             <TextBlock Text="¿Qué movimiento va a registrar?" Style="{StaticResource H3}" Margin="10,0,0,0" VerticalAlignment="Center" />
                         </DockPanel>
@@ -106,7 +106,7 @@
                     <StackPanel>
                         <DockPanel Margin="0,0,0,14">
                             <Border DockPanel.Dock="Left" Width="26" Height="26" CornerRadius="13" Background="{DynamicResource Brand}">
-                                <TextBlock Text="2" Foreground="#FFFFFF" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                <TextBlock Text="2" Foreground="{DynamicResource OnBrand}" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
                             </Border>
                             <TextBlock Text="Producto y posición" Style="{StaticResource H3}" Margin="10,0,0,0" VerticalAlignment="Center" />
                         </DockPanel>
@@ -146,7 +146,7 @@
                     <StackPanel>
                         <DockPanel Margin="0,0,0,14">
                             <Border DockPanel.Dock="Left" Width="26" Height="26" CornerRadius="13" Background="{DynamicResource Brand}">
-                                <TextBlock Text="3" Foreground="#FFFFFF" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                <TextBlock Text="3" Foreground="{DynamicResource OnBrand}" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
                             </Border>
                             <TextBlock Text="Cantidad y detalle" Style="{StaticResource H3}" Margin="10,0,0,0" VerticalAlignment="Center" />
                         </DockPanel>
@@ -181,6 +181,14 @@
                                 <TextBlock Style="{StaticResource Caption}" Margin="0,6,0,0" Visibility="{Binding HasProduct, Converter={StaticResource Visible}}">
                                     <Run Text="Unidad:" /> <Run Text="{Binding UnitText, Mode=OneWay}" FontWeight="SemiBold" />
                                 </TextBlock>
+                                <!-- V4.2 · Producto con serie o IMEI -->
+                                <Border Style="{StaticResource Badge}" Margin="0,6,0,0" Visibility="{Binding HasSerialHint, Converter={StaticResource Visible}}">
+                                    <DockPanel>
+                                        <TextBlock DockPanel.Dock="Left" Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Barcode}" FontSize="11" Margin="0,1,6,0"
+                                                   VerticalAlignment="Top" />
+                                        <TextBlock Text="{Binding SerialHint}" TextWrapping="Wrap" />
+                                    </DockPanel>
+                                </Border>
                             </StackPanel>
                             <StackPanel Grid.Column="2">
                                 <TextBlock Text="Documento (opcional)" Style="{StaticResource FieldLabel}" />

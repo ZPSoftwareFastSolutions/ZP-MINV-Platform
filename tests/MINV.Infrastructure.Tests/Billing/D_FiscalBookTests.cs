@@ -68,6 +68,75 @@ public sealed class D_FiscalBookTests
         Assert.Equal((1130m, 1130m, 146.90m, "1020304050"), (row.TotalAmount, row.TaxBase, row.TaxCredit, row.SupplierNit));
     }
 
+    /// <summary>
+    /// V4.2 · Recepción al costo NETO de IVA (así compran el catálogo y los datos de prueba): la factura del proveedor trae el
+    /// IVA encima. Su asiento suma ese IVA a la deuda con el proveedor (2.1.01) y del inventario sale solo la diferencia con el
+    /// crédito del SIN (13 % del importe con IVA). Con un descuento del proveedor, la deuda baja al importe menos el descuento.
+    /// En todos los casos el inventario queda en el importe de la factura menos descuentos y crédito fiscal. Con la convención
+    /// de la V4.2 (costo neto = 87 % del importe, en Bolivia el crédito fiscal es el 13 % de la factura) el importe que
+    /// corresponde a la recepción es recepción / 0,87 (<see cref="FiscalRules.InvoiceForNetCost"/>): el crédito fiscal es
+    /// exactamente el IVA que se suma a la deuda y el inventario no cambia (sigue en el valor del stock).
+    /// </summary>
+    [Fact]
+    public async Task Factura_de_proveedor_sobre_una_recepcion_al_costo_neto_suma_el_IVA_a_la_deuda()
+    {
+        await using var host = await D_BillingTestHost.CreateAsync();
+        using var admin = await host.SignInAsync();
+        var accounts = await admin.Db.Set<Account>().AsNoTracking().ToDictionaryAsync(a => a.Id, a => a.Code);
+        async Task<(decimal Vat, decimal PayablesDebit, decimal PayablesCredit, decimal InventoryCredit)> EntryOfAsync(string number)
+        {
+            var invoice = await admin.Db.Set<SupplierInvoice>().AsNoTracking().SingleAsync(i => i.Number == number);
+            var entry = await admin.Db.Set<JournalEntry>().AsNoTracking().Include(e => e.Lines).SingleAsync(e => e.SourceCorrelationId == invoice.Id);
+            Assert.Equal(entry.Lines.Sum(l => l.Debit), entry.Lines.Sum(l => l.Credit));
+            decimal Sum(string code, Func<JournalLine, decimal> side) => entry.Lines.Where(l => accounts[l.AccountId] == code).Sum(side);
+            return (Sum(AccountCodes.VatCredit, l => l.Debit), Sum(AccountCodes.Payables, l => l.Debit), Sum(AccountCodes.Payables, l => l.Credit),
+                Sum(AccountCodes.Inventory, l => l.Credit));
+        }
+
+        // 10 × 100.00 al costo neto = 1 000.00; la factura es de 1 130.00 con IVA: crédito 146.90, la deuda sube 130.00 y el
+        // inventario baja 16.90 (queda en 983.10 = 1 130.00 − 146.90)
+        var net = await ReceiveAsync(admin, 10, 100m);
+        await admin.Send(new RegisterSupplierInvoiceCommand(net, "5001", Cuf, new DateOnly(2026, 9, 24), 1130m));
+        Assert.Equal((146.90m, 0m, 130m, 16.90m), await EntryOfAsync("5001"));
+
+        // 10 × 11.30 con IVA = 113.00 y 3.00 de descuento: crédito 14.30 (13 % de 110), la deuda baja 3.00 y el inventario
+        // 17.30 (queda en 95.70 = 110.00 − 14.30)
+        var gross = await ReceiveAsync(admin, 10, 11.3m);
+        await admin.Send(new RegisterSupplierInvoiceCommand(gross, "5002", Cuf, new DateOnly(2026, 9, 24), 113m, Discounts: 3m));
+        Assert.Equal((14.30m, 3m, 0m, 17.30m), await EntryOfAsync("5002"));
+
+        // Convención de la V4.2: 10 × 100.00 al costo neto = 1 000.00 → factura de 1 000.00 / 0,87 = 1 149.43; crédito 149.43
+        // (13 % de 1 149.43 = 149.4259), la deuda sube 149.43 y el inventario NO cambia (el asiento no toca 1.1.05)
+        var exact = await ReceiveAsync(admin, 10, 100m);
+        Assert.Equal(1149.43m, FiscalRules.InvoiceForNetCost(1000m));
+        await admin.Send(new RegisterSupplierInvoiceCommand(exact, "5003", Cuf, new DateOnly(2026, 9, 24), FiscalRules.InvoiceForNetCost(1000m)));
+        Assert.Equal((149.43m, 0m, 149.43m, 0m), await EntryOfAsync("5003"));
+    }
+
+    /// <summary>
+    /// V4.2 · El IVA de una venta es el débito fiscal de su factura en el libro de ventas: el 13 % del TOTAL redondeado una vez
+    /// (<c>FiscalRules.Vat</c>), repartido entre las líneas. Redondeando línea por línea, 729,50 + 15,50 daba 94,84 + 2,02 =
+    /// 96,86 y el asiento (2.1.02) quedaba un centavo por encima del libro (96,85).
+    /// </summary>
+    [Fact]
+    public async Task El_IVA_de_la_venta_es_el_debito_fiscal_del_total_de_la_factura()
+    {
+        await using var host = await D_BillingTestHost.CreateAsync();
+        using var admin = await host.SignInAsync();
+        await D_BillingTestHost.CreateProductAsync(admin, "FER-101", "Taladro percutor 750 W", price: 729.50m);
+        await D_BillingTestHost.CreateProductAsync(admin, "FER-102", "Broca para concreto 8 mm", price: 15.50m);
+        var sale = await D_BillingTestHost.SellAsync(admin, new SaleLineInput("FER-101", 1), new SaleLineInput("FER-102", 1));
+        Assert.Equal((745m, 96.85m), (sale.Total, sale.Tax));
+        Assert.Equal(FiscalRules.Vat(sale.Total), sale.Tax);
+
+        var invoice = await admin.Db.Set<MINV.Domain.Sales.Invoice>().AsNoTracking().Include(i => i.Lines).SingleAsync(i => i.Number == sale.InvoiceNumber);
+        Assert.Equal([2.01m, 94.84m], invoice.Lines.Select(l => l.TaxAmount).Order());
+        var accounts = await admin.Db.Set<Account>().AsNoTracking().ToDictionaryAsync(a => a.Id, a => a.Code);
+        var entry = await admin.Db.Set<JournalEntry>().AsNoTracking().Include(e => e.Lines).SingleAsync(e => e.SourceCorrelationId == invoice.SalesOrderId);
+        Assert.Equal((96.85m, 648.15m), (entry.Lines.Where(l => accounts[l.AccountId] == AccountCodes.VatDebit).Sum(l => l.Credit),
+            entry.Lines.Where(l => accounts[l.AccountId] == AccountCodes.Sales).Sum(l => l.Credit)));
+    }
+
     [Fact]
     public async Task Libros_del_mes_exportables_y_resumen_IVA_IT()
     {

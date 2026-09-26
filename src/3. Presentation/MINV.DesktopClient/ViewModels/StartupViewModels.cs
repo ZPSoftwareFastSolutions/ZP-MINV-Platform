@@ -89,7 +89,7 @@ public sealed record DemoUserOption(string Email, string Name, string RoleCode, 
 /// <summary>
 /// Inicio de sesión: empresa, correo y contraseña (la contraseña no se enlaza: la vista la entrega solo al ingresar,
 /// regla A-09). V4: elige la conexión (base local por PostgreSQL o servidor M-INV en la nube), muestra su estado y
-/// permite entrar a la demostración con los datos de la V2.1.
+/// permite entrar a la demostración (V4.2: la empresa de prueba Tech Zone Gaming, generada en memoria).
 /// </summary>
 public sealed class LoginViewModel : ObservableObject
 {
@@ -250,17 +250,17 @@ public sealed class LoginViewModel : ObservableObject
     public string DemoCompany => _demo?.CompanyName ?? "";
 
     public string DemoSummary => _demo is { } d
-        ? $"{d.Import.Report.Products} productos · {d.Import.Report.Movements} movimientos · {d.Import.Report.Suppliers} proveedores · " +
-          (d.Import.Parity.Ok ? "paridad con la V2.1 ✔" : "paridad con la V2.1 con diferencias")
+        ? $"{d.Seed.Products} productos · {d.Seed.Branches.Count} sucursales · {d.Seed.Tickets + d.Seed.ExternalOrders} ventas · " +
+          (d.Billing is { } b ? $"{b.ValidInvoices} facturas válidas" : "sin facturación")
         : "";
 
     public BulkObservableCollection<DemoUserOption> DemoUsers { get; } = [];
 
-    /// <summary>Lo que ofrece M-INV (panel de marca).</summary>
+    /// <summary>Lo que ofrece M-INV (panel de marca; V4.2: edición Tecnología).</summary>
     public IReadOnlyList<HelpEntry> Features { get; } =
     [
-        new("Stock al instante", "Sin «Recalcular»: cada movimiento se refleja ya", Controls.Glyphs.Box),
-        new("Alertas y pedido sugerido", "Qué reponer y a qué proveedor, por prioridad", Controls.Glyphs.Cart),
+        new("Stock por sucursal al instante", "Cada venta, compra o traslado se refleja ya", Controls.Glyphs.Box),
+        new("Factura del SIN desde la caja", "En línea y con respaldo cuando se corta internet", Controls.Glyphs.Invoice),
         new("Nada se borra", "Auditoría inmutable de cada operación", Controls.Glyphs.Shield),
     ];
 
@@ -351,7 +351,7 @@ public sealed class LoginViewModel : ObservableObject
             return;
         }
         IsDemoBusy = true;
-        DemoStatus = "Migrando el libro de la V2.1 a la demostración (productos, proveedores, 473 movimientos y la auditoría)…";
+        DemoStatus = "Preparando la demostración de Tech Zone Gaming (catálogo de tecnología, 3 sucursales, ventas con series y facturación)…";
         try
         {
             _demo = await Task.Run(() => _host.PrepareDemoAsync());
@@ -392,15 +392,15 @@ public sealed class LoginViewModel : ObservableObject
         }
     }
 
-    /// <summary>Qué puede hacer cada rol (matriz RBAC por defecto).</summary>
+    /// <summary>Qué puede hacer cada rol (matriz RBAC por defecto; V4.2: con lo de la edición Tecnología).</summary>
     public static string Describe(string roleCode) => roleCode switch
     {
-        RoleCodes.Admin => "Todo: registrar, contar, auditar y configurar",
-        RoleCodes.Warehouse => "Entradas, ajustes y toma física",
-        RoleCodes.Sales => "Salidas y consulta de stock",
-        RoleCodes.Cashier => "Caja, ventas y consulta de stock",
-        RoleCodes.Management => "Tablero, auditoría y costos",
-        RoleCodes.ReadOnly => "Solo consulta",
+        RoleCodes.Admin => "Todo: vender, registrar, configurar y auditar",
+        RoleCodes.Warehouse => "Compras con series, stock, transferencias y garantías",
+        RoleCodes.Sales => "Caja con series, clientes y armador de PC",
+        RoleCodes.Cashier => "Caja con series e IMEI, clientes y armador de PC",
+        RoleCodes.Management => "Tablero, todas las sucursales, costos y garantías",
+        RoleCodes.ReadOnly => "Solo consulta: stock, series y reportes",
         _ => "Sin permisos asignados",
     };
 

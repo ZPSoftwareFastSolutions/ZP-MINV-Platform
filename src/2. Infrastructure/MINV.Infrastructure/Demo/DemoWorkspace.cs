@@ -1,27 +1,22 @@
 using System.Security.Cryptography;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
-using MINV.Application.Abstractions;
-using MINV.Domain.Catalog;
 using MINV.Domain.Iam;
-using MINV.Domain.Sales;
-using MINV.Infrastructure.Importing.V21;
-using MINV.Infrastructure.Persistence;
 using MINV.Infrastructure.Seeding;
-using MINV.Infrastructure.Services;
 
 namespace MINV.Infrastructure.Demo;
 
-/// <summary>Usuario de la demostración (los de la V2.1, con su rol).</summary>
+/// <summary>Usuario de la demostración (uno por rol, con su rol).</summary>
 public sealed record DemoUser(string Email, string DisplayName, string RoleCode, string RoleName);
 
 /// <summary>
 /// Empresa de demostración lista para ingresar. <see cref="Password"/> es aleatoria en cada ejecución (nunca se guarda
-/// en disco ni en el repositorio) y la comparten todos los usuarios de la demostración.
+/// en disco ni en el repositorio) y la comparten todos los usuarios de la demostración. V4.2: <see cref="Seed"/> resume la
+/// carga de Tech Zone Gaming (productos, ventas, series, RMA, armados) y <see cref="Billing"/> su facturación.
 /// </summary>
-public sealed record DemoSession(string TenantCode, string CompanyName, DateOnly Today, string Password,
-    IReadOnlyList<DemoUser> Users, V21ImportResult Import, DemoBilling? Billing = null)
+public sealed record DemoSession(string TenantCode, string CompanyName, DateOnly Today, string Password, IReadOnlyList<DemoUser> Users, SeedResult Seed)
 {
+    /// <summary>V4.1 · Facturación de la demostración (simulador del SIN en memoria).</summary>
+    public SeedBilling? Billing => Seed.Billing;
+
     public override string ToString() => $"DemoSession {TenantCode} · {CompanyName} · {Today:dd/MM/yyyy}";
 }
 
@@ -34,26 +29,43 @@ public sealed class DemoState
 }
 
 /// <summary>
-/// Prepara el modo demostración: migra el libro colaborativo de la V2.1 a la base en memoria con el mismo importador
-/// que <c>minv import-v21</c> (reglas del dominio, poka-yoke y paridad incluidos) y habilita el ingreso de sus usuarios.
-/// V4.1: la empresa también factura con el simulador del SIN en memoria (<see cref="DemoBillingSetup"/>), sin escribir en disco.
+/// Prepara el modo demostración (regla A-12): V4.2 · la empresa de prueba <b>Tech Zone Gaming S.R.L.</b> cargada en la base
+/// en memoria con el MISMO generador que la base local (<see cref="LocalDataSeeder"/>, los mismos casos de uso y la misma
+/// tubería) con menos días de operación para que abra rápido: tres sucursales, catálogo de tecnología con fichas técnicas,
+/// series e IMEI, casos RMA, armados de PC y facturación con el simulador del SIN EN MEMORIA (sin red ni disco). La
+/// contraseña, aleatoria, la comparten todos los usuarios; la pantalla de inicio ofrece un acceso por rol. El libro de la
+/// V2.1 ya no es la fuente de la demostración (su importador sigue en <c>minv import-v21</c>). Medido en frío (proceso
+/// nuevo, incluido el modelo de EF Core): unos 17 s, de ellos unos 2 s de la primera distribución a Cochabamba y Santa Cruz
+/// (90 productos con pocas unidades, para que esas sucursales no queden casi agotadas). Lo que más pesa es la primera vez
+/// de cada caso de uso (compilación de métodos y de consultas), no la cantidad de días: por eso las altas independientes
+/// (usuarios, fichas, saldos iniciales) van en paralelo y los procesos cortos corren sin la PGO dinámica
+/// (Directory.Build.props).
 /// </summary>
-public sealed class DemoWorkspace(MinvWriteDbContext db, V21Importer importer, DemoClock clock, IPasswordHasher hasher, DemoState state,
-    IServiceScopeFactory scopes)
+public sealed class DemoWorkspace(LocalDataSeeder seeder, DemoState state)
 {
-    public const string TenantCode = "DEMO";
-    public const string AdminEmail = "admin@distribuidorademo.example";
-    public const string TimeZoneId = "America/Bogota";
+    public const string TenantCode = "TECHZONE";
+    public const string AdminEmail = "admin@" + Domain;
+    public const string TimeZoneId = "America/La_Paz";
 
-    /// <summary>Libro de la V2.1 que se distribuye con el cliente (carpeta <c>Demo</c> junto al ejecutable).</summary>
-    public static string DefaultWorkbookPath => Path.Combine(AppContext.BaseDirectory, "Demo", "M-INV_V2_Colaborativo.xlsx");
+    /// <summary>Días de operación simulados de la demostración (la base local carga 60): lo justo para que haya ventas,
+    /// transferencias, compras recibidas, casos RMA en varios estados y los 8 armados, y abra en pocos segundos.</summary>
+    public const int Days = 8;
 
-    public async Task<DemoSession> PrepareAsync(string workbookPath, CancellationToken ct = default)
+    /// <summary>Días facturados de la demostración.</summary>
+    public const int BillingDays = 6;
+
+    /// <summary>Volumen de ventas diarias de la demostración (1 = el de la base local).</summary>
+    public const double Volume = 0.4;
+
+    private const string Domain = "techzone.example";
+
+    /// <summary>Prepara (una vez por proceso) la demostración de Tech Zone Gaming.</summary>
+    public async Task<DemoSession> PrepareAsync(CancellationToken ct = default)
     {
         await state.Gate.WaitAsync(ct);
         try
         {
-            return state.Session ??= await CreateAsync(workbookPath, ct);
+            return state.Session ??= await CreateAsync(ct);
         }
         finally
         {
@@ -61,68 +73,24 @@ public sealed class DemoWorkspace(MinvWriteDbContext db, V21Importer importer, D
         }
     }
 
-    private async Task<DemoSession> CreateAsync(string workbookPath, CancellationToken ct)
+    private async Task<DemoSession> CreateAsync(CancellationToken ct)
     {
-        if (!File.Exists(workbookPath))
-        {
-            throw new FileNotFoundException("No se encontró el libro de demostración de la V2.1.", workbookPath);
-        }
-        // «Hoy» de la demostración = el momento de los últimos datos de la V2.1 (instantánea, movimientos y actividad).
-        var wb = V21Workbook.Open(workbookPath);
-        var last = new[] { wb.SnapshotSerial ?? 0 }
-            .Concat(wb.Movements().Select(m => m.TimestampSerial))
-            .Concat(wb.Activity().Select(a => a.TimestampSerial))
-            .Max();
-        if (last > 0)
-        {
-            clock.StartAt(V21ImportPlanner.ToUtc(last, TimeZoneInfo.FindSystemTimeZoneById(TimeZoneId)).AddMinutes(10));
-        }
+        // Una sola contraseña aleatoria para todos (nunca en disco) y un token de SIMULACIÓN del SIN solo en memoria
+        // (siempre con letras y números: es lo que exige la validación de las contraseñas)
+        var password = "Tz" + Convert.ToBase64String(RandomNumberGenerator.GetBytes(18)).Replace('+', 'x').Replace('/', 'y') +
+                       RandomNumberGenerator.GetInt32(10, 100).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var token = "DEMO-" + Convert.ToHexString(RandomNumberGenerator.GetBytes(20));
+        // Factura cada venta con el simulador en memoria; los escenarios de contingencia (corte de internet, CAFC, anulaciones,
+        // notas) y el pedido sugerido completo quedan para la base local: así la demostración abre rápido (regla A-12, mismos
+        // casos de uso)
+        var result = await seeder.SeedAsync(new SeedOptions(TenantCode, Domain: Domain, Days: Days, TimeZoneId: TimeZoneId, BillingDays: BillingDays,
+            SiatToken: token, SharedPassword: password, Volume: Volume, ResetClock: false, BillingScenarios: false, SuggestedOrders: false), _ => { }, ct);
 
-        var password = Convert.ToBase64String(RandomNumberGenerator.GetBytes(18)).Replace('+', 'x').Replace('/', 'y');
-        var result = await importer.ImportAsync(new V21ImportRequest(workbookPath, TenantCode, AdminEmail, "Administrador M-INV",
-            password, TimeZoneId, CountryIso: "CO", CountryName: "Colombia"), ct);
-
-        // La V2.1 no tenía contraseñas (identificaba con Microsoft 365): en la demostración todos usan la misma, aleatoria.
-        var hash = hasher.Hash(password);
-        var withCredential = await db.UserCredentials.Select(c => c.UserId).ToListAsync(ct);
-        foreach (var user in await db.Users.Where(u => u.IsActive && !withCredential.Contains(u.Id)).ToListAsync(ct))
-        {
-            db.UserCredentials.Add(new UserCredential(user.TenantId, user.Id, hash, hasher.Algorithm, hasher.Iterations, clock.UtcNow,
-                mustChangePassword: false));
-        }
-
-        // La V2.1 no tenía fotos: cada producto recibe la ilustración que corresponde a su nombre (galería del catálogo)
-        var variants = await (from v in db.ProductVariants
-                              join p in db.Products on v.ProductId equals p.Id
-                              select new { v.TenantId, v.Id, p.Name }).ToListAsync(ct);
-        // Tampoco tenía precios de venta: 60 % sobre el costo promedio (IVA incluido) para poder vender en el punto de venta
-        var priceList = await db.PriceLists.FirstAsync(l => l.IsDefault, ct);
-        var costs = (await db.AverageCostHistory.Select(c => new { c.VariantId, c.EffectiveAt, c.AverageCost }).ToListAsync(ct))
-            .GroupBy(c => c.VariantId).ToDictionary(g => g.Key, g => g.OrderByDescending(c => c.EffectiveAt).First().AverageCost);
-        var priced = (await db.PriceListItems.Select(i => i.VariantId).ToListAsync(ct)).ToHashSet();
-        foreach (var v in variants)
-        {
-            db.ProductImages.Add(new ProductImage(v.TenantId, v.Id, ProductImageLibrary.ForProduct(v.Name), "image/png",
-                ProductImageLibrary.KindFor(v.Name) + ".png"));
-            if (!priced.Contains(v.Id))
-            {
-                var cost = costs.GetValueOrDefault(v.Id);
-                db.PriceListItems.Add(new PriceListItem(v.TenantId, priceList.Id, v.Id,
-                    cost > 0 ? decimal.Round(cost * 1.6m, 1, MidpointRounding.AwayFromZero) : 10m));
-            }
-        }
-        await db.SaveChangesAsync(ct);
-
+        // Un acceso por rol (el primero de cada uno: la casa matriz), en el orden de los roles
         var order = RoleCodes.All.Select((r, i) => (r.Code, i)).ToDictionary(x => x.Code, x => x.i);
-        var users = (await (from u in db.Users
-                            join ur in db.UserRoles on u.Id equals ur.UserId
-                            join r in db.Roles on ur.RoleId equals r.Id
-                            where u.IsActive
-                            select new DemoUser(u.Email, u.DisplayName, r.Code, r.Name)).ToListAsync(ct))
-            .OrderBy(u => order.GetValueOrDefault(u.RoleCode, 99)).ThenBy(u => u.DisplayName, StringComparer.CurrentCulture).ToList();
-        var company = await db.Tenants.Where(t => t.Code == TenantCode).Select(t => t.LegalName).FirstAsync(ct);
-        // V4.1 · La demostración también factura (simulador del SIN en memoria) y trae algunas facturas de ejemplo
-        var billing = await DemoBillingSetup.PrepareAsync(scopes, clock, TenantCode, company, password, users, ct);
-        return new DemoSession(TenantCode, company, clock.TodayIn(TimeZoneId), password, users, result, billing);
+        var users = result.Users.GroupBy(u => u.RoleCode).Select(g => g.First())
+            .OrderBy(u => order.GetValueOrDefault(u.RoleCode, 99))
+            .Select(u => new DemoUser(u.Email, u.Name, u.RoleCode, u.RoleName)).ToList();
+        return new DemoSession(TenantCode, result.CompanyName, result.To, password, users, result);
     }
 }

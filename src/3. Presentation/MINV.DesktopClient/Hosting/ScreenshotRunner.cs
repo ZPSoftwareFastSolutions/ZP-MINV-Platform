@@ -15,23 +15,32 @@ using MINV.Infrastructure.Persistence;
 namespace MINV.DesktopClient.Hosting;
 
 /// <summary>
-/// <c>M-INV.exe --capturas carpeta</c>: recorre la aplicación con la demostración (datos de la V2.1) y guarda una imagen
-/// de cada pantalla, en tema claro y oscuro. Sirve para la documentación y para revisar el diseño sin intervención
-/// (las ventanas se dibujan fuera de la pantalla visible y no se toca el perfil del usuario).
+/// <c>M-INV.exe --capturas carpeta [--tema claro|oscuro]</c>: recorre la aplicación con la demostración y guarda una
+/// imagen de cada pantalla, en el tema base (claro si no se indica) y un grupo de pantallas en el otro tema (sus archivos
+/// llevan el nombre de ese tema: «20-oscuro-inicio.png» con base clara, «20-claro-inicio.png» con base oscura). Sirve para
+/// la documentación y para revisar el diseño sin intervención (las ventanas se dibujan fuera de la pantalla visible y no
+/// se toca el perfil del usuario). V4.2: la demostración es Tech Zone Gaming (sucursales CM, CB y SC; CAJA01 y CAJA02
+/// tienen el turno abierto de su cajero): el administrador abre la caja libre que la pantalla preselecciona y lo que se
+/// registra o se cobra es de productos sin serie o lleva sus series. Con la base local la caja es la del cajero de prueba
+/// (su turno del día está abierto) y no se abre, registra ni cobra nada.
 /// </summary>
 public sealed class ScreenshotRunner(ClientHost host, ClientSettings settings, ThemeService theme)
 {
     private string _folder = ".";
     private readonly List<string> _saved = [];
+    private ThemeMode _base = ThemeMode.Light;
+    private ThemeMode _other = ThemeMode.Dark;
 
-    public async Task<int> RunAsync(string folder)
+    public async Task<int> RunAsync(string folder, ThemeMode baseTheme = ThemeMode.Light)
     {
         _folder = Path.GetFullPath(folder);
         Directory.CreateDirectory(_folder);
+        _base = baseTheme == ThemeMode.Dark ? ThemeMode.Dark : ThemeMode.Light;
+        _other = _base == ThemeMode.Dark ? ThemeMode.Light : ThemeMode.Dark;
         var log = Path.Combine(_folder, "capturas.log");
         try
         {
-            theme.Apply(ThemeMode.Light, save: false);
+            theme.Apply(_base, save: false);
             await CaptureStartupAsync();
             var demo = await host.PrepareDemoAsync();
             await CaptureLoginAsync(demo);
@@ -47,16 +56,20 @@ public sealed class ScreenshotRunner(ClientHost host, ClientSettings settings, T
             if (LocalUsers() is { } local && (await host.ProbeAsync()).IsReady)
             {
                 using var admin = await host.SignInAsync(local.Tenant, local.Admin.Email, local.Admin.Password);
-                await CaptureBusinessAsync(admin, local.Cashier is { } c ? await host.SignInAsync(local.Tenant, c.Email, c.Password) : null);
-                await CaptureBillingAsync(admin);
+                using var cashier = local.Cashier is { } c ? await host.SignInAsync(local.Tenant, c.Email, c.Password) : null;
+                await CaptureBusinessAsync(admin, cashier);
+                await CaptureBillingAsync(admin, cashier);
+                await CaptureTechAsync(admin, cashier);
             }
             else
             {
                 using var admin = await host.SignInDemoAsync(demo, DemoWorkspace.AdminEmail);
                 await CaptureBusinessAsync(admin, null);
-                await CaptureBillingAsync(admin);
+                await CaptureBillingAsync(admin, null);
+                await CaptureTechAsync(admin, null);
             }
-            File.WriteAllLines(log, _saved.Prepend($"✔ {_saved.Count} capturas · M-INV {App.Version} · {DateTime.Now:dd/MM/yyyy HH:mm}"));
+            File.WriteAllLines(log, _saved.Prepend(
+                $"✔ {_saved.Count} capturas · M-INV {App.Version} · tema base {ThemeService.Name(_base)} · {DateTime.Now:dd/MM/yyyy HH:mm}"));
             return 0;
         }
         catch (Exception ex)
@@ -71,7 +84,7 @@ public sealed class ScreenshotRunner(ClientHost host, ClientSettings settings, T
     {
         var splash = new SplashViewModel();
         splash.Complete(0);
-        splash.Complete(1, text: "Preferencias cargadas · tema claro");
+        splash.Complete(1, text: $"Preferencias cargadas · tema {ThemeService.Name(_base)}");
         splash.Complete(2, warning: true, text: "Sin base de datos: puede usar la demostración");
         splash.Begin(3, "Listo");
         splash.Progress = 90;
@@ -85,15 +98,15 @@ public sealed class ScreenshotRunner(ClientHost host, ClientSettings settings, T
         var vm = new LoginViewModel(host, settings, new DatabaseStatus(false, false, "localhost:5432", "minv", "minv_app", null,
             "Sin conexión con localhost:5432: no respondió a tiempo"))
         {
-            TenantCode = "DEMO",
-            Email = "admin@distribuidorademo.example",
+            TenantCode = "TECHZONE",
+            Email = "admin@techzone.example",
         };
         var window = new LoginWindow(vm);
         await ShowAndCaptureAsync(window, "02-inicio-de-sesion.png", 600);
         // V4 · Modo nube: el escritorio solo conoce la dirección del servidor M-INV (sin credenciales de la base)
-        vm.ShowCloud("https://minv.elconstructor.example", new ServerStatus(true, "minv.elconstructor.example", "4.0.0-alpha.1", "Servidor M-INV disponible"));
-        vm.TenantCode = "MINV";
-        vm.Email = "admin@elconstructor.example";
+        vm.ShowCloud("https://minv.techzone.example", new ServerStatus(true, "minv.techzone.example", App.Version, "Servidor M-INV disponible"));
+        vm.TenantCode = "TECHZONE";
+        vm.Email = "admin@techzone.example";
         await SettleAsync(500);
         await CaptureAsync(window, "04-inicio-de-sesion-nube.png");
         await vm.OpenDemo.ExecuteAsync();
@@ -125,9 +138,11 @@ public sealed class ScreenshotRunner(ClientHost host, ClientSettings settings, T
         await GoAsync(shell, "stock");
         await CaptureAsync(window, "05-stock.png");
 
-        // Registrar movimiento: formulario lleno, resultado y poka-yoke
+        // Registrar movimiento: formulario lleno, resultado y poka-yoke, con el producto SIN serie más vendido (una entrada de un
+        // serializado pide sus series: esa captura es la de la edición Tecnología)
         var stock = (await shell.App.Data.ProjectionAsync()).Result.Stock;
-        var product = stock.Where(r => r.IsActive && r.Stock > 0).OrderByDescending(r => r.Sales30Days).First();
+        var serialized = await SerializedAsync(shell.App);
+        var product = stock.Where(r => r.IsActive && r.Stock > 0 && !serialized.Contains(r.Sku)).OrderByDescending(r => r.Sales30Days).First();
         shell.Navigate("registro", new MovementPrefill(product.Sku, MovementTypeCodes.Receipt));
         var movement = (MovementViewModel)shell.Current;
         await movement.EnsureLoadedAsync();
@@ -179,24 +194,24 @@ public sealed class ScreenshotRunner(ClientHost host, ClientSettings settings, T
         shell.CloseProduct.Execute(null);
 
         // Tema oscuro
-        theme.Apply(ThemeMode.Dark, save: false);
+        theme.Apply(_other, save: false);
         await GoAsync(shell, "inicio");
-        await CaptureAsync(window, "20-oscuro-inicio.png");
+        await CaptureAsync(window, Other("20-oscuro-inicio.png"));
         await GoAsync(shell, "stock");
-        await CaptureAsync(window, "21-oscuro-stock.png");
+        await CaptureAsync(window, Other("21-oscuro-stock.png"));
         shell.Navigate("registro", new MovementPrefill(product.Sku, MovementTypeCodes.Receipt));
         await WaitAsync(() => movement.HasProduct && !movement.IsLoadingProduct, 10000);
         movement.QuantityText = "6";
         await SettleAsync(500);
-        await CaptureAsync(window, "22-oscuro-registro.png");
+        await CaptureAsync(window, Other("22-oscuro-registro.png"));
         await GoAsync(shell, "alertas");
-        await CaptureAsync(window, "23-oscuro-alertas.png");
+        await CaptureAsync(window, Other("23-oscuro-alertas.png"));
         shell.OpenProduct(product.Sku);
         await WaitAsync(() => shell.ProductDetail is { IsLoading: false }, 10000);
         await SettleAsync(600);
-        await CaptureAsync(window, "24-oscuro-ficha.png");
+        await CaptureAsync(window, Other("24-oscuro-ficha.png"));
         shell.CloseProduct.Execute(null);
-        theme.Apply(ThemeMode.Light, save: false);
+        theme.Apply(_base, save: false);
 
         var dialog = new ChangePasswordWindow(new ChangePasswordViewModel(shell.App, mandatory: false));
         await ShowAndCaptureAsync(dialog, "25-cambiar-contrasena.png", 400);
@@ -310,11 +325,11 @@ public sealed class ScreenshotRunner(ClientHost host, ClientSettings settings, T
         integrations.Tab = 0;
         if (shell.ShowBranchSelector)
         {
-            shell.SelectedBranch = shell.BranchOptions.FirstOrDefault(b => b.Code == "EA") ?? shell.BranchOptions.Last();
+            shell.SelectedBranch = shell.BranchOptions.FirstOrDefault(b => b.Code == "CB") ?? shell.BranchOptions.Last();
             await WaitAsync(() => !shell.IsChangingBranch, 15000);
             await GoAsync(shell, "inicio");
             await SettleAsync(900);
-            await CaptureAsync(window, "68-sucursal-el-alto.png");
+            await CaptureAsync(window, "68-sucursal-cochabamba.png");
             shell.SelectedBranch = shell.BranchOptions.First(b => b.Code == "CM");
             await WaitAsync(() => !shell.IsChangingBranch, 15000);
         }
@@ -329,31 +344,19 @@ public sealed class ScreenshotRunner(ClientHost host, ClientSettings settings, T
         await CaptureAsync(window, "55-ficha-con-imagen.png");
         shell.CloseProduct.Execute(null);
 
-        theme.Apply(ThemeMode.Dark, save: false);
+        theme.Apply(_other, save: false);
         await GoAsync(shell, "catalogo");
-        await CaptureAsync(window, "60-oscuro-catalogo.png");
+        await CaptureAsync(window, Other("60-oscuro-catalogo.png"));
         await GoAsync(shell, "reportes");
-        await CaptureAsync(window, "61-oscuro-reportes.png");
+        await CaptureAsync(window, Other("61-oscuro-reportes.png"));
         await GoAsync(shell, "contabilidad");
-        await CaptureAsync(window, "62-oscuro-contabilidad.png");
-        theme.Apply(ThemeMode.Light, save: false);
+        await CaptureAsync(window, Other("62-oscuro-contabilidad.png"));
+        theme.Apply(_base, save: false);
         window.Close();
 
-        // Punto de venta: con un cajero que tiene la caja abierta (o el administrador)
-        var posShell = cashier is null ? shell : cashier.Services.GetRequiredService<ShellViewModel>();
-        var posWindow = new MainWindow(posShell) { Width = 1440, Height = 900 };
-        Place(posWindow);
-        posWindow.Show();
-        await WaitAsync(() => posShell.Current.HasLoaded, 30000);
-        await GoAsync(posShell, "pos");
-        await WaitImagesAsync(posShell);
-        var pos = (PosViewModel)posShell.Current;
-        if (pos.IsClosed && posShell.Session.IsDemo)
-        {
-            await pos.OpenSession.ExecuteAsync();   // demostración: el administrador abre la caja para mostrar la venta
-            await SettleAsync(400);
-        }
-        foreach (var item in pos.Products.Cast<PosProduct>().Where(p => !p.IsOut && p.Image is not null).Take(3).ToList())
+        // Punto de venta: con el cajero de prueba que tiene la caja abierta (base local) o el administrador en la caja libre
+        var (_, posWindow, pos) = await OpenPosAsync(cashier ?? admin);
+        foreach (var item in pos.Products.Cast<PosProduct>().Where(p => !p.IsOut && !p.IsSerialized && p.Image is not null).Take(3).ToList())
         {
             pos.Add.Execute(item);
         }
@@ -365,22 +368,21 @@ public sealed class ScreenshotRunner(ClientHost host, ClientSettings settings, T
         pos.CashReceived = "500";
         await SettleAsync(700);
         await CaptureAsync(posWindow, "56-punto-de-venta.png");
-        theme.Apply(ThemeMode.Dark, save: false);
+        theme.Apply(_other, save: false);
         await SettleAsync(500);
-        await CaptureAsync(posWindow, "63-oscuro-punto-de-venta.png");
-        theme.Apply(ThemeMode.Light, save: false);
+        await CaptureAsync(posWindow, Other("63-oscuro-punto-de-venta.png"));
+        theme.Apply(_base, save: false);
         pos.Cart.Clear();
         posWindow.Close();
-        cashier?.Dispose();
     }
 
     // -------------------------------------------------------------------------------------------- V4.1 · facturación SIAT
     /// <summary>
-    /// Pantallas de la facturación (69 en adelante). En la demostración se activa antes la facturación de prueba con el
-    /// simulador del SIN en memoria (<see cref="DesktopDemoBilling"/>) y se cobran dos ventas; con la base local se captura lo que
-    /// haya (sin cobrar nada): las pantallas se ven bien aunque todavía no existan documentos.
+    /// Pantallas de la facturación (69 en adelante). La demostración ya factura con el simulador del SIN en memoria: se
+    /// cobran dos ventas (la primera con un producto serializado y su serie, que la factura lleva); con la base local se
+    /// captura lo que haya (sin cobrar nada): las pantallas se ven bien aunque todavía no existan documentos.
     /// </summary>
-    private async Task CaptureBillingAsync(SessionHandle admin)
+    private async Task CaptureBillingAsync(SessionHandle admin, SessionHandle? cashier)
     {
         var shell = admin.Services.GetRequiredService<ShellViewModel>();
         if (!shell.Session.HasBillingModule)
@@ -388,46 +390,39 @@ public sealed class ScreenshotRunner(ClientHost host, ClientSettings settings, T
             _saved.Add("(sin capturas de facturación: la empresa no tiene el módulo FISCAL_SIAT)");
             return;
         }
-        if (shell.Session.IsDemo && !shell.Session.IsBillingEnabled)
-        {
-            _saved.Add("· " + await DesktopDemoBilling.ConfigureAsync(shell.App));
-        }
-        var window = new MainWindow(shell) { Width = 1440, Height = 900 };
-        Place(window);
-        window.Show();
-        await WaitAsync(() => shell.Current.HasLoaded, 30000);
 
-        // Punto de venta con datos de facturación y resultado fiscal
-        await GoAsync(shell, "pos");
-        await WaitImagesAsync(shell);
-        var pos = (PosViewModel)shell.Current;
-        await pos.LoadAsync(force: true);   // la caja ya estaba cargada antes de activar la facturación: banda fiscal y comprador
-        if (pos.IsClosed && shell.Session.IsDemo)
-        {
-            await pos.OpenSession.ExecuteAsync();
-            await SettleAsync(400);
-        }
+        // Punto de venta con datos de facturación y resultado fiscal (con la serie de la unidad vendida)
+        var (posShell, posWindow, pos) = await OpenPosAsync(cashier ?? admin);
+        Guid? withSerials = null;   // la factura con series se muestra después en «Documentos fiscales»
+        pos.Cart.Clear();
         if (pos.Buyer is { } buyer)
         {
-            buyer.Prefill(MINV.Domain.Billing.SiatCodes.DocumentNit, "1020703023", null, "Constructora Andina S.R.L.", "compras@andina.example");
+            buyer.Prefill(MINV.Domain.Billing.SiatCodes.DocumentNit, "1020703023", null, "Estudio Pixel Andino S.R.L.", "compras@pixelandino.example");
         }
-        foreach (var item in pos.Products.Cast<PosProduct>().Where(p => !p.IsOut && p.Available >= 2 && p.Image is not null).Take(2).ToList())
+        if (pos.IsOpen && pos.Products.Cast<PosProduct>().FirstOrDefault(p => p.IsSerialized && !p.IsOut && p.Image is not null) is { } unit)
+        {
+            await AddWithSerialsAsync(posShell, pos, unit);
+        }
+        foreach (var item in pos.Products.Cast<PosProduct>().Where(p => !p.IsOut && !p.IsSerialized && p.Available >= 2 && p.Image is not null).Take(1).ToList())
         {
             pos.Add.Execute(item);
         }
         pos.QuickCash.Execute("exacto");
+        posShell.App.Notify.Items.Clear();
         await SettleAsync(700);
-        await CaptureAsync(window, "75-punto-de-venta-datos-de-facturacion.png");
-        if (shell.Session.IsDemo && pos.IsBilling && pos.IsOpen && pos.Cart.Count > 0)
+        await CaptureAsync(posWindow, "75-punto-de-venta-datos-de-facturacion.png");
+        if (posShell.Session.IsDemo && pos.IsBilling && pos.IsOpen && pos.Cart.Count > 0)
         {
             await pos.Checkout.ExecuteAsync();
             await WaitAsync(() => !pos.IsBusy, 20000);
+            posShell.App.Notify.Items.Clear();
             await SettleAsync(900);
-            await CaptureAsync(window, "76-punto-de-venta-resultado-fiscal.png");
+            await CaptureAsync(posWindow, "76-punto-de-venta-resultado-fiscal.png");
+            withSerials = pos.FiscalResult?.Row.Id;
             pos.CloseFiscalResult.Execute(null);
             // Una segunda venta (ventas menores del día) para que la lista tenga más de un documento
             pos.Buyer?.UseSpecial.Execute(BuyerForm.SpecialNits[0]);
-            if (pos.Products.Cast<PosProduct>().FirstOrDefault(p => !p.IsOut) is { } other)
+            if (pos.Products.Cast<PosProduct>().FirstOrDefault(p => !p.IsOut && !p.IsSerialized) is { } other)
             {
                 pos.Add.Execute(other);
                 await pos.Checkout.ExecuteAsync();
@@ -437,7 +432,14 @@ public sealed class ScreenshotRunner(ClientHost host, ClientSettings settings, T
         }
         pos.Cart.Clear();
         pos.Buyer?.Clear();
-        shell.App.Notify.Items.Clear();   // los avisos de las ventas no tapan las capturas siguientes
+        posShell.App.Notify.Items.Clear();   // los avisos de las ventas no tapan las capturas siguientes
+        posWindow.Close();
+
+        var window = new MainWindow(shell) { Width = 1440, Height = 900 };
+        Place(window);
+        window.Show();
+        await WaitAsync(() => shell.Current.HasLoaded, 30000);
+        shell.App.Notify.Items.Clear();
 
         await GoAsync(shell, "estado-siat");
         await WaitAsync(() => !shell.Current.IsBusy, 20000);
@@ -446,7 +448,8 @@ public sealed class ScreenshotRunner(ClientHost host, ClientSettings settings, T
 
         await GoAsync(shell, "documentos-fiscales");
         var documents = (FiscalDocumentsViewModel)shell.Current;
-        documents.Selected = documents.Rows.Cast<FiscalDocumentItem>().FirstOrDefault(d => d.Status == MINV.Domain.Billing.FiscalDocumentStatus.Valid)
+        documents.Selected = documents.Rows.Cast<FiscalDocumentItem>().FirstOrDefault(d => d.Id == withSerials)
+                             ?? documents.Rows.Cast<FiscalDocumentItem>().FirstOrDefault(d => d.Status == MINV.Domain.Billing.FiscalDocumentStatus.Valid)
                              ?? documents.Rows.Cast<FiscalDocumentItem>().FirstOrDefault();
         await WaitAsync(() => documents.Selected is null || documents.Detail is not null, 15000);
         await SettleAsync(900);
@@ -492,16 +495,378 @@ public sealed class ScreenshotRunner(ClientHost host, ClientSettings settings, T
         await SettleAsync(700);
         await CaptureAsync(window, "74-configuracion-facturacion-siat.png");
 
-        theme.Apply(ThemeMode.Dark, save: false);
+        theme.Apply(_other, save: false);
         await GoAsync(shell, "documentos-fiscales");
         await SettleAsync(800);
-        await CaptureAsync(window, "78-oscuro-documentos-fiscales.png");
+        await CaptureAsync(window, Other("78-oscuro-documentos-fiscales.png"));
         await GoAsync(shell, "estado-siat");
         await SettleAsync(600);
-        await CaptureAsync(window, "79-oscuro-estado-siat.png");
-        theme.Apply(ThemeMode.Light, save: false);
+        await CaptureAsync(window, Other("79-oscuro-estado-siat.png"));
+        theme.Apply(_base, save: false);
         window.Close();
     }
+
+    // -------------------------------------------------------------------------------------------- V4.2 · edición Tecnología
+    /// <summary>
+    /// V4.2 · Armador de PC, series e IMEI, garantías y RMA, catálogo técnico, caja con series y sección Tecnología del
+    /// tablero (81 en adelante). Tolerante a datos vacíos: con una empresa sin productos serializados, cotizaciones o casos
+    /// RMA se capturan las pantallas con sus estados vacíos (no se inventan datos); con la empresa de prueba de la edición
+    /// (o una base local con ella) cada pantalla se muestra con un ejemplo real elegido de sus datos.
+    /// </summary>
+    private async Task CaptureTechAsync(SessionHandle admin, SessionHandle? cashier)
+    {
+        var shell = admin.Services.GetRequiredService<ShellViewModel>();
+        if (!shell.AllPages.Any(p => p.Key == "armador"))
+        {
+            _saved.Add("(sin capturas de la edición Tecnología: el rol no tiene acceso)");
+            return;
+        }
+        var window = new MainWindow(shell) { Width = 1440, Height = 900 };
+        Place(window);
+        window.Show();
+        await TryWaitAsync(() => shell.Current.HasLoaded, 30000);
+        shell.App.Notify.Items.Clear();
+
+        // Tablero: la sección Tecnología (se desplaza hasta ella)
+        await GoAsync(shell, "inicio");
+        await SettleAsync(600);
+        await ScrollToAsync<Views.Pages.DashboardView>(window, "Tecnología");
+        await SettleAsync(300);
+        await CaptureAsync(window, "81-inicio-tecnologia.png");
+
+        // Catálogo: insignias Serie/IMEI, garantía y plataformas; ficha técnica y especificaciones por categoría
+        await GoAsync(shell, "catalogo");
+        await WaitImagesAsync(shell);
+        var catalog = (CatalogViewModel)shell.Current;
+        var serialized = catalog.Rows.Cast<CatalogProduct>().Where(p => p.HasSerialBadge).ToList();
+        if (await ShowcaseCategoryAsync(shell.App, catalog) is { } category)
+        {
+            catalog.Category = category;
+            await TryWaitAsync(() => !catalog.IsBusy, 10000);
+            await SettleAsync(900);
+        }
+        await CaptureAsync(window, "82-catalogo-insignias-y-plataformas.png");
+        // La ficha es de un producto de la categoría que se ve en la galería (serializado y, si lo hay, con stock); si no, el
+        // primero serializado del catálogo completo
+        var shown = catalog.Rows.Cast<CatalogProduct>().Where(p => p.HasSerialBadge).ToList();
+        var sample = shown.FirstOrDefault(p => p.Stock > 0) ?? shown.FirstOrDefault() ?? serialized.FirstOrDefault()
+                     ?? catalog.Rows.Cast<CatalogProduct>().FirstOrDefault();
+        if (sample is not null && catalog.CanEdit)
+        {
+            catalog.Edit.Execute(sample);
+            await TryWaitAsync(() => catalog.Editor is { IsLoadingTech: false }, 10000);
+            if (catalog.Editor is { } editor)
+            {
+                editor.IsTechTab = true;
+                await SettleAsync(700);
+                await CaptureAsync(window, "83-catalogo-ficha-tecnica.png");
+                theme.Apply(_other, save: false);
+                await SettleAsync(500);
+                await CaptureAsync(window, Other("98-oscuro-catalogo-ficha-tecnica.png"));
+                theme.Apply(_base, save: false);
+                catalog.CloseEditor();
+            }
+        }
+        if (catalog.ManageSpecs.CanExecute(null))
+        {
+            var specs = catalog.ManageSpecs.ExecuteAsync();
+            await TryWaitAsync(() => shell.Dialogs.Form is SpecsAdminDialog || specs.IsCompleted, 15000);
+            if (shell.Dialogs.Form is SpecsAdminDialog dialog)
+            {
+                await TryWaitAsync(() => !dialog.NoSpecs || dialog.Category is null, 3000);
+                dialog.Selected = dialog.Specs.FirstOrDefault(x => !x.IsInherited && x.View.DataType == MINV.Domain.Catalog.SpecDataType.Option)
+                                  ?? dialog.Specs.FirstOrDefault();
+                await SettleAsync(600);
+                await CaptureAsync(window, "84-catalogo-especificaciones.png");
+                dialog.Cancel.Execute(null);
+            }
+            await specs;
+        }
+        catalog.Category = catalog.Categories[0];
+
+        // Caja (la del cajero de prueba con la base local; la caja libre del administrador en la demostración): elegir la
+        // unidad (serie o IMEI) de un producto serializado y el carrito con sus series
+        var (posShell, posWindow, pos) = await OpenPosAsync(cashier ?? admin);
+        pos.Cart.Clear();
+        if (pos.IsOpen && pos.Products.Cast<PosProduct>().FirstOrDefault(p => p.IsSerialized && !p.IsOut && p.Image is not null) is { } unit)
+        {
+            await AddWithSerialsAsync(posShell, pos, unit, () => CaptureAsync(posWindow, "85-caja-elegir-serie.png"));
+            if (pos.Products.Cast<PosProduct>().FirstOrDefault(p => !p.IsSerialized && !p.IsOut && p.Image is not null) is { } other)
+            {
+                pos.Add.Execute(other);
+            }
+            pos.IsBuyerExpanded = false;   // datos de facturación plegados: se ve el carrito con las series de cada línea
+            posShell.App.Notify.Items.Clear();
+            await SettleAsync(700);
+            await CaptureAsync(posWindow, "86-caja-con-series.png");
+            theme.Apply(_other, save: false);
+            await SettleAsync(500);
+            await CaptureAsync(posWindow, Other("97-oscuro-caja-con-series.png"));
+            theme.Apply(_base, save: false);
+            pos.Cart.Clear();
+            pos.IsBuyerExpanded = true;
+        }
+        posWindow.Hide();
+
+        // Armador de PC: una cotización vigente de la sucursal de la caja (o cualquiera) o, si no hay, las primeras piezas
+        // compatibles de cada ranura
+        await GoAsync(shell, "armador");
+        var builder = (PcBuilderViewModel)shell.Current;
+        var branch = posShell.Session.Access.Active?.Code;
+        var quote = builder.Builds.Cast<PcBuildItem>().FirstOrDefault(b => b.CanSell && b.Row.IsCompatible && b.Row.BranchCode == branch)
+                    ?? builder.Builds.Cast<PcBuildItem>().FirstOrDefault(b => b.CanSell && b.Row.BranchCode == branch)
+                    ?? builder.Builds.Cast<PcBuildItem>().FirstOrDefault(b => b.CanSell)
+                    ?? builder.Builds.Cast<PcBuildItem>().FirstOrDefault();
+        if (quote is not null)
+        {
+            await builder.OpenBuildAsync(quote.Number);
+        }
+        else
+        {
+            foreach (var slot in builder.Slots.Where(s => s.IsRequired || s.Slot == MINV.Domain.Catalog.PcSlot.Gpu).ToList())
+            {
+                builder.SelectSlot.Execute(slot);
+                await TryWaitAsync(() => builder.SelectedSlot == slot && !builder.IsLoadingCandidates, 10000);
+                await SettleAsync(200);
+                if (builder.Candidates.FirstOrDefault(c => c.IsCompatible && !c.IsOut) is { } candidate && builder.CanEdit)
+                {
+                    builder.AddPart.Execute(candidate);
+                    await TryWaitAsync(() => slot.HasParts, 10000);
+                }
+            }
+            builder.SelectSlot.Execute(builder.Slots.FirstOrDefault(s => s.Slot == MINV.Domain.Catalog.PcSlot.Gpu) ?? builder.Slots[0]);
+        }
+        await TryWaitAsync(() => !builder.IsLoadingCandidates, 10000);
+        await SettleAsync(900);
+        await CaptureAsync(window, "87-armador-de-pc.png");
+        theme.Apply(_other, save: false);
+        await SettleAsync(500);
+        await CaptureAsync(window, Other("94-oscuro-armador-de-pc.png"));
+        theme.Apply(_base, save: false);
+        builder.IsQuotesTab = true;
+        await SettleAsync(600);
+        await CaptureAsync(window, "88-armador-cotizaciones.png");
+        builder.IsBuildTab = true;
+        if (builder.Proforma.CanExecute(null))
+        {
+            var proforma = builder.Proforma.ExecuteAsync();
+            await TryWaitAsync(() => shell.Dialogs.Form is ProformaDialog || proforma.IsCompleted, 10000);
+            await SettleAsync(600);
+            await CaptureAsync(window, "89-armador-proforma.png");
+            shell.Dialogs.Form?.Cancel.Execute(null);
+            await proforma;
+        }
+
+        // Caja: una cotización vigente de su sucursal cargada con «Desde armado» (precios cotizados y series de cada pieza)
+        if (quote is { CanSell: true } && quote.Row.BranchCode == branch && pos.IsOpen)
+        {
+            posWindow.Show();
+            pos.Cart.Clear();
+            posShell.Navigate("pos", new PcBuildToSell(quote.Number));
+            // La caja carga la cotización y pide las series de sus piezas serializadas (el formulario aparece después)
+            await TryWaitAsync(() => posShell.Dialogs.Form is SerialsDialog, 15000);
+            if (posShell.Dialogs.Form is SerialsDialog serials)
+            {
+                foreach (var line in serials.Lines)
+                {
+                    foreach (var option in line.Options.Cast<SerialPickOption>().Take(line.Expected))
+                    {
+                        option.IsChecked = true;
+                    }
+                }
+                await serials.Confirm.ExecuteAsync();
+            }
+            await TryWaitAsync(() => posShell.Dialogs.Form is null && pos.IsBuildMode, 10000);
+            pos.IsBuyerExpanded = false;
+            posShell.App.Notify.Items.Clear();
+            await SettleAsync(800);
+            await CaptureAsync(posWindow, "90-caja-desde-armado.png");
+            pos.ClearBuild.Execute(null);
+            pos.IsBuyerExpanded = true;
+        }
+        posWindow.Close();
+
+        // Series e IMEI: las unidades vendidas (con su venta y su garantía en la lista) y la primera con su trazabilidad
+        await GoAsync(shell, "series");
+        var serialsPage = (SerialsViewModel)shell.Current;
+        if (serialsPage.Statuses.FirstOrDefault(s => s.Value == MINV.Domain.Inventory.SerialNumberStatus.Sold) is { } soldFilter)
+        {
+            serialsPage.Status = soldFilter;
+            await SettleAsync(300);
+            await TryWaitAsync(() => !serialsPage.IsBusy, 15000);
+        }
+        serialsPage.Selected = serialsPage.Rows.Cast<SerialItem>().FirstOrDefault(i => i.Status == MINV.Domain.Inventory.SerialNumberStatus.Sold)
+                               ?? serialsPage.Rows.Cast<SerialItem>().FirstOrDefault();
+        await TryWaitAsync(() => !serialsPage.IsLoadingTrace, 10000);
+        await SettleAsync(900);
+        await CaptureAsync(window, "91-series-e-imei.png");
+        theme.Apply(_other, save: false);
+        await SettleAsync(500);
+        await CaptureAsync(window, Other("95-oscuro-series-e-imei.png"));
+        theme.Apply(_base, save: false);
+
+        // Garantías y RMA: un caso abierto (o el primero) con su bitácora y el formulario para abrir uno
+        await GoAsync(shell, "garantias");
+        var claims = (WarrantyClaimsViewModel)shell.Current;
+        claims.Selected = claims.Rows.Cast<WarrantyClaimItem>().FirstOrDefault(c => c.IsOpen) ?? claims.Rows.Cast<WarrantyClaimItem>().FirstOrDefault();
+        await SettleAsync(900);
+        await CaptureAsync(window, "92-garantias-rma.png");
+        theme.Apply(_other, save: false);
+        await SettleAsync(500);
+        await CaptureAsync(window, Other("96-oscuro-garantias-rma.png"));
+        theme.Apply(_base, save: false);
+        if (claims.OpenNew.CanExecute(null))
+        {
+            var opening = claims.OpenNew.ExecuteAsync();
+            await TryWaitAsync(() => shell.Dialogs.Form is OpenClaimDialog || opening.IsCompleted, 10000);
+            if (shell.Dialogs.Form is OpenClaimDialog open)
+            {
+                if (serialsPage.Rows.Cast<SerialItem>().FirstOrDefault(i => i.Status == MINV.Domain.Inventory.SerialNumberStatus.Sold) is { } sold)
+                {
+                    open.Serial = sold.Serial;
+                    await open.LookupAsync();
+                    open.Issue = "No enciende después de una actualización";
+                }
+                await SettleAsync(600);
+                await CaptureAsync(window, "93-abrir-caso-rma.png");
+                open.Cancel.Execute(null);
+            }
+            await opening;
+        }
+        shell.App.Notify.Items.Clear();
+        window.Close();
+    }
+
+    /// <summary>
+    /// Categoría para mostrar las insignias de la galería: la que tiene más productos con serie o IMEI (con sus
+    /// subcategorías) sin pasar de 10 productos (una pantalla); si ninguna entra, la de más serializados.
+    /// </summary>
+    private static async Task<Choice<string?>?> ShowcaseCategoryAsync(AppServices app, CatalogViewModel catalog)
+    {
+        var candidates = new List<(Choice<string?> Category, int Serialized, int Total)>();
+        foreach (var category in catalog.Categories.Where(c => c.Value is not null))
+        {
+            try
+            {
+                var rows = await app.SendAsync(new MINV.Application.Tech.SearchTechProductsQuery(CategoryCode: category.Value, Max: 500));
+                var count = rows.Count(r => r.TrackSerials);
+                if (count > 0)
+                {
+                    candidates.Add((category, count, rows.Count));
+                }
+            }
+            catch (Exception ex) when (AppServices.IsExpected(ex))
+            {
+                return null;
+            }
+        }
+        return candidates.Where(c => c.Total <= 10).OrderByDescending(c => c.Serialized).ThenBy(c => c.Total).Select(c => c.Category).FirstOrDefault()
+               ?? candidates.OrderByDescending(c => c.Serialized).Select(c => c.Category).FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Desplaza la página <typeparamref name="TPage"/> hasta su primer texto <paramref name="text"/> (p. ej. una sección del
+    /// tablero) y lo deja arriba. Se busca dentro de la página: el menú lateral también tiene una sección «Tecnología».
+    /// </summary>
+    private static async Task ScrollToAsync<TPage>(Window window, string text) where TPage : FrameworkElement
+    {
+        FrameworkElement? target = null;
+        await TryWaitAsync(() =>
+        {
+            window.UpdateLayout();
+            target = Find(window, e => e is TPage) is { } page ? Find(page, e => e is System.Windows.Controls.TextBlock t && t.Text == text) : null;
+            return target is not null;
+        }, 10000);
+        if (target is null)
+        {
+            return;
+        }
+        DependencyObject? parent = target;
+        while (parent is not null and not System.Windows.Controls.ScrollViewer)
+        {
+            parent = VisualTreeHelper.GetParent(parent);
+        }
+        if (parent is System.Windows.Controls.ScrollViewer viewer)
+        {
+            var top = target.TransformToAncestor(viewer).Transform(new Point(0, 0)).Y;
+            viewer.ScrollToVerticalOffset(Math.Max(0, viewer.VerticalOffset + top - 16));
+        }
+        else
+        {
+            target.BringIntoView();
+        }
+        window.UpdateLayout();
+    }
+
+    private static FrameworkElement? Find(DependencyObject root, Func<DependencyObject, bool> predicate)
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (predicate(child) && child is FrameworkElement { IsVisible: true } element)
+            {
+                return element;
+            }
+            if (Find(child, predicate) is { } found)
+            {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Ventana con la caja de <paramref name="session"/>. En la demostración, si el usuario no tiene turno, abre la caja que la
+    /// pantalla preselecciona (la libre: CAJA01 y CAJA02 tienen el turno de su cajero); con la base local no abre nada (se usa
+    /// el cajero de prueba, cuyo turno del día está abierto).
+    /// </summary>
+    private static async Task<(ShellViewModel Shell, MainWindow Window, PosViewModel Pos)> OpenPosAsync(SessionHandle session)
+    {
+        var shell = session.Services.GetRequiredService<ShellViewModel>();
+        var window = new MainWindow(shell) { Width = 1440, Height = 900 };
+        Place(window);
+        window.Show();
+        await WaitAsync(() => shell.Current.HasLoaded, 30000);
+        await GoAsync(shell, "pos");
+        await WaitImagesAsync(shell);
+        var pos = (PosViewModel)shell.Current;
+        await pos.LoadAsync(force: true);
+        if (pos.IsClosed && shell.Session.IsDemo && pos.OpenSession.CanExecute(null))
+        {
+            await pos.OpenSession.ExecuteAsync();
+            await SettleAsync(400);
+        }
+        shell.App.Notify.Items.Clear();
+        return (shell, window, pos);
+    }
+
+    /// <summary>Agrega a la caja un producto serializado eligiendo su primera unidad disponible en el formulario de series
+    /// (antes de confirmar puede tomarse la captura del formulario).</summary>
+    private static async Task AddWithSerialsAsync(ShellViewModel shell, PosViewModel pos, PosProduct unit, Func<Task>? capture = null)
+    {
+        pos.Add.Execute(unit);
+        await TryWaitAsync(() => shell.Dialogs.Form is SerialsDialog, 10000);
+        if (shell.Dialogs.Form is not SerialsDialog pick)
+        {
+            return;
+        }
+        if (pick.Lines[0].Options.Cast<SerialPickOption>().FirstOrDefault() is { } first)
+        {
+            first.IsChecked = true;
+        }
+        await SettleAsync(600);
+        if (capture is not null)
+        {
+            await capture();
+        }
+        await pick.Confirm.ExecuteAsync();
+        await TryWaitAsync(() => shell.Dialogs.Form is null, 5000);
+    }
+
+    /// <summary>SKU de los productos con serie o IMEI (se registran, venden y reciben con sus series, regla T-02).</summary>
+    private static async Task<IReadOnlySet<string>> SerializedAsync(AppServices app) =>
+        (await app.SendAsync(new MINV.Application.Tech.SearchTechProductsQuery(Max: 1000))).Where(p => p.TrackSerials).Select(p => p.Sku)
+        .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
     private static async Task WaitImagesAsync(ShellViewModel shell)
     {
@@ -520,12 +885,19 @@ public sealed class ScreenshotRunner(ClientHost host, ClientSettings settings, T
         }
         var lines = File.ReadAllLines(file);
         var tenant = lines.Select(l => System.Text.RegularExpressions.Regex.Match(l, @"código de empresa: (\S+)")).FirstOrDefault(m => m.Success)?.Groups[1].Value;
-        (string, string)? Find(string role) => lines.Select(l => System.Text.RegularExpressions.Regex.Split(l.Trim(), @"\s{2,}"))
-            .Where(c => c.Length >= 4 && c[0] == role).Select(c => ((string, string)?)(c[2], c[3])).FirstOrDefault();
+        // Fila «Rol  Nombre  Correo  Contraseña  Sucursales»: el correo es la primera palabra con @ y la contraseña, la siguiente
+        // (un nombre largo puede quedar pegado al correo con un solo espacio)
+        (string, string)? Find(string role) => lines
+            .Select(l => System.Text.RegularExpressions.Regex.Match(l, "^" + role + @"\s.*?\s(?<correo>[^\s@]+@[^\s@]+)\s+(?<clave>\S+)"))
+            .Where(m => m.Success).Select(m => ((string, string)?)(m.Groups["correo"].Value, m.Groups["clave"].Value)).FirstOrDefault();
         return tenant is not null && Find("Administrador") is { } admin ? (tenant, admin, Find("Cajero")) : null;
     }
 
     // -------------------------------------------------------------------------------------------- utilidades
+    /// <summary>Nombre de una captura del tema alterno: lleva el nombre del tema en que se tomó.</summary>
+    private string Other(string file) =>
+        _other == ThemeMode.Dark ? file : file.Replace("-oscuro-", "-" + ThemeService.Name(_other) + "-", StringComparison.Ordinal);
+
     private static async Task GoAsync(ShellViewModel shell, string key)
     {
         shell.Navigate(key);
@@ -568,6 +940,21 @@ public sealed class ScreenshotRunner(ClientHost host, ClientSettings settings, T
             }
             await Task.Delay(50);
         }
+    }
+
+    /// <summary>Como <see cref="WaitAsync"/> pero sin fallar: las capturas de la V4.2 toleran datos vacíos.</summary>
+    private static async Task<bool> TryWaitAsync(Func<bool> condition, int timeoutMs)
+    {
+        var until = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        while (!condition())
+        {
+            if (DateTime.UtcNow > until)
+            {
+                return false;
+            }
+            await Task.Delay(50);
+        }
+        return true;
     }
 
     private async Task CaptureAsync(Window window, string file)

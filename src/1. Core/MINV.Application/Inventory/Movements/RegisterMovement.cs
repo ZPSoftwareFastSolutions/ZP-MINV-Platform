@@ -3,6 +3,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using MINV.Application.Abstractions;
 using MINV.Application.Common;
+using MINV.Application.Tech;
 using MINV.Domain.Common;
 using MINV.Domain.Iam;
 using MINV.Domain.Inventory;
@@ -11,7 +12,11 @@ namespace MINV.Application.Inventory.Movements;
 
 /// <summary>
 /// Registrar un movimiento de inventario (sucesor de la captura + RegistrarEntrada/RegistrarSalida de la V2.1).
-/// El tipo decide el dominio: los de bodega exigen el permiso de bodega y los de ventas el de ventas.
+/// El tipo decide el dominio: los de bodega exigen el permiso de bodega y los de ventas el de ventas. V4.2 · Un producto
+/// serializado lleva sus series (<see cref="Serials"/>, una por unidad, regla T-02) en la MISMA transacción: las entradas
+/// (saldo inicial, entrada, ajuste positivo, recepción) registran series nuevas (o reponen unidades devueltas); el ajuste
+/// negativo las da de baja, la devolución a proveedor las devuelve y la salida las vende, siempre desde esa posición y
+/// lote. Ventas en caja, devoluciones de clientes, transferencias y reposiciones de garantía tienen su propio documento.
 /// </summary>
 public sealed record RegisterMovementCommand(
     string Sku,
@@ -22,9 +27,10 @@ public sealed record RegisterMovementCommand(
     string? DocumentReference = null,
     string? Notes = null,
     string? LotNumber = null,
-    string? AdjustmentReasonCode = null) : IRequest<RegisterMovementResult>, IAuditableRequest
+    string? AdjustmentReasonCode = null,
+    IReadOnlyList<string>? Serials = null) : IRequest<RegisterMovementResult>, IAuditableRequest
 {
-    public object AuditDetails => new { Sku, BinCode, MovementTypeCode, Quantity, BusinessDate, DocumentReference, LotNumber };
+    public object AuditDetails => new { Sku, BinCode, MovementTypeCode, Quantity, BusinessDate, DocumentReference, LotNumber, Serials };
 }
 
 public sealed record RegisterMovementResult(Guid MovementId, Guid StockLevelId, decimal QuantityOnHand, decimal Available, string Message);
@@ -98,12 +104,65 @@ public sealed class RegisterMovementHandler(IMinvDbContext db, ICurrentUser user
         {
             StockLevel.EnsureInitialBalanceAllowed(type, !isNew && await lookups.HasMovementsAsync(level.Id, ct));
         }
-        var context = new MovementContext(userId, businessDate, clock.UtcNow, request.DocumentReference, request.Notes, reasonId);
+        var ledger = new SerialLedger(db);
+        var serials = await ledger.ExpectAsync(item, request.Quantity, request.Serials, ct);
+        var leaving = serials.Count > 0 && !type.Increases ? await ledger.OnHandAtAsync(item, serials, level, bin.Code, ct) : [];
+        var now = clock.UtcNow;
+        var context = new MovementContext(userId, businessDate, now, request.DocumentReference, request.Notes, reasonId);
         var movement = level.Register(type, request.Quantity, item.Unit, context);
         db.Set<StockMovement>().Add(movement);
+        if (serials.Count > 0)
+        {
+            await MoveSerialsAsync(ledger, type, item, serials, leaving, batch, level, userId, request, ct);
+        }
+        // V4.2 · Un AJUSTE (±) se contabiliza al costo promedio del almacén (5.1.09 / 4.1.02 contra 1.1.05): el mayor sigue al
+        // valor del stock (ver InventoryAdjustments)
+        string? entryNumber = null;
+        if (InventoryAdjustments.Posts(type.Code))
+        {
+            var unitCost = await AverageCosts.CurrentAsync(db, item.Variant.Id, await lookups.WarehouseOfBinAsync(bin.Id, ct), ct);
+            var value = movement.Quantity * unitCost;
+            var entry = await InventoryAdjustments.PostAsync(db, level.TenantId, level.BranchId, userId, businessDate, today,
+                $"{type.Name} {Quantities.Format(movement.Quantity)} {item.Unit.UnitCode} · {item.Variant.Sku}" +
+                (string.IsNullOrWhiteSpace(request.Notes) ? string.Empty : $": {request.Notes.Trim()}"),
+                type.Increases ? value : 0, type.Increases ? 0 : value, now, movement.Id, ct);
+            entryNumber = entry?.Number;
+        }
         await db.SaveChangesAsync(ct);
         var message = $"✔ Registrado · {type.Name} {Quantities.Format(movement.Quantity)} {item.Unit.UnitCode} · " +
-                      $"{item.Variant.Sku} · stock {Quantities.Format(level.QuantityOnHand)} {item.Unit.UnitCode}";
+                      $"{item.Variant.Sku} · stock {Quantities.Format(level.QuantityOnHand)} {item.Unit.UnitCode}" +
+                      (entryNumber is null ? string.Empty : $" · asiento {entryNumber}");
         return new RegisterMovementResult(movement.Id, level.Id, level.QuantityOnHand, level.Available, message);
+    }
+
+    /// <summary>V4.2 · Lo que el movimiento le hace a cada serie (misma transacción que el movimiento).</summary>
+    private async Task MoveSerialsAsync(SerialLedger ledger, MovementType type, VariantInfo item, IReadOnlyList<string> serials,
+        IReadOnlyList<SerialNumber> leaving, Batch batch, StockLevel level, Guid userId, RegisterMovementCommand request, CancellationToken ct)
+    {
+        var own = type.Code switch
+        {
+            MovementTypeCodes.Sale => "la caja (Cobrar)",
+            MovementTypeCodes.SaleReturn => "la devolución de la venta",
+            MovementTypeCodes.TransferOut or MovementTypeCodes.TransferIn => "las transferencias entre sucursales",
+            MovementTypeCodes.WarrantyReplacement => "la reposición del caso RMA",
+            _ => null,
+        };
+        Guard.That(own is null, SerialErrorCodes.UseDocument, $"{item.Variant.Sku} lleva serie: registre {type.Name} desde {own}.");
+        var note = request.Notes ?? type.Name;
+        var context = new SerialContext(level.BranchId, userId, clock.UtcNow, request.DocumentReference, $"{type.Name}: {note}");
+        if (type.Increases)
+        {
+            await ledger.EnterAsync(item, serials, batch, level, context, allowReentry: true, ct);
+            return;
+        }
+        foreach (var unit in leaving)
+        {
+            _ = type.Code switch
+            {
+                MovementTypeCodes.AdjustmentOut => unit.Scrap(level, context),
+                MovementTypeCodes.PurchaseReturn => unit.ReturnToSupplier(level, context),
+                _ => unit.Sell(level, context),
+            };
+        }
     }
 }

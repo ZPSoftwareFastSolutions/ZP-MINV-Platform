@@ -62,6 +62,28 @@ public sealed partial class PdfRendererTests
     }
 
     [Fact]
+    public void V42_el_PDF_lleva_las_series_o_IMEI_y_la_garantia_bajo_la_descripcion()
+    {
+        var pdf = _renderer.RenderPdf(Invoice(
+        [
+            new("CEL-A15", "SMARTPHONE GALAXY A15 128 GB", "UNIDAD (BIENES)", 1m, 1450m, 0m, 1450m, SerialsText: "IMEI: 352099001761481",
+                WarrantyUntil: new DateOnly(2023, 5, 6)),
+            new("GPU-4060", "TARJETA DE VIDEO RTX 4060 8 GB", "UNIDAD (BIENES)", 2m, 2600m, 0m, 5200m, SerialsText: "S/N: GPU4060A1, GPU4060A2",
+                WarrantyUntil: new DateOnly(2025, 5, 6)),
+            new("CAB-HDMI", "CABLE HDMI 2 M", "UNIDAD (BIENES)", 1m, 35m, 0m, 35m),
+        ]));
+        Save("factura-con-series.pdf", pdf);
+        var text = Latin1(pdf);
+        AssertValidStructure(pdf);
+        Assert.Contains("(IMEI: 352099001761481) Tj", text);
+        Assert.Contains("(Garant\\355a hasta 06/05/2023) Tj", text);   // «í» en WinAnsi (octal 355)
+        Assert.Contains("(Garant\\355a hasta 06/05/2025) Tj", text);
+        Assert.Contains("GPU4060A1", text);
+        Assert.Contains("GPU4060A2", text);
+        Assert.Equal(2, Regex.Matches(text, @"Garant\\355a hasta").Count);   // el cable no lleva garantía
+    }
+
+    [Fact]
     public void El_PDF_es_valido_y_lleva_FACTURA_y_el_CUF()
     {
         var pdf = _renderer.RenderPdf(Invoice());

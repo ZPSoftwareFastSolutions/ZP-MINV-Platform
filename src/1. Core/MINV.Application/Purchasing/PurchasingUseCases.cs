@@ -5,6 +5,7 @@ using MINV.Application.Abstractions;
 using MINV.Application.Common;
 using MINV.Application.Inventory;
 using MINV.Application.Inventory.Queries;
+using MINV.Application.Tech;
 using MINV.Domain.Accounting;
 using MINV.Domain.Catalog;
 using MINV.Domain.Common;
@@ -195,12 +196,15 @@ public sealed class CancelPurchaseOrderHandler(IMinvDbContext db) : IRequestHand
 /// <summary>
 /// Recibe todo lo pendiente de una orden aprobada: entrada de stock (RECEPCIÓN DE COMPRA) en la posición del producto,
 /// costo promedio ponderado, recepción contabilizada y asiento (Inventario a Proveedores). Todo en una transacción.
+/// V4.2 · Las series (o IMEI) de los productos serializados van en <see cref="Serials"/> (una por unidad pendiente, regla
+/// T-02) y se registran «en stock» en la MISMA transacción; una unidad que el proveedor devuelve con su misma serie se repone.
 /// </summary>
 [RequiresPermission(PermissionCodes.PurchasingManage)]
 [RequiresPermission(PermissionCodes.MovementsRegisterWarehouse)]
-public sealed record ReceivePurchaseOrderCommand(Guid Id, string? SupplierDocument = null) : IRequest<ReceiptResult>, IAuditableRequest
+public sealed record ReceivePurchaseOrderCommand(Guid Id, string? SupplierDocument = null, IReadOnlyList<SkuSerials>? Serials = null)
+    : IRequest<ReceiptResult>, IAuditableRequest
 {
-    public object AuditDetails => new { Id, SupplierDocument };
+    public object AuditDetails => new { Id, SupplierDocument, Serials = Serials?.Select(s => new { s.Sku, s.Serials }) };
 }
 
 public sealed record ReceiptResult(string OrderNumber, string ReceiptNumber, int Lines, decimal Total, string JournalNumber);
@@ -239,6 +243,9 @@ public sealed class ReceivePurchaseOrderHandler(IMinvDbContext db, ICurrentUser 
         // Arco exclusivo (ck_goods_receipts_origen): la recepción de una orden no repite el proveedor (sale de la orden)
         var receipt = new GoodsReceipt(order.TenantId, order.BranchId, number, order.Id, null, order.WarehouseId, now, userId, request.SupplierDocument);
         var total = 0m;
+        var ledger = new SerialLedger(db);
+        var serialsBySku = (request.Serials ?? []).GroupBy(x => x.Sku.Trim().ToUpperInvariant())
+            .ToDictionary(g => g.Key, g => new Queue<string>(g.SelectMany(x => x.Serials)), StringComparer.Ordinal);
         foreach (var line in order.Lines)
         {
             var pending = Quantities.Round6(line.Quantity - received.GetValueOrDefault(line.Id));
@@ -249,6 +256,16 @@ public sealed class ReceivePurchaseOrderHandler(IMinvDbContext db, ICurrentUser 
             var variant = await db.Set<ProductVariant>().FirstAsync(v => v.Id == line.VariantId, ct);
             var product = await db.Set<Product>().FirstAsync(p => p.Id == variant.ProductId, ct);
             var unit = await db.Set<UnitOfMeasure>().FirstAsync(u => u.Id == product.BaseUnitId, ct);
+            var item = new VariantInfo(variant, product, new UnitRule(unit.Code, unit.AllowsDecimals));
+            var given = new List<string>();
+            if (serialsBySku.TryGetValue(variant.Sku, out var queue))
+            {
+                while (queue.Count > 0 && (given.Count < pending || !SerialLedger.Tracks(product)))
+                {
+                    given.Add(queue.Dequeue());
+                }
+            }
+            var serials = await ledger.ExpectAsync(item, pending, given.Count == 0 ? null : given, ct);
             var binId = await Receipts.BinForAsync(db, variant.Id, order.WarehouseId, bins, ct);
             var batch = await lookups.BatchAsync(variant, null, ct);
             var (level, _) = await lookups.StockLevelAsync(order.TenantId, binId, batch.Id, ct);
@@ -258,11 +275,20 @@ public sealed class ReceivePurchaseOrderHandler(IMinvDbContext db, ICurrentUser 
             var movement = level.Register(type, pending, new UnitRule(unit.Code, unit.AllowsDecimals), context);
             db.Set<StockMovement>().Add(movement);
             receipt.AddLine(line.Id, level.Id, pending, line.UnitCost).LinkMovement(movement.Id);
+            if (serials.Count > 0)
+            {
+                await ledger.EnterAsync(item, serials, batch, level,
+                    new SerialContext(order.BranchId, userId, now, number, $"Recepción {number} de la orden {order.Number} · {supplier.LegalName}"),
+                    allowReentry: true, ct);
+            }
             var average = AverageCosts.Weighted(onHandBefore, averageBefore, pending, line.UnitCost);
             await AverageCosts.RecordAsync(db, order.TenantId, order.BranchId, variant.Id, order.WarehouseId, now, average, movement.Id, ct);
             total += pending * line.UnitCost;
         }
         Guard.That(receipt.Lines.Count > 0, "purchase.received", $"La orden {order.Number} ya se recibió completa.");
+        var extra = serialsBySku.Where(x => x.Value.Count > 0).Select(x => x.Key).ToList();
+        Guard.That(extra.Count == 0, SerialErrorCodes.Count,
+            $"Sobran series de {string.Join(", ", extra)}: no están pendientes en la orden {order.Number} o son más que las unidades.");
         receipt.Post();
         db.Set<GoodsReceipt>().Add(receipt);
         order.RegisterReceipt(fullyReceived: true);

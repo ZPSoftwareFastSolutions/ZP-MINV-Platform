@@ -263,6 +263,15 @@ public static class FiscalTicketText
                 sb.AppendLine(part);
             }
             Pair($"  {Fmt.Qty(line.Quantity)} x {Money(line.UnitPrice)}" + (line.Discount > 0 ? $" - {Money(line.Discount)}" : ""), Money(line.Subtotal));
+            // V4.2 · Series o IMEI y garantía derivada (reglas T-03 y T-04)
+            foreach (var part in Wrap(line.SerialsText ?? string.Empty, width - 2))
+            {
+                sb.AppendLine("  " + part);
+            }
+            if (line.WarrantyUntil is { } until)
+            {
+                sb.AppendLine("  " + MINV.Application.Tech.TechPrint.Warranty(until));
+            }
         }
         sb.AppendLine(new string('-', width));
         Pair("SUBTOTAL Bs", Money(m.Subtotal));
@@ -298,7 +307,8 @@ public static class FiscalTicketText
         return sb.ToString().TrimEnd();
     }
 
-    private static IEnumerable<string> Wrap(string text, int width)
+    /// <summary>Corte por palabras de ancho fijo (ticket fiscal en pantalla y proforma del armado).</summary>
+    internal static IEnumerable<string> Wrap(string text, int width)
     {
         var words = (text ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries);
         var line = new StringBuilder();

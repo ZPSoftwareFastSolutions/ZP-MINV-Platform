@@ -148,7 +148,13 @@ public sealed class CreateExternalOrderHandler(IMinvDbContext db, ICurrentUser u
         {
             text.Append(line.Sku.Trim().ToUpperInvariant()).Append(':')
                 .Append(Quantities.Round6(line.Quantity).ToString("0.######", CultureInfo.InvariantCulture)).Append(':')
-                .Append(line.DiscountPercent.ToString("0.######", CultureInfo.InvariantCulture)).Append(';');
+                .Append(line.DiscountPercent.ToString("0.######", CultureInfo.InvariantCulture));
+            // V4.2 · Las series entran al hash SOLO si vienen (un pedido sin series conserva el hash de la V4)
+            if (line.Serials is { Count: > 0 } serials)
+            {
+                text.Append(":serials=").Append(string.Join(",", serials.Select(s => s.Trim().ToUpperInvariant()).Order(StringComparer.Ordinal)));
+            }
+            text.Append(';');
         }
         if (r.Buyer is { } buyer)
         {

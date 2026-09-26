@@ -18,7 +18,20 @@
     <Company>Z&amp;P Software Fast Solutions</Company>
     <Product>M-INV</Product>
     <Copyright>© Z&amp;P Software Fast Solutions</Copyright>
-    <Version>4.1.0-alpha.1</Version>
+    <Version>4.2.0-alpha.1</Version>
     <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- V4.2 · Arranque en frío (demostración en memoria, servidores, pruebas): la compilación por niveles del runtime empieza
+         a optimizar los métodos más usados de inmediato, sin la espera de 100 ms que se reinicia mientras se siguen
+         compilando métodos nuevos (con esa espera, casi toda la preparación de la demostración corría sin optimizar).
+         Medido en la demostración de Tech Zone Gaming: ~25 % menos de tiempo. Solo afecta al arranque. -->
+    <RuntimeHostConfigurationOption Include="System.Runtime.TieredCompilation.CallCountingDelayMs" Value="0" />
+  </ItemGroup>
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'MINV.DesktopClient' Or '$(MSBuildProjectName)' == 'MINV.Cli' Or $(MSBuildProjectName.EndsWith('.Tests'))">
+    <!-- V4.2 · Procesos de arranque o de corta vida (escritorio con la demostración en memoria, CLI y pruebas): sin la
+         instrumentación de la PGO dinámica, que retrasa la versión optimizada de los métodos (medido en la demostración:
+         ~0,7 s menos). Los servidores (nube, gateway, simulador) la conservan: corren por días. -->
+    <TieredPGO>false</TieredPGO>
   </PropertyGroup>
 </Project>

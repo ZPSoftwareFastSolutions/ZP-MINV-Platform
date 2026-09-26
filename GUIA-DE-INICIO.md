@@ -1,8 +1,9 @@
-# Guía de inicio de M-INV · las cuatro ediciones, paso a paso
+# Guía de inicio de M-INV · las cinco ediciones, paso a paso
 
 M-INV es el sistema de inventarios de **Z&P Software Fast Solutions**. Nació como un libro de Excel y hoy es una
-aplicación de escritorio con base de datos en la nube y facturación del SIN. Las cuatro ediciones siguen en el
-repositorio y funcionan con la **misma lógica de negocio**:
+aplicación de escritorio con base de datos en la nube, facturación del SIN y, en su quinta edición, especializada en
+**tiendas de tecnología y gaming**. Las cinco ediciones siguen en el repositorio y funcionan con la **misma lógica de
+negocio**:
 
 - El stock solo cambia registrando **movimientos** (entradas, salidas y ajustes).
 - Nada se borra: los errores se corrigen con un **ajuste**.
@@ -11,7 +12,7 @@ repositorio y funcionan con la **misma lógica de negocio**:
 Esta guía explica, para cada edición:
 
 1. **qué es y para quién**,
-2. el **algoritmo** para ponerla en marcha,
+2. el **algoritmo**: los pasos, en orden, para ponerla en marcha,
 3. **qué funciones** tiene y **qué puede hacer cada rol**.
 
 | # | Edición | Versión y rama | Para quién | Qué necesita |
@@ -20,17 +21,23 @@ Esta guía explica, para cada edición:
 | 2 | **Excel compartido** | V2.1 · `Inventario-V2.1` | Varias personas a la vez, cada una con su rol | Microsoft 365 de trabajo, SharePoint u OneDrive, Office Scripts |
 | 3 | **App de escritorio con base de datos local** | V3.1 · `Inventario-V3.-BaseDeDatosLocal` | Empresa con una sede, cajas y punto de venta | Windows 10/11, .NET 8 o superior, PostgreSQL (se instala solo) |
 | 4 | **App de escritorio con base de datos en la nube y facturación** | V4 · `Inventario-V4.-BaseDeDatosNube` y **V4.1 · `Inventario-V4.1`** | Empresa con sucursales, tienda en línea y facturación del SIN | Lo de la 3, más un servidor en la nube (se prueba entero en este equipo) |
+| 5 | **Tecnología: PC, componentes, consolas y videojuegos** | **V4.2 · `Inventario-V4.2`** | Tiendas de computadoras, componentes, periféricos, consolas y videojuegos, con sucursales | Lo de la 4 (se prueba entero en este equipo) |
 
-> **Contraseñas.** Nunca están en el repositorio. Las contraseñas de la base local y de los usuarios de prueba se
-> generan al azar en cada carga y quedan solo en este equipo, en la carpeta `%LOCALAPPDATA%\M-INV\`:
+> **Una edición a la vez.** Cada edición vive en su **rama** de Git. Para usar una, se cambia a su rama
+> (`git switch <rama>`) y se siguen sus pasos. Quédese en una edición hasta que decida pasar a otra. La **base de datos
+> local es una sola por equipo**: al recrearla desde otra rama, se reemplaza por los datos de prueba de esa edición.
+
+> **Contraseñas.** Nunca están en el repositorio ni en esta guía. Las contraseñas de la base local y de los usuarios de
+> prueba se generan al azar en cada carga y quedan solo en este equipo, en la carpeta `%LOCALAPPDATA%\M-INV\`:
 >
 > - `usuarios-prueba.txt`: los usuarios de prueba;
 > - `credenciales-bd-local.txt`: las contraseñas de PostgreSQL;
-> - `claves-integracion.txt`: las claves de integración y el token.
+> - `claves-integracion.txt`: las claves de integración y el token de simulación del SIN.
 >
 > Para verlos: `notepad $env:LOCALAPPDATA\M-INV\usuarios-prueba.txt`.
 
-Todas las órdenes de esta guía se escriben en **PowerShell**, dentro de la carpeta del repositorio.
+Todas las órdenes de esta guía se escriben en **PowerShell**, dentro de la carpeta del repositorio (en el Explorador de
+Windows: clic derecho sobre la carpeta › «Abrir en Terminal»).
 
 ---
 
@@ -48,6 +55,8 @@ Un libro de Excel que funciona como una aplicación. Tiene dos presentaciones:
 |---|---|
 | `src/M-INV_V1_Core.xlsx` / `.xlsm` | Libro de **demostración** con datos de ejemplo |
 | `releases/M-INV_V1_Produccion_Bloqueado.xlsx` / `.xlsm` | Libro **limpio y protegido** para la empresa |
+
+(Los libros están en la rama `Inventario-V1.2` y también en las ramas posteriores.)
 
 ### Algoritmo
 
@@ -98,6 +107,8 @@ El libro se abre por internet en Excel para la web y **varias personas trabajan 
 | `src/M-INV_V2_Colaborativo.xlsx` | Libro de **demostración** |
 | `releases/M-INV_V2_Colaborativo_Produccion.xlsx` | Libro **limpio y protegido** para la empresa |
 | `src/office-scripts/` | Los 6 scripts |
+
+(Rama `Inventario-V2.1`; los libros y los scripts también están en las ramas posteriores.)
 
 ### Algoritmo
 
@@ -151,6 +162,7 @@ También tiene un **modo demostración** que no necesita base de datos.
 La guía detallada es [`docs/deployment/inicio-rapido-v3.md`](docs/deployment/inicio-rapido-v3.md).
 
 ```text
+ 0. Cambie a la rama de la edición:  git switch Inventario-V3.-BaseDeDatosLocal
  A. Requisitos: Windows 10/11 y el SDK de .NET 8 o superior (con el 10 funciona). No hace falta ser administrador.
  B. Base de datos local con datos de prueba (una sola vez, unos minutos):
         powershell -ExecutionPolicy Bypass -File tools\bd_local.ps1 -Accion instalar -Zip <postgresql-16.x-windows-x64-binaries.zip>
@@ -200,9 +212,10 @@ Guías detalladas: [`docs/deployment/inicio-rapido-v4.1.md`](docs/deployment/ini
 paso) y [`docs/deployment/inicio-rapido-v4.md`](docs/deployment/inicio-rapido-v4.md) (sucursales, nube y API).
 
 ```text
- A. Requisitos: los de la edición 3 (PostgreSQL portátil instalado con toolsd_local.ps1 -Accion instalar).
+ 0. Cambie a la rama de la edición:  git switch Inventario-V4.1     (la V4 sin facturación: Inventario-V4.-BaseDeDatosNube)
+ A. Requisitos: los de la edición 3 (PostgreSQL portátil instalado con tools\bd_local.ps1 -Accion instalar).
  B. Base local con 3 sucursales, 12 usuarios, transferencias, pedidos web y 25 días de FACTURAS del SIN simulado:
-        powershell -ExecutionPolicy Bypass -File toolsd_local.ps1 -Accion recrear
+        powershell -ExecutionPolicy Bypass -File tools\bd_local.ps1 -Accion recrear
     (sin facturación: agregue -SinFacturacion). Una base existente de la V4 se actualiza sin perder datos:
         dotnet run --project "src/4. Tools/MINV.Cli" -- migrate --conexion "<cadena del rol minv_owner>"
  C. Publique el programa:  powershell -ExecutionPolicy Bypass -File tools\publicar_escritorio.ps1
@@ -220,7 +233,7 @@ paso) y [`docs/deployment/inicio-rapido-v4.md`](docs/deployment/inicio-rapido-v4
       cada pedido web también se factura.
  K. Al terminar:  tools\servidores_locales.ps1 -Accion detener   (estado: -Accion estado)
  L. Nube real (DigitalOcean, AWS RDS o Supabase):  docs\deployment\despliegue-nube-v4.md
-    SIN real (Fases I a III y producción):        docsilling\puesta-en-produccion-siat.md
+    SIN real (Fases I a III y producción):        docs\billing\puesta-en-produccion-siat.md
 ```
 
 ### Funciones que se suman a la edición 3
@@ -248,63 +261,185 @@ paso) y [`docs/deployment/inicio-rapido-v4.md`](docs/deployment/inicio-rapido-v4
  4. En la caja: datos de facturación del comprador (CI o NIT; «Verificar NIT») → Cobrar → se imprime la factura con QR.
  5. Cada día: M-INV renueva el CUFD y sincroniza los catálogos solo, y revisa las alertas de Estado SIAT.
  6. Paso a producción con el SIN real: registro del sistema en el Portal SIAT, pruebas de la Fase I, inspección de la
-    Fase II, piloto de la Fase III y token de producción. El detalle está en
-    docs\billing\investigacion-siat\08-autorizacion-inspeccion-versionamiento.md (la guía paso a paso
-    docs\billing\puesta-en-produccion-siat.md llega con la V4.1 completa).
+    Fase II, piloto de la Fase III y token de producción. Guía paso a paso:
+    docs\billing\puesta-en-produccion-siat.md (normativa: docs\billing\investigacion-siat\08-autorizacion-inspeccion-versionamiento.md).
 ```
 
----
+### Funciones por rol (V4 · V4.1)
 
-## 5. Usuarios de prueba y qué puede hacer cada rol (ediciones 3 y 4)
-
-Empresa **MINV**, Ferretería El Constructor S.R.L. Las **contraseñas** están en
-`%LOCALAPPDATA%\M-INV\usuarios-prueba.txt` y cambian cada vez que se recrea la base.
-
-| Rol | Nombre | Correo | Sucursales |
-|---|---|---|---|
-| Administrador | Administrador General | admin@elconstructor.example | Todas |
-| Gerencia | Luis Gutiérrez | luis.gutierrez@elconstructor.example | Todas (gerencia global) |
-| Bodega | Mariana Suárez | mariana.suarez@elconstructor.example | CM |
-| Bodega | Sergio Mamani | sergio.mamani@elconstructor.example | EA |
-| Bodega | Daniela Céspedes | daniela.cespedes@elconstructor.example | SC |
-| Ventas | Fernando Choque | fernando.choque@elconstructor.example | CM |
-| Ventas | Sergio Rojas | sergio.rojas@elconstructor.example | SC |
-| Cajero | Miguel Ortiz | miguel.ortiz@elconstructor.example | CM |
-| Cajero | Luis Flores | luis.flores@elconstructor.example | CM |
-| Cajero | Camila Fernández | camila.fernandez@elconstructor.example | EA |
-| Cajero | Camila Morales | camila.morales@elconstructor.example | SC |
-| Consulta | María Villarroel | maria.villarroel@elconstructor.example | CM, EA, SC |
-
-Sucursales: **CM** = casa matriz, **EA** = El Alto, **SC** = Santa Cruz.
-
-| Rol | Funciones |
+| Rol | Qué puede hacer |
 |---|---|
-| **Administrador** | Todo: catálogo, usuarios y roles, movimientos, compras, caja, contabilidad, auditoría, sucursales, transferencias, integraciones y toda la facturación, incluida la configuración del SIAT |
-| **Gerencia** | Todas las sucursales. Stock, reportes, ventas, compras, contabilidad, auditoría y transferencias. Facturación: consultar, anular, revertir, notas y contingencia |
+| **Administrador** | Todo: catálogo, usuarios y roles, movimientos, compras, caja, contabilidad, auditoría, sucursales, transferencias, integraciones y toda la facturación, incluida la configuración del SIAT y las devoluciones con nota crédito-débito |
+| **Gerencia** | Todas las sucursales. Stock, reportes, ventas, compras (aprobar), contabilidad, auditoría y transferencias. Facturación: consultar, anular, revertir y contingencia |
 | **Bodega** | Su sucursal. Entradas, saldo inicial y ajustes; toma física; compras y recepciones; reportes; transferencias (despachar y recibir) |
 | **Ventas** | Su sucursal. Caja y salidas, clientes, historial de ventas, reportes. Facturación: consultar y emitir |
 | **Cajero** | Su sucursal. Caja (abrir, cobrar y cerrar), salidas, clientes e historial de ventas. Facturación: consultar y emitir |
 | **Consulta** | Solo lectura: stock, reportes y, en la V4.1, los documentos fiscales y los libros |
 
+---
+
+## 5. Edición Tecnología: PC, componentes, consolas y videojuegos (V4.2 · `Inventario-V4.2`)
+
+La edición 4 **especializada para tiendas de tecnología y gaming**: componentes de PC (procesadores, tarjetas de video,
+placas, memorias, almacenamiento, fuentes, gabinetes, refrigeración), computadoras, monitores, periféricos, consolas (PS4
+y PS5, Xbox Series X y Series S, Nintendo Switch y Switch 2), videojuegos, accesorios, redes, cables y software. Todo lo
+de la edición 4 sigue igual (sucursales, nube, API y facturación del SIN) y se suma:
+
+- cada equipo se recibe, se vende, viaja entre sucursales y vuelve por garantía con su **número de serie o IMEI**, y la
+  **factura del SIN lo lleva**;
+- **fichas técnicas** (socket, VRAM, tipo de RAM, Hz, plataforma, condición…) con filtros por especificación;
+- un **armador de PC** que revisa la compatibilidad de las piezas y deja una **cotización** que se cobra en la caja;
+- **garantías y RMA**: recibir el equipo, diagnosticar, enviarlo al proveedor, reparar o **reemplazar con otra unidad** y
+  entregar;
+- un **tablero Tecnología** y un **tema gaming** (oscuro por defecto, con acentos violeta y cian).
+
+Se prueba entero en este equipo con la empresa **Tech Zone Gaming S.R.L.** (código `TECHZONE`, sucursales **CM** La Paz,
+**CB** Cochabamba y **SC** Santa Cruz) y el simulador del SIN. Estado: **4.2.0-alpha.1, en desarrollo**.
+
+### Archivos
+
+| Archivo o carpeta | Para qué |
+|---|---|
+| `dist\M-INV-4.2.0-alpha.1-win-x64\M-INV.exe` | El programa de la edición (lo crea el paso 6 del algoritmo) |
+| `tools\bd_local.ps1` | Instala o recrea la base local con Tech Zone Gaming (también `iniciar`, `detener`, `estado`) |
+| `tools\servidores_locales.ps1` | Enciende o apaga la «nube» de este equipo: simulador del SIN, servidor en la nube y API Gateway |
+| `tools\publicar_escritorio.ps1` | Publica `M-INV.exe` en `dist\` |
+| [`docs/deployment/inicio-rapido-v4.2.md`](docs/deployment/inicio-rapido-v4.2.md) | La guía detallada: escenarios cargados, qué probar con cada rol, archivos locales y problemas frecuentes |
+| [`docs/product/escritorio-v4.2.md`](docs/product/escritorio-v4.2.md) | Cada pantalla nueva, explicada |
+| [`docs/architecture/edicion-tecnologia-v4.2.md`](docs/architecture/edicion-tecnologia-v4.2.md) | El diseño (para técnicos) |
+| `%LOCALAPPDATA%\M-INV\usuarios-prueba.txt` | Los correos y contraseñas de prueba (solo en este equipo) |
+
+### Algoritmo · todo en este equipo
+
+```text
+ PRIMERA VEZ (una sola vez)
+  1. Abra PowerShell en la carpeta del repositorio.
+  2. Cambie a la edición 5:        git switch Inventario-V4.2
+  3. Si tenía encendidos los servidores de otra edición, apáguelos:
+        powershell -ExecutionPolicy Bypass -File tools\servidores_locales.ps1 -Accion detener
+  4. ¿Nunca instaló PostgreSQL en este equipo? Hágalo una vez (edición 3, paso B, con -Accion instalar). Si ya lo tiene, siga.
+  5. Recree la base con la tienda de prueba Tech Zone Gaming (BORRA la base anterior de este equipo; tarda unos minutos):
+        powershell -ExecutionPolicy Bypass -File tools\bd_local.ps1 -Accion recrear
+     Al final debe decir «RESULTADO: base de datos correcta».
+  6. Publique el programa:
+        powershell -ExecutionPolicy Bypass -File tools\publicar_escritorio.ps1
+     Queda en dist\M-INV-4.2.0-alpha.1-win-x64\M-INV.exe
+
+ CADA VEZ QUE LO USE
+  7. Si reinició el equipo, encienda la base:   powershell -ExecutionPolicy Bypass -File tools\bd_local.ps1 -Accion iniciar
+  8. Encienda la «nube» de este equipo (simulador del SIN :5095, servidor en la nube :5080 y API :5090):
+        powershell -ExecutionPolicy Bypass -File tools\servidores_locales.ps1 -Accion iniciar
+  9. Abra dist\M-INV-4.2.0-alpha.1-win-x64\M-INV.exe y elija UNA de estas tres formas:
+       a. Nube:          «Nube» → servidor http://localhost:5080 → «Probar» (debe decir «disponible»)
+                         → empresa TECHZONE → correo y contraseña
+       b. Base local:    «Base local» → empresa TECHZONE → correo y contraseña
+                         (no usa el servidor en la nube; para que las facturas salgan VÁLIDAS, deje encendido el paso 8)
+       c. Demostración:  «Explorar la demostración» → elija un rol
+                         (no necesita la base ni los servidores: solo el paso 6; se prepara en unos 17 segundos y todo
+                          se pierde al cerrar el programa)
+     Correos y contraseñas:   notepad $env:LOCALAPPDATA\M-INV\usuarios-prueba.txt
+ 10. Arriba, elija la SUCURSAL ACTIVA (CM, CB o SC) si su rol ve varias: lo que registre queda en esa sucursal.
+ 11. Pruebe lo nuevo (lista de abajo) con el rol que corresponda.
+ 12. Al terminar:  powershell -ExecutionPolicy Bypass -File tools\servidores_locales.ps1 -Accion detener
+
+ QUÉ PROBAR (detalle en docs\deployment\inicio-rapido-v4.2.md, sección 6)
+  · Bodega CM:   Órdenes de compra › Recibir → escanee, escriba o pegue las series (el IMEI inválido y las repetidas se marcan).
+  · Cajero CM:   Punto de venta → una tarjeta de video → elija su serie → CI o NIT → Cobrar → factura VÁLIDA con la serie.
+  · Cajero CM:   un router 4G (lleva IMEI) → el ticket dice «IMEI:» y la factura lo lleva. Las consolas llevan número de serie.
+  · Ventas CM:   Armador de PC → arme una PC (lo incompatible se ve atenuado con el motivo) → Guardar cotización →
+                 Proforma → Vender en caja.
+  · Cajero CM:   Series e IMEI → una unidad vendida → Abrir RMA (el equipo queda en garantía).
+  · Bodega CM:   Garantías y RMA → Pasar a diagnóstico → Reemplazar con otra unidad → Entregar al cliente;
+                 la unidad defectuosa: Series e IMEI › Dar destino → devolver al proveedor.
+  · Todos:       Series e IMEI → busque una serie → su historia completa (compra, transferencias, venta, garantía).
+  · Todos:       Catálogo → una categoría → filtros por especificación (socket, tipo de RAM…) y por plataforma (PS5, Switch 2…).
+  · Gerencia:    Inicio › Tecnología (ventas por categoría y plataforma, tarjetas de video y consolas más vendidas, RMA y armados).
+```
+
+### Funciones que se suman a la edición 4
+
+| Área | Qué hace |
+|---|---|
+| **Tecnología › Armador de PC** | Ranuras (procesador, placa, RAM, tarjeta de video, almacenamiento, fuente, gabinete, refrigeración y extras). Muestra las piezas con su stock en la sucursal; las incompatibles aparecen atenuadas con el motivo. Consumo estimado y fuente recomendada. Cotización con precios congelados y vigencia, proforma (impresa o en PDF) y cobro en la caja. Lista de cotizaciones: borrador, cotizado, vencido, vendido y anulado |
+| **Tecnología › Series e IMEI** | Buscar cualquier serie, IMEI o SKU (también con el lector). Dónde está cada unidad, a quién se vendió, su garantía vigente y su historia completa. Registrar las series de unidades que ya estaban en stock. Dar destino a una unidad devuelta o en garantía (al proveedor o de baja) |
+| **Tecnología › Garantías y RMA** | Abrir un caso con la serie (en garantía o como reparación con cargo), diagnóstico, envío al proveedor, reparado, reemplazo con otra unidad (sale del stock con su asiento), rechazo con la resolución y entrega; bitácora de cada caso |
+| **Catálogo técnico** | Pestaña **Ficha técnica** (lleva serie o IMEI, meses de garantía y especificaciones), insignias Serie / IMEI / Garantía y plataformas en la galería, filtros por plataforma y por especificación, administración de **Especificaciones** por categoría y subcategorías |
+| **Punto de venta** | Chips de categoría y de plataforma; al agregar un equipo se elige o escanea su unidad; el ticket y la factura llevan la serie o el IMEI y «Garantía hasta…»; **Desde armado** cobra una cotización |
+| **Compras, movimientos, transferencias y devoluciones** | Piden las series de los productos serializados (escáner, escritas o pegadas como lista); la **devolución por falla** reembolsa sin devolver la unidad al stock vendible |
+| **Inicio › Tecnología** | Unidades con serie en stock, casos RMA abiertos, armados cotizados y vendidos, ventas por categoría y por plataforma, tarjetas de video y consolas más vendidas |
+| **Facturación** | Igual que la V4.1; la factura lleva `numeroSerie` o `numeroImei` en cada línea de un equipo serializado |
+| **Tema gaming** | Oscuro por defecto; el claro, a un clic (ícono de luna o sol de la barra superior o `Ctrl + Shift + L`) |
+
+### Funciones por rol (V4.2)
+
+| Rol | Qué puede hacer |
+|---|---|
+| **Administrador** | Todo lo de la edición 4 y todo lo de la edición Tecnología: fichas técnicas y especificaciones, series (consultar, registrar las de stock y dar destino), garantías y RMA completas, armador (armar, cotizar, anular y cobrar) y las **devoluciones**, también por falla |
+| **Gerencia** | Todas las sucursales. Lo de la edición 4 (reportes, compras, contabilidad, auditoría, transferencias, anular y revertir facturas) más el **tablero Tecnología**, fichas técnicas, series (consultar, registrar y dar destino), garantías y RMA completas y el armador (arma, cotiza y anula; no cobra: no tiene caja) |
+| **Bodega** | Su sucursal. Recibir compras **con series** (escáner o lista pegada), saldo inicial y ajustes con series, toma física, transferencias con series, fichas técnicas y especificaciones, series (registrar y dar destino) y garantías y RMA completas (diagnóstico, proveedor, reemplazo y entrega); reportes |
+| **Ventas** | Su sucursal. Caja con series e IMEI y factura, clientes, historial de ventas, reportes, **armador de PC** (arma, cotiza, anula y cobra), consulta de series y abrir casos RMA (y agregarles notas) |
+| **Cajero** | Su sucursal. Caja (abrir, cobrar y cerrar) con series e IMEI y factura, clientes, historial de ventas, **armador de PC** (arma, cotiza, anula y cobra), consulta de series y abrir casos RMA (y agregarles notas) |
+| **Consulta** | Solo lectura: stock, catálogo con fichas técnicas, series e IMEI y su historia, casos RMA, reportes, documentos fiscales y libros |
+
+---
+
+## 6. Usuarios de prueba
+
+**Edición 5 (esta rama, `Inventario-V4.2`):** empresa **TECHZONE**, Tech Zone Gaming S.R.L. Las **contraseñas** están en
+`%LOCALAPPDATA%\M-INV\usuarios-prueba.txt` y cambian cada vez que se recrea la base.
+
+| Rol | Nombre | Correo | Sucursales |
+|---|---|---|---|
+| Administrador | Administrador General | admin@techzone.example | Todas |
+| Gerencia | Luis Gutiérrez | luis.gutierrez@techzone.example | Todas (gerencia global) |
+| Bodega | Mariana Suárez | mariana.suarez@techzone.example | CM |
+| Bodega | Sergio Mamani | sergio.mamani@techzone.example | CB |
+| Bodega | Daniela Céspedes | daniela.cespedes@techzone.example | SC |
+| Ventas | Fernando Choque | fernando.choque@techzone.example | CM |
+| Ventas | Sergio Rojas | sergio.rojas@techzone.example | SC |
+| Cajero | Miguel Ortiz | miguel.ortiz@techzone.example | CM |
+| Cajero | Luis Flores | luis.flores@techzone.example | CM |
+| Cajero | Camila Fernández | camila.fernandez@techzone.example | CB |
+| Cajero | Camila Morales | camila.morales@techzone.example | SC |
+| Consulta | María Villarroel | maria.villarroel@techzone.example | CM, CB, SC |
+
+Sucursales: **CM** = casa matriz La Paz, **CB** = Cochabamba, **SC** = Santa Cruz.
+
+**Ediciones 3 y 4 (ramas `Inventario-V3.-BaseDeDatosLocal`, `Inventario-V4.-BaseDeDatosNube` e `Inventario-V4.1`):** la
+empresa de prueba es **MINV**, la ferretería de ejemplo **Ferretería El Constructor S.R.L.**, con las mismas personas y
+correos `@elconstructor.example` (por ejemplo, `admin@elconstructor.example`); en la V4 y la V4.1 sus sucursales son
+**CM** casa matriz, **EA** El Alto y **SC** Santa Cruz (Sergio Mamani y Camila Fernández trabajan en EA).
+
 En la **demostración** no hay contraseñas: se elige el rol en la pantalla de inicio.
 
 ---
 
-## 6. Si algo no funciona
+## 7. Si algo no funciona
 
 | Síntoma | Solución |
 |---|---|
 | El programa dice «Sin conexión con la base de datos» | `tools\bd_local.ps1 -Accion iniciar` y pulse «Reintentar» |
 | Modo Nube: «Sin conexión con el servidor» | `tools\servidores_locales.ps1 -Accion iniciar`, luego «Probar» |
-| Modo Nube: «actualice el escritorio» | El escritorio y el servidor deben ser de la misma versión mayor: vuelva a publicar con `tools\publicar_escritorio.ps1` |
+| Modo Nube: «actualice el escritorio» | El escritorio y el servidor deben ser de la misma versión: detenga los servidores, confirme la rama (`git branch --show-current`), vuelva a iniciarlos y publique el escritorio con `tools\publicar_escritorio.ps1` |
+| La empresa TECHZONE no existe (o la base todavía es la ferretería MINV) | La base es de otra edición: desde la rama `Inventario-V4.2`, `tools\bd_local.ps1 -Accion recrear` |
 | «Su usuario no tiene sucursales asignadas» | Como Administrador: Sucursales › Asignar usuarios |
 | Facturas «fuera de línea» que no pasan a válidas | ¿Está encendido el simulador? `tools\servidores_locales.ps1 -Accion estado`; luego Estado SIAT › «Procesar ahora» |
 | La caja dice «producto sin homologar» | Facturación › Homologación: asigne su código del SIN (o «Sugerir») |
+| V4.2 · La caja no deja agregar un equipo: la serie «no está disponible» o «es de otra sucursal» | Esa unidad ya se vendió, está en tránsito, en garantía o en otra sucursal: elija otra de la lista de disponibles de la sucursal activa |
+| V4.2 · «Faltan series» o «sobran series» | Un equipo serializado lleva exactamente una serie por unidad y la cantidad debe ser entera: complete el contador («3 de 3») |
+| V4.2 · «IMEI inválido» | Un IMEI tiene 15 dígitos y el último es el dígito de control: revise que no falte ni sobre un número (los espacios y guiones se quitan solos) |
+| V4.2 · «La serie ya existe» al recibir | Las series son únicas por producto en toda la empresa. Si la unidad vuelve (reparada o del proveedor), regístrela con un ajuste positivo y M-INV la reingresa |
+| V4.2 · No se puede abrir el RMA: «fuera de garantía» | La garantía venció (fecha de la venta + meses del producto): ábralo como **reparación con cargo** |
+| V4.2 · El armador no deja guardar la cotización | Tiene piezas incompatibles: corríjalas o confírmelo expresamente (la cotización queda marcada) |
+| V4.2 · La devolución responde «Su rol no tiene el permiso…» | Con los roles de fábrica, las devoluciones las hace el Administrador |
+| V4.2 · El tablero avisa «existencias con serie sin todas sus series» | Series e IMEI › **Registrar series de stock** |
 | Olvidé la contraseña de prueba | Está en `%LOCALAPPDATA%\M-INV\usuarios-prueba.txt` |
 | Excel compartido: «su cuenta no está autorizada» | El ADMIN agrega el correo al final de `02_USUARIOS` |
 | Excel: los botones no hacen nada | En la edición Plus, habilite las macros. En la compartida, agregue el script sobre el recuadro ⚙ |
 
-## 7. Documentación relacionada
+Más casos de la edición 5: [`docs/deployment/inicio-rapido-v4.2.md`](docs/deployment/inicio-rapido-v4.2.md) §9.
+
+## 8. Documentación relacionada
 
 | Tema | Documento |
 |---|---|
@@ -312,4 +447,5 @@ En la **demostración** no hay contraseñas: se elige el rol en la pantalla de i
 | Escritorio y base local (V3.1) | [`docs/deployment/inicio-rapido-v3.md`](docs/deployment/inicio-rapido-v3.md) · [`docs/product/escritorio-v3.1.md`](docs/product/escritorio-v3.1.md) |
 | Nube y sucursales (V4) | [`docs/deployment/inicio-rapido-v4.md`](docs/deployment/inicio-rapido-v4.md) · [`docs/deployment/despliegue-nube-v4.md`](docs/deployment/despliegue-nube-v4.md) · [`docs/product/escritorio-v4.md`](docs/product/escritorio-v4.md) · [`docs/integration/api-gateway-v1.md`](docs/integration/api-gateway-v1.md) |
 | Facturación SIAT (V4.1) | [`docs/deployment/inicio-rapido-v4.1.md`](docs/deployment/inicio-rapido-v4.1.md) · [`docs/product/escritorio-v4.1.md`](docs/product/escritorio-v4.1.md) · [`docs/billing/puesta-en-produccion-siat.md`](docs/billing/puesta-en-produccion-siat.md) · [`docs/billing/README.md`](docs/billing/README.md) · [`docs/architecture/facturacion-siat-v4.1.md`](docs/architecture/facturacion-siat-v4.1.md) · [`.claude/v41-billing-rules.md`](.claude/v41-billing-rules.md) · investigación de la normativa del SIN en [`docs/billing/investigacion-siat/`](docs/billing/investigacion-siat/) |
+| Edición Tecnología (V4.2) | [`docs/deployment/inicio-rapido-v4.2.md`](docs/deployment/inicio-rapido-v4.2.md) · [`docs/product/escritorio-v4.2.md`](docs/product/escritorio-v4.2.md) · [`docs/architecture/edicion-tecnologia-v4.2.md`](docs/architecture/edicion-tecnologia-v4.2.md) · [`.claude/v42-tech-rules.md`](.claude/v42-tech-rules.md) · tema gaming en [`docs/product/ux-ui-guidelines.md`](docs/product/ux-ui-guidelines.md) §13 · tablas en [`docs/database/ERD-MINV-V3.md`](docs/database/ERD-MINV-V3.md) §9 |
 | Historial de cambios | [`CHANGELOG.md`](CHANGELOG.md) |

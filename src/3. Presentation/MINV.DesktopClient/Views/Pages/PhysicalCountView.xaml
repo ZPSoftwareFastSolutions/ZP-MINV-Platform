@@ -40,7 +40,7 @@
                 </Border>
                 <TextBlock Text="No hay una toma física en curso" Style="{StaticResource H2}" Margin="0,16,0,6" />
                 <TextBlock Style="{StaticResource Body}"
-                           Text="Una toma física compara lo que hay en los estantes con lo que dice el sistema y corrige las diferencias con ajustes, como en la V2.1." />
+                           Text="Una toma física compara lo que hay en los estantes con lo que dice el sistema y corrige las diferencias con ajustes." />
                 <StackPanel Margin="0,16,0,0">
                     <StackPanel Orientation="Horizontal" Margin="0,4">
                         <Border Width="22" Height="22" CornerRadius="11" Background="{DynamicResource BrandSoft}">

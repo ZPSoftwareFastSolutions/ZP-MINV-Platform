@@ -12,6 +12,14 @@
                     <Grid Height="142" Margin="8,8,8,0">
                         <c:ProductThumb Source="{Binding Image}" Glyph="{x:Static c:Glyphs.Box}" CornerRadius="10" />
                         <c:StatusBadge Status="{Binding Status}" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="6" />
+                        <!-- V4.2 · Lleva serie o IMEI -->
+                        <Border Style="{StaticResource Badge}" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="6"
+                                Visibility="{Binding HasSerialBadge, Converter={StaticResource Visible}}" ToolTip="Cada unidad se vende con su serie o IMEI">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Barcode}" FontSize="10" Margin="0,0,4,0" />
+                                <TextBlock Text="{Binding SerialBadge}" />
+                            </StackPanel>
+                        </Border>
                         <Border Background="{DynamicResource Overlay}" CornerRadius="10" Visibility="{Binding IsActive, Converter={StaticResource Hidden}}">
                             <TextBlock Text="INACTIVO" Foreground="#FFFFFF" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </Border>
@@ -19,12 +27,35 @@
                     <StackPanel Margin="12,10,12,12">
                         <TextBlock Text="{Binding Name}" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" TextWrapping="Wrap" Height="36"
                                    TextTrimming="CharacterEllipsis" LineHeight="18" LineStackingStrategy="BlockLineHeight" />
-                        <DockPanel Margin="0,6,0,0">
-                            <Border DockPanel.Dock="Right" Style="{StaticResource Pill}" Padding="6,1">
-                                <TextBlock Text="{Binding Sku}" Style="{StaticResource Mono}" FontSize="11" />
+                        <!-- V4.2 · Garantía y plataformas (una fila fija para que todas las tarjetas midan lo mismo) -->
+                        <WrapPanel Height="22" Margin="0,5,0,0" ClipToBounds="True">
+                            <Border Style="{StaticResource Badge}" Margin="0,0,4,0" Background="{DynamicResource SuccessSoft}" BorderBrush="{DynamicResource Success}"
+                                    TextElement.Foreground="{DynamicResource Success}" Visibility="{Binding HasWarrantyBadge, Converter={StaticResource Visible}}">
+                                <TextBlock Text="{Binding WarrantyBadge}" />
                             </Border>
-                            <TextBlock Text="{Binding PriceText}" FontSize="16" FontWeight="Bold" Foreground="{DynamicResource BrandText}" />
-                        </DockPanel>
+                            <ItemsControl ItemsSource="{Binding Platforms}" Focusable="False" ItemsPanel="{StaticResource WrapPanelTemplate}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Style="{StaticResource PlatformBadge}" Margin="0,0,4,0">
+                                            <TextBlock Text="{Binding}" />
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </WrapPanel>
+                        <!-- El precio completo siempre visible (columna Auto); el SKU toma lo que queda y se recorta con «…» -->
+                        <Grid Margin="0,6,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="{Binding PriceText}" FontSize="16" FontWeight="Bold" Foreground="{DynamicResource BrandText}"
+                                       VerticalAlignment="Center" />
+                            <Border Grid.Column="1" Style="{StaticResource Pill}" Padding="6,1" Margin="8,0,0,0" HorizontalAlignment="Right"
+                                    VerticalAlignment="Center" ToolTip="{Binding Sku}">
+                                <TextBlock Text="{Binding Sku}" Style="{StaticResource Mono}" FontSize="11" TextTrimming="CharacterEllipsis" />
+                            </Border>
+                        </Grid>
                         <DockPanel Margin="0,6,0,0">
                             <TextBlock DockPanel.Dock="Right" Style="{StaticResource Caption}" FontSize="11.5">
                                 <Run Text="Margen" /> <Run Text="{Binding MarginText, Mode=OneWay}" FontWeight="SemiBold" />
@@ -62,6 +93,9 @@
                     </StackPanel>
                 </Border>
                 <Button Content="Exportar" c:Ui.Icon="{x:Static c:Glyphs.Download}" Command="{Binding Export}" Margin="0,0,8,0" />
+                <Button Content="Especificaciones" c:Ui.Icon="{x:Static c:Glyphs.Checklist}" Command="{Binding ManageSpecs}" Margin="0,0,8,0"
+                        ToolTip="Especificaciones técnicas por categoría (fichas, filtros y armador de PC)" c:Ui.IsBusy="{Binding ManageSpecs.IsRunning}"
+                        Visibility="{Binding CanManageSpecs, Converter={StaticResource Visible}}" />
                 <Button Style="{StaticResource PrimaryButton}" Content="Nuevo producto" c:Ui.Icon="{x:Static c:Glyphs.Add}" Command="{Binding New}"
                         Margin="0,0,8,0" Visibility="{Binding CanEdit, Converter={StaticResource Visible}}" />
                 <Button Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Refresh}" Command="{Binding Refresh}" ToolTip="Actualizar (F5)" />
@@ -81,16 +115,53 @@
         </UniformGrid>
 
         <!-- Filtros -->
-        <DockPanel Grid.Row="2" Margin="0,0,0,12">
-            <TextBlock DockPanel.Dock="Right" Text="{Binding Summary}" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="10,0,0,0" />
-            <WrapPanel>
-                <TextBox Width="300" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}" c:Ui.Icon="{x:Static c:Glyphs.Search}"
-                         c:Ui.Placeholder="Buscar por nombre, SKU, código o proveedor" Margin="0,0,10,0" />
-                <ComboBox Width="230" ItemsSource="{Binding Categories}" SelectedItem="{Binding Category}" ToolTip="Categoría" Margin="0,0,10,0" />
-                <ComboBox Width="200" ItemsSource="{Binding States}" SelectedItem="{Binding State}" ToolTip="Estado" Margin="0,0,10,0" />
-                <ComboBox Width="200" ItemsSource="{Binding Sorts}" SelectedItem="{Binding Sort}" ToolTip="Ordenar por" />
-            </WrapPanel>
-        </DockPanel>
+        <StackPanel Grid.Row="2" Margin="0,0,0,12">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Right" Text="{Binding Summary}" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="10,0,0,0" />
+                <WrapPanel>
+                    <TextBox Width="300" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}" c:Ui.Icon="{x:Static c:Glyphs.Search}"
+                             c:Ui.Placeholder="Buscar por nombre, SKU, código o proveedor" Margin="0,0,10,0" />
+                    <ComboBox Width="230" ItemsSource="{Binding Categories}" SelectedItem="{Binding Category}" ToolTip="Categoría (incluye sus subcategorías)"
+                              Margin="0,0,10,0" />
+                    <ComboBox Width="200" ItemsSource="{Binding States}" SelectedItem="{Binding State}" ToolTip="Estado" Margin="0,0,10,0" />
+                    <ComboBox Width="200" ItemsSource="{Binding Sorts}" SelectedItem="{Binding Sort}" ToolTip="Ordenar por" />
+                </WrapPanel>
+            </DockPanel>
+            <!-- V4.2 · Plataforma (opciones de la especificación «Plataforma») -->
+            <DockPanel Margin="0,10,0,0" Visibility="{Binding HasPlatforms, Converter={StaticResource Visible}}">
+                <TextBlock DockPanel.Dock="Left" Text="Plataforma" Style="{StaticResource Caption}" VerticalAlignment="Top" Margin="0,7,10,0" />
+                <ItemsControl ItemsSource="{Binding PlatformChips}" Focusable="False" ItemsPanel="{StaticResource WrapPanelTemplate}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:FilterChip}">
+                            <RadioButton Style="{StaticResource Chip}" IsChecked="{Binding IsSelected, Mode=OneWay}" Margin="0,0,6,6" Padding="0"
+                                         Command="{Binding DataContext.SelectPlatform, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="{Binding Label}" FontFamily="{StaticResource DisplayFont}" VerticalAlignment="Center" />
+                                    <Border Background="{DynamicResource SurfaceHover}" CornerRadius="8" Padding="6,0" Margin="8,0,0,0" MinWidth="22">
+                                        <TextBlock Text="{Binding Count}" FontSize="11" HorizontalAlignment="Center" Foreground="{DynamicResource TextMuted}" />
+                                    </Border>
+                                </StackPanel>
+                            </RadioButton>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </DockPanel>
+            <!-- V4.2 · Especificaciones de la categoría elegida (facetas con la cantidad de productos por valor) -->
+            <DockPanel Margin="0,6,0,0" Visibility="{Binding HasFacets, Converter={StaticResource Visible}}">
+                <Button DockPanel.Dock="Right" Style="{StaticResource LinkButton}" Content="Quitar filtros técnicos" Command="{Binding ClearTechFilters}"
+                        VerticalAlignment="Bottom" Margin="10,0,0,8" Visibility="{Binding HasTechFilters, Converter={StaticResource Visible}}" />
+                <ItemsControl ItemsSource="{Binding Facets}" Focusable="False" ItemsPanel="{StaticResource WrapPanelTemplate}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:FacetFilter}">
+                            <StackPanel Margin="0,0,10,6" Width="176">
+                                <TextBlock Text="{Binding Name}" Style="{StaticResource Caption}" FontSize="11.5" TextTrimming="CharacterEllipsis" Margin="0,0,0,3" />
+                                <ComboBox ItemsSource="{Binding Choices}" SelectedItem="{Binding Selected}" Height="32" ToolTip="{Binding Name}" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </DockPanel>
+        </StackPanel>
 
         <!-- Galería -->
         <Grid Grid.Row="3">
@@ -128,7 +199,32 @@
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
-                        <DataGridTextColumn Header="PROVEEDOR" Binding="{Binding Supplier}" Width="190" ElementStyle="{StaticResource CellText}" />
+                        <!-- V4.2 · Serie/IMEI, garantía y plataformas -->
+                        <DataGridTemplateColumn Header="FICHA" Width="190" CanUserSort="False">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:CatalogProduct}">
+                                    <WrapPanel VerticalAlignment="Center">
+                                        <Border Style="{StaticResource Badge}" Margin="0,0,4,2" Visibility="{Binding HasSerialBadge, Converter={StaticResource Visible}}">
+                                            <TextBlock Text="{Binding SerialBadge}" />
+                                        </Border>
+                                        <Border Style="{StaticResource Badge}" Margin="0,0,4,2" Background="{DynamicResource SuccessSoft}" BorderBrush="{DynamicResource Success}"
+                                                TextElement.Foreground="{DynamicResource Success}" Visibility="{Binding HasWarrantyBadge, Converter={StaticResource Visible}}">
+                                            <TextBlock Text="{Binding WarrantyBadge}" />
+                                        </Border>
+                                        <ItemsControl ItemsSource="{Binding Platforms}" Focusable="False" ItemsPanel="{StaticResource WrapPanelTemplate}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Style="{StaticResource PlatformBadge}" Margin="0,0,4,2">
+                                                        <TextBlock Text="{Binding}" />
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </WrapPanel>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTextColumn Header="PROVEEDOR" Binding="{Binding Supplier}" Width="170" ElementStyle="{StaticResource CellText}" />
                         <DataGridTextColumn Header="COSTO" Binding="{Binding CostText}" Width="110" SortMemberPath="Item.UnitCost"
                                             HeaderStyle="{StaticResource HeaderRight}" ElementStyle="{StaticResource CellRight}" />
                         <DataGridTextColumn Header="PRECIO" Binding="{Binding PriceText}" Width="110" SortMemberPath="Price"
@@ -171,6 +267,15 @@
                     <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Close}" Command="{Binding Cancel}" ToolTip="Cerrar sin guardar" />
                     <TextBlock Text="{Binding Heading}" Style="{StaticResource H2}" VerticalAlignment="Center" />
                 </DockPanel>
+                <!-- V4.2 · Pestañas: datos generales y ficha técnica -->
+                <Border DockPanel.Dock="Top" Background="{DynamicResource SurfaceHover}" CornerRadius="10" Padding="2" Margin="20,0,20,6" HorizontalAlignment="Left">
+                    <StackPanel Orientation="Horizontal">
+                        <RadioButton Style="{StaticResource Segment}" Content="General" c:Ui.Icon="{x:Static c:Glyphs.Tag}" IsChecked="{Binding IsGeneralTab}"
+                                     GroupName="editorTab" />
+                        <RadioButton Style="{StaticResource Segment}" Content="Ficha técnica" c:Ui.Icon="{x:Static c:Glyphs.Checklist}" IsChecked="{Binding IsTechTab}"
+                                     GroupName="editorTab" />
+                    </StackPanel>
+                </Border>
                 <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0" Padding="20,12">
                     <DockPanel>
                         <Button DockPanel.Dock="Right" Style="{StaticResource PrimaryButton}" Content="{Binding SaveText}" Command="{Binding Save}" MinWidth="150"
@@ -178,7 +283,65 @@
                         <Button Content="Cancelar" Command="{Binding Cancel}" HorizontalAlignment="Left" />
                     </DockPanel>
                 </Border>
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <Grid>
+                <!-- V4.2 · Ficha técnica: perfil (serie o IMEI, garantía) y especificaciones de la categoría -->
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Visibility="{Binding IsTechTab, Converter={StaticResource Visible}}">
+                    <StackPanel Margin="20,4,20,16">
+                        <StackPanel Visibility="{Binding IsLoadingTech, Converter={StaticResource Visible}}" Margin="0,20">
+                            <c:ProgressRing Width="30" Height="30" />
+                            <TextBlock Text="Leyendo la ficha técnica…" Style="{StaticResource Caption}" HorizontalAlignment="Center" Margin="0,8,0,0" />
+                        </StackPanel>
+                        <StackPanel DataContext="{Binding TechSheet}" Visibility="{Binding DataContext.HasTechSheet, RelativeSource={RelativeSource AncestorType=ScrollViewer}, Converter={StaticResource Visible}}"
+                                    IsEnabled="{Binding CanEdit}">
+                            <Border Style="{StaticResource Panel}">
+                                <StackPanel>
+                                    <CheckBox Style="{StaticResource Switch}" Content="Lleva serie o IMEI (una por unidad)" IsChecked="{Binding TrackSerials}" FontWeight="SemiBold" />
+                                    <ComboBox ItemsSource="{Binding Kinds}" SelectedItem="{Binding Kind}" Margin="0,10,0,0"
+                                              Visibility="{Binding TrackSerials, Converter={StaticResource Visible}}" ToolTip="Tipo de identificador" />
+                                    <TextBlock Text="{Binding SerialHelp}" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,8,0,0" />
+                                    <TextBlock Text="Meses de garantía" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
+                                    <ComboBox IsEditable="True" ItemsSource="{Binding WarrantyPresets}" Text="{Binding WarrantyMonths, UpdateSourceTrigger=PropertyChanged}"
+                                              Width="120" HorizontalAlignment="Left" />
+                                    <TextBlock Text="{Binding WarrantyText}" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,6,0,0" />
+                                </StackPanel>
+                            </Border>
+                            <TextBlock Text="ESPECIFICACIONES" Style="{StaticResource Overline}" Margin="0,16,0,4" />
+                            <TextBlock Text="{Binding FieldsHelp}" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                            <ItemsControl ItemsSource="{Binding Fields}" Focusable="False">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:SpecField}">
+                                        <StackPanel Margin="0,0,0,12">
+                                            <TextBlock Text="{Binding Label}" Style="{StaticResource FieldLabel}" Margin="0,0,8,1" />
+                                            <TextBlock Text="{Binding Help}" Style="{StaticResource Caption}" FontSize="10.5" TextWrapping="Wrap" Margin="0,0,0,5" />
+                                            <DockPanel Visibility="{Binding IsFree, Converter={StaticResource Visible}}">
+                                                <TextBlock DockPanel.Dock="Right" Text="{Binding Unit}" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="8,0,0,0"
+                                                           Visibility="{Binding HasUnit, Converter={StaticResource Visible}}" />
+                                                <TextBox Text="{Binding Text, UpdateSourceTrigger=PropertyChanged}" c:Ui.Placeholder="{Binding Placeholder}" MaxLength="300"
+                                                         c:Ui.HasError="{Binding Problem, Converter={StaticResource HasValueBool}}" />
+                                            </DockPanel>
+                                            <TextBlock Text="{Binding Problem}" Foreground="{DynamicResource Danger}" FontSize="11.5" Margin="0,3,0,0"
+                                                       Visibility="{Binding Problem, Converter={StaticResource HasValue}}" />
+                                            <ComboBox ItemsSource="{Binding Choices}" SelectedItem="{Binding Option}"
+                                                      Visibility="{Binding IsOptionSingle, Converter={StaticResource Visible}}" />
+                                            <ItemsControl ItemsSource="{Binding Toggles}" Focusable="False" ItemsPanel="{StaticResource WrapPanelTemplate}"
+                                                          Visibility="{Binding IsOptionMulti, Converter={StaticResource Visible}}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate DataType="{x:Type vm:SpecOptionToggle}">
+                                                        <CheckBox Content="{Binding Value}" IsChecked="{Binding IsChecked}" Margin="0,0,14,6" />
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                        <Border Style="{StaticResource FormError}" Visibility="{Binding Error, Converter={StaticResource HasValue}}">
+                            <TextBlock Text="{Binding Error}" Foreground="{DynamicResource Danger}" TextWrapping="Wrap" />
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Visibility="{Binding IsGeneralTab, Converter={StaticResource Visible}}">
                     <StackPanel Margin="20,4,20,16">
                         <!-- Imagen -->
                         <Grid Height="190">
@@ -198,7 +361,7 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel>
                                 <TextBlock Text="SKU" Style="{StaticResource FieldLabel}" />
-                                <TextBox Text="{Binding Sku, UpdateSourceTrigger=PropertyChanged}" CharacterCasing="Upper" MaxLength="40" c:Ui.Placeholder="FER-001" />
+                                <TextBox Text="{Binding Sku, UpdateSourceTrigger=PropertyChanged}" CharacterCasing="Upper" MaxLength="40" c:Ui.Placeholder="CPU-AMD-7600" />
                             </StackPanel>
                             <StackPanel Grid.Column="2">
                                 <TextBlock Text="Nombre" Style="{StaticResource FieldLabel}" />
@@ -207,7 +370,7 @@
                         </Grid>
                         <TextBlock Text="Descripción" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
                         <TextBox Style="{StaticResource MultilineTextBox}" Text="{Binding Description, UpdateSourceTrigger=PropertyChanged}" MaxLength="500" MinHeight="54"
-                                 c:Ui.Placeholder="Detalles, medidas, material…" />
+                                 c:Ui.Placeholder="Modelo, especificaciones clave, compatibilidad…" />
 
                         <TextBlock Text="Categoría" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
                         <DockPanel>
@@ -289,6 +452,7 @@
                         </Border>
                     </StackPanel>
                 </ScrollViewer>
+                </Grid>
             </DockPanel>
         </Border>
     </Grid>

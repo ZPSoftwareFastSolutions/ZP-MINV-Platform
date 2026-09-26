@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    M-INV V3/V4/V4.1 - Ciclo completo (definicion de terminado, reglas A-11, B-17 y de la facturacion SIAT).
+    M-INV V3/V4/V4.1/V4.2 - Ciclo completo (definicion de terminado, reglas A-11, B-17, F-17 y T-10).
 
 .DESCRIPTION
     1. dotnet tool restore                      Herramienta local dotnet-ef (dotnet-tools.json).
@@ -13,9 +13,10 @@
                                                 temporal y verifica /health, el WSDL y el corte simulado (/control).
     4. dotnet ef migrations has-pending-model-changes   El modelo no puede tener cambios sin migracion.
     5. scripts\db_init.sql                      Se regenera: cabecera + "dotnet ef migrations script --idempotent"
-                                                (V4.1: 140 tablas en 9 esquemas + historial de migraciones).
-    6. -Capturas                                Cliente de escritorio: M-INV.exe --capturas con la demostracion (V2.1)
-                                                -> docs\product\capturas\v4.1 (claro, oscuro y por rol; regla A-11).
+                                                (V4.2: 152 tablas en 10 esquemas + historial de migraciones).
+    6. -Capturas                                Cliente de escritorio V4.2: M-INV.exe --capturas con la demostracion
+                                                -> docs\product\capturas\v4.2 (claro, oscuro y por rol; reglas A-11 y T-10;
+                                                armador de PC, series e IMEI, garantias y RMA, catalogo tecnico).
                                                 Si existe la base local de prueba (tools\bd_local.ps1), las pantallas de
                                                 negocio (POS, ventas, compras, reportes, contabilidad) se capturan con ella.
     7. -Publicar                                tools\publicar_escritorio.ps1 -> dist\M-INV-<version>-win-x64\M-INV.exe
@@ -96,14 +97,14 @@ Paso 'Regenerar scripts\db_init.sql' {
         [IO.File]::WriteAllText((Join-Path $root 'scripts\db_init.sql'), $header + $body.Replace("`r`n", "`n"), $utf8)
         Remove-Item $tmp -Force
         $tablas = (Select-String -Path (Join-Path $root 'scripts\db_init.sql') -Pattern 'CREATE TABLE' | Measure-Object).Count
-        Write-Output ('scripts\db_init.sql regenerado: ' + $tablas + ' sentencias CREATE TABLE (V4.1: 140 tablas en 9 esquemas + historial de migraciones)')
+        Write-Output ('scripts\db_init.sql regenerado: ' + $tablas + ' sentencias CREATE TABLE (V4.2: 152 tablas en 10 esquemas + historial de migraciones)')
     }
 }
 
 if ($Capturas) {
-    Paso 'Capturas del cliente de escritorio (docs\product\capturas\v4.1)' {
+    Paso 'Capturas del cliente de escritorio V4.2 (docs\product\capturas\v4.2)' {
         $exe = Get-ChildItem ('src\3. Presentation\MINV.DesktopClient\bin\' + $Configuration) -Filter 'M-INV.exe' -Recurse | Select-Object -First 1
-        $dir = Join-Path $root 'docs\product\capturas\v4.1'
+        $dir = Join-Path $root 'docs\product\capturas\v4.2'
         if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
         $usuarios = Join-Path $env:LOCALAPPDATA 'M-INV\usuarios-prueba.txt'
         if (Test-Path $usuarios) { $env:MINV_CAPTURAS_USUARIOS = $usuarios; Write-Output 'Pantallas de negocio con la base LOCAL de prueba.' }

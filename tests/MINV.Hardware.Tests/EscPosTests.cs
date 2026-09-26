@@ -72,6 +72,24 @@ public sealed class EscPosTests
         Assert.True(IndexOf(bytes, [0x1B, (byte)'p', 0, 25, 250]) > 0);
         Assert.Equal(new byte[] { 0x1D, (byte)'V', 66, 3 }, bytes[^4..]);
     }
+
+    [Fact]
+    public void V42_el_ticket_lleva_las_series_o_IMEI_y_la_garantia_de_cada_linea()
+    {
+        var receipt = new Receipt("Tech Zone Gaming", "1020703023", "CM · La Paz", "F-CM-000001", new DateTimeOffset(2026, 9, 25, 16, 0, 0, TimeSpan.Zero),
+            "Carla Rojas",
+            [
+                new ReceiptLine("Consola PlayStation 5 Slim", 1, 4_999m, "S/N: PS5SLIM0001", new DateOnly(2027, 9, 25)),
+                new ReceiptLine("Smartphone Galaxy A15", 1, 1_450m, "IMEI: 352099001761481", new DateOnly(2027, 3, 25)),
+                new ReceiptLine("Cable HDMI 2 m", 2, 35m),
+            ], 6_519m, "Bs", "EFECTIVO", "F-CM-000001");
+        var text = System.Text.Encoding.Latin1.GetString(ReceiptRenderer.Render(receipt, 48));
+        Assert.Contains("  S/N: PS5SLIM0001", text);
+        Assert.Contains("  IMEI: 352099001761481", text);
+        Assert.Contains("25/09/2027", text);
+        Assert.Contains("25/03/2027", text);
+        Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(text, "Garant.a hasta").Count);
+    }
 }
 
 public sealed class ScannerTests

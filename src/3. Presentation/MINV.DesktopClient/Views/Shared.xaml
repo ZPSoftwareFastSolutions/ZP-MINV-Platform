@@ -125,17 +125,23 @@
     <!-- Indicador (KPI) de los encabezados de las pantallas nuevas: ícono en burbuja de color, valor y detalle -->
     <DataTemplate x:Key="KpiTemplate" DataType="{x:Type vm:KpiCard}">
         <Border Style="{StaticResource CardFlat}" Margin="6" Padding="16,13">
-            <DockPanel>
-                <Border DockPanel.Dock="Left" Width="40" Height="40" CornerRadius="11" c:Ui.BrushKey="{Binding SoftKey}" VerticalAlignment="Top">
-                    <TextBlock Style="{StaticResource Icon}" Text="{Binding Glyph}" FontSize="17" c:Ui.BrushKey="{Binding BrushKey}" />
-                </Border>
-                <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
-                    <TextBlock Text="{Binding Title}" Style="{StaticResource Caption}" />
-                    <TextBlock Text="{Binding Value}" FontWeight="SemiBold" FontSize="18" Foreground="{DynamicResource TextPrimary}" TextTrimming="CharacterEllipsis" />
-                    <TextBlock Text="{Binding Detail}" Style="{StaticResource Caption}" FontSize="11.5" TextTrimming="CharacterEllipsis"
-                               Visibility="{Binding Detail, Converter={StaticResource HasValue}}" />
-                </StackPanel>
-            </DockPanel>
+            <Grid>
+                <!-- V4.2 · borde de acento superior del color del indicador -->
+                <Border Height="3" VerticalAlignment="Top" Margin="2,-13,2,0" CornerRadius="0,0,3,3" c:Ui.BrushKey="{Binding BrushKey}"
+                        IsHitTestVisible="False" />
+                <DockPanel>
+                    <Border DockPanel.Dock="Left" Width="40" Height="40" CornerRadius="11" c:Ui.BrushKey="{Binding SoftKey}" VerticalAlignment="Top">
+                        <TextBlock Style="{StaticResource Icon}" Text="{Binding Glyph}" FontSize="17" c:Ui.BrushKey="{Binding BrushKey}" />
+                    </Border>
+                    <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding Title}" Style="{StaticResource Caption}" />
+                        <TextBlock Text="{Binding Value}" FontWeight="SemiBold" FontSize="18" FontFamily="{StaticResource DisplayFont}"
+                                   Foreground="{DynamicResource TextPrimary}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding Detail}" Style="{StaticResource Caption}" FontSize="11.5" TextTrimming="CharacterEllipsis"
+                                   Visibility="{Binding Detail, Converter={StaticResource HasValue}}" />
+                    </StackPanel>
+                </DockPanel>
+            </Grid>
         </Border>
     </DataTemplate>
 

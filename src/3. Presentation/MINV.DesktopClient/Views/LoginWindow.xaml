@@ -5,6 +5,7 @@
         xmlns:v="clr-namespace:MINV.DesktopClient.Views"
         xmlns:vm="clr-namespace:MINV.DesktopClient.ViewModels"
         xmlns:app="clr-namespace:MINV.DesktopClient"
+        xmlns:s="clr-namespace:MINV.DesktopClient.Services"
         Title="M-INV · Iniciar sesión" Width="1040" Height="680" WindowStyle="None" AllowsTransparency="True"
         Background="Transparent" ResizeMode="CanMinimize" WindowStartupLocation="CenterScreen" Icon="/Assets/minv.ico"
         FontFamily="{StaticResource UiFont}" FontSize="13.5" Opacity="0">
@@ -32,6 +33,7 @@
             </Grid.ColumnDefinitions>
 
             <!-- ======================================================================= panel de marca -->
+            <!-- Sobre el degradado de marca los textos usan blanco y lavanda claro (≥ 4,5:1 donde están; regla A-09) -->
             <Border CornerRadius="18,0,0,18" Background="{DynamicResource BrandGradient}" MouseLeftButtonDown="OnDrag">
                 <Grid ClipToBounds="True">
                     <Ellipse Width="420" Height="420" Fill="#FFFFFF" Opacity="0.06" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-200,-210,0" />
@@ -42,18 +44,15 @@
                             <RowDefinition Height="*" />
                             <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
-                        <StackPanel Orientation="Horizontal">
-                            <Border Width="46" Height="46" CornerRadius="12" Background="#26FFFFFF">
-                                <Image Source="/Assets/minv-256.png" Width="34" Height="34" RenderOptions.BitmapScalingMode="HighQuality" />
-                            </Border>
-                            <TextBlock Text="M-INV" Foreground="#FFFFFF" FontSize="24" FontWeight="Bold" VerticalAlignment="Center" Margin="14,0,0,0" />
-                        </StackPanel>
+                        <!-- V4.2 · Logotipo de la edición Tecnología -->
+                        <Image Source="/Assets/minv-logotipo.png" Height="52" HorizontalAlignment="Left" RenderOptions.BitmapScalingMode="HighQuality"
+                               AutomationProperties.Name="M-INV Tech · Gaming" />
 
                         <StackPanel Grid.Row="1" VerticalAlignment="Center">
-                            <TextBlock Text="Su inventario, claro y al día." Foreground="#FFFFFF" FontSize="30" FontWeight="SemiBold"
-                                       TextWrapping="Wrap" LineHeight="38" />
-                            <TextBlock Text="Stock, alertas, pedidos y tomas físicas en un solo lugar, con la misma lógica probada de la versión colaborativa."
-                                       Foreground="#D6E6FF" FontSize="14" TextWrapping="Wrap" Margin="0,14,0,30" LineHeight="21" />
+                            <TextBlock Text="{x:Static s:Brand.Headline}" Foreground="#FFFFFF" FontSize="30" FontWeight="SemiBold"
+                                       FontFamily="{StaticResource DisplayFont}" TextWrapping="Wrap" LineHeight="38" />
+                            <TextBlock Text="{x:Static s:Brand.Pitch}"
+                                       Foreground="#EDE9FE" FontSize="14" TextWrapping="Wrap" Margin="0,14,0,30" LineHeight="21" />
                             <ItemsControl Focusable="False" ItemsSource="{Binding Features}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate DataType="{x:Type vm:HelpEntry}">
@@ -63,7 +62,7 @@
                                             </Border>
                                             <StackPanel Margin="14,0,0,0" VerticalAlignment="Center">
                                                 <TextBlock Text="{Binding Title}" Foreground="#FFFFFF" FontWeight="SemiBold" FontSize="14" />
-                                                <TextBlock Text="{Binding Text}" Foreground="#C4DBFA" FontSize="12.5" />
+                                                <TextBlock Text="{Binding Text}" Foreground="#DDD6FE" FontSize="12.5" />
                                             </StackPanel>
                                         </StackPanel>
                                     </DataTemplate>
@@ -71,9 +70,12 @@
                             </ItemsControl>
                         </StackPanel>
 
-                        <TextBlock Grid.Row="2" Foreground="#9FC3F5" FontSize="11.5">
-                            <Run Text="Versión" /> <Run Text="{x:Static app:App.Version}" /> <Run Text="· Z&amp;P Software Fast Solutions" />
-                        </TextBlock>
+                        <StackPanel Grid.Row="2">
+                            <TextBlock Text="{x:Static s:Brand.Edition}" Foreground="#FFFFFF" FontSize="12" FontWeight="SemiBold" />
+                            <TextBlock Foreground="#FFFFFF" FontSize="11.5" Margin="0,3,0,0">
+                                <Run Text="Versión" /> <Run Text="{x:Static app:App.Version}" /> <Run Text="· Z&amp;P Software Fast Solutions" />
+                            </TextBlock>
+                        </StackPanel>
                     </Grid>
                 </Grid>
             </Border>
@@ -153,7 +155,7 @@
 
                     <TextBlock Text="Empresa" Style="{StaticResource FieldLabel}" />
                     <TextBox x:Name="TenantBox" Text="{Binding TenantCode, UpdateSourceTrigger=PropertyChanged}" CharacterCasing="Upper"
-                             c:Ui.Icon="{x:Static c:Glyphs.Briefcase}" c:Ui.Placeholder="Código de la empresa (p. ej. DEMO)" Margin="0,0,0,14" />
+                             c:Ui.Icon="{x:Static c:Glyphs.Briefcase}" c:Ui.Placeholder="Código de la empresa (p. ej. TECHZONE)" Margin="0,0,0,14" />
                     <TextBlock Text="Correo" Style="{StaticResource FieldLabel}" />
                     <TextBox x:Name="EmailBox" Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}" c:Ui.Icon="{x:Static c:Glyphs.Mail}"
                              c:Ui.Placeholder="nombre@empresa.com" Margin="0,0,0,14" />
@@ -206,7 +208,7 @@
                                 Command="{Binding CloseDemo}" c:Ui.Icon="{x:Static c:Glyphs.ChevronLeft}" Margin="-8,0,0,10" />
                         <TextBlock Text="Demostración" Style="{StaticResource H1}" />
                         <TextBlock Style="{StaticResource Body}" Foreground="{DynamicResource TextMuted}" Margin="0,6,0,0"
-                                   Text="Los datos reales del libro colaborativo de la V2.1, migrados a la V3 en este equipo. Elija con qué rol quiere entrar: la aplicación se adapta a los permisos de cada uno." />
+                                   Text="La empresa de prueba Tech Zone Gaming S.R.L. (tres sucursales, catálogo de tecnología con series, garantías, armados de PC y facturación), generada en la memoria de este equipo. Elija con qué rol quiere entrar: la aplicación se adapta a los permisos de cada uno." />
                         <Border Style="{StaticResource Panel}" Margin="0,16,0,6" Padding="12,10"
                                 Visibility="{Binding DemoCompany, Converter={StaticResource HasValue}}">
                             <StackPanel>

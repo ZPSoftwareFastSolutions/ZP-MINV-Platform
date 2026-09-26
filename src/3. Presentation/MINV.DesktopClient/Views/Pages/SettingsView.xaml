@@ -1,7 +1,8 @@
 <UserControl x:Class="MINV.DesktopClient.Views.Pages.SettingsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:c="clr-namespace:MINV.DesktopClient.Controls">
+             xmlns:c="clr-namespace:MINV.DesktopClient.Controls"
+             xmlns:s="clr-namespace:MINV.DesktopClient.Services">
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <StackPanel Margin="28,6,28,28">
             <StackPanel Margin="0,0,0,18">
@@ -174,7 +175,7 @@
                             <Border Background="{DynamicResource WarningSoft}" CornerRadius="10" Padding="12,9" Margin="0,14,0,0"
                                     Visibility="{Binding IsDemo, Converter={StaticResource Visible}}">
                                 <TextBlock Foreground="{DynamicResource Warning}" TextWrapping="Wrap" FontSize="12.5"
-                                           Text="Demostración: los datos viven en la memoria de este equipo y se pierden al cerrar. Para trabajar de verdad, configure PostgreSQL (guía docs/deployment/inicio-rapido-v3.md)." />
+                                           Text="Demostración: los datos viven en la memoria de este equipo y se pierden al cerrar. Para trabajar de verdad, configure PostgreSQL (GUIA-DE-INICIO.md y docs/deployment/inicio-rapido-v4.2.md)." />
                             </Border>
                             <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,12,0,0"
                                        Text="La cadena de conexión se toma de la variable MINV_DB o de appsettings.json junto al ejecutable. La contraseña nunca se muestra." />
@@ -189,6 +190,8 @@
                                 <TextBlock Style="{StaticResource H3}">
                                     <Run Text="M-INV" /> <Run Text="{Binding Version, Mode=OneWay}" Foreground="{DynamicResource TextMuted}" FontWeight="Normal" />
                                 </TextBlock>
+                                <TextBlock Text="{x:Static s:Brand.Edition}" Foreground="{DynamicResource BrandText}" FontWeight="SemiBold" FontSize="12.5"
+                                           Margin="0,1,0,1" />
                                 <TextBlock Text="Sistema de inventario · Z&amp;P Software Fast Solutions" Style="{StaticResource Caption}" />
                                 <TextBlock Text="{Binding Runtime}" Style="{StaticResource Caption}" TextWrapping="Wrap" />
                             </StackPanel>

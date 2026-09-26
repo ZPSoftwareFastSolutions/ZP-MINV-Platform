@@ -13,10 +13,17 @@ public enum ThemeMode
 
 /// <summary>
 /// Tema claro / oscuro / según Windows. Reemplaza la paleta (primer diccionario de la aplicación); como todas las vistas
-/// usan DynamicResource, el cambio es inmediato y sin reiniciar.
+/// usan DynamicResource, el cambio es inmediato y sin reiniciar. V4.2 · El tema oscuro (gaming) es el predeterminado
+/// (regla T-08): se usa cuando no hay una preferencia guardada o la guardada no se reconoce.
 /// </summary>
 public sealed class ThemeService
 {
+    /// <summary>Tema de una instalación nueva.</summary>
+    public const ThemeMode Default = ThemeMode.Dark;
+
+    /// <summary>Nombre del tema predeterminado tal como se guarda en las preferencias.</summary>
+    public const string DefaultName = "oscuro";
+
     private static readonly Uri LightUri = new("pack://application:,,,/Theme/Palette.Light.xaml");
     private static readonly Uri DarkUri = new("pack://application:,,,/Theme/Palette.Dark.xaml");
     private readonly ClientSettings _settings;
@@ -40,11 +47,12 @@ public sealed class ThemeService
 
     public event EventHandler? Changed;
 
-    public static ThemeMode Parse(string? value) => value?.ToLowerInvariant() switch
+    public static ThemeMode Parse(string? value) => value?.Trim().ToLowerInvariant() switch
     {
         "claro" or "light" => ThemeMode.Light,
         "oscuro" or "dark" => ThemeMode.Dark,
-        _ => ThemeMode.System,
+        "sistema" or "system" => ThemeMode.System,
+        _ => Default,
     };
 
     public static string Name(ThemeMode mode) => mode switch

@@ -2,6 +2,234 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semántico.
 
+## [4.2.0-alpha.1 · edición Tecnología] · 2026-09-26 · rama `Inventario-V4.2`
+
+Tema: M-INV **exclusivo para tiendas de tecnología y gaming** (componentes de PC, computadoras, monitores, periféricos,
+consolas PS4 y PS5, Xbox Series X y Series S, Nintendo Switch y Switch 2, videojuegos, accesorios, redes, cables y
+software), **con datos y no con código a medida**: fichas técnicas, plataformas y reglas de compatibilidad son
+especificaciones por categoría; el motor (CQRS y append-only, multi-sucursal, nube, API y facturación SIAT) es el de la
+V4.1. Cada unidad serializada es un hecho trazable de punta a punta: entra, viaja, se vende (la factura del SIN lleva su
+serie o IMEI) y vuelve por garantía con su serie. Construida sobre `Inventario-V4.1`. **152 tablas en 10 esquemas** (12
+nuevas; esquema `service`). Diseño: `docs/architecture/edicion-tecnologia-v4.2.md` · reglas T-01 a T-10:
+`.claude/v42-tech-rules.md` · paso a paso: `docs/deployment/inicio-rapido-v4.2.md` · interfaz:
+`docs/product/escritorio-v4.2.md` · para todos: `GUIA-DE-INICIO.md` §5.
+
+### Agregado
+
+- **Dominio** (`MINV.Domain`):
+  - fichas técnicas (`Catalog/TechCatalog.cs`): `SpecDefinition` por categoría (texto, número con unidad u opción;
+    multivalor, filtrable, obligatoria, clave de compatibilidad), `SpecOption`, `ProductSpecValue` (arco exclusivo
+    número/texto/opción), `ProductTechProfile` (serie o IMEI y meses de garantía) y las 17 claves de `CompatibilityKeys`;
+  - series (`Inventory/SerialNumber.cs`, `SerialTracking.cs`): la serie es de una variante, estados nuevos `InTransit`,
+    `InRma` y `ReturnedToSupplier`, cambios SOLO por métodos de negocio (recibir, vender, reponer, devolver, RMA,
+    transferir, reingresar, devolver al proveedor, dar de baja) con su fila de bitácora (15 acciones) e IMEI de 15 dígitos
+    con dígito de Luhn; códigos estables `serial.*`;
+  - garantías (`Service/WarrantyClaim.cs`): caso RMA con tabla de transiciones (recibido → diagnóstico → proveedor →
+    reparado, reemplazado o rechazado → entregado), reparación con cargo fuera de garantía y bitácora del caso;
+  - armador (`Catalog/PcCompatibility.cs`, `Sales/PcBuild.cs`): 12 ranuras, 12 reglas (socket, tipo y ranuras de RAM,
+    capacidad, M.2, formato del gabinete, largo de la GPU, socket del enfriador, potencia de la fuente y recomendada,
+    gráficos, piezas faltantes), consumo estimado (TDP + GPU + 75 W) y fuente recomendada (× 1,3); armado Borrador →
+    Cotizado (precios y vigencia congelados) → Vendido o Anulado, con la confirmación explícita de los errores;
+  - 6 permisos (`catalog.specs.manage`, `inventory.serials.view`, `inventory.serials.manage`, `service.rma.open`,
+    `service.rma.manage`, `sales.pcbuild.manage`) y su matriz por rol, tipo de movimiento **REPOSICIÓN POR GARANTÍA**
+    (`REPOSICION_GARANTIA`) y cuenta **5.1.10 Costo de garantías**.
+- **Casos de uso** (`MINV.Application/Tech`, contratos en `TechContracts.cs`): especificaciones con herencia y ficha
+  técnica completa, búsqueda y facetas por especificación y plataforma, consultas de series (disponibles, búsqueda,
+  trazabilidad, garantía derivada), registrar series de unidades en stock, dar destino (proveedor o baja), casos RMA
+  (abrir, avanzar, notas, reposición con otra unidad con su movimiento y su asiento 5.1.10 / 1.1.05), armador (revisión,
+  candidatos con los errores nuevos de cada pieza, guardar y cotizar, anular, vender la cotización en la caja en la misma
+  transacción) y `GetTechDashboardQuery`.
+- **Series en las operaciones de siempre**: venta de caja, pedidos del API y facturas CAFC (`SaleLineInput.Serials`),
+  anulación, devoluciones (`ReturnLineInput.Serials`) y **devolución por falla** (`CreateSalesReturnCommand(…, Defective)`:
+  reembolso sin reingreso, la unidad queda en garantía), transferencias (despacho en tránsito y faltantes con las series
+  que no llegaron), recepción de compras (`ReceivePurchaseOrderCommand(…, Serials)`), saldo inicial, ajustes y devolución
+  a proveedor (`RegisterMovementCommand.Serials`); `GetSaleLinesQuery` devuelve las series de cada línea; la toma física
+  rechaza la diferencia de un serializado (`serial.count_adjustment`).
+- **Factura del SIN** (T-03): `numeroSerie` o `numeroImei` por línea (series unidas con «, »); si pasan de 1500
+  caracteres la línea se divide por unidades con el mismo precio y el descuento prorrateado (el total fiscal no cambia).
+  Actividades 4741100, 4741200 y 4742100 con los productos SIN del rubro.
+- **Impresión**: ticket, rollo fiscal y PDF de la factura con `S/N:` o `IMEI:` y «Garantía hasta dd/mm/aaaa» (fecha de la
+  venta + meses, derivada al imprimir); proforma del armado (texto de ticket, rollo y PDF) con la garantía de cada pieza y
+  «Documento sin valor fiscal».
+- **Base de datos**: migración `V42TechRetail` (guardia, relleno de `serial_numbers.variant_id` con verificación, RLS por
+  empresa en las 12 tablas nuevas y RESTRICTIVA por sucursal en 7, append-only en 5 bitácoras, trigger
+  `catalog.minv_spec_value_matches`, vista `inventory.v_serial_breaches`, datos V4.2 de las empresas existentes y
+  privilegios de `minv_app` y `minv_server`); `scripts/db_init.sql` regenerado; `minv verify` controla también las series
+  en stock; ERD §9 y guía de migraciones §9.
+- **API Gateway**: `GET /v1/products/{sku}/specs` (alcance `catalog:read`) y `serials` por línea en `POST /v1/orders`.
+- **Escritorio**: sección **Tecnología** del menú con **Armador de PC** (ranuras, candidatos compatibles e incompatibles
+  atenuados con el motivo, revisión en vivo, consumo y fuente recomendada, cotizaciones, proforma y «Vender en caja»),
+  **Series e IMEI** (búsqueda, garantía derivada, línea de tiempo de cada unidad, registrar series de stock, dar destino,
+  abrir RMA) y **Garantías y RMA** (tarjetas, chips por estado, bitácora y acciones según el estado, reemplazo con otra
+  unidad); catálogo con la pestaña **Ficha técnica**, insignias Serie / IMEI / Garantía, chips de plataforma, facetas y
+  administración de **Especificaciones** y subcategorías; punto de venta con chips de categoría y plataforma, elección de
+  la unidad al agregar un equipo y **Desde armado**; formulario de series (escáner en modo teclado, lista pegada,
+  contador, IMEI inválido y repetidas en vivo) en compras, movimientos, transferencias y devoluciones; sección
+  **Tecnología** del tablero (ventas por categoría y plataforma, tarjetas de video y consolas más vendidas, RMA y armados)
+  y guías de ayuda de la edición.
+- **Tema gaming** (T-08): paletas `Palette.Dark.xaml` (predeterminada) y `Palette.Light.xaml` con las mismas claves y
+  contraste WCAG AA, degradado de marca violeta → cian (botón principal, menú activo, líneas de acento, progreso), foco
+  del teclado con anillo neón, `KpiCardButton` con acento, insignias `Badge` y `PlatformBadge`, títulos y cifras en
+  Bahnschrift, ícono y logotipo propios (`tools/tecnologia/generar_icono_gaming.py`) y textos de marca en
+  `Services/Brand.cs`. Guía: `docs/product/ux-ui-guidelines.md` §13.
+- **Empresa de prueba Tech Zone Gaming S.R.L.** (`TECHZONE`, sucursales CM La Paz, CB Cochabamba y SC Santa Cruz, NIT de
+  simulación 1023456029) desde `Seeding/Tecnologia/catalogo-tecnologia.json` embebido (generado y validado con
+  `tools/tecnologia/generar_catalogo.py`): 35 categorías, 176 especificaciones, 40 marcas, 159 productos con ficha técnica,
+  producto SIN e ilustración propia sin logotipos (`tools/tecnologia/generar_imagenes_tecnologia.py`), 8 proveedores, 30
+  clientes y 8 armados. La base de prueba (60 días, unos 122 s de carga) deja unas 2.722 series e IMEI, 7 casos RMA en
+  todos sus estados, los 8 armados (dos cobrados en la caja, uno incompatible en borrador y otro cotizado con errores
+  confirmados), una devolución por falla, transferencias con faltantes, tomas físicas y unos 518 documentos fiscales con
+  los escenarios de contingencia de la V4.1.
+- **Pruebas**: dominio (IMEI, estados de la serie, RMA, armado, compatibilidad con los armados del catálogo), aplicación
+  de punta a punta en memoria (ciclo de vida de una serie, rechazos, transferencias, armador, fichas y facetas, división
+  de la línea fiscal, devolución por falla), PostgreSQL con `MINV_TEST_PG` (RLS, append-only, arco de las fichas, unicidad
+  de series, `v_serial_breaches` vacía, relleno y guardia de la migración, ciclo de vida, transferencia con series,
+  armador vendido, RLS con la sucursal Cochabamba), escritorio (páginas nuevas, caja con IMEI y factura válida, armador
+  cotizado y vendido, RMA con reposición, catálogo técnico, series en movimientos, compras y transferencias, devolución
+  por falla, tema y alcance de los recursos), RPC de la edición en el servidor en la nube y `ModelTests` de las tablas
+  nuevas.
+- **Documentación**: diseño, reglas T-01 a T-10, inicio rápido de la V4.2, guía de la interfaz, sección 5 de la
+  `GUIA-DE-INICIO.md`, ERD §9, guía de migraciones §9, API (`/v1/products/{sku}/specs` y ejemplos con productos y
+  sucursales de Tech Zone Gaming), despliegue en la nube (152 tablas) y guía UX/UI (§13); las 83 capturas de la
+  demostración en `docs/product/capturas/v4.2` (01 a 98, tema claro y sus variantes oscuras).
+
+### Cambiado
+
+- La empresa de prueba de `minv datos-prueba`, `tools\bd_local.ps1` y `tools\bd_nube.ps1 -DatosPrueba` pasa de la
+  ferretería (MINV, sucursales CM, EA y SC) a **Tech Zone Gaming** (`TECHZONE`, CM, CB y SC); los nombres de los usuarios de
+  prueba son los mismos (misma semilla) con correos `@techzone.example`. Las ramas anteriores conservan la ferretería.
+- La **demostración** ya no importa el libro de la V2.1: genera Tech Zone Gaming en memoria con el MISMO `LocalDataSeeder`
+  (8 días, 6 facturados, 40 % del volumen, sin los escenarios de contingencia ni el pedido sugerido completo, altas en
+  paralelo) y abre en unos **17 s en frío** (unos 2 s son la primera distribución a Cochabamba y Santa Cruz: 90 productos
+  con pocas unidades); T-09 prevalece sobre lo que A-12 decía de la V2.1 (`minv import-v21` sigue disponible).
+- Arranque en frío (`Directory.Build.props`): `TieredPGO=false` en el escritorio, la CLI y las pruebas y
+  `TieredCompilation.CallCountingDelayMs=0` en todos los proyectos (~25 % menos de tiempo en la demostración; los
+  servidores conservan la PGO dinámica).
+- `inventory.serial_numbers`: la serie es única por (empresa, **variante**, serie) —antes por lote— y guarda su tipo y su
+  fecha de ingreso.
+- Tema: el **oscuro** es el predeterminado; las preferencias guardadas hasta la V4.1 con «sistema» (el valor por defecto)
+  pasan una sola vez al oscuro; «claro» u «oscuro» elegidos antes se respetan.
+- Los parámetros nuevos de los contratos existentes (`Serials`, `Defective`, `MissingSerials`, `SpecFilters`,
+  `ParentCode`, `SuggestedRegister`) son opcionales y van al final: los clientes de la V4.1 siguen funcionando con
+  productos sin serie.
+- **Caja**: `GetPosStateQuery` sugiere la caja (`SuggestedRegister`: la del turno propio o una libre, primero las de la
+  sucursal activa) y la pantalla la preselecciona; el nombre de sucursal de la caja es el de la sucursal activa.
+- **Simulador del SIN**: padrón simulado de actividades por NIT; Tech Zone Gaming (1023456029) solo sincroniza sus tres
+  actividades de tecnología y sus productos SIN; cualquier otro NIT conserva además las de ferretería de la V4.1 (las usan
+  sus pruebas de homologación).
+- **Demostración**: el saldo inicial de la casa matriz va del 60 al 105 % del máximo (la base local sigue del 90 al
+  160 %) para que su tablero no arranque en sobrestock; ya no copia el libro de la V2.1 junto al programa y se quitó
+  `DesktopDemoBilling` (la facturación de la demostración la prepara el mismo `LocalDataSeeder`).
+- **Series e IMEI**: las tarjetas cuentan todas las series de la empresa, la grilla muestra las 1.000 más recientes y la
+  búsqueda acepta también el SKU; el detalle de **Documentos fiscales** muestra las series o IMEI de cada línea.
+- **Actividad**: los comandos auditados de la V3 a la V4.2 y sus datos se muestran en español (sí/no en lugar de
+  True/False); textos de ayuda, alertas, toma física y permisos sin referencias a la V2.1 ni a la ferretería
+  («Registrar entradas, saldo inicial y ajustes», «Registrar salidas»). La empresa por defecto de `appsettings.json` es
+  `TECHZONE`.
+- **Migraciones**: `V4MultiBranchCloud` deja congelado su `ANALYZE` de los 8 esquemas de la V4 (usaba
+  `PostgresMaintenance.AnalyzeSql`, que en la V4.2 sumó `billing` y `service` y así cambiaba el SQL de una migración
+  publicada, reglas A-07 y B-15); la prueba `ModelTests.Db_init_sql_coincide_con_el_script_de_las_migraciones` compara
+  `scripts/db_init.sql` con el script idempotente de las migraciones.
+- **Costo neto de IVA en los datos de prueba**: `catalogo-tecnologia.json` trae el costo con el IVA incluido (como el
+  precio); el lector (`TechSeedCatalog.NetCost`) lo carga **neto**, el **87 %** del costo con IVA (2 decimales, mitad hacia
+  arriba; en Bolivia el crédito fiscal es el 13 % de la factura), para el producto, el saldo inicial y las compras, porque
+  el catálogo mide el margen con el costo promedio contra el precio neto (el 87 % del precio) y el costo de ventas y los
+  reportes usan ese costo. El catálogo muestra el margen del JSON (15,2 a 34,9 %, 22,1 % en promedio) y ningún «margen
+  bajo» (< 15 %); con el costo con IVA eran del 4,2 al 26,4 % (12,0 %) y 108 productos quedaban bajo ese umbral. El lector
+  valida que costo, precio y `margen_pct` sean coherentes. (Durante el pulido el costo neto fue costo / 1,13: el cierre lo
+  cambió al 87 %, ver abajo.)
+- **Factura del proveedor sobre una compra al costo neto** (`RegisterSupplierInvoiceHandler`): la factura es el importe
+  definitivo de la compra; su asiento lleva el crédito fiscal a 1.1.04, **suma a 2.1.01 Proveedores** la diferencia entre
+  el importe de la factura (menos descuentos) y el valor de la recepción, y saca de 1.1.05 solo el resto (recepción neta
+  de Bs 1.000 y factura de Bs 1.130: Debe 1.1.04 146,90 / Haber 2.1.01 130,00 y Haber 1.1.05 16,90). Con la recepción al
+  costo con IVA (factura = recepción) sigue siendo Debe 1.1.04 / Haber 1.1.05, como en la V4.1; un descuento del proveedor
+  baja la deuda. Antes, con las compras netas, el asiento sacaba del inventario un IVA que nunca había entrado y la deuda
+  quedaba sin el IVA. Los datos de prueba registran las 4 facturas de proveedores con el IVA encima (el costo con IVA
+  del catálogo): en la demostración, el crédito fiscal de compras del mes pasa de Bs 41.590,13 a Bs 46.996,84 (capturas 13
+  Actividad, 73 y 77 Libros fiscales).
+- **Cierre · inventario del mayor = valor del stock**. En la carga de 60 días, 1.1.05 Inventario de la casa matriz quedaba
+  **+452,79** sobre el valor del stock (Σ existencias × costo promedio; Cochabamba y Santa Cruz en 0,00). Descompuesto por
+  tipo de movimiento contra los asientos de cada documento (saldo inicial, compras, ventas, transferencias, devoluciones y
+  anulación, reposición por garantía: todo cuadra al centavo, sin redondeos) quedaron dos causas de lógica, corregidas en
+  su origen:
+  - **+2.646,02: los AJUSTE (±) no se contabilizaban** (9 mermas y 1 faltante de la toma física por 3.134,52 menos 1
+    sobrante por 488,50). `RegisterMovementCommand` y `PostPhysicalCountCommand` contabilizan ahora cada ajuste en la misma
+    transacción, al costo promedio del almacén (`InventoryAdjustments`): merma o faltante Debe **5.1.09** / Haber 1.1.05;
+    sobrante Debe 1.1.05 / Haber **4.1.02** Sobrantes de inventario (la cuenta existía y no se usaba); el mensaje dice el
+    asiento. La toma física ganó el reintento optimista (×3). ENTRADA, SALIDA y SALDO INICIAL registrados a mano siguen sin
+    asiento (límite L-05).
+  - **−2.193,23: el crédito fiscal de las 4 facturas de proveedores** (13 % de recepción × 1,13) superaba en un 1,69 % de
+    la recepción el IVA sumado a la deuda, porque el costo neto era «importe / 1,13» y el SIN da crédito por el 13 % del
+    importe. Con el costo neto al **87 %** (`FiscalRules.NetCost`) y la factura = **recepción / 0,87**
+    (`FiscalRules.InvoiceForNetCost`, datos de prueba y diálogo), el crédito es exactamente el IVA sumado a la deuda (también
+    con el redondeo, probado con 20.000 importes) y el asiento no toca 1.1.05.
+  Después de las dos correcciones la misma carga deja **0,00** en las tres sucursales; lo vigilan `LocalDataSeederTests`
+  (memoria) y la prueba de los datos de prueba en PostgreSQL. Diseño: `edicion-tecnologia-v4.2.md` §12 (tabla y consulta
+  de control).
+- **Cierre · IVA boliviano sobre el importe facturado** (`VatRules`, decisión D-10): el asiento de la venta y el de la
+  devolución separan el IVA como el **13 % de lo cobrado** (Ventas = 87 %), como el débito fiscal del libro de ventas (antes
+  importe × 13/113, la convención de la V3); el catálogo mide el margen contra el 87 % del precio y su editor calcula el
+  precio de un margen con la misma regla; la caja muestra «IVA incluido» con esa regla. El IVA de la venta es el del
+  **total** de la factura, redondeado una vez y repartido entre las líneas (`VatRules.Allocate`, resto mayor): así 2.1.02
+  es al centavo el débito fiscal del libro de ventas (13 % de la base de cada factura); redondear línea por línea podía
+  apartarse en centavos (729,50 + 15,50: 94,84 + 2,02 = 96,86 contra 96,85 del libro). Una empresa de otro
+  país (tasa del 19 %, según el país de la dirección de sus sucursales: `Pricing.VatOnInvoicedAmountAsync`) conserva la
+  convención de la V3. `CatalogOptions` y `PosState` llevan `VatOnInvoicedAmount` (parámetro opcional al final).
+- **Cierre · Registrar factura del proveedor** (Libros fiscales): propone el importe con IVA de la recepción al costo neto
+  (recepción ÷ 0,87), lo explica y muestra el asiento que dejará lo que se escriba (crédito fiscal, deuda con el proveedor
+  y si el inventario cambia).
+- **Cierre · Catálogo**: en la tarjeta de la galería el precio se ve siempre completo («Bs 6.899,00» ya no queda «Bs 6.89»
+  tapado por el SKU); el SKU usa lo que queda y se recorta con «…» (entero en la ayuda).
+- **Cierre · Actividad**: los importes del detalle (importe total, descuentos, costo, precio, fondo y arqueo de caja) se
+  muestran con el formato de dinero del escritorio («Bs 35.212,54» y no «35212.54»).
+- **Cierre · capturas** (`docs/product/capturas/v4.2`): 42 regeneradas donde cambiaron por el cierre (costo neto al 87 %
+  en tableros, stock, fichas, catálogo, compras, reportes, contabilidad con 4.1.02 Sobrantes y 5.1.09 Mermas, sucursales y
+  transferencias; IVA del 13 % de lo cobrado en la caja y en Ventas; precio completo en la galería; importes de la
+  Actividad; crédito fiscal de compras en Libros fiscales); las otras 41 solo cambiaban horas y se conservan.
+- **Tablero**: el gráfico «Entradas y salidas» ya no cuenta el **saldo inicial** como entrada (es la apertura del
+  inventario, no operación, y aplastaba el resto de los días); se informa aparte en el resumen y en la ayuda de la columna
+  (`MovementTrendDay.Opening`).
+- **Actividad**: las fechas del detalle se leen con el formato del escritorio (23/09/2026, 23/09/2026 14:30) y no en ISO.
+- **Datos de prueba**: el mensaje «N días de operación simulados» da el mismo total de ventas en caja que el resumen final
+  y lo desglosa (día a día, facturas manuales CAFC transcritas y armados de PC cobrados en la caja).
+- **EF Core**: orden determinista en las consultas que generaban los avisos 10102, 10103 y 10114 (API Key y token de sesión
+  en el servidor y el gateway, búsqueda de una serie, notas crédito-débito pendientes del trabajo de la facturación,
+  leyendas y actividades del SIN); los resultados no cambian.
+- **Capturas** (`docs/product/capturas/v4.2`): 42 regeneradas con el costo neto, el gráfico sin el saldo inicial y las
+  fechas de la Actividad (tableros, catálogo, stock, fichas, pedido, compras, reportes, contabilidad, sucursales,
+  transferencias, documentos y libros fiscales, series); las otras 41 solo cambiaban horas mostradas y se conservan.
+
+### Decisiones y límites conocidos
+
+- Los **servicios** (unidad `SERV`: ensamblado, instalación de Windows, mantenimiento) llevan un **cupo** de existencias:
+  el dominio no tiene artículos sin stock.
+- **Excepción parcial a A-13** en los datos de prueba, documentada en el código: marcas y modelos, la unidad `SERV`, las
+  categorías de cliente, las cajas extra y la topología del almacén se escriben directo (no tienen casos de uso todavía);
+  todo lo demás pasa por la tubería completa.
+- La garantía se **deriva** (venta + meses); la de una unidad entregada como **reposición** cuenta desde la fecha de la
+  reposición.
+- La **nota crédito-débito** no lleva `numeroSerie` en el XML: el XSD del sector 24 no tiene el campo; las series
+  devueltas quedan en el documento y en `sales_return_line_serials`.
+- La **devolución por falla** deja la unidad en garantía, sin reingreso; lo que el proveedor reponga o acredite entra como
+  un hecho nuevo.
+- Las **ventas anteriores** a volver serializado un producto no piden series retroactivas (esas unidades vendidas no
+  tienen trazabilidad por serie).
+- Los movimientos que se registran **a mano** sin documento ni precio (SALDO INICIAL, ENTRADA, SALIDA, VENTA POS y
+  DEVOLUCIÓN DE CLIENTE) **no generan asiento**: su contrapartida la registra el contador; los AJUSTE (±) sí (L-05).
+- El **costo promedio no se recalcula** con la factura del proveedor: si su importe no es el que corresponde a la recepción
+  (recepción / 0,87 al costo neto), 1.1.05 se aparta del valor del stock en la diferencia; el diálogo lo advierte (L-06).
+- Con los roles predeterminados, las **devoluciones** exigen `sales.pos.operate` y `billing.void`: solo el Administrador.
+- El tablero Tecnología lee el modelo de escritura (pocas filas por empresa y ventana de 30 días).
+- En la **demostración** (8 días), Cochabamba y Santa Cruz reciben una primera distribución de unos 90 productos con
+  pocas unidades y pocas reposiciones: unos 60 a 70 productos aparecen agotados en esas sucursales (antes, con 12
+  productos, eran 138). Una distribución completa llevaba la apertura a más de 20 s; la base local de 60 días abastece las
+  tres sucursales.
+
+### Pendiente
+
+- Lo propio del SIN real sigue como en la V4.1 (token, NIT y confirmar el contrato con el WSDL del piloto):
+  `docs/billing/puesta-en-produccion-siat.md`.
+
 ## [4.1.0-alpha.1 · facturación SIAT] · 2026-09-26 · rama `Inventario-V4.1`
 
 Tema: **facturación SIAT de Bolivia** en la modalidad **Facturación Computarizada en Línea**: cada venta (caja, tienda en

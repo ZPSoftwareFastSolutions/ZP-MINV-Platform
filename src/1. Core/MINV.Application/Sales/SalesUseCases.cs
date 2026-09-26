@@ -6,6 +6,7 @@ using MINV.Application.Billing;
 using MINV.Application.Catalog;
 using MINV.Application.Common;
 using MINV.Application.Inventory;
+using MINV.Application.Tech;
 using MINV.Domain.Accounting;
 using MINV.Domain.Billing;
 using MINV.Domain.Catalog;
@@ -24,8 +25,13 @@ public sealed record PosOption(string Code, string Name, bool OpensCashDrawer = 
 public sealed record PosSessionInfo(Guid Id, string RegisterCode, string RegisterName, DateTimeOffset OpenedAt, decimal OpeningCash, int Tickets,
     decimal Sales, decimal CashSales, decimal ExpectedCash);
 
+/// <summary>Estado de la caja. V4.2: <see cref="SuggestedRegister"/> es la caja que la pantalla preselecciona: la del turno
+/// abierto del usuario o, si no tiene, una libre (sin turno abierto de otro cajero), primero las de la sucursal activa.
+/// <see cref="BranchName"/> es la sucursal activa de la sesión. <see cref="VatOnInvoicedAmount"/>: el IVA incluido es el 13 % del
+/// importe (Bolivia, <see cref="VatRules"/>).</summary>
 public sealed record PosState(IReadOnlyList<PosOption> Registers, IReadOnlyList<PosOption> PaymentMethods, IReadOnlyList<PosOption> Customers,
-    PosSessionInfo? Session, decimal TaxRate, string CompanyName, string? TaxId, string BranchName);
+    PosSessionInfo? Session, decimal TaxRate, string CompanyName, string? TaxId, string BranchName, string? SuggestedRegister = null,
+    bool VatOnInvoicedAmount = true);
 
 /// <summary>Cajas, medios de pago, clientes, IVA vigente y el turno abierto del usuario (si tiene).</summary>
 [RequiresPermission(PermissionCodes.PosOperate)]
@@ -42,9 +48,16 @@ public sealed class GetPosStateHandler(IMinvDbContext db, ICurrentUser user, ITe
         var customers = await db.Set<Customer>().Where(c => c.IsActive).OrderBy(c => c.Code == "CF" ? 0 : 1).ThenBy(c => c.Name)
             .Select(c => new PosOption(c.Code, c.Name, false)).ToListAsync(ct);
         var company = await db.Set<Tenant>().FirstAsync(t => t.Id == tenant.TenantId, ct);
-        var branch = await db.Set<Branch>().OrderBy(b => b.Code).Select(b => b.Name).FirstOrDefaultAsync(ct) ?? "";
+        // V4.2 · La sucursal de la caja es la ACTIVA de la sesión (el directorio no se filtra: la primera por código podía
+        // ser otra, p. ej. Cochabamba para el administrador que trabaja en la casa matriz)
+        var active = db.Branches.ActiveBranchId;
+        var branch = await db.Set<Branch>().Where(b => active == null || b.Id == active).OrderBy(b => b.Code).Select(b => b.Name).FirstOrDefaultAsync(ct) ?? "";
         var session = await db.Set<PosSession>().Where(s => s.Status == PosSessionStatus.Open && s.OpenedByUserId == user.UserId)
             .OrderByDescending(s => s.OpenedAt).FirstOrDefaultAsync(ct);
+        // V4.2 · Caja sugerida: la del turno propio; si no, una libre (las demás tienen el turno abierto de otro cajero)
+        var inUse = await db.Set<PosSession>().Where(s => s.Status == PosSessionStatus.Open).Select(s => s.PosRegisterId).ToListAsync(ct);
+        var suggested = registers.FirstOrDefault(r => r.Id == session?.PosRegisterId)
+                        ?? registers.Where(r => !inUse.Contains(r.Id)).OrderBy(r => r.BranchId == active ? 0 : 1).ThenBy(r => r.Code, StringComparer.Ordinal).FirstOrDefault();
         PosSessionInfo? info = null;
         if (session is not null)
         {
@@ -54,7 +67,8 @@ public sealed class GetPosStateHandler(IMinvDbContext db, ICurrentUser user, ITe
                 totals.CashSales, session.ExpectedCash(totals.CashSales, totals.CashIn, totals.CashOut));
         }
         return new PosState(registers.Select(r => new PosOption(r.Code, r.Name)).ToList(), methods, customers, info,
-            await Pricing.TaxRateAsync(db, clock.TodayIn(config.TimeZoneId), ct), company.LegalName, company.TaxId, branch);
+            await Pricing.TaxRateAsync(db, clock.TodayIn(config.TimeZoneId), ct), company.LegalName, company.TaxId, branch, suggested?.Code,
+            await Pricing.VatOnInvoicedAmountAsync(db, ct));
     }
 }
 
@@ -94,7 +108,9 @@ public sealed class GetSellableProductsHandler(IMinvDbContext db) : IRequestHand
 }
 
 // ------------------------------------------------------------------------------------------------ cobrar
-public sealed record SaleLineInput(string Sku, decimal Quantity, decimal DiscountPercent = 0);
+/// <summary>Línea de venta. V4.2 · <see cref="Serials"/>: series (o IMEI) de las unidades vendidas de un producto serializado,
+/// una por unidad (regla T-02); un producto sin serie no las lleva.</summary>
+public sealed record SaleLineInput(string Sku, decimal Quantity, decimal DiscountPercent = 0, IReadOnlyList<string>? Serials = null);
 
 /// <summary>
 /// Cobra una venta del punto de venta en UNA transacción: pedido confirmado, salida de stock (VENTA POS) con el poka-yoke
@@ -109,7 +125,7 @@ public sealed record CheckoutCommand(string CustomerCode, string PaymentMethodCo
     // V4.1 · La tarjeta se audita SOLO enmascarada (nunca el número completo).
     public object AuditDetails => new
     {
-        CustomerCode, PaymentMethodCode, Lines = Lines.Select(l => new { l.Sku, l.Quantity, l.DiscountPercent }), CashReceived,
+        CustomerCode, PaymentMethodCode, Lines = Lines.Select(l => new { l.Sku, l.Quantity, l.DiscountPercent, l.Serials }), CashReceived,
         Buyer = Buyer is null ? null : new { Buyer.DocumentType, Buyer.DocumentNumber, Buyer.Complement, Buyer.Name },
         Card = CardNumber is null ? null : (CardNumber.Length >= 8 ? CardNumber[..4] + "…" + CardNumber[^4..] : "…"),
     };
@@ -187,6 +203,9 @@ internal sealed record SaleOrigin(Guid BranchId, Guid WarehouseId, Guid? PosSess
 internal sealed record SaleFiscal(IFiscalDocumentSerializer? Serializer, string UserCode, FiscalBuyerInput? Buyer, string? CardNumber,
     FiscalManualEmission? Manual = null);
 
+/// <summary>V4.2 · Línea del pedido que se va a vender: su existencia de salida y sus unidades (si el producto lleva serie).</summary>
+internal sealed record SalePlan(SalesOrderLine Line, VariantInfo Item, StockLevel? Level, IReadOnlyList<SerialNumber> Units, SerialKind Kind);
+
 /// <summary>V4.1 · Venta registrada: resultado para la caja, pedido, factura interna y documento fiscal (si la empresa factura).</summary>
 internal sealed record SaleWriteResult(CheckoutResult Result, SalesOrder Order, Invoice Invoice, FiscalDocument? Document);
 
@@ -199,9 +218,11 @@ internal sealed record SaleWriteResult(CheckoutResult Result, SalesOrder Order, 
 /// </summary>
 internal static class SaleWriter
 {
+    /// <param name="unitPrices">V4.2 · Precio de cada línea (mismo orden que <paramref name="lines"/>; null = el de la lista de
+    /// precios): la venta de un armado usa los precios cotizados.</param>
     public static async Task<SaleWriteResult> SellAsync(IMinvDbContext db, IClock clock, Guid userId, SaleOrigin origin,
         string customerCodeInput, string paymentMethodCode, IReadOnlyList<SaleLineInput> lines, decimal? cashReceived, string? paymentReference,
-        SaleFiscal? fiscal, CancellationToken ct)
+        SaleFiscal? fiscal, CancellationToken ct, IReadOnlyList<decimal?>? unitPrices = null)
     {
         var customerCode = customerCodeInput.Trim().ToUpperInvariant();
         var customer = await db.Set<Customer>().FirstOrDefaultAsync(c => c.Code == customerCode && c.IsActive, ct)
@@ -220,6 +241,8 @@ internal static class SaleWriter
         var priceList = await db.Set<PriceList>().FirstAsync(l => l.IsDefault, ct);
         var saleType = await lookups.MovementTypeAsync(MovementTypeCodes.Sale, ct);
         var taxRate = await Pricing.TaxRateAsync(db, today, ct);
+        // V4.2 · En Bolivia el IVA de la venta es el 13 % de lo facturado (el débito fiscal del libro de ventas, VatRules)
+        var vatOnAmount = await Pricing.VatOnInvoicedAmountAsync(db, ct);
         var taxRateId = await (from x in db.Set<TaxRate>()
                                join t in db.Set<Tax>() on x.TaxId equals t.Id
                                where t.Code == "IVA" && x.ValidFrom <= today && (x.ValidTo == null || x.ValidTo >= today)
@@ -232,48 +255,79 @@ internal static class SaleWriter
         // del canal externo, al almacén de la sucursal. Nunca a ambos.
         var order = new SalesOrder(customer.TenantId, origin.BranchId, orderNumber, customer.Id, origin.PosSessionId,
             origin.PosSessionId is null ? warehouseId : null, priceList.Id, today);
-        var items = new List<(SalesOrderLine Line, VariantInfo Item)>();
-        foreach (var input in lines)
+        // V4.2 · Un producto serializado se vende con sus series (regla T-02): cada serie en stock en el almacén de la venta;
+        // si las unidades están en varias posiciones, la línea se divide (una salida por posición y lote)
+        var ledger = new SerialLedger(db);
+        var items = new List<SalePlan>();
+        for (var index = 0; index < lines.Count; index++)
         {
+            var input = lines[index];
             var item = await lookups.VariantBySkuAsync(input.Sku, ct);
             Guard.That(item.Product.IsActive && item.Variant.IsActive, "product.inactive", $"El producto {item.Variant.Sku} está inactivo.");
             Quantities.EnsureAllowed(input.Quantity, item.Unit.AllowsDecimals, item.Unit.UnitCode);
-            var price = await db.Set<PriceListItem>().Where(i => i.PriceListId == priceList.Id && i.VariantId == item.Variant.Id)
+            var price = unitPrices?[index]
+                        ?? await db.Set<PriceListItem>().Where(i => i.PriceListId == priceList.Id && i.VariantId == item.Variant.Id)
                             .Select(i => (decimal?)i.UnitPrice).FirstOrDefaultAsync(ct)
                         ?? throw new DomainException("price.missing", $"{item.Variant.Sku} no tiene precio en la lista {priceList.Name}.");
-            items.Add((order.AddLine(item.Variant.Id, item.Product.BaseUnitId, input.Quantity, price, input.DiscountPercent), item));
+            var serials = await ledger.ExpectAsync(item, input.Quantity, input.Serials, ct);
+            if (serials.Count == 0)
+            {
+                items.Add(new SalePlan(order.AddLine(item.Variant.Id, item.Product.BaseUnitId, input.Quantity, price, input.DiscountPercent), item,
+                    null, [], SerialKind.Serial));
+                continue;
+            }
+            var kind = await ledger.KindAsync(item.Product.Id, ct);
+            foreach (var group in await ledger.OnHandAsync(item, serials, origin.BranchId, bins, ct))
+            {
+                items.Add(new SalePlan(order.AddLine(item.Variant.Id, item.Product.BaseUnitId, group.Units.Count, price, input.DiscountPercent), item,
+                    group.Level, group.Units, kind));
+            }
         }
         order.Confirm();
 
-        // Salidas de stock: de la posición con más disponible (el dominio bloquea el negativo)
+        // Salidas de stock: de la posición con más disponible (el dominio bloquea el negativo); las serializadas, de la
+        // posición de sus series
         var cost = 0m;
-        foreach (var (line, item) in items)
+        foreach (var plan in items)
         {
-            var batch = await lookups.BatchAsync(item.Variant, null, ct);
-            var level = await (from l in db.Set<StockLevel>()
+            var (line, item) = (plan.Line, plan.Item);
+            var level = plan.Level;
+            if (level is null)
+            {
+                var batch = await lookups.BatchAsync(item.Variant, null, ct);
+                level = await (from l in db.Set<StockLevel>()
                                where l.BatchId == batch.Id && bins.Contains(l.BinId)
                                orderby l.QuantityOnHand - l.QuantityReserved descending
                                select l).FirstOrDefaultAsync(ct);
-            if (level is null)
-            {
-                (level, _) = await lookups.StockLevelAsync(item.Variant.TenantId, await PurchasingBins.BinForAsync(db, item.Variant.Id, warehouseId, bins, ct), batch.Id, ct);
+                if (level is null)
+                {
+                    (level, _) = await lookups.StockLevelAsync(item.Variant.TenantId, await PurchasingBins.BinForAsync(db, item.Variant.Id, warehouseId, bins, ct), batch.Id, ct);
+                }
             }
             var context = new MovementContext(userId, today, now, invoiceNumber, $"Venta {orderNumber} · {customer.Name}");
             var movement = level.Register(saleType, line.Quantity, item.Unit, context);
             db.Set<StockMovement>().Add(movement);
             line.LinkMovement(movement.Id);
             cost += line.Quantity * await AverageCosts.CurrentAsync(db, item.Variant.Id, warehouseId, ct);
+            var serialContext = new SerialContext(origin.BranchId, userId, now, invoiceNumber, $"Venta {orderNumber} · {customer.Name}");
+            foreach (var unit in plan.Units)
+            {
+                unit.Sell(level, serialContext);
+                db.Set<SalesOrderLineSerial>().Add(new SalesOrderLineSerial(customer.TenantId, origin.BranchId, line.Id, unit.Id));
+            }
         }
         order.MarkFulfilled();
 
         var invoice = new Invoice(customer.TenantId, origin.BranchId, invoiceNumber, order.Id, null);
-        var tax = 0m;
-        foreach (var (line, _) in items)
+        // El IVA de la venta es el del TOTAL (redondeado una vez: el débito fiscal de la factura en el libro de ventas) repartido
+        // entre las líneas; redondear línea por línea podía dejar 2.1.02 a centavos del libro (VatRules.Allocate)
+        var saleLines = items.Select(x => x.Line).ToList();
+        var lineTaxes = VatRules.Allocate(saleLines.Select(l => l.Amount).ToList(), taxRate, vatOnAmount);
+        for (var index = 0; index < saleLines.Count; index++)
         {
-            var lineTax = Pricing.IncludedTax(line.Amount, taxRate);
-            tax += lineTax;
-            invoice.AddLine(line.Id, taxRateId, lineTax);
+            invoice.AddLine(saleLines[index].Id, taxRateId, lineTaxes[index]);
         }
+        var tax = lineTaxes.Sum();
         invoice.Issue(now);
         order.MarkInvoiced();
         var total = order.Total;
@@ -305,11 +359,16 @@ internal static class SaleWriter
                 "Este equipo no tiene el generador del XML del SIN: no puede facturar (use el servidor en la nube o la instalación completa).");
             document = await FiscalIssuer.IssueForSaleAsync(new FiscalIssueServices(db, clock, serializer, userId, fiscal.UserCode),
                 new FiscalSale(origin.BranchId, origin.PosRegisterId, invoice, customer, method,
-                    items.Select(x => new FiscalSaleLine(x.Line, x.Item.Variant, x.Item.Product)).ToList(), fiscal.Buyer, fiscal.CardNumber),
+                    items.Select(x => new FiscalSaleLine(x.Line, x.Item.Variant, x.Item.Product, x.Units.Select(u => u.Serial).ToList(), x.Kind))
+                        .ToList(), fiscal.Buyer, fiscal.CardNumber),
                 fiscal.Manual, ct);
         }
+        // V4.2 · El ticket lleva las series o IMEI de cada línea y la garantía derivada de la venta (reglas T-03 y T-04)
+        var warranty = await TechPrint.WarrantyMonthsAsync(db, items.Select(x => x.Item.Product.Id).Distinct().ToList(), ct);
         var result = new CheckoutResult(invoiceNumber, orderNumber, now, total, JournalPoster.Money(tax), change, customer.Name, method.Name,
-            items.Select(x => new ReceiptLine(x.Item.Product.Name, x.Line.Quantity, x.Line.Amount / x.Line.Quantity)).ToList(),
+            items.Select(x => new ReceiptLine(x.Item.Product.Name, x.Line.Quantity, x.Line.Amount / x.Line.Quantity,
+                TechPrint.Serials(x.Kind, x.Units.Select(u => u.Serial).ToList()),
+                TechPrint.WarrantyUntil(today, warranty.GetValueOrDefault(x.Item.Product.Id)))).ToList(),
             document?.Id, document?.Number, document?.Cuf, document?.Status);
         return new SaleWriteResult(result, order, invoice, document);
     }
@@ -319,7 +378,9 @@ internal static class SaleWriter
 public sealed record SaleRow(string InvoiceNumber, string OrderNumber, DateTimeOffset IssuedAt, DateOnly Date, string CustomerCode, string Customer,
     string Cashier, string PaymentMethod, int Items, decimal Total, decimal Tax, InvoiceStatus Status, string? VoidReason);
 
-public sealed record SaleLineRow(string Sku, string Name, decimal Quantity, string Unit, decimal UnitPrice, decimal DiscountPercent, decimal Amount);
+/// <summary>Línea de una venta. V4.2 · Con las series (o IMEI) vendidas en la línea (para devolverlas o abrir un RMA).</summary>
+public sealed record SaleLineRow(string Sku, string Name, decimal Quantity, string Unit, decimal UnitPrice, decimal DiscountPercent, decimal Amount,
+    IReadOnlyList<string>? Serials = null);
 
 [RequiresPermission(PermissionCodes.SalesView)]
 public sealed record GetSalesQuery(DateOnly From, DateOnly To) : IRequest<IReadOnlyList<SaleRow>>;
@@ -363,9 +424,16 @@ public sealed class GetSaleLinesHandler(IMinvDbContext db) : IRequestHandler<Get
                           join p in db.Set<Product>() on v.ProductId equals p.Id
                           join u in db.Set<UnitOfMeasure>() on l.UnitId equals u.Id
                           where i.Number == number
-                          select new { v.Sku, p.Name, l.Quantity, Unit = u.Code, l.UnitPrice, l.DiscountPercent }).ToListAsync(ct);
+                          select new { l.Id, v.Sku, p.Name, l.Quantity, Unit = u.Code, l.UnitPrice, l.DiscountPercent }).ToListAsync(ct);
+        var lineIds = rows.Select(r => r.Id).ToList();
+        var serials = (await (from x in db.Set<SalesOrderLineSerial>()
+                              join s in db.Set<SerialNumber>() on x.SerialNumberId equals s.Id
+                              where lineIds.Contains(x.SalesOrderLineId)
+                              select new { x.SalesOrderLineId, s.Serial }).ToListAsync(ct))
+            .ToLookup(x => x.SalesOrderLineId, x => x.Serial);
         return rows.Select(x => new SaleLineRow(x.Sku, x.Name, x.Quantity, x.Unit, x.UnitPrice, x.DiscountPercent,
-            decimal.Round(x.Quantity * x.UnitPrice * (1 - x.DiscountPercent / 100m), 2, MidpointRounding.AwayFromZero))).ToList();
+            decimal.Round(x.Quantity * x.UnitPrice * (1 - x.DiscountPercent / 100m), 2, MidpointRounding.AwayFromZero),
+            serials[x.Id].Any() ? serials[x.Id].Order(StringComparer.Ordinal).ToList() : null)).ToList();
     }
 }
 
@@ -432,6 +500,13 @@ internal static class SaleReverser
         invoice.Void(reason, now);
         var returnType = await lookups.MovementTypeAsync(MovementTypeCodes.SaleReturn, ct);
         var cost = 0m;
+        // V4.2 · Las unidades serializadas de la venta vuelven a la misma existencia (quedan en stock)
+        var lineIds = order.Lines.Select(l => l.Id).ToList();
+        var soldSerials = (await (from x in db.Set<SalesOrderLineSerial>()
+                                  join s in db.Set<SerialNumber>() on x.SerialNumberId equals s.Id
+                                  where lineIds.Contains(x.SalesOrderLineId)
+                                  select new { x.SalesOrderLineId, Unit = s }).ToListAsync(ct))
+            .ToLookup(x => x.SalesOrderLineId, x => x.Unit);
         foreach (var line in order.Lines.Where(l => l.StockMovementId is not null))
         {
             var original = await db.Set<StockMovement>().FirstAsync(m => m.Id == line.StockMovementId, ct);
@@ -442,6 +517,15 @@ internal static class SaleReverser
             var context = new MovementContext(userId, today, now, invoice.Number, $"Anulación de {invoice.Number}: {reason}");
             db.Set<StockMovement>().Add(level.Register(returnType, line.Quantity, new UnitRule(unit.Code, unit.AllowsDecimals), context));
             cost += line.Quantity * await AverageCosts.CurrentAsync(db, variant.Id, warehouseId, ct);
+            if (soldSerials[line.Id].Any())
+            {
+                var batch = await db.Set<Batch>().FirstAsync(b => b.Id == level.BatchId, ct);
+                var serialContext = new SerialContext(invoice.BranchId, userId, now, invoice.Number, $"Anulación de {invoice.Number}: {reason}");
+                foreach (var serial in soldSerials[line.Id])
+                {
+                    serial.Return(level, batch, serialContext);
+                }
+            }
         }
         var tax = invoice.Lines.Sum(l => l.TaxAmount);
         await JournalPoster.PostAsync(db, invoice.TenantId, invoice.BranchId, userId, today, $"Anulación de la venta {invoice.Number}: {reason}",

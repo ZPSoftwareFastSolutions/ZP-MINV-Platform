@@ -17,8 +17,10 @@ namespace MINV.Application.Purchasing;
 
 // =====================================================================================================================
 // V4.1 · Facturas de proveedores (libro de compras, investigación 07 §5.3): se registran sobre una recepción ya
-// contabilizada con los datos fiscales del documento del proveedor; el 13 % de la base se reclasifica del inventario al
-// IVA crédito fiscal (Debe 1.1.04 / Haber 1.1.05). El costo promedio histórico no se recalcula (limitación documentada).
+// contabilizada con los datos fiscales del documento del proveedor; el 13 % de la base va al IVA crédito fiscal (Debe
+// 1.1.04) y la factura fija la deuda con el proveedor (2.1.01) y el inventario (1.1.05): con la recepción al costo con IVA
+// es Debe 1.1.04 / Haber 1.1.05; con la recepción al costo neto, el IVA se suma a la deuda (ver RegisterAsync). El costo
+// promedio histórico no se recalcula (limitación documentada).
 // =====================================================================================================================
 
 public sealed class RegisterSupplierInvoiceValidator : AbstractValidator<RegisterSupplierInvoiceCommand>
@@ -96,17 +98,32 @@ public sealed class RegisterSupplierInvoiceHandler(IMinvDbContext db, ICurrentUs
         db.Set<SupplierInvoice>().Add(invoice);
         db.Set<SupplierInvoiceFiscal>().Add(fiscal);
 
-        // Crédito fiscal: Debe 1.1.04 IVA crédito fiscal / Haber 1.1.05 Inventario (el inventario entró al costo con IVA incluido).
-        // En el mes de la factura; si ese período ya se cerró, en el de hoy.
+        // Asiento de la factura (en el mes de la factura; si ese período ya se cerró, en el de hoy). La factura es el importe
+        // definitivo de la compra: la recepción dejó Debe 1.1.05 / Haber 2.1.01 por su valor; ahora la cuenta por pagar pasa al
+        // importe de la factura menos los descuentos, el 13 % de la base va a 1.1.04 IVA crédito fiscal y el inventario queda en
+        // ese importe menos el crédito fiscal:
+        //  · recepción al costo CON IVA (importe de la factura = valor de la recepción): Debe 1.1.04 / Haber 1.1.05 (el IVA
+        //    estaba dentro del inventario);
+        //  · recepción al costo NETO de IVA (V4.2: el catálogo y los datos de prueba; la factura suma el IVA encima): Debe
+        //    1.1.04 / Haber 2.1.01 por el IVA que se suma a la deuda y 1.1.05 solo por la diferencia. En Bolivia el crédito es el
+        //    13 % del importe CON IVA y el costo neto es el 87 %: con la factura que corresponde (recepción / 0,87,
+        //    FiscalRules.InvoiceForNetCost) la diferencia es 0 y el inventario no cambia; con otro importe (p. ej. recepción ×
+        //    1,13) 1.1.05 se aparta del valor del stock, porque el costo promedio no se recalcula.
+        var received = JournalPoster.Money(receipt.Lines.Sum(l => l.Quantity * l.UnitCost));
+        var payableChange = JournalPoster.Money(r.TotalAmount - r.Discounts) - received;   // > 0 la factura suma a la deuda; < 0 la reduce
+        var inventoryChange = fiscal.TaxCredit - payableChange;                             // > 0 sale del inventario; < 0 entra
         string? entryNumber = null;
-        if (fiscal.TaxCredit > 0)
+        if (fiscal.TaxCredit > 0 || payableChange != 0)
         {
             var closed = await db.Set<FiscalPeriod>().AnyAsync(p => p.Year == r.InvoiceDate.Year && p.Month == r.InvoiceDate.Month
                                                                     && p.Status == FiscalPeriodStatus.Closed, ct);
             var entry = await JournalPoster.PostAsync(db, invoice.TenantId, invoice.BranchId, userId, closed ? today : r.InvoiceDate,
                 $"Crédito fiscal · factura {number} de {supplier.LegalName} · recepción {receipt.Number}",
-                [new JournalLineSpec(AccountCodes.VatCredit, fiscal.TaxCredit, 0), new JournalLineSpec(AccountCodes.Inventory, 0, fiscal.TaxCredit)],
-                now, invoice.Id, ct);
+            [
+                new JournalLineSpec(AccountCodes.VatCredit, fiscal.TaxCredit, 0),
+                new JournalLineSpec(AccountCodes.Payables, Math.Max(0, -payableChange), Math.Max(0, payableChange)),
+                new JournalLineSpec(AccountCodes.Inventory, Math.Max(0, -inventoryChange), Math.Max(0, inventoryChange)),
+            ], now, invoice.Id, ct);
             entryNumber = entry.Number;
         }
         await db.SaveChangesAsync(ct);

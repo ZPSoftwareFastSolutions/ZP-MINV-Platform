@@ -119,9 +119,13 @@ internal sealed class E_BillingTestHost : IAsyncDisposable
     /// <summary>Punto de venta registrado en el SIN y vinculado a la caja CAJA01.</summary>
     public Guid CashPointId { get; private set; }
 
-    public static async Task<E_BillingTestHost> CreateAsync()
+    public static Task<E_BillingTestHost> CreateAsync() => CreateAsync(Shared.Value);
+
+    /// <summary>V4.2 · La misma empresa que factura sobre otro contenedor (p. ej. PostgreSQL real con el simulador en proceso,
+    /// un <c>DemoClock</c> como reloj y un protector de secretos efímero).</summary>
+    public static async Task<E_BillingTestHost> CreateAsync(ServiceProvider services)
     {
-        var host = new E_BillingTestHost(Shared.Value, Interlocked.Increment(ref _sequence));
+        var host = new E_BillingTestHost(services, Interlocked.Increment(ref _sequence));
         host.Clock.StartAt(Start);
         host.Simulator.Available = true;
         await host.ProvisionAsync();

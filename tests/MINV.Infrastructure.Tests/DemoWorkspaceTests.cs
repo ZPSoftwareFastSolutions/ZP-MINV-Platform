@@ -1,24 +1,31 @@
+using System.Diagnostics;
 using MediatR;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using MINV.Application;
+using MINV.Application.Abstractions;
 using MINV.Application.Billing;
 using MINV.Application.Common;
 using MINV.Application.Iam;
 using MINV.Application.Inventory.Movements;
 using MINV.Application.Inventory.PhysicalCounts;
 using MINV.Application.Inventory.Queries;
+using MINV.Application.Tech;
+using MINV.Domain.Accounting;
 using MINV.Domain.Billing;
 using MINV.Domain.Common;
 using MINV.Domain.Iam;
 using MINV.Domain.Inventory;
 using MINV.Infrastructure.Demo;
+using MINV.Infrastructure.Seeding.Tecnologia;
 
 namespace MINV.Infrastructure.Tests;
 
 /// <summary>
-/// Modo demostración del cliente de escritorio: el libro REAL de la V2.1 migrado a la base en memoria y los casos de uso
-/// de verdad (tubería MediatR completa: validación, RBAC, auditoría) sobre el modelo EF Core completo. También prueba
-/// las consultas que usa la interfaz (ficha y kardex, tendencia, últimos movimientos, toma física, contraseña).
+/// Modo demostración del cliente de escritorio. V4.2: la empresa de prueba Tech Zone Gaming S.R.L. generada en la base en
+/// memoria con el MISMO generador que la base local (casos de uso de verdad, tubería MediatR completa: validación, RBAC,
+/// series, auditoría) y con la facturación activa contra el simulador del SIN en memoria. También prueba las consultas que
+/// usa la interfaz (ficha y kardex, tendencia, últimos movimientos, toma física, contraseña).
 /// </summary>
 public sealed class DemoWorkspaceTests
 {
@@ -29,8 +36,7 @@ public sealed class DemoWorkspaceTests
         services.AddMinvDemoInfrastructure();
         var sp = services.BuildServiceProvider();
         using var scope = sp.CreateScope();
-        var demo = await scope.ServiceProvider.GetRequiredService<DemoWorkspace>()
-            .PrepareAsync(Path.Combine(V21MigrationTests.RepoRoot(), "src", "M-INV_V2_Colaborativo.xlsx"));
+        var demo = await scope.ServiceProvider.GetRequiredService<DemoWorkspace>().PrepareAsync();
         return (sp, demo);
     }
 
@@ -43,31 +49,56 @@ public sealed class DemoWorkspaceTests
         return (scope, mediator, login);
     }
 
+    /// <summary>Un producto con existencia que NO lleva serie (los serializados se mueven con sus series, regla T-02).</summary>
+    internal static bool WithoutSerial(string sku) => !TechSeedCatalog.Current.Product(sku).TracksSerials;
+
     [Fact]
-    public async Task La_demostracion_migra_la_V21_con_paridad_y_permite_ingresar_con_cada_rol()
+    public async Task La_demostracion_es_Tech_Zone_Gaming_y_permite_ingresar_con_cada_rol()
     {
+        var watch = Stopwatch.StartNew();
         var (sp, demo) = await PrepareAsync();
-        Assert.True(demo.Import.Parity.Ok, string.Join(" · ", demo.Import.Parity.Differences));
-        Assert.Equal(473, demo.Import.Report.Movements);
+        watch.Stop();
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(60), $"La demostración tardó {watch.Elapsed.TotalSeconds:N1} s");
+        Assert.Equal("TECHZONE", demo.TenantCode);
+        Assert.Equal("Tech Zone Gaming S.R.L.", demo.CompanyName);
         Assert.Equal(RoleCodes.Admin, demo.Users[0].RoleCode);
-        Assert.True(demo.Users.Count >= 5);
+        Assert.Equal(DemoWorkspace.AdminEmail, demo.Users[0].Email);
+        Assert.Equal(RoleCodes.All.Select(r => r.Code).Order(), demo.Users.Select(u => u.RoleCode).Order());   // un acceso por rol
+        Assert.Equal(159, demo.Seed.Products);
+        Assert.Equal(["CM", "CB", "SC"], demo.Seed.Branches);
+        Assert.True(demo.Seed.Tickets > 30, $"Solo {demo.Seed.Tickets} ventas");
+        Assert.DoesNotContain(demo.Password, demo.ToString(), StringComparison.Ordinal);
 
         var (scope, mediator, login) = await SignInAsync(sp, demo);
         using (scope)
         {
             Assert.Contains(RoleCodes.Admin, login.Roles);
             var workspace = await mediator.Send(new GetWorkspaceQuery());
-            Assert.Equal("Distribuidora Demo S.A.S.", workspace.CompanyName);
+            Assert.Equal("Tech Zone Gaming S.R.L.", workspace.CompanyName);
             Assert.Equal("ALM01", workspace.WarehouseCode);
             Assert.Equal(demo.Today, workspace.Today);
             var view = await mediator.Send(new GetStockProjectionQuery());
-            Assert.Equal(34, view.Result.Stock.Count);
-            Assert.Equal(473 + demo.Billing!.SampleSaleLines, view.Result.Movements);   // V4.1: más las ventas de las facturas de ejemplo
+            Assert.Equal(159, view.Result.Stock.Count);
+            Assert.True(view.Result.Movements > 300, $"Solo {view.Result.Movements} movimientos");   // 8 días de operación (más el saldo inicial)
             Assert.NotEmpty(view.Result.Alerts);
-            Assert.NotEmpty(view.Result.Order);
+            // Edición Tecnología: series en stock, casos RMA y armados de PC para explorar
+            Assert.NotEmpty(await mediator.Send(new SearchSerialsQuery(Status: SerialNumberStatus.InStock, Max: 5)));
+            // Los indicadores de «Series e IMEI» cuentan TODAS las series (la lista se limita a las más recientes)
+            var totals = await mediator.Send(new GetSerialSummaryQuery());
+            Assert.True(totals.Total > 1000, $"Solo {totals.Total} series");
+            Assert.Equal((await mediator.Send(new SearchSerialsQuery(Status: SerialNumberStatus.InStock, Max: 5000))).Count, totals.InStock);
+            Assert.Equal((await mediator.Send(new SearchSerialsQuery(Status: SerialNumberStatus.Sold, Max: 5000))).Count, totals.Sold);
+            Assert.InRange(totals.SoldInWarranty, 1, totals.Sold);
+            var recent = await mediator.Send(new SearchSerialsQuery(Max: 20));
+            Assert.Equal(recent.OrderByDescending(r => r.ReceivedAt).Select(r => r.Serial), recent.Select(r => r.Serial));   // las más recientes primero
+            var bySku = await mediator.Send(new SearchSerialsQuery(recent[0].Sku.ToLowerInvariant(), Max: 5000));   // la búsqueda también encuentra por SKU
+            Assert.NotEmpty(bySku);
+            Assert.All(bySku, r => Assert.Contains(recent[0].Sku, r.Sku + " " + r.Serial, StringComparison.OrdinalIgnoreCase));
+            Assert.NotEmpty(await mediator.Send(new GetWarrantyClaimsQuery()));
+            Assert.Equal(8, (await mediator.Send(new GetPcBuildsQuery())).Count);
         }
 
-        // Cada usuario de la V2.1 entra con su rol (la interfaz se adapta a sus permisos)
+        // Cada usuario de la demostración entra con su rol (la interfaz se adapta a sus permisos)
         foreach (var user in demo.Users)
         {
             var (s, _, l) = await SignInAsync(sp, demo, user.Email);
@@ -79,37 +110,34 @@ public sealed class DemoWorkspaceTests
     }
 
     /// <summary>
-    /// V4.1 · La demostración FACTURA sin PostgreSQL ni red: simulador del SIN en memoria (sin archivo de estado), facturas de
-    /// ejemplo de hace una semana válidas, los últimos 7 días sin ventas, y la caja emite, envía y representa su documento;
-    /// el consumidor final sin datos factura con el NIT especial 99003.
+    /// V4.1 · La demostración FACTURA sin PostgreSQL ni red: simulador del SIN en memoria (sin archivo de estado), las ventas
+    /// de los últimos días con su factura válida, y la caja emite, envía y representa su documento; el consumidor final sin
+    /// datos factura con el NIT especial 99003. V4.2: una venta de un producto serializado lleva su serie en la factura.
     /// </summary>
     [Fact]
     public async Task V41_la_demostracion_factura_con_el_simulador_en_memoria()
     {
         var (sp, demo) = await PrepareAsync();
-        var billing = Assert.IsType<DemoBilling>(demo.Billing);
-        Assert.Equal(4, billing.Documents);
-        Assert.Equal(4, billing.ValidDocuments);
+        var billing = Assert.IsType<MINV.Infrastructure.Seeding.SeedBilling>(demo.Billing);
+        Assert.True(billing.ValidInvoices > 10, $"Solo {billing.ValidInvoices} facturas válidas");
+        Assert.Equal(8, billing.PointsOfSale);
         Assert.Null(sp.GetRequiredService<MINV.Infrastructure.Billing.Simulator.SiatSimulatorEngine>().Options.StateFile);   // nada en disco
 
         var (scope, mediator, _) = await SignInAsync(sp, demo);
         using var _s = scope;
         var status = await mediator.Send(new GetSiatStatusQuery());
         Assert.True(status.Enabled && status.HasToken);
-        Assert.Equal(2, status.Points.Count);   // punto 0 de la casa matriz y el de la caja 1
+        Assert.Equal(8, status.Points.Count);   // punto 0 de cada sucursal y el de cada caja
         Assert.All(status.Points, p => Assert.Equal(SiatConnectionMode.Online, p.Mode));
         var clock = sp.GetRequiredService<MINV.Application.Abstractions.IClock>();
         Assert.All(status.Points, p => Assert.True(p.CufdValidUntil > clock.UtcNow));
         Assert.Equal(0, (await mediator.Send(new GetHomologationQuery())).PendingProducts);
-        Assert.Equal(demo.Today.AddDays(-DemoBillingSetup.SampleDaysAgo), billing.SamplesOn);
-        var samples = await mediator.Send(new GetFiscalDocumentsQuery(billing.SamplesOn, demo.Today));
-        Assert.Equal(4, samples.Count);
-        Assert.All(samples, d => Assert.Equal(FiscalDocumentStatus.Valid, d.Status));
-        Assert.Empty(await mediator.Send(new MINV.Application.Sales.GetSalesQuery(demo.Today.AddDays(-6), demo.Today)));
+        var documents = await mediator.Send(new GetFiscalDocumentsQuery(billing.From, demo.Today));
+        Assert.Contains(documents, d => d.Status == FiscalDocumentStatus.Valid);
 
-        // La caja: el consumidor final sin datos de facturación sale con el NIT especial 99003 y el documento es válido
-        await mediator.Send(new MINV.Application.Sales.OpenPosSessionCommand("CAJA01", 100m));
-        var product = (await mediator.Send(new MINV.Application.Sales.GetSellableProductsQuery())).First(p => p.Available >= 5);
+        // La caja 3 (libre): el consumidor final sin datos de facturación sale con el NIT especial 99003 y el documento es válido
+        await mediator.Send(new MINV.Application.Sales.OpenPosSessionCommand("CAJA03", 100m));
+        var product = (await mediator.Send(new MINV.Application.Sales.GetSellableProductsQuery())).First(p => p.Available >= 5 && WithoutSerial(p.Sku));
         var sale = await mediator.Send(new MINV.Application.Sales.CheckoutCommand("CF", "EFECTIVO",
             [new MINV.Application.Sales.SaleLineInput(product.Sku, 1)]));
         Assert.Equal(FiscalDocumentStatus.Pending, sale.FiscalStatus);
@@ -119,6 +147,16 @@ public sealed class DemoWorkspaceTests
         Assert.Equal(SiatCodes.SpecialMinorSales, document.BuyerDocument);
         var pdf = await mediator.Send(new RenderFiscalDocumentQuery(document.Id));
         Assert.Equal("%PDF", System.Text.Encoding.ASCII.GetString(pdf.Content, 0, 4));
+
+        // Un producto serializado se vende con la serie escaneada del stock de la casa matriz
+        var serialized = (await mediator.Send(new MINV.Application.Sales.GetSellableProductsQuery())).First(p => p.Available >= 2 && !WithoutSerial(p.Sku));
+        var serial = (await mediator.Send(new GetAvailableSerialsQuery(serialized.Sku)))[0].Serial;
+        await Assert.ThrowsAsync<DomainException>(() => mediator.Send(new MINV.Application.Sales.CheckoutCommand("CF", "EFECTIVO",
+            [new MINV.Application.Sales.SaleLineInput(serialized.Sku, 1)])));   // sin la serie: rechazada (T-02)
+        var withSerial = await mediator.Send(new MINV.Application.Sales.CheckoutCommand("CF", "EFECTIVO",
+            [new MINV.Application.Sales.SaleLineInput(serialized.Sku, 1, 0, [serial])]));
+        Assert.Equal(FiscalDocumentStatus.Valid, Assert.Single((await mediator.Send(new DispatchFiscalDocumentsCommand(withSerial.FiscalDocumentId))).Documents).Status);
+        Assert.Equal(SerialNumberStatus.Sold, (await mediator.Send(new GetWarrantyStatusQuery(serial, serialized.Sku))).Status);
     }
 
     [Fact]
@@ -156,6 +194,17 @@ public sealed class DemoWorkspaceTests
         Assert.Equal(30, trend.Count);
         Assert.Equal(demo.Today, trend[^1].Date);
         Assert.True(trend.Sum(d => d.Movements) > 0);
+        // El saldo inicial es la apertura del inventario, no operación: el gráfico «Entradas y salidas» no lo cuenta como
+        // entrada (el día de la apertura aplastaba el resto) y lo informa aparte
+        var db = scope.ServiceProvider.GetRequiredService<IMinvDbContext>();
+        var first = trend[0].Date;
+        var inflows = await (from m in db.Set<StockMovement>()
+                             join t in db.Set<MovementType>() on m.MovementTypeId equals t.Id
+                             where m.BusinessDate >= first && m.BusinessDate <= demo.Today && t.StockFactor > 0
+                             select new { m.Quantity, t.IsInitialBalance }).ToListAsync();
+        Assert.True(trend.Sum(d => d.Opening) > 0);
+        Assert.Equal(inflows.Where(x => x.IsInitialBalance).Sum(x => x.Quantity), trend.Sum(d => d.Opening));
+        Assert.Equal(inflows.Where(x => !x.IsInitialBalance).Sum(x => x.Quantity), trend.Sum(d => d.Entries));
     }
 
     [Fact]
@@ -164,7 +213,7 @@ public sealed class DemoWorkspaceTests
         var (sp, demo) = await PrepareAsync();
         var (scope, mediator, _) = await SignInAsync(sp, demo);
         using var _s = scope;
-        var row = (await mediator.Send(new GetStockProjectionQuery())).Result.Stock.First(r => r.Stock > 0 && r.IsActive);
+        var row = (await mediator.Send(new GetStockProjectionQuery())).Result.Stock.First(r => r.Stock > 0 && r.IsActive && WithoutSerial(r.Sku));
         var before = await mediator.Send(new GetProductCardQuery(row.Sku));
         var bin = before.PrimaryBin!;
         var result = await mediator.Send(new RegisterMovementCommand(row.Sku, bin, MovementTypeCodes.Receipt, 5, DocumentReference: "FAC-1"));
@@ -176,6 +225,29 @@ public sealed class DemoWorkspaceTests
         await Assert.ThrowsAsync<InsufficientStockException>(() =>
             mediator.Send(new RegisterMovementCommand(row.Sku, bin, MovementTypeCodes.Issue, after.OnHand + 1)));
         Assert.Equal(after.OnHand, (await mediator.Send(new GetProductCardQuery(row.Sku))).OnHand);
+
+        // V4.2 · Una merma (AJUSTE (−)) se contabiliza al costo promedio del almacén: Debe 5.1.09 / Haber 1.1.05 (el mayor
+        // sigue al valor del stock); una ENTRADA registrada a mano no genera asiento (límite L-05)
+        Assert.DoesNotContain("asiento", result.Message, StringComparison.Ordinal);
+        var merma = await mediator.Send(new RegisterMovementCommand(row.Sku, bin, MovementTypeCodes.AdjustmentOut, 2, Notes: "Merma: empaque dañado"));
+        Assert.Contains("asiento AS-", merma.Message, StringComparison.Ordinal);
+        var value = JournalPoster.Money(2 * after.UnitCost);
+        Assert.True(value > 0);
+        Assert.Equal((value, value, 0m, 0m), await AdjustmentEntryAsync(scope, merma.MovementId));
+    }
+
+    /// <summary>V4.2 · Asiento de un ajuste de inventario (por el documento que lo originó): (Debe 5.1.09, Haber 1.1.05 por
+    /// faltantes; Debe 1.1.05, Haber 4.1.02 por sobrantes).</summary>
+    private static async Task<(decimal Shrinkage, decimal InventoryOut, decimal InventoryIn, decimal Surplus)> AdjustmentEntryAsync(IServiceScope scope,
+        Guid correlationId)
+    {
+        var db = scope.ServiceProvider.GetRequiredService<MINV.Infrastructure.Persistence.MinvWriteDbContext>();
+        var accounts = await db.Set<Account>().AsNoTracking().ToDictionaryAsync(a => a.Id, a => a.Code);
+        var entry = await db.Set<JournalEntry>().AsNoTracking().Include(e => e.Lines).SingleAsync(e => e.SourceCorrelationId == correlationId);
+        Assert.Equal(entry.Lines.Sum(l => l.Debit), entry.Lines.Sum(l => l.Credit));
+        decimal Sum(string code, Func<JournalLine, decimal> side) => entry.Lines.Where(l => accounts[l.AccountId] == code).Sum(side);
+        return (Sum(AccountCodes.InventoryShrinkage, l => l.Debit), Sum(AccountCodes.Inventory, l => l.Credit), Sum(AccountCodes.Inventory, l => l.Debit),
+            Sum(AccountCodes.InventorySurplus, l => l.Credit));
     }
 
     [Fact]
@@ -184,14 +256,14 @@ public sealed class DemoWorkspaceTests
         var (sp, demo) = await PrepareAsync();
         var (scope, mediator, _) = await SignInAsync(sp, demo);
         using var _s = scope;
-        // La V2.1 dejó una toma en curso: se anula para empezar de cero
+        // La carga deja una toma en curso (periféricos): se anula para empezar de cero
         if (await mediator.Send(new GetOpenPhysicalCountQuery()) is { } previous)
         {
             await mediator.Send(new CancelPhysicalCountCommand(previous.Id));
         }
         Assert.Null(await mediator.Send(new GetOpenPhysicalCountQuery()));
         var opened = await mediator.Send(new OpenPhysicalCountCommand("ALM01"));
-        var row = (await mediator.Send(new GetStockProjectionQuery())).Result.Stock.First(r => r.Stock > 0 && r.IsActive);
+        var row = (await mediator.Send(new GetStockProjectionQuery())).Result.Stock.First(r => r.Stock > 0 && r.IsActive && WithoutSerial(r.Sku));
         var card = await mediator.Send(new GetProductCardQuery(row.Sku));
         var bin = card.Bins.First(b => b.OnHand > 0);
 
@@ -206,6 +278,10 @@ public sealed class DemoWorkspaceTests
 
         var posted = await mediator.Send(new PostPhysicalCountCommand(opened.PhysicalCountId, Confirmed: true));
         Assert.Equal(1, posted.Surpluses);
+        // V4.2 · El sobrante se contabiliza al costo promedio: Debe 1.1.05 / Haber 4.1.02 Sobrantes de inventario
+        Assert.Contains("asiento AS-", posted.Message, StringComparison.Ordinal);
+        var surplus = JournalPoster.Money(2 * card.UnitCost);
+        Assert.Equal((0m, 0m, surplus, surplus), await AdjustmentEntryAsync(scope, opened.PhysicalCountId));
         Assert.Null(await mediator.Send(new GetOpenPhysicalCountQuery()));
         var after = await mediator.Send(new GetProductCardQuery(row.Sku));
         Assert.Equal(card.OnHand + 2, after.OnHand);
@@ -231,7 +307,7 @@ public sealed class DemoWorkspaceTests
             Assert.False(await mediator.Send(new LogoutCommand(login.SessionId)));   // ya estaba cerrada
             var db = scope.ServiceProvider.GetRequiredService<MINV.Infrastructure.Persistence.MinvWriteDbContext>();
             Assert.False((await db.Sessions.FindAsync(login.SessionId))!.IsOpen);
-            Assert.Contains(await mediator.Send(new GetActivityQuery(5)), a => a.Action == "Logout" && a.UserName == "Administrador M-INV");
+            Assert.Contains(await mediator.Send(new GetActivityQuery(5)), a => a.Action == "Logout" && a.UserName == "Administrador General");
         }
         await Assert.ThrowsAsync<AuthenticationFailedException>(() => SignInAsync(sp, demo));
         var (again, _, _) = await SignInAsync(sp, demo, password: "NuevaClave2026");
@@ -243,7 +319,7 @@ public sealed class DemoWorkspaceTests
         using (s2)
         {
             Assert.NotEmpty((await m2.Send(new GetStockProjectionQuery())).Result.Stock);
-            var sku = (await m2.Send(new GetProductLookupQuery()))[0];
+            var sku = (await m2.Send(new GetProductLookupQuery())).First(p => WithoutSerial(p.Sku));
             await Assert.ThrowsAsync<AccessDeniedException>(() =>
                 m2.Send(new RegisterMovementCommand(sku.Sku, sku.PrimaryBin!, MovementTypeCodes.Receipt, 1)));
             await Assert.ThrowsAsync<AccessDeniedException>(() => m2.Send(new GetOpenPhysicalCountQuery()));

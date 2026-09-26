@@ -20,10 +20,11 @@
   <ItemGroup>
     <Resource Include="Assets\minv.ico" />
     <Resource Include="Assets\minv-256.png" />
+    <!-- V4.2 · Logotipo de la edición Tecnología (pantalla de carga e inicio de sesión) -->
+    <Resource Include="Assets\minv-logotipo.png" />
   </ItemGroup>
   <ItemGroup>
     <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
-    <!-- Modo demostración: el libro colaborativo de la V2.1 se migra a memoria al pulsar «Explorar la demostración». -->
-    <None Include="..\..\M-INV_V2_Colaborativo.xlsx" Link="Demo\M-INV_V2_Colaborativo.xlsx" CopyToOutputDirectory="PreserveNewest" />
+    <!-- V4.2 · La demostración genera Tech Zone Gaming en memoria (LocalDataSeeder): ya no copia el libro de la V2.1. -->
   </ItemGroup>
 </Project>

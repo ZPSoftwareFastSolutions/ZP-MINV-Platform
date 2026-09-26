@@ -1,5 +1,7 @@
 # Inicio rápido · M-INV V3.1 (escritorio + PostgreSQL) · paso a paso
 
+> **Rama `Inventario-V4.2`:** esta guía describe la edición de su rama con la ferretería de ejemplo (empresa **MINV**). En la V4.2 los mismos scripts cargan la tienda de tecnología **Tech Zone Gaming** (empresa **TECHZONE**, sucursales CM, CB y SC): siga [`inicio-rapido-v4.2.md`](inicio-rapido-v4.2.md).
+
 La V3 es una solución .NET (`MINV.sln`) con base de datos PostgreSQL y cliente de escritorio WPF (`M-INV.exe`). La
 **V3.1** trae el cliente completo y rediseñado (pantalla de carga, menú por rol, tablero con gráficos, registro guiado,
 toma física, alertas, pedido, ficha con kardex, tema claro/oscuro) y un **modo demostración** que funciona sin base de

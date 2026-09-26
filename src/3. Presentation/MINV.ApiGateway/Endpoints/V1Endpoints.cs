@@ -4,6 +4,7 @@ using MINV.Application.Corporate;
 using MINV.Application.Integration;
 using MINV.Application.Inventory.Transfers;
 using MINV.Application.Sales;
+using MINV.Application.Tech;
 using MINV.Domain.Integration;
 using MINV.Domain.Inventory;
 
@@ -13,7 +14,8 @@ namespace MINV.ApiGateway.Endpoints;
 /// <param name="ExternalId">Id del pedido en su sistema (idempotencia). Si falta, se usa la cabecera Idempotency-Key.</param>
 /// <param name="CustomerCode">Código del cliente en M-INV (CF = consumidor final).</param>
 /// <param name="PaymentMethodCode">EFECTIVO, QR, TARJETA o TRANSFERENCIA.</param>
-/// <param name="Lines">SKU (o código de barras), cantidad y descuento %.</param>
+/// <param name="Lines">SKU (o código de barras), cantidad, descuento % y (V4.2) las series o IMEI de los productos
+/// serializados (<c>serials</c>, una por unidad).</param>
 /// <param name="PaymentReference">Número de operación del pago (obligatorio en QR, tarjeta y transferencia).</param>
 /// <param name="WarehouseCode">Almacén que despacha (por defecto, el de la sucursal de la llave).</param>
 /// <param name="Buyer">V4.1 · Datos de facturación del comprador (opcional; si la empresa factura en el SIAT y el cliente no
@@ -52,6 +54,9 @@ public static class V1Endpoints
         v1.MapGet("/catalog", (ISender s, int page = 1, int pageSize = 100, string? search = null, CancellationToken ct = default) =>
                 s.Send(new GetApiCatalogQuery(page, pageSize, search), ct))
             .RequireAuthorization(ApiScopes.CatalogRead).WithTags("Catálogo").WithSummary("Productos, precios y códigos de barras (paginado, ≤ 500)");
+        v1.MapGet("/products/{sku}/specs", (ISender s, string sku, CancellationToken ct) => s.Send(new GetProductTechQuery(sku), ct))
+            .RequireAuthorization(ApiScopes.CatalogRead).WithTags("Catálogo")
+            .WithSummary("V4.2 · Ficha técnica de un producto: especificaciones, garantía y si lleva serie o IMEI");
         v1.MapGet("/branches", (ISender s, CancellationToken ct) => s.Send(new GetBranchesQuery(), ct))
             .RequireAuthorization(ApiScopes.CatalogRead).WithTags("Catálogo").WithSummary("Sucursales de la empresa");
         v1.MapGet("/events", () => Results.Ok(IntegrationEvents.All.Select(e => new { code = e.Code, description = e.Description }).ToList()))

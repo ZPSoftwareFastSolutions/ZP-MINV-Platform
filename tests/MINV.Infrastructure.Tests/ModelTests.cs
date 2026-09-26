@@ -1,9 +1,13 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using MINV.Domain.Accounting;
 using MINV.Domain.Billing;
 using MINV.Domain.Common;
 using MINV.Domain.Iam;
+using MINV.Domain.Inventory;
+using MINV.Domain.Sales;
+using MINV.Domain.Service;
 using MINV.Infrastructure;
 using MINV.Infrastructure.Persistence;
 
@@ -21,15 +25,17 @@ public sealed class ModelTests
     private static string Name(IEntityType e) => $"{e.GetSchema()}.{e.GetTableName()}";
 
     [Fact]
-    public void El_modelo_tiene_140_tablas_en_9_esquemas()
+    public void El_modelo_tiene_152_tablas_en_10_esquemas()
     {
         var tables = Entities.Select(e => (e.GetSchema(), e.GetTableName())).Distinct().ToList();
         Assert.True(tables.Count >= 80, $"solo {tables.Count} tablas");
         // 96 de la V3 + product_images (V3.1) + 13 de la V4 (sucursales, integración, idempotencia) + 30 de la V4.1 (facturación)
-        Assert.Equal(140, tables.Count);
-        Assert.Equal(9, Schemas.All.Count);
+        // + 12 de la V4.2 (edición Tecnología)
+        Assert.Equal(152, tables.Count);
+        Assert.Equal(10, Schemas.All.Count);
         Assert.Equal(Schemas.All.OrderBy(s => s), tables.Select(t => t.Item1!).Distinct().OrderBy(s => s));
         Assert.Equal(27, tables.Count(t => t.Item1 == Schemas.Billing));
+        Assert.Equal(2, tables.Count(t => t.Item1 == Schemas.Service));
     }
 
     /// <summary>
@@ -40,13 +46,9 @@ public sealed class ModelTests
     [Fact]
     public void Las_listas_de_las_migraciones_coinciden_con_el_modelo()
     {
-        Assert.Equal(Entities.Where(e => typeof(IBranchScoped).IsAssignableFrom(e.ClrType)).Select(Name).Order(),
-            Persistence.Migrations.V4MultiBranchCloud.BranchTables.Concat(Persistence.Migrations.V41SiatBilling.BranchTablesV41).Order());
-        Assert.Equal(Entities.Where(e => typeof(IInterBranch).IsAssignableFrom(e.ClrType)).Select(Name).Order(),
-            Persistence.Migrations.V4MultiBranchCloud.InterBranchTables.Order());
-        Assert.Equal(Entities.Where(e => typeof(IAppendOnly).IsAssignableFrom(e.ClrType)).Select(Name).Order(),
-            Persistence.Migrations.GuardsRlsAndViews.AppendOnlyTables.Concat(Persistence.Migrations.V4MultiBranchCloud.AppendOnlyTablesV4)
-                .Concat(Persistence.Migrations.V41SiatBilling.AppendOnlyTablesV41).Order());
+        Assert.Equal(Entities.Where(e => typeof(IBranchScoped).IsAssignableFrom(e.ClrType)).Select(Name).Order(), AllBranchTables.Order());
+        Assert.Equal(Entities.Where(e => typeof(IInterBranch).IsAssignableFrom(e.ClrType)).Select(Name).Order(), AllInterBranchTables.Order());
+        Assert.Equal(Entities.Where(e => typeof(IAppendOnly).IsAssignableFrom(e.ClrType)).Select(Name).Order(), AllAppendOnlyTables.Order());
         var v41 = Persistence.Migrations.V41SiatBilling.NewTablesV41;
         Assert.Equal(v41.Length, v41.Distinct().Count());
         Assert.Equal(Entities.Where(e => e.GetSchema() == Schemas.Billing).Select(Name)
@@ -54,6 +56,81 @@ public sealed class ModelTests
             v41.Order());
         Assert.All(Persistence.Migrations.V41SiatBilling.BranchTablesV41.Concat(Persistence.Migrations.V41SiatBilling.AppendOnlyTablesV41),
             t => Assert.Contains(t, v41));
+        // V4.2 · las tablas nuevas son exactamente las que el modelo tiene y la migración anterior no
+        var v42 = Persistence.Migrations.V42TechRetail.NewTablesV42;
+        var before = new Persistence.Migrations.V41CafcNumbering().TargetModel.GetEntityTypes()
+            .Select(e => $"{e.GetSchema()}.{e.GetTableName()}").ToHashSet(StringComparer.Ordinal);
+        Assert.Equal(v42.Length, v42.Distinct().Count());
+        Assert.Equal(Entities.Select(Name).Where(t => !before.Contains(t)).Order(), v42.Order());
+        Assert.All(Persistence.Migrations.V42TechRetail.BranchTablesV42.Concat(Persistence.Migrations.V42TechRetail.InterBranchTablesV42)
+            .Concat(Persistence.Migrations.V42TechRetail.AppendOnlyTablesV42), t => Assert.Contains(t, v42));
+    }
+
+    /// <summary>Tablas de sucursal de todas las migraciones (V4 + V4.1 + V4.2).</summary>
+    internal static IEnumerable<string> AllBranchTables =>
+        Persistence.Migrations.V4MultiBranchCloud.BranchTables.Concat(Persistence.Migrations.V41SiatBilling.BranchTablesV41)
+            .Concat(Persistence.Migrations.V42TechRetail.BranchTablesV42);
+
+    /// <summary>Tablas entre sucursales de todas las migraciones (V4 + V4.2).</summary>
+    internal static IEnumerable<string> AllInterBranchTables =>
+        Persistence.Migrations.V4MultiBranchCloud.InterBranchTables.Concat(Persistence.Migrations.V42TechRetail.InterBranchTablesV42);
+
+    /// <summary>Libros append-only de todas las migraciones (V3 + V4 + V4.1 + V4.2).</summary>
+    internal static IEnumerable<string> AllAppendOnlyTables =>
+        Persistence.Migrations.GuardsRlsAndViews.AppendOnlyTables.Concat(Persistence.Migrations.V4MultiBranchCloud.AppendOnlyTablesV4)
+            .Concat(Persistence.Migrations.V41SiatBilling.AppendOnlyTablesV41).Concat(Persistence.Migrations.V42TechRetail.AppendOnlyTablesV42);
+
+    /// <summary>V4.2 · La migración siembra en las empresas existentes los mismos permisos, la misma matriz rol-permiso, el
+    /// mismo tipo de movimiento de reposición por garantía y la misma cuenta 5.1.10 que el aprovisionamiento.</summary>
+    [Fact]
+    public void Los_datos_de_la_edicion_tecnologia_de_la_migracion_coinciden_con_el_dominio()
+    {
+        string[] codes =
+        [
+            PermissionCodes.SpecsManage, PermissionCodes.SerialsView, PermissionCodes.SerialsManage, PermissionCodes.ServiceOpen,
+            PermissionCodes.ServiceManage, PermissionCodes.PcBuildManage,
+        ];
+        Assert.Equal(PermissionCodes.All.Where(p => codes.Contains(p.Code)).OrderBy(p => p.Code),
+            Persistence.Migrations.V42TechRetail.TechPermissions.OrderBy(p => p.Code));
+        var expected = RoleCodes.All.SelectMany(r => PermissionCodes.ForRole(r.Code).Where(codes.Contains).Select(p => (r.Code, p))).Order();
+        Assert.Equal(expected, Persistence.Migrations.V42TechRetail.TechRolePermissions.Order());
+        var type = MovementType.CreateDefaults(Guid.NewGuid()).Single(t => t.Code == MovementTypeCodes.WarrantyReplacement);
+        Assert.Equal((Persistence.Migrations.V42TechRetail.WarrantyMovementCode, Persistence.Migrations.V42TechRetail.WarrantyMovementName,
+                Persistence.Migrations.V42TechRetail.WarrantyMovementDescription, (short)-1, MovementDomain.Warehouse),
+            (type.Code, type.Name, type.Description, type.StockFactor, type.Domain));
+        var account = ChartOfAccounts.Defaults.Single(a => a.Code == AccountCodes.WarrantyCost);
+        Assert.Equal((Persistence.Migrations.V42TechRetail.WarrantyAccountCode, Persistence.Migrations.V42TechRetail.WarrantyAccountName,
+            AccountType.Expense, (string?)"5.1", true), (account.Code, account.Name, account.Type, account.Parent, account.Postable));
+    }
+
+    /// <summary>V4.2 · Lo que ocurre en una sucursal (series vendidas o devueltas, armados, casos RMA) es de la sucursal; la
+    /// serie, su bitácora y las fichas técnicas son de la empresa (la serie viaja entre sucursales). Unicidades clave y
+    /// garantía derivada (ninguna columna guarda un fin de garantía, regla T-04).</summary>
+    [Fact]
+    public void La_edicion_tecnologia_respeta_sucursales_y_unicidades()
+    {
+        var tech = new[]
+        {
+            typeof(Domain.Catalog.SpecDefinition), typeof(Domain.Catalog.SpecOption), typeof(Domain.Catalog.ProductSpecValue),
+            typeof(Domain.Catalog.ProductTechProfile), typeof(SerialNumber), typeof(SerialEvent), typeof(StockTransferLineSerial),
+            typeof(SalesOrderLineSerial), typeof(SalesReturnLineSerial), typeof(PcBuild), typeof(PcBuildLine), typeof(WarrantyClaim),
+            typeof(WarrantyClaimEvent),
+        };
+        Assert.Equal(new[] { "PcBuild", "PcBuildLine", "SalesOrderLineSerial", "SalesReturnLineSerial", "WarrantyClaim", "WarrantyClaimEvent" },
+            tech.Where(t => typeof(IBranchScoped).IsAssignableFrom(t)).Select(t => t.Name).Order());
+        var serials = Model.FindEntityType(typeof(SerialNumber))!;
+        Assert.Contains(serials.GetIndexes(), i => i.IsUnique && i.Properties.Select(p => p.Name)
+            .SequenceEqual([nameof(SerialNumber.TenantId), nameof(SerialNumber.VariantId), nameof(SerialNumber.Serial)]));
+        var claims = Model.FindEntityType(typeof(WarrantyClaim))!;
+        Assert.Contains(claims.GetIndexes(), i => i.IsUnique && i.Properties.Select(p => p.Name)
+            .SequenceEqual([nameof(WarrantyClaim.TenantId), nameof(WarrantyClaim.BranchId), nameof(WarrantyClaim.Number)]));
+        Assert.True(Assert.Single(claims.GetIndexes(), i => i.GetFilter() == "status <> 'Delivered'").IsUnique);
+        Assert.Contains(Model.FindEntityType(typeof(PcBuild))!.GetIndexes(), i => i.IsUnique && i.Properties.Select(p => p.Name)
+            .SequenceEqual([nameof(PcBuild.TenantId), nameof(PcBuild.BranchId), nameof(PcBuild.Number)]));
+        Assert.All(new[] { typeof(SerialNumber), typeof(WarrantyClaim), typeof(PcBuild), typeof(Domain.Catalog.ProductTechProfile) },
+            t => Assert.True(typeof(IConcurrencyAware).IsAssignableFrom(t), t.Name));
+        Assert.DoesNotContain(tech.SelectMany(t => Model.FindEntityType(t)!.GetProperties()),
+            p => p.GetColumnName().Contains("warranty_until", StringComparison.Ordinal));
     }
 
     /// <summary>V4.1 · La migración siembra en las empresas existentes los mismos permisos y la misma matriz rol-permiso de
@@ -127,7 +204,18 @@ public sealed class ModelTests
             }
             // (la FK a la propia sucursal, p. ej. centro de costo → sucursal, es (tenant_id, branch_id): ahí branch_id es la referencia)
             var branchColumns = principal.Name == "Branch" ? 0 : names.Count(n => n is "BranchId" or "FromBranchId" or "ToBranchId");
-            Assert.True(fk.Properties.Count == 2 + branchColumns && branchColumns <= 2,
+            // V4.2 · FK compuestas con el padre (documentadas en el ERD): la opción es de ESA especificación, el lote de la serie
+            // es de SU variante y la existencia donde está es de SU lote
+            var parentColumn = (fk.DeclaringEntityType.ClrType.Name, principal.Name) switch
+            {
+                ("ProductSpecValue", "SpecOption") => "SpecDefinitionId",
+                ("SerialNumber", "Batch") => "VariantId",
+                ("SerialNumber", "StockLevel") => "BatchId",
+                _ => null,
+            };
+            var extra = parentColumn is not null && names.Contains(parentColumn)
+                        && fk.PrincipalKey.Properties.Any(p => p.Name == parentColumn) ? 1 : 0;
+            Assert.True(fk.Properties.Count == 2 + branchColumns + extra && branchColumns <= 2,
                 $"{fk.DeclaringEntityType.ClrType.Name} → {principal.Name}: FK sin tenant_id");
         }
     }
@@ -155,8 +243,9 @@ public sealed class ModelTests
         {
             "AccessLog", "AuditLog", "AverageCostHistory", "CashMovement", "CustomerNitCheck", "ExchangeRate", "ExternalOrder",
             "FiscalDelivery", "FiscalDocumentEvent", "FiscalDocumentFile", "FiscalDocumentLine", "OutboxEvent", "Payment",
-            "ProcessedRequest", "SiatCufd", "SiatCuis", "SiatServiceCall", "SiatSyncRun", "StockMovement", "StockTransferDiscrepancy",
-            "StockTransferEvent", "StockTransferLineBatch", "StockTransferMovement", "WebhookDelivery",
+            "ProcessedRequest", "SalesOrderLineSerial", "SalesReturnLineSerial", "SerialEvent", "SiatCufd", "SiatCuis", "SiatServiceCall",
+            "SiatSyncRun", "StockMovement", "StockTransferDiscrepancy", "StockTransferEvent", "StockTransferLineBatch", "StockTransferLineSerial",
+            "StockTransferMovement", "WarrantyClaimEvent", "WebhookDelivery",
         }, appendOnly);
     }
 
@@ -234,6 +323,17 @@ public sealed class ModelTests
     [InlineData("REFERENCES sales.pos_registers (tenant_id, branch_id, id)")]
     [InlineData("CREATE TABLE sales.sales_returns")]
     [InlineData("CREATE TABLE purchasing.supplier_invoice_fiscal")]
+    [InlineData("CREATE SCHEMA service;")]
+    [InlineData("CREATE TABLE service.warranty_claims")]
+    [InlineData("CONSTRAINT ck_product_spec_values_arco CHECK (num_nonnulls(number_value, text_value, option_id) = 1)")]
+    [InlineData("REFERENCES catalog.spec_options (tenant_id, spec_definition_id, id)")]
+    [InlineData("REFERENCES inventory.batches (tenant_id, variant_id, id)")]
+    [InlineData("REFERENCES inventory.stock_levels (tenant_id, batch_id, id)")]
+    [InlineData("REFERENCES inventory.stock_transfer_lines (tenant_id, from_branch_id, to_branch_id, id)")]
+    [InlineData("REFERENCES sales.sales_order_lines (tenant_id, branch_id, id)")]
+    [InlineData("REFERENCES service.warranty_claims (tenant_id, branch_id, id)")]
+    [InlineData("CONSTRAINT ck_serial_numbers_ubicacion CHECK ((status IN ('InStock', 'Reserved')) = (stock_level_id IS NOT NULL))")]
+    [InlineData("CONSTRAINT ck_warranty_claims_cierre CHECK ((status = 'Delivered') = (closed_at IS NOT NULL))")]
     public void El_DDL_generado_contiene_las_restricciones_clave(string fragment) =>
         Assert.Contains(fragment, Ddl, StringComparison.Ordinal);
 
@@ -245,6 +345,23 @@ public sealed class ModelTests
         {
             Assert.Contains($"`{e.GetSchema()}.{e.GetTableName()}`", erd, StringComparison.Ordinal);
         }
+    }
+
+    /// <summary>Reglas A-07 y B-15: <c>scripts/db_init.sql</c> es la cabecera más el script idempotente de TODAS las
+    /// migraciones (lo regenera <c>tools\build_v3.ps1</c>). Falla si falta regenerarlo o si cambió el SQL de una migración
+    /// publicada (p. ej. porque usaba una constante compartida que después creció).</summary>
+    [Fact]
+    public void Db_init_sql_coincide_con_el_script_de_las_migraciones()
+    {
+        static string Normalize(string text) => text.TrimStart('﻿').Replace("\r\n", "\n", StringComparison.Ordinal).TrimEnd();
+        var scripts = Path.Combine(V21MigrationTests.RepoRoot(), "scripts");
+        var script = Db.GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>()
+            .GenerateScript(options: Microsoft.EntityFrameworkCore.Migrations.MigrationsSqlGenerationOptions.Idempotent);
+        var expected = Normalize(File.ReadAllText(Path.Combine(scripts, "db_init.header.sql")) + script);
+        var actual = Normalize(File.ReadAllText(Path.Combine(scripts, "db_init.sql")));
+        Assert.True(expected == actual,
+            "scripts/db_init.sql no coincide con las migraciones: regenérelo con tools\\build_v3.ps1 y, si cambió una migración " +
+            "publicada, deje su SQL como se publicó (reglas A-07 y B-15).");
     }
 
     [Fact]

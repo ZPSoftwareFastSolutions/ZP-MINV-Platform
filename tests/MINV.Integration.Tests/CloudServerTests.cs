@@ -8,6 +8,8 @@ using MINV.Application.Corporate;
 using MINV.Application.Iam;
 using MINV.Application.Inventory.Transfers;
 using MINV.Application.Remote;
+using MINV.Application.Tech;
+using MINV.Domain.Catalog;
 using MINV.Domain.Iam;
 using MINV.Infrastructure.Seeding;
 
@@ -106,10 +108,10 @@ public sealed class CloudServerTests(CloudServerFixture server) : IClassFixture<
         Assert.All(await manager.SendAsync(new GetBranchesQuery()), b => Assert.True(b.IsVisible));
 
         var cashier = Client();
-        var (_, cashierLogin, _) = await cashier.LoginAsync("NUBE", User(RoleCodes.Cashier, "EA"));
-        Assert.Equal("EA", cashierLogin!.Login.Access.Active!.Code);
+        var (_, cashierLogin, _) = await cashier.LoginAsync("NUBE", User(RoleCodes.Cashier, "CB"));
+        Assert.Equal("CB", cashierLogin!.Login.Access.Active!.Code);
         var branches = await cashier.SendAsync(new GetBranchesQuery());
-        Assert.Equal(["EA"], branches.Where(b => b.IsVisible).Select(b => b.Code));
+        Assert.Equal(["CB"], branches.Where(b => b.IsVisible).Select(b => b.Code));
         await Assert.ThrowsAsync<AccessDeniedException>(() => cashier.SendAsync(new GetUsersQuery()));
     }
 
@@ -141,7 +143,7 @@ public sealed class CloudServerTests(CloudServerFixture server) : IClassFixture<
     {
         var keeper = Client();
         await keeper.LoginAsync("NUBE", User(RoleCodes.Warehouse, "CM"));
-        var (status, response) = await keeper.SendRawAsync(new CreateTransferCommand("ALM01", [new TransferLineInput("FER-001", 1)]));
+        var (status, response) = await keeper.SendRawAsync(new CreateTransferCommand("ALM01", [new TransferLineInput("CASE-COR-4000D", 1)]));
         Assert.Equal(HttpStatusCode.UnprocessableEntity, status);
         Assert.Equal("transfer.same_warehouse", response.Error!.Code);
         var (notFound, _) = await keeper.SendRawAsync(new CancelTransferCommand(Guid.NewGuid(), "no existe"));
@@ -149,6 +151,34 @@ public sealed class CloudServerTests(CloudServerFixture server) : IClassFixture<
         var (invalid, validation) = await keeper.SendRawAsync(new CancelTransferCommand(Guid.NewGuid(), ""));
         Assert.Equal(HttpStatusCode.BadRequest, invalid);
         Assert.NotEmpty(validation.Error!.Errors!);
+    }
+
+    [Fact]
+    public async Task La_edicion_Tecnologia_viaja_por_RPC_con_sus_codigos()
+    {
+        // V4.2 · Los contratos nuevos son IRequest públicos de MINV.Application: el servidor los expone sin registrarlos
+        var keeper = Client();
+        await keeper.LoginAsync("NUBE", User(RoleCodes.Warehouse, "CM"));
+        // (sobre la empresa de prueba Tech Zone Gaming: una especificación nueva de los cables y la ficha de un cable sin serie)
+        const string sku = "CAB-UGR-HDMI21-2M";
+        Assert.Equal("prueba_rpc", await keeper.SendAsync(new SaveSpecDefinitionCommand("CAB", "prueba_rpc", "Prueba por RPC", null, SpecDataType.Option,
+            false, true, false, null, 99, ["Certificado", "Genérico"])));
+        var specs = await keeper.SendAsync(new GetSpecDefinitionsQuery("CAB"));
+        Assert.Equal(["Certificado", "Genérico"], Assert.Single(specs, s => s.Code == "prueba_rpc").Options);
+        var current = await keeper.SendAsync(new GetProductTechQuery(sku));
+        Assert.False(current.TrackSerials);
+        var values = current.Specs.Where(s => s.Values.Count > 0).Select(s => new ProductSpecInput(s.Code, s.Values))
+            .Append(new ProductSpecInput("prueba_rpc", ["certificado"])).ToList();
+        Assert.Equal(sku, await keeper.SendAsync(new SaveProductTechCommand(sku, false, SerialKind.Serial, 6, values)));
+        var found = await keeper.SendAsync(new SearchTechProductsQuery(Filters: [new SpecFilter("prueba_rpc", ["Certificado"])]));
+        Assert.Equal(sku, Assert.Single(found).Sku);
+        Assert.Equal(6, found[0].WarrantyMonths);
+        // Pasar a «lleva serie» afecta a todas las sucursales: un usuario de una sola sucursal recibe el código estable
+        var (status, response) = await keeper.SendRawAsync(new SaveProductTechCommand(sku, true, SerialKind.Serial, 6, values));
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, status);
+        Assert.Equal("tech.tracking_scope", response.Error!.Code);
+        var (missing, _) = await keeper.SendRawAsync(new GetSerialTraceQuery("NO-EXISTE-0001"));
+        Assert.Equal(HttpStatusCode.NotFound, missing);
     }
 
     [Fact]

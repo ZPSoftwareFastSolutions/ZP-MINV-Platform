@@ -87,10 +87,10 @@ public sealed class D_SiatAdminTests
         Assert.Equal(2, await admin.Db.Set<SiatCufd>().CountAsync());
         var settings = await admin.Db.Set<SiatSettings>().AsNoTracking().SingleAsync();
         Assert.NotNull(settings.ClockSyncedAt);
-        Assert.Equal(2, await admin.Db.Set<SiatActivity>().CountAsync());
+        Assert.Equal(5, await admin.Db.Set<SiatActivity>().CountAsync());   // V4.2: 3 de tecnología + 2 de ferretería (simulador)
         Assert.True(await admin.Db.Set<SiatProduct>().CountAsync() > 200);
         Assert.True(await admin.Db.Set<SiatLegend>().CountAsync() >= 12);
-        Assert.Equal(4, await admin.Db.Set<SiatActivitySector>().CountAsync());
+        Assert.Equal(10, await admin.Db.Set<SiatActivitySector>().CountAsync());   // factura (1) y nota (24) por actividad
         Assert.True(await admin.Db.Set<SiatCatalogItem>().CountAsync(i => i.Catalog == SiatCatalogNames.PaymentMethods) >= 10);
         Assert.Equal(17, await admin.Db.Set<SiatSyncRun>().Where(r => r.Error == null && r.Catalog != SiatCatalogNames.DateTime).Select(r => r.Catalog)
             .Distinct().CountAsync());

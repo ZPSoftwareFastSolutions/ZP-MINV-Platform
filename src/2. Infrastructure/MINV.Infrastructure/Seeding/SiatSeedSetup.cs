@@ -6,6 +6,7 @@ using MINV.Application.Abstractions;
 using MINV.Application.Billing;
 using MINV.Application.Iam;
 using MINV.Domain.Billing;
+using MINV.Infrastructure.Seeding.Tecnologia;
 
 namespace MINV.Infrastructure.Seeding;
 
@@ -61,8 +62,10 @@ internal sealed record SiatSeedRegister(string BranchCode, string RegisterCode, 
 /// V4.1 · Configuración de la facturación SIAT de una empresa de prueba a través de los MISMOS casos de uso que usa la
 /// pantalla «Configuración › Facturación SIAT» (regla A-13): datos del Padrón, conexión del ambiente 2 con el token
 /// cifrado, sucursales del Padrón, puntos de venta por caja (además del punto 0), catálogos sincronizados, CUIS y CUFD
-/// del día, homologación de productos (sugerencia del catálogo del SIN y, para lo que falte, un mapeo por categoría),
-/// unidades y medios de pago, y al final la activación. La comparten <see cref="LocalDataSeeder"/> y la demostración.
+/// del día, homologación de productos (V4.2: el producto SIN de cada producto del catálogo de tecnología, de su actividad
+/// 4741100, 4741200 o 4742100; la sugerencia del SIN para cualquier otro), unidades (UND → 57, SERV → 58, por la
+/// descripción del catálogo sincronizado) y medios de pago, y al final la activación. La usan los datos de prueba y la
+/// demostración (<see cref="LocalDataSeeder"/>).
 /// </summary>
 internal static class SiatSeedSetup
 {
@@ -102,16 +105,19 @@ internal static class SiatSeedSetup
 
     /// <summary>
     /// Homologación completa: unidades y medios de pago contra los catálogos sincronizados (por descripción, regla F-07) y
-    /// productos con <see cref="SuggestProductHomologationQuery"/> en la actividad que corresponde a su categoría; lo que la
-    /// sugerencia no resuelve se completa con el producto SIN de la categoría (búsqueda en el catálogo). Devuelve cuántos
-    /// productos se homologaron.
+    /// productos: los del catálogo de tecnología con el producto SIN del JSON (actividad y código, validados contra lo
+    /// sincronizado por <see cref="SaveProductHomologationCommand"/>); cualquier otro, con la sugerencia del SIN
+    /// (<see cref="SuggestProductHomologationQuery"/>) en la actividad principal. Devuelve cuántos productos se homologaron.
     /// </summary>
     public static async Task<int> HomologateAsync(ISeedSession admin, CancellationToken ct)
     {
+        var catalog = TechSeedCatalog.Current;
         var view = await admin.Send(new GetHomologationQuery(), ct);
         foreach (var unit in view.Units.Where(u => u.SinUnitCode is null))
         {
-            if (UnitCode(view.SinUnits, unit.Code, unit.Name) is { } code)
+            // UND → «UNIDAD (BIENES)» y SERV → «UNIDAD (SERVICIOS)» (descripciones del catálogo de tecnología)
+            var tech = catalog.Units.FirstOrDefault(u => u.Code == unit.Code);
+            if ((tech is null ? UnitCode(view.SinUnits, unit.Code, unit.Name) : Find(view.SinUnits, tech.SinDescription)) is { } code)
             {
                 await admin.Send(new SaveUnitHomologationCommand(unit.Code, code), ct);
             }
@@ -123,76 +129,37 @@ internal static class SiatSeedSetup
                 await admin.Send(new SavePaymentMethodHomologationCommand(method.Code, code), ct);
             }
         }
-        var activities = view.Activities.Where(a => a.IsCurrent && a.Sectors.Contains(SiatCodes.SectorPurchaseSale)).ToList();
-        if (activities.Count == 0)
-        {
-            activities = view.Activities.Where(a => a.IsCurrent).ToList();
-        }
-        var main = activities.FirstOrDefault(a => a.ActivityType == "P") ?? activities.FirstOrDefault();
-        if (main is null)
-        {
-            return 0;
-        }
-        var secondary = activities.FirstOrDefault(a => a.Code != main.Code) ?? main;
         var pending = view.Products.Where(p => p.IsActive && p.SinProductCode is null).ToList();
         if (pending.Count == 0)
         {
             return 0;
         }
-        var suggestions = new Dictionary<string, IReadOnlyDictionary<string, ProductHomologationInput>>(StringComparer.Ordinal);
-        foreach (var activity in new[] { main, secondary }.DistinctBy(a => a.Code))
-        {
-            suggestions[activity.Code] = (await admin.Send(new SuggestProductHomologationQuery(activity.Code), ct))
-                .GroupBy(s => s.Sku, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
-        }
-        var defaults = new Dictionary<(string, string), int?>();
+        var current = view.Activities.Where(a => a.IsCurrent).Select(a => a.Code).ToHashSet(StringComparer.Ordinal);
         var items = new List<ProductHomologationInput>();
+        var others = new List<string>();
         foreach (var product in pending)
         {
-            var (useSecondary, text) = CategoryDefault(product.Category);
-            var activity = useSecondary ? secondary : main;
-            if (suggestions[activity.Code].TryGetValue(product.Sku, out var suggestion))
+            if (catalog.HasProduct(product.Sku) && catalog.Product(product.Sku).Sin is { } sin && current.Contains(sin.Activity))
             {
-                items.Add(suggestion);
-                continue;
+                items.Add(new ProductHomologationInput(product.Sku, sin.Activity, sin.Product));
             }
-            if (!defaults.TryGetValue((activity.Code, text), out var code))
+            else
             {
-                code = (await admin.Send(new SearchSiatProductsQuery(activity.Code, text, 5), ct)).FirstOrDefault(p => p.IsCurrent)?.ProductCode
-                       ?? (await admin.Send(new SearchSiatProductsQuery(activity.Code, null, 5), ct)).FirstOrDefault(p => p.IsCurrent)?.ProductCode;
-                defaults[(activity.Code, text)] = code;
+                others.Add(product.Sku);
             }
-            if (code is { } sinCode)
-            {
-                items.Add(new ProductHomologationInput(product.Sku, activity.Code, sinCode));
-            }
+        }
+        var main = view.Activities.FirstOrDefault(a => a.IsCurrent && a.ActivityType == "P") ?? view.Activities.FirstOrDefault(a => a.IsCurrent);
+        if (others.Count > 0 && main is not null)
+        {
+            var suggestions = (await admin.Send(new SuggestProductHomologationQuery(main.Code), ct))
+                .GroupBy(s => s.Sku, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+            items.AddRange(others.Where(suggestions.ContainsKey).Select(sku => suggestions[sku]));
         }
         foreach (var chunk in items.Chunk(200))
         {
             await admin.Send(new SaveProductHomologationCommand(chunk), ct);
         }
         return items.Count;
-    }
-
-    /// <summary>Actividad (principal o secundaria) y texto de búsqueda del producto SIN por defecto de una categoría: pinturas y
-    /// materiales de construcción van a la secundaria (4752400 en el simulador); el resto de la ferretería, a la principal.</summary>
-    public static (bool Secondary, string Text) CategoryDefault(string? category)
-    {
-        var c = Plain(category);
-        return c switch
-        {
-            _ when c.Contains("PINTUR", StringComparison.Ordinal) => (true, "pinturas"),
-            _ when c.Contains("CONSTRU", StringComparison.Ordinal) || c.Contains("CEMENT", StringComparison.Ordinal)
-                                                               || c.Contains("MATERIAL", StringComparison.Ordinal) => (true, "cemento"),
-            _ when c.Contains("HERRAM", StringComparison.Ordinal) && c.Contains("ELECTR", StringComparison.Ordinal) => (false, "herramientas electricas"),
-            _ when c.Contains("HERRAM", StringComparison.Ordinal) => (false, "herramientas de mano"),
-            _ when c.Contains("PLOM", StringComparison.Ordinal) || c.Contains("FONTAN", StringComparison.Ordinal)
-                                                            || c.Contains("SANIT", StringComparison.Ordinal) || c.Contains("TUBER", StringComparison.Ordinal)
-                => (false, "tuberias"),
-            _ when c.Contains("SEGUR", StringComparison.Ordinal) => (false, "seguridad"),
-            _ when c.Contains("FERRET", StringComparison.Ordinal) => (false, "fijacion"),
-            _ => (false, "accesorios de ferreteria"),
-        };
     }
 
     /// <summary>Unidad del SIN de una unidad de M-INV (por descripción del catálogo sincronizado, nunca un código fijo).</summary>

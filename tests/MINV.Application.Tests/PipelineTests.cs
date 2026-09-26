@@ -93,8 +93,22 @@ public sealed class AuthorizationTests
         Assert.Contains(PermissionCodes.MovementsRegisterWarehouse, PermissionCodes.ForRole(RoleCodes.Warehouse));
         Assert.DoesNotContain(PermissionCodes.MovementsRegisterSales, PermissionCodes.ForRole(RoleCodes.Warehouse));
         Assert.DoesNotContain(PermissionCodes.MovementsRegisterWarehouse, PermissionCodes.ForRole(RoleCodes.Sales));
-        // V4.1 · Consulta también ve los documentos fiscales y los libros (sin emitir ni anular)
-        Assert.Equal([PermissionCodes.StockView, PermissionCodes.ReportsView, PermissionCodes.BillingView], PermissionCodes.ForRole(RoleCodes.ReadOnly));
+        // V4.1 · Consulta también ve los documentos fiscales y los libros (sin emitir ni anular); V4.2 · y las series y casos RMA
+        Assert.Equal([PermissionCodes.StockView, PermissionCodes.ReportsView, PermissionCodes.BillingView, PermissionCodes.SerialsView],
+            PermissionCodes.ForRole(RoleCodes.ReadOnly));
+        // V4.2 · Bodega lleva fichas, series y RMA; ventas y caja arman PC, consultan series y abren RMA (no lo gestionan)
+        Assert.Contains(PermissionCodes.ServiceManage, PermissionCodes.ForRole(RoleCodes.Warehouse));
+        Assert.Contains(PermissionCodes.SpecsManage, PermissionCodes.ForRole(RoleCodes.Warehouse));
+        Assert.All(new[] { RoleCodes.Sales, RoleCodes.Cashier }, r =>
+        {
+            Assert.Contains(PermissionCodes.PcBuildManage, PermissionCodes.ForRole(r));
+            Assert.Contains(PermissionCodes.ServiceOpen, PermissionCodes.ForRole(r));
+            Assert.Contains(PermissionCodes.SerialsView, PermissionCodes.ForRole(r));
+            Assert.DoesNotContain(PermissionCodes.ServiceManage, PermissionCodes.ForRole(r));
+            Assert.DoesNotContain(PermissionCodes.SerialsManage, PermissionCodes.ForRole(r));
+        });
+        Assert.All(new[] { PermissionCodes.SpecsManage, PermissionCodes.SerialsView, PermissionCodes.SerialsManage, PermissionCodes.ServiceOpen,
+            PermissionCodes.ServiceManage, PermissionCodes.PcBuildManage }, p => Assert.Contains(p, PermissionCodes.ForRole(RoleCodes.Management)));
         // Funciones por rol (V3.1 con base local): contabilidad solo gerencia y administración; usuarios solo administración
         Assert.Contains(PermissionCodes.AccountingManage, PermissionCodes.ForRole(RoleCodes.Management));
         Assert.DoesNotContain(PermissionCodes.AccountingManage, PermissionCodes.ForRole(RoleCodes.Cashier));

@@ -12,13 +12,17 @@ using MINV.Domain.Integration;
 using MINV.Domain.Inventory;
 using MINV.Domain.Purchasing;
 using MINV.Domain.Sales;
+using MINV.Domain.Service;
 using MINV.Domain.Warehousing;
 
 namespace MINV.Infrastructure.Persistence;
 
 /// <summary>
 /// Contexto EF Core de M-INV (PostgreSQL, Code-First). V4: 110 tablas en 8 contextos delimitados (un esquema por
-/// contexto), normalizadas hasta 5FN, con jerarquía por sucursal (<c>branch_id</c>) en todas las tablas transaccionales. Reglas que aplica a todo el modelo (ver <see cref="ModelConventions"/>):
+/// contexto), normalizadas hasta 5FN, con jerarquía por sucursal (<c>branch_id</c>) en todas las tablas transaccionales;
+/// V4.1: 140 tablas en 9 esquemas (facturación SIAT); V4.2: 152 tablas en 10 esquemas (edición Tecnología: fichas
+/// técnicas, series e IMEI, garantías y RMA en el esquema <c>service</c>, armador de PC). Reglas que aplica a todo el
+/// modelo (ver <see cref="ModelConventions"/>):
 /// <list type="bullet">
 /// <item>Multi-tenant: toda entidad (salvo Tenant y LicenseModule) tiene TenantId con filtro global de consulta y cada
 /// clave foránea incluye el TenantId: una fila solo puede referenciar filas de su misma empresa.</item>
@@ -182,6 +186,21 @@ public sealed class MinvWriteDbContext : DbContext, IMinvDbContext
     // ---- V4 · Idempotencia
     public DbSet<ExternalOrder> ExternalOrders => Set<ExternalOrder>();
     public DbSet<ProcessedRequest> ProcessedRequests => Set<ProcessedRequest>();
+
+    // ---- V4.2 · Edición Tecnología (12 tablas): fichas técnicas (catalog), bitácora de series y series por línea
+    //      (inventory, sales), armador de PC (sales) y garantías y RMA (service)
+    public DbSet<SpecDefinition> SpecDefinitions => Set<SpecDefinition>();
+    public DbSet<SpecOption> SpecOptions => Set<SpecOption>();
+    public DbSet<ProductSpecValue> ProductSpecValues => Set<ProductSpecValue>();
+    public DbSet<ProductTechProfile> ProductTechProfiles => Set<ProductTechProfile>();
+    public DbSet<SerialEvent> SerialEvents => Set<SerialEvent>();
+    public DbSet<StockTransferLineSerial> StockTransferLineSerials => Set<StockTransferLineSerial>();
+    public DbSet<SalesOrderLineSerial> SalesOrderLineSerials => Set<SalesOrderLineSerial>();
+    public DbSet<SalesReturnLineSerial> SalesReturnLineSerials => Set<SalesReturnLineSerial>();
+    public DbSet<PcBuild> PcBuilds => Set<PcBuild>();
+    public DbSet<PcBuildLine> PcBuildLines => Set<PcBuildLine>();
+    public DbSet<WarrantyClaim> WarrantyClaims => Set<WarrantyClaim>();
+    public DbSet<WarrantyClaimEvent> WarrantyClaimEvents => Set<WarrantyClaimEvent>();
 
     /// <summary>V4 · Alcance por sucursal de la sesión (implementación explícita: <see cref="Branches"/> es la tabla).</summary>
     BranchScope IMinvDbContext.Branches => _tenant.Branches;

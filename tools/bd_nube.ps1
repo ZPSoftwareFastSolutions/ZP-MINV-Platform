@@ -9,7 +9,8 @@
                      duenos de las tablas: la seguridad por filas los alcanza siempre);
                   2. aplica las migraciones (110 tablas, RLS por empresa y sucursal, funciones SECURITY DEFINER, modelo
                      de lectura y privilegios de los roles);
-                  3. con -DatosPrueba, carga la empresa de prueba multi-sucursal;
+                  3. con -DatosPrueba, carga la empresa de prueba multi-sucursal (V4.2: Tech Zone Gaming S.R.L.,
+                     codigo TECHZONE, sucursales CM, CB y SC);
                   4. verifica la base (minv verify).
                 Guarda en %LOCALAPPDATA%\M-INV\credenciales-nube.txt las cadenas para los servidores (MINV_DB con
                 minv_server) y las claves maestras de integracion (MINV_INTEGRATION_KEYS). Nada va al repositorio.
@@ -26,7 +27,7 @@
 param(
     [ValidateSet('preparar', 'estado')][string]$Accion = 'preparar',
     [Parameter(Mandatory = $true)][string]$Conexion,
-    [string]$Empresa = 'MINV',
+    [string]$Empresa = 'TECHZONE',
     [switch]$DatosPrueba
 )
 $ErrorActionPreference = 'Stop'

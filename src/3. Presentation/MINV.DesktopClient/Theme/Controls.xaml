@@ -1,8 +1,11 @@
 <!--
-    Sistema visual de M-INV V3.1 (estilos y plantillas). Reglas:
-    · Todos los colores con {DynamicResource …} de la paleta (Palette.Light.xaml / Palette.Dark.xaml).
-    · Tipografía Segoe UI; íconos Segoe Fluent Icons con respaldo en Segoe MDL2 Assets (Controls/Glyphs).
+    Sistema visual de M-INV (V3.1; V4.2 · edición Tecnología con acentos gaming). Reglas:
+    · Todos los colores con {DynamicResource …} de la paleta (Palette.Light.xaml / Palette.Dark.xaml, mismas claves).
+    · Tipografía Segoe UI; títulos y cifras grandes con Bahnschrift (incluida en Windows; respaldo Segoe UI Variable
+      Display / Segoe UI); íconos Segoe Fluent Icons con respaldo en Segoe MDL2 Assets (Controls/Glyphs).
     · Radios: 8 px en controles, 12 px en tarjetas; alturas: 38 px en campos y botones.
+    · V4.2: degradado de marca violeta → cian en el botón principal, el menú activo y las líneas de acento; foco del
+      teclado con anillo neón (FocusRingBrush); insignias con contorno para estados y plataformas.
 -->
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -11,6 +14,8 @@
 
     <FontFamily x:Key="IconFont">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
     <FontFamily x:Key="UiFont">Segoe UI</FontFamily>
+    <!-- V4.2 · Títulos y cifras con más carácter (fuentes que ya trae Windows; sin archivos propios) -->
+    <FontFamily x:Key="DisplayFont">Bahnschrift, Segoe UI Variable Display, Segoe UI</FontFamily>
     <FontFamily x:Key="MonoFont">Cascadia Mono, Consolas</FontFamily>
     <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
 
@@ -26,6 +31,7 @@
         <Setter Property="TextOptions.TextRenderingMode" Value="Grayscale" />
     </Style>
     <Style x:Key="H1" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource DisplayFont}" />
         <Setter Property="FontSize" Value="24" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
@@ -61,6 +67,7 @@
         <Setter Property="Margin" Value="0,0,0,6" />
     </Style>
     <Style x:Key="Kpi" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource DisplayFont}" />
         <Setter Property="FontSize" Value="26" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
@@ -72,11 +79,15 @@
     </Style>
 
     <!-- ============================================================================================ foco -->
+    <!-- V4.2 · Anillo neón: un halo suave y una línea nítida del color de foco (visible en ambos temas) -->
     <Style x:Key="FocusRing">
         <Setter Property="Control.Template">
             <Setter.Value>
                 <ControlTemplate>
-                    <Rectangle Margin="-3" RadiusX="10" RadiusY="10" StrokeThickness="2" Stroke="{DynamicResource Brand}" Opacity="0.55" />
+                    <Grid>
+                        <Rectangle Margin="-5" RadiusX="12" RadiusY="12" StrokeThickness="4" Stroke="{DynamicResource FocusRingBrush}" Opacity="0.22" />
+                        <Rectangle Margin="-3" RadiusX="10" RadiusY="10" StrokeThickness="2" Stroke="{DynamicResource FocusRingBrush}" />
+                    </Grid>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
@@ -170,11 +181,12 @@
     </Style>
     <Style TargetType="Button" BasedOn="{StaticResource ButtonBase}" />
     <Style x:Key="SecondaryButton" TargetType="Button" BasedOn="{StaticResource ButtonBase}" />
+    <!-- V4.2 · Botón principal con el degradado de marca violeta → cian (texto blanco ≥ 5,1:1 en todo el recorrido) -->
     <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource ButtonBase}">
-        <Setter Property="Background" Value="{DynamicResource Brand}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource Brand}" />
+        <Setter Property="Background" Value="{DynamicResource BrandGradientButton}" />
+        <Setter Property="BorderBrush" Value="Transparent" />
         <Setter Property="Foreground" Value="{DynamicResource OnBrand}" />
-        <Setter Property="Tag" Value="{DynamicResource BrandHover}" />
+        <Setter Property="Tag" Value="{DynamicResource BrandGradientButtonHover}" />
     </Style>
     <Style x:Key="SoftButton" TargetType="Button" BasedOn="{StaticResource ButtonBase}">
         <Setter Property="Background" Value="{DynamicResource BrandSoft}" />
@@ -182,10 +194,11 @@
         <Setter Property="Foreground" Value="{DynamicResource BrandText}" />
         <Setter Property="Tag" Value="{DynamicResource BrandSoftHover}" />
     </Style>
+    <!-- Texto del color del lienzo: el rojo neón del tema oscuro es claro (el blanco no llegaría a 4,5:1) -->
     <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource ButtonBase}">
         <Setter Property="Background" Value="{DynamicResource Danger}" />
         <Setter Property="BorderBrush" Value="{DynamicResource Danger}" />
-        <Setter Property="Foreground" Value="#FFFFFF" />
+        <Setter Property="Foreground" Value="{DynamicResource Canvas}" />
         <Setter Property="Tag" Value="{DynamicResource DangerHover}" />
     </Style>
     <Style x:Key="GhostButton" TargetType="Button" BasedOn="{StaticResource ButtonBase}">
@@ -243,6 +256,37 @@
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Brand}" />
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="Bd" Property="Opacity" Value="0.9" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <!--
+        V4.2 · Tarjeta de indicador (KPI) clicable con borde de acento: una línea de color en el borde superior (Tag = pincel
+        de la paleta; por defecto el degradado de marca) y el contorno se enciende al pasar el mouse.
+    -->
+    <Style x:Key="KpiCardButton" TargetType="Button" BasedOn="{StaticResource CardButton}">
+        <Setter Property="Tag" Value="{DynamicResource BrandGradientStrip}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Grid>
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1"
+                                CornerRadius="12" Padding="{TemplateBinding Padding}" Effect="{StaticResource CardShadow}">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+                        </Border>
+                        <Border x:Name="Accent" Height="3" VerticalAlignment="Top" Margin="18,1,18,0" CornerRadius="0,0,3,3"
+                                Background="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}" IsHitTestVisible="False" />
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Brand}" />
+                            <Setter TargetName="Accent" Property="Margin" Value="10,1,10,0" />
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
                             <Setter TargetName="Bd" Property="Opacity" Value="0.9" />
@@ -361,7 +405,7 @@
                                           HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden" />
                         </Grid>
                     </Border>
-                    <Border x:Name="FocusRing" BorderBrush="{DynamicResource Brand}" BorderThickness="2" CornerRadius="8" IsHitTestVisible="False"
+                    <Border x:Name="FocusRing" BorderBrush="{DynamicResource FocusRingBrush}" BorderThickness="2" CornerRadius="8" IsHitTestVisible="False"
                             Visibility="Collapsed" />
                     </Grid>
                     <ControlTemplate.Triggers>
@@ -375,7 +419,7 @@
                             <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource TextFaint}" />
                         </Trigger>
                         <Trigger Property="IsKeyboardFocusWithin" Value="True">
-                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Brand}" />
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource FocusRingBrush}" />
                             <Setter TargetName="FocusRing" Property="Visibility" Value="Visible" />
                         </Trigger>
                         <Trigger Property="c:Ui.HasError" Value="True">
@@ -437,7 +481,7 @@
                             <ScrollViewer x:Name="PART_ContentHost" Grid.Column="1" Focusable="False" VerticalAlignment="Center" />
                         </Grid>
                     </Border>
-                    <Border x:Name="FocusRing" BorderBrush="{DynamicResource Brand}" BorderThickness="2" CornerRadius="8" IsHitTestVisible="False"
+                    <Border x:Name="FocusRing" BorderBrush="{DynamicResource FocusRingBrush}" BorderThickness="2" CornerRadius="8" IsHitTestVisible="False"
                             Visibility="Collapsed" />
                     </Grid>
                     <ControlTemplate.Triggers>
@@ -451,7 +495,7 @@
                             <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource TextFaint}" />
                         </Trigger>
                         <Trigger Property="IsKeyboardFocusWithin" Value="True">
-                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Brand}" />
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource FocusRingBrush}" />
                             <Setter TargetName="FocusRing" Property="Visibility" Value="Visible" />
                         </Trigger>
                         <Trigger Property="c:Ui.HasError" Value="True">
@@ -546,11 +590,19 @@
                             </MultiTrigger.Conditions>
                             <Setter TargetName="Hint" Property="Visibility" Value="Visible" />
                         </MultiTrigger>
+                        <!-- Editable sin texto (p. ej. «Elija o escriba el motivo»): la guía también se ve -->
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions>
+                                <Condition Property="IsEditable" Value="True" />
+                                <Condition Property="Text" Value="" />
+                            </MultiTrigger.Conditions>
+                            <Setter TargetName="Hint" Property="Visibility" Value="Visible" />
+                        </MultiTrigger>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource TextFaint}" />
                         </Trigger>
                         <Trigger Property="IsKeyboardFocusWithin" Value="True">
-                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Brand}" />
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource FocusRingBrush}" />
                             <Setter TargetName="Bd" Property="BorderThickness" Value="2" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
@@ -574,7 +626,7 @@
                         <Border x:Name="Box" Width="18" Height="18" CornerRadius="5" BorderThickness="1.5"
                                 BorderBrush="{DynamicResource BorderStrong}" Background="{DynamicResource InputBackground}" VerticalAlignment="Center">
                             <TextBlock x:Name="Mark" Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Check}" FontSize="11"
-                                       Foreground="#FFFFFF" Visibility="Collapsed" />
+                                       Foreground="{DynamicResource OnBrand}" Visibility="Collapsed" />
                         </Border>
                         <ContentPresenter Margin="9,0,0,0" VerticalAlignment="Center" RecognizesAccessKey="True" />
                     </StackPanel>
@@ -602,13 +654,13 @@
                 <ControlTemplate TargetType="CheckBox">
                     <StackPanel Orientation="Horizontal" Background="Transparent">
                         <Border x:Name="Track" Width="40" Height="22" CornerRadius="11" Background="{DynamicResource BorderStrong}">
-                            <Ellipse x:Name="Knob" Width="16" Height="16" Fill="#FFFFFF" HorizontalAlignment="Left" Margin="3,0" />
+                            <Ellipse x:Name="Knob" Width="16" Height="16" Fill="{DynamicResource OnBrand}" HorizontalAlignment="Left" Margin="3,0" />
                         </Border>
                         <ContentPresenter Margin="10,0,0,0" VerticalAlignment="Center" />
                     </StackPanel>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsChecked" Value="True">
-                            <Setter TargetName="Track" Property="Background" Value="{DynamicResource Brand}" />
+                            <Setter TargetName="Track" Property="Background" Value="{DynamicResource BrandGradientButton}" />
                             <Setter TargetName="Knob" Property="HorizontalAlignment" Value="Right" />
                         </Trigger>
                     </ControlTemplate.Triggers>
@@ -765,16 +817,18 @@
     </Style>
 
     <!-- ============================================================================================ tooltip -->
+    <!-- Siempre oscuro (como la barra lateral) y con contorno: se distingue sobre el lienzo claro y sobre el oscuro -->
     <Style TargetType="ToolTip">
-        <Setter Property="Background" Value="#1E293B" />
-        <Setter Property="Foreground" Value="#F8FAFC" />
+        <Setter Property="Background" Value="{DynamicResource Sidebar}" />
+        <Setter Property="Foreground" Value="{DynamicResource SidebarText}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderStrong}" />
         <Setter Property="FontSize" Value="12" />
         <Setter Property="HasDropShadow" Value="False" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ToolTip">
-                    <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="9,5" Margin="4,4,8,8"
-                            Effect="{StaticResource PopupShadow}">
+                    <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="6"
+                            Padding="9,5" Margin="4,4,8,8" Effect="{StaticResource PopupShadow}">
                         <ContentPresenter />
                     </Border>
                 </ControlTemplate>
@@ -791,7 +845,7 @@
     <!-- ============================================================================================ progreso -->
     <Style TargetType="ProgressBar">
         <Setter Property="Height" Value="6" />
-        <Setter Property="Foreground" Value="{DynamicResource Brand}" />
+        <Setter Property="Foreground" Value="{DynamicResource BrandGradientStrip}" />
         <Setter Property="Background" Value="{DynamicResource ChartTrack}" />
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="Template">
@@ -868,13 +922,17 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="c:StatusBadge">
-                    <Border Background="{TemplateBinding Background}" CornerRadius="10" Padding="8,3,10,3">
-                        <StackPanel Orientation="Horizontal">
-                            <Ellipse Width="7" Height="7" Fill="{TemplateBinding Foreground}" VerticalAlignment="Center" Margin="0,0,6,0" />
-                            <TextBlock Text="{TemplateBinding Label}" Foreground="{TemplateBinding Foreground}" FontSize="11"
-                                       FontWeight="SemiBold" VerticalAlignment="Center" />
-                        </StackPanel>
-                    </Border>
+                    <Grid>
+                        <Border Background="{TemplateBinding Background}" CornerRadius="10" Padding="8,3,10,3">
+                            <StackPanel Orientation="Horizontal">
+                                <Ellipse Width="7" Height="7" Fill="{TemplateBinding Foreground}" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                <TextBlock Text="{TemplateBinding Label}" Foreground="{TemplateBinding Foreground}" FontSize="11"
+                                           FontWeight="SemiBold" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Border>
+                        <!-- V4.2 · contorno tenue del mismo color (insignia «neón») -->
+                        <Border BorderBrush="{TemplateBinding Foreground}" BorderThickness="1" CornerRadius="10" Opacity="0.35" IsHitTestVisible="False" />
+                    </Grid>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
@@ -940,6 +998,37 @@
                 <Setter Property="Foreground" Value="{DynamicResource StatusInactive}" />
             </Trigger>
         </Style.Triggers>
+    </Style>
+
+    <!-- ============================================================================================ insignias (V4.2) -->
+    <!--
+        Insignia de texto corto con contorno: estados de un documento o de una serie, condición, etc. Por defecto con los
+        colores de marca; se cambian con Background / BorderBrush / TextElement.Foreground tomados de la paleta.
+    -->
+    <Style x:Key="Badge" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource BrandSoft}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Brand}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="Padding" Value="8,2" />
+        <Setter Property="HorizontalAlignment" Value="Left" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="TextElement.Foreground" Value="{DynamicResource BrandText}" />
+        <Setter Property="TextElement.FontSize" Value="11" />
+        <Setter Property="TextElement.FontWeight" Value="SemiBold" />
+    </Style>
+    <!--
+        Plataforma (PC, PS5, Xbox Series X, Nintendo Switch…): etiqueta compacta y técnica. El texto sale de las opciones de
+        la especificación «Plataforma» (regla T-07), nunca de una lista fija en la vista.
+    -->
+    <Style x:Key="PlatformBadge" TargetType="Border" BasedOn="{StaticResource Badge}">
+        <Setter Property="Background" Value="{DynamicResource SurfaceHover}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderStrong}" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="Padding" Value="7,1" />
+        <Setter Property="TextElement.Foreground" Value="{DynamicResource TextSecondary}" />
+        <Setter Property="TextElement.FontFamily" Value="{StaticResource DisplayFont}" />
+        <Setter Property="TextElement.FontSize" Value="11.5" />
     </Style>
 
     <!-- ============================================================================================ tablas -->
@@ -1014,15 +1103,21 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="DataGridRow">
-                    <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1">
-                        <DataGridCellsPresenter ItemsPanel="{TemplateBinding ItemsPanel}" />
-                    </Border>
+                    <Grid>
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1">
+                            <DataGridCellsPresenter ItemsPanel="{TemplateBinding ItemsPanel}" />
+                        </Border>
+                        <!-- V4.2 · la fila elegida lleva una barra de acento a la izquierda -->
+                        <Border x:Name="Accent" Width="3" HorizontalAlignment="Left" Margin="0,6" CornerRadius="0,2,2,0"
+                                Background="{DynamicResource Brand}" Visibility="Collapsed" IsHitTestVisible="False" />
+                    </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="Bd" Property="Background" Value="{DynamicResource SurfaceHover}" />
                         </Trigger>
                         <Trigger Property="IsSelected" Value="True">
                             <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BrandSoft}" />
+                            <Setter TargetName="Accent" Property="Visibility" Value="Visible" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>

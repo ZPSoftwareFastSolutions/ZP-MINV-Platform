@@ -50,6 +50,10 @@
         <DataTemplate DataType="{x:Type vm:HomologationViewModel}"><p:HomologationView /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:FiscalBooksViewModel}"><p:FiscalBooksView /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:BillingSettingsViewModel}"><p:BillingSettingsView /></DataTemplate>
+        <!-- V4.2 · Edición Tecnología -->
+        <DataTemplate DataType="{x:Type vm:PcBuilderViewModel}"><p:PcBuilderView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:SerialsViewModel}"><p:SerialsView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:WarrantyClaimsViewModel}"><p:WarrantyClaimsView /></DataTemplate>
 
         <!-- Botón del menú lateral -->
         <Style x:Key="NavButton" TargetType="RadioButton">
@@ -69,7 +73,8 @@
                                 <Setter Property="Foreground" Value="#FFFFFF" />
                             </Trigger>
                             <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource SidebarSelected}" />
+                                <!-- V4.2 · opción activa con el degradado de marca violeta → cian (texto blanco ≥ 5,1:1) -->
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BrandGradientButton}" />
                                 <Setter Property="Foreground" Value="#FFFFFF" />
                             </Trigger>
                         </ControlTemplate.Triggers>
@@ -84,7 +89,7 @@
                          ToolTipService.IsEnabled="{Binding DataContext.IsCompact, RelativeSource={RelativeSource AncestorType=Window}}">
                 <RadioButton.ToolTip>
                     <TextBlock>
-                        <Run Text="{Binding Title, Mode=OneWay}" /><Run Text="  " /><Run Text="{Binding Shortcut, Mode=OneWay}" Foreground="#94A3B8" />
+                        <Run Text="{Binding Title, Mode=OneWay}" /><Run Text="  " /><Run Text="{Binding Shortcut, Mode=OneWay}" Foreground="{DynamicResource SidebarMuted}" />
                     </TextBlock>
                 </RadioButton.ToolTip>
                 <Grid>
@@ -98,9 +103,9 @@
                     <TextBlock Grid.Column="1" Text="{Binding Title}" Margin="12,0,0,0" FontSize="13.5" VerticalAlignment="Center"
                                Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=RadioButton}}"
                                Visibility="{Binding DataContext.IsCompact, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Hidden}}" />
-                    <Border Grid.Column="2" Background="#E11D48" CornerRadius="9" MinWidth="20" Height="18" Padding="6,0"
+                    <Border Grid.Column="2" Background="{DynamicResource Danger}" CornerRadius="9" MinWidth="20" Height="18" Padding="6,0"
                             Visibility="{Binding Badge, Converter={StaticResource HasValue}}">
-                        <TextBlock Text="{Binding Badge}" Foreground="#FFFFFF" FontSize="11" FontWeight="SemiBold" HorizontalAlignment="Center"
+                        <TextBlock Text="{Binding Badge}" Foreground="{DynamicResource Canvas}" FontSize="11" FontWeight="Bold" HorizontalAlignment="Center"
                                    VerticalAlignment="Center" />
                     </Border>
                 </Grid>
@@ -123,7 +128,7 @@
                         <StackPanel Margin="12,0,0,0" VerticalAlignment="Center"
                                     Visibility="{Binding IsCompact, Converter={StaticResource Hidden}}">
                             <TextBlock Text="M-INV" Foreground="#FFFFFF" FontSize="18" FontWeight="Bold" />
-                            <TextBlock Text="Inventario inteligente" Foreground="{DynamicResource SidebarMuted}" FontSize="11" />
+                            <TextBlock Text="{x:Static s:Brand.EditionName}" Foreground="{DynamicResource SidebarMuted}" FontSize="11" />
                         </StackPanel>
                     </StackPanel>
                 </Grid>
@@ -233,10 +238,10 @@
                     <Grid WindowChrome.IsHitTestVisibleInChrome="True" Margin="4,0,0,0">
                         <Button Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Warning}" ToolTip="Alertas de stock"
                                 Command="{Binding NavigateCommand}" CommandParameter="{Binding Alerts}" />
-                        <Border Background="#E11D48" CornerRadius="8" MinWidth="16" Height="16" Padding="4,0" HorizontalAlignment="Right"
+                        <Border Background="{DynamicResource Danger}" CornerRadius="8" MinWidth="16" Height="16" Padding="4,0" HorizontalAlignment="Right"
                                 VerticalAlignment="Top" Margin="0,1,-2,0" IsHitTestVisible="False"
                                 Visibility="{Binding Alerts.Badge, Converter={StaticResource HasValue}}">
-                            <TextBlock Text="{Binding Alerts.Badge}" Foreground="#FFFFFF" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                            <TextBlock Text="{Binding Alerts.Badge}" Foreground="{DynamicResource Canvas}" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" />
                         </Border>
                     </Grid>
                 </StackPanel>
@@ -323,6 +328,9 @@
                 </Border>
             </Grid>
         </Grid>
+
+        <!-- V4.2 · Línea de acento de la marca en el borde superior de la ventana -->
+        <Border Grid.ColumnSpan="2" Height="2" VerticalAlignment="Top" Background="{DynamicResource BrandGradientStrip}" IsHitTestVisible="False" />
 
         <!-- ============================================================================ ficha del producto -->
         <Grid Grid.ColumnSpan="2" Visibility="{Binding IsProductOpen, Converter={StaticResource Visible}}">

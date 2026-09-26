@@ -112,21 +112,23 @@ public sealed class PostgresIntegrationTests(PostgresFixture pg) : IClassFixture
     }
 
     [PostgresFact]
-    public async Task Las_migraciones_crean_140_tablas_triggers_RLS_por_sucursal_y_vistas()
+    public async Task Las_migraciones_crean_152_tablas_triggers_RLS_por_sucursal_y_vistas()
     {
         await using var provider = pg.Services();
         using var scope = provider.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MinvWriteDbContext>();
         async Task<int> Count(string sql) => await db.Database.SqlQueryRaw<int>(sql).SingleAsync();
-        Assert.Equal(140, await Count("SELECT count(*)::int AS \"Value\" FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema IN ('iam','catalog','warehouse','inventory','purchasing','sales','accounting','integration','billing') AND table_name <> '__ef_migrations_history'"));
+        Assert.Equal(152, await Count("SELECT count(*)::int AS \"Value\" FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema IN ('iam','catalog','warehouse','inventory','purchasing','sales','accounting','integration','billing','service') AND table_name <> '__ef_migrations_history'"));
         Assert.Equal(27, await Count("SELECT count(*)::int AS \"Value\" FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema = 'billing'"));
-        Assert.Equal(24, await Count("SELECT count(*)::int AS \"Value\" FROM pg_trigger WHERE tgname = 'trg_append_only'"));
-        Assert.Equal(24, await Count("SELECT count(*)::int AS \"Value\" FROM pg_trigger WHERE tgname = 'trg_append_only_truncate'"));
-        Assert.Equal(138, await Count("SELECT count(*)::int AS \"Value\" FROM pg_policies WHERE policyname = 'tenant_isolation'"));
-        Assert.Equal(55, await Count("SELECT count(*)::int AS \"Value\" FROM pg_policies WHERE policyname = 'branch_isolation' AND permissive = 'RESTRICTIVE'"));
-        // Toda tabla con tenant_id tiene la política de empresa (incluidas las 30 de la V4.1)
+        Assert.Equal(2, await Count("SELECT count(*)::int AS \"Value\" FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema = 'service'"));
+        Assert.Equal(29, await Count("SELECT count(*)::int AS \"Value\" FROM pg_trigger WHERE tgname = 'trg_append_only'"));
+        Assert.Equal(29, await Count("SELECT count(*)::int AS \"Value\" FROM pg_trigger WHERE tgname = 'trg_append_only_truncate'"));
+        Assert.Equal(150, await Count("SELECT count(*)::int AS \"Value\" FROM pg_policies WHERE policyname = 'tenant_isolation'"));
+        Assert.Equal(62, await Count("SELECT count(*)::int AS \"Value\" FROM pg_policies WHERE policyname = 'branch_isolation' AND permissive = 'RESTRICTIVE'"));
+        Assert.Equal(1, await Count("SELECT count(*)::int AS \"Value\" FROM pg_trigger WHERE tgname = 'trg_spec_value_matches'"));
+        // Toda tabla con tenant_id tiene la política de empresa (incluidas las 30 de la V4.1 y las 12 de la V4.2)
         Assert.Equal(0, await Count("SELECT count(*)::int AS \"Value\" FROM information_schema.columns c JOIN pg_tables t ON t.schemaname = c.table_schema AND t.tablename = c.table_name WHERE c.column_name = 'tenant_id' AND NOT EXISTS (SELECT 1 FROM pg_policies p WHERE p.schemaname = c.table_schema AND p.tablename = c.table_name AND p.policyname = 'tenant_isolation')"));
-        Assert.Equal(5, await Count("SELECT count(*)::int AS \"Value\" FROM information_schema.views WHERE table_name IN ('v_stock_by_variant','v_conservation_breaches','v_activity','v_transfer_breaches','v_fiscal_document_totals')"));
+        Assert.Equal(6, await Count("SELECT count(*)::int AS \"Value\" FROM information_schema.views WHERE table_name IN ('v_stock_by_variant','v_conservation_breaches','v_activity','v_transfer_breaches','v_fiscal_document_totals','v_serial_breaches')"));
         Assert.Equal(2, await Count("SELECT count(*)::int AS \"Value\" FROM pg_matviews WHERE schemaname = 'reporting'"));
         Assert.Equal(5, await Count("SELECT count(*)::int AS \"Value\" FROM pg_proc WHERE prosecdef AND proname IN ('resolve_api_key','resolve_session','claim_deliveries','refresh_all','siat_active_tenants')"));
         Assert.Equal(10, await db.Modules.CountAsync());
@@ -134,21 +136,19 @@ public sealed class PostgresIntegrationTests(PostgresFixture pg) : IClassFixture
         // Las listas de las migraciones coinciden con el modelo (una tabla nueva por sucursal no puede quedar sin política)
         var model = db.Model.GetEntityTypes().Where(e => !e.IsOwned()).ToList();
         string Name(Microsoft.EntityFrameworkCore.Metadata.IEntityType e) => $"{e.GetSchema()}.{e.GetTableName()}";
-        Assert.Equal(model.Where(e => typeof(IBranchScoped).IsAssignableFrom(e.ClrType)).Select(Name).Order(),
-            Persistence.Migrations.V4MultiBranchCloud.BranchTables.Concat(Persistence.Migrations.V41SiatBilling.BranchTablesV41).Order());
-        Assert.Equal(model.Where(e => typeof(IInterBranch).IsAssignableFrom(e.ClrType)).Select(Name).Order(),
-            Persistence.Migrations.V4MultiBranchCloud.InterBranchTables.Order());
-        Assert.Equal(model.Where(e => typeof(IAppendOnly).IsAssignableFrom(e.ClrType)).Select(Name).Order(),
-            Persistence.Migrations.GuardsRlsAndViews.AppendOnlyTables.Concat(Persistence.Migrations.V4MultiBranchCloud.AppendOnlyTablesV4)
-                .Concat(Persistence.Migrations.V41SiatBilling.AppendOnlyTablesV41).Order());
+        Assert.Equal(model.Where(e => typeof(IBranchScoped).IsAssignableFrom(e.ClrType)).Select(Name).Order(), ModelTests.AllBranchTables.Order());
+        Assert.Equal(model.Where(e => typeof(IInterBranch).IsAssignableFrom(e.ClrType)).Select(Name).Order(), ModelTests.AllInterBranchTables.Order());
+        Assert.Equal(model.Where(e => typeof(IAppendOnly).IsAssignableFrom(e.ClrType)).Select(Name).Order(), ModelTests.AllAppendOnlyTables.Order());
         // Cada tabla de las listas tiene de verdad su política y su trigger
         var branchPolicies = await db.Database.SqlQueryRaw<string>(
             "SELECT schemaname || '.' || tablename AS \"Value\" FROM pg_policies WHERE policyname = 'branch_isolation'").ToListAsync();
-        Assert.All(Persistence.Migrations.V41SiatBilling.BranchTablesV41, t => Assert.Contains(t, branchPolicies));
+        Assert.All(Persistence.Migrations.V41SiatBilling.BranchTablesV41.Concat(Persistence.Migrations.V42TechRetail.BranchTablesV42)
+            .Concat(Persistence.Migrations.V42TechRetail.InterBranchTablesV42), t => Assert.Contains(t, branchPolicies));
         var appendOnly = await db.Database.SqlQueryRaw<string>(
             "SELECT n.nspname || '.' || c.relname AS \"Value\" FROM pg_trigger g JOIN pg_class c ON c.oid = g.tgrelid " +
             "JOIN pg_namespace n ON n.oid = c.relnamespace WHERE g.tgname = 'trg_append_only'").ToListAsync();
-        Assert.All(Persistence.Migrations.V41SiatBilling.AppendOnlyTablesV41, t => Assert.Contains(t, appendOnly));
+        Assert.All(Persistence.Migrations.V41SiatBilling.AppendOnlyTablesV41.Concat(Persistence.Migrations.V42TechRetail.AppendOnlyTablesV42),
+            t => Assert.Contains(t, appendOnly));
     }
 
     /// <summary>
@@ -401,7 +401,9 @@ public sealed class PostgresIntegrationTests(PostgresFixture pg) : IClassFixture
 
     /// <summary>
     /// <c>minv datos-prueba</c> contra PostgreSQL real: ventas en caja, compras recibidas, anulaciones y asientos respetan
-    /// los CHECK (arcos exclusivos de pedidos y recepciones), los triggers de partida doble y los libros append-only.
+    /// los CHECK (arcos exclusivos de pedidos y recepciones), los triggers de partida doble y los libros append-only. V4.2: la
+    /// empresa de prueba Tech Zone Gaming (fichas técnicas, series e IMEI, casos RMA, armados de PC) y las vistas de control
+    /// <c>v_serial_breaches</c> (series en stock = stock), <c>v_conservation_breaches</c> y <c>v_transfer_breaches</c> vacías.
     /// </summary>
     [PostgresFact]
     public async Task Los_datos_de_prueba_respetan_todas_las_restricciones_de_PostgreSQL()
@@ -424,7 +426,30 @@ public sealed class PostgresIntegrationTests(PostgresFixture pg) : IClassFixture
             "SELECT count(*)::int AS \"Value\" FROM (SELECT journal_entry_id FROM accounting.journal_lines GROUP BY journal_entry_id " +
             "HAVING sum(debit) <> sum(credit)) x").SingleAsync();
         Assert.Equal(0, unbalanced);
-        Assert.Equal(61, await db.Database.SqlQueryRaw<int>("SELECT count(*)::int AS \"Value\" FROM catalog.product_images").SingleAsync());
+        Assert.Equal(159, await db.Database.SqlQueryRaw<int>("SELECT count(*)::int AS \"Value\" FROM catalog.product_images").SingleAsync());
+        var tenant = await db.Tenants.IgnoreQueryFilters().Where(t => t.Code == "SEMILLA").Select(t => t.Id).SingleAsync();
+        Assert.Equal(0, await db.Database.SqlQuery<int>(
+            $"SELECT count(*)::int AS \"Value\" FROM inventory.v_serial_breaches WHERE tenant_id = {tenant}").SingleAsync());
+        Assert.True(await db.Database.SqlQuery<int>(
+            $"SELECT count(*)::int AS \"Value\" FROM inventory.serial_numbers WHERE tenant_id = {tenant}").SingleAsync() > 1000);
+        Assert.Equal(result.Tech!.WarrantyClaims, await db.Database.SqlQuery<int>(
+            $"SELECT count(*)::int AS \"Value\" FROM service.warranty_claims WHERE tenant_id = {tenant}").SingleAsync());
+        // V4.2 · En cada sucursal el mayor 1.1.05 Inventario es el valor del stock (Σ existencias × costo promedio vigente, con
+        // el costo guardado a 4 decimales): las mermas y la toma física se contabilizan y la factura del proveedor de una compra
+        // al costo neto (recepción / 0,87) no toca el inventario
+        var drift = await db.Database.SqlQuery<decimal>($"""
+            WITH cur AS (SELECT DISTINCT ON (variant_id, warehouse_id) variant_id, branch_id, average_cost FROM accounting.average_cost_history
+                         WHERE tenant_id = {tenant} ORDER BY variant_id, warehouse_id, sequence DESC),
+                 val AS (SELECT s.branch_id, sum(s.quantity_on_hand * coalesce(cur.average_cost, 0)) AS v FROM inventory.stock_levels s
+                         JOIN inventory.batches b ON b.id = s.batch_id LEFT JOIN cur ON cur.variant_id = b.variant_id AND cur.branch_id = s.branch_id
+                         WHERE s.tenant_id = {tenant} GROUP BY s.branch_id),
+                 led AS (SELECT e.branch_id, sum(l.debit - l.credit) AS saldo FROM accounting.journal_lines l
+                         JOIN accounting.accounts a ON a.id = l.account_id JOIN accounting.journal_entries e ON e.id = l.journal_entry_id
+                         WHERE a.code = '1.1.05' AND e.tenant_id = {tenant} GROUP BY e.branch_id)
+            SELECT coalesce(max(abs(round(coalesce(led.saldo, 0) - coalesce(val.v, 0), 2))), 0) AS "Value"
+            FROM val FULL JOIN led ON led.branch_id = val.branch_id
+            """).SingleAsync();
+        Assert.Equal(0m, drift);
 
         // Todas las consultas de las pantallas con el administrador: PostgreSQL devuelve numéricos de hasta 1000 cifras y
         // System.Decimal solo admite 28-29; un cálculo con división hecho en SQL no debe llegar sin redondear al cliente.
@@ -456,6 +481,17 @@ public sealed class PostgresIntegrationTests(PostgresFixture pg) : IClassFixture
         Assert.NotEmpty((await m.Send(new GetStockProjectionQuery())).Result.Stock);
         Assert.NotEmpty(await m.Send(new GetActivityQuery()));
 
+        // V4.2 · Gráfico «Entradas y salidas» del tablero en PostgreSQL: el saldo inicial va aparte (Opening) y las entradas son
+        // solo las de la operación
+        var trend = await m.Send(new GetMovementTrendQuery(30));
+        Assert.Equal(30, trend.Count);
+        var first = trend[0].Date;
+        async Task<decimal> InflowsAsync(bool opening) => await db.Database.SqlQuery<decimal>(
+            $"SELECT coalesce(sum(m.quantity), 0) AS \"Value\" FROM inventory.stock_movements m JOIN inventory.movement_types t ON t.id = m.movement_type_id WHERE m.tenant_id = {tenant} AND t.stock_factor > 0 AND t.is_initial_balance = {opening} AND m.business_date >= {first}").SingleAsync();
+        Assert.True(trend.Sum(d => d.Opening) > 0);
+        Assert.Equal(await InflowsAsync(true), trend.Sum(d => d.Opening));
+        Assert.Equal(await InflowsAsync(false), trend.Sum(d => d.Entries));
+
         // V4 · Sucursales, transferencias, integraciones y modelo de lectura sobre PostgreSQL real
         Assert.Equal(0, await db.Database.SqlQueryRaw<int>("SELECT count(*)::int AS \"Value\" FROM inventory.v_transfer_breaches").SingleAsync());
         Assert.True(await db.Database.SqlQueryRaw<bool>("SELECT reporting.refresh_all() AS \"Value\"").SingleAsync());
@@ -470,7 +506,7 @@ public sealed class PostgresIntegrationTests(PostgresFixture pg) : IClassFixture
         Assert.NotEmpty(await m.Send(new MINV.Application.Integration.GetApiKeysQuery()));
         Assert.NotNull(await m.Send(new MINV.Application.Integration.GetWebhooksQuery()));
         Assert.NotNull(await m.Send(new MINV.Application.Integration.GetWebhookDeliveriesQuery()));
-        Assert.Equal(61, (await m.Send(new MINV.Application.Integration.GetApiCatalogQuery(1, 500))).Total);
+        Assert.Equal(159, (await m.Send(new MINV.Application.Integration.GetApiCatalogQuery(1, 500))).Total);
         Assert.NotEmpty((await m.Send(new MINV.Application.Integration.GetApiStockQuery())).Items);
     }
 
@@ -521,13 +557,13 @@ public sealed class PostgresIntegrationTests(PostgresFixture pg) : IClassFixture
             Assert.Equal(0, await Scalar("SELECT count(*) FROM inventory.stock_movements"));
             await new NpgsqlCommand($"SELECT set_config('minv.tenant_id', '{tenant}', false), set_config('minv.branch_ids', '*', false)", conn).ExecuteNonQueryAsync();
             var all = await Scalar("SELECT count(*) FROM inventory.stock_movements");
-            var ea = (Guid)(await new NpgsqlCommand("SELECT id FROM warehouse.branches WHERE code = 'EA'", conn).ExecuteScalarAsync())!;
+            var ea = (Guid)(await new NpgsqlCommand("SELECT id FROM warehouse.branches WHERE code = 'CB'", conn).ExecuteScalarAsync())!;   // V4.2: Cochabamba
             await new NpgsqlCommand($"SELECT set_config('minv.branch_ids', '{ea}', false)", conn).ExecuteNonQueryAsync();
             var onlyEa = await Scalar("SELECT count(*) FROM inventory.stock_movements");
-            Assert.True(all > onlyEa && onlyEa > 0, $"todas {all}, El Alto {onlyEa}");
+            Assert.True(all > onlyEa && onlyEa > 0, $"todas {all}, Cochabamba {onlyEa}");
             Assert.Equal(0, await Scalar($"SELECT count(*) FROM inventory.stock_movements WHERE branch_id <> '{ea}'"));
             Assert.Equal(3, await Scalar("SELECT count(*) FROM warehouse.branches"));   // el directorio es de la empresa
-            Assert.True(await Scalar("SELECT count(*) FROM inventory.stock_transfers") > 0);   // las que salen o llegan a El Alto
+            Assert.True(await Scalar("SELECT count(*) FROM inventory.stock_transfers") > 0);   // las que salen o llegan a Cochabamba
             // Escribir en otra sucursal lo rechaza la política restrictiva (WITH CHECK)
             var cm = (Guid)(await new NpgsqlCommand($"SELECT branch_id FROM warehouse.warehouses WHERE code = 'ALM01'", conn).ExecuteScalarAsync())!;
             var error = await Assert.ThrowsAsync<PostgresException>(async () => await new NpgsqlCommand(

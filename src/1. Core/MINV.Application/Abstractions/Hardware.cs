@@ -29,7 +29,9 @@ public sealed record Receipt(
     string CompanyName, string? TaxId, string BranchName, string Number, DateTimeOffset IssuedAt, string Cashier,
     IReadOnlyList<ReceiptLine> Lines, decimal Total, string CurrencySymbol, string? PaymentMethod, string? Barcode);
 
-public sealed record ReceiptLine(string Description, decimal Quantity, decimal UnitPrice)
+/// <summary>Línea del comprobante. V4.2 · <see cref="SerialsText"/>: series o IMEI vendidos («S/N: …», «IMEI: …») y
+/// <see cref="WarrantyUntil"/>: fin de la garantía derivada de la venta (regla T-04); ambos se imprimen debajo de la línea.</summary>
+public sealed record ReceiptLine(string Description, decimal Quantity, decimal UnitPrice, string? SerialsText = null, DateOnly? WarrantyUntil = null)
 {
     public decimal Amount => Quantity * UnitPrice;
 }

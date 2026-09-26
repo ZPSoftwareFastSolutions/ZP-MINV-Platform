@@ -18,7 +18,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.cloudserver
-    image: minv-cloudserver:4.1.0-alpha.1
+    image: minv-cloudserver:4.2.0-alpha.1
     restart: unless-stopped
     environment:
       MINV_DB: ${MINV_DB:?Defina MINV_DB (rol minv_server)}
@@ -34,7 +34,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.apigateway
-    image: minv-apigateway:4.1.0-alpha.1
+    image: minv-apigateway:4.2.0-alpha.1
     restart: unless-stopped
     environment:
       MINV_DB: ${MINV_DB:?Defina MINV_DB (rol minv_server)}
@@ -50,7 +50,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.siatsimulator
-    image: minv-siatsimulator:4.1.0-alpha.1
+    image: minv-siatsimulator:4.2.0-alpha.1
     restart: unless-stopped
     # Misma red que el servidor en la nube: para él, el simulador es http://localhost:5095 (la configuración SIAT solo
     # admite https o una dirección local)

@@ -119,4 +119,90 @@ public sealed class FiscalRulesTests
         Assert.Equal(TimeSpan.FromHours(72), FiscalRules.CufdExtendedValidity);
         Assert.Equal(TimeSpan.FromHours(2), FiscalRules.MaxOfflineRetryInterval);
     }
+
+    /// <summary>
+    /// V4.2 · Costo neto y factura del proveedor (Bolivia: el crédito fiscal es el 13 % del importe facturado). Para cualquier
+    /// recepción al costo neto, la factura recepción / 0,87 (redondeada) deja el crédito fiscal (13 % redondeado) igual a la
+    /// diferencia entre la factura y la recepción: el asiento de la factura no toca el inventario (1.1.05), hasta en el redondeo
+    /// (el 13 % de un error de medio centavo no llega a mover el crédito). Con recepción × 1,13 (la convención anterior) el
+    /// inventario bajaba el 1,69 % de la recepción.
+    /// </summary>
+    [Fact]
+    public void La_factura_de_una_compra_al_costo_neto_deja_el_credito_fiscal_igual_al_IVA_sumado_a_la_deuda()
+    {
+        Assert.Equal(1480.74m, FiscalRules.NetCost(1702m));
+        Assert.Equal(1702m, FiscalRules.InvoiceForNetCost(1480.74m));
+        Assert.Equal(1149.43m, FiscalRules.InvoiceForNetCost(1000m));
+        var random = new Random(42);
+        for (var i = 0; i < 20_000; i++)
+        {
+            var net = random.Next(1, 50_000_000) / 100m;
+            var invoice = FiscalRules.InvoiceForNetCost(net);
+            Assert.Equal(invoice - net, FiscalRules.Vat(invoice));
+        }
+        // Con la convención anterior (factura = recepción × 1,13) el crédito fiscal superaba al IVA sumado a la deuda
+        Assert.Equal(146.90m, FiscalRules.Vat(1130m));
+        Assert.Equal(16.90m, FiscalRules.Vat(1130m) - (1130m - 1000m));
+    }
+
+    /// <summary>V4.2 · IVA incluido en el precio: en Bolivia el 13 % del importe (el débito fiscal del libro de ventas) y el neto
+    /// el 87 %; en los demás países (tasa del 19 %), importe × tasa / (100 + tasa).</summary>
+    [Fact]
+    public void El_IVA_incluido_sigue_la_convencion_del_pais()
+    {
+        Assert.True(MINV.Domain.Accounting.VatRules.OnInvoicedAmount("BO"));
+        Assert.True(MINV.Domain.Accounting.VatRules.OnInvoicedAmount(null));
+        Assert.False(MINV.Domain.Accounting.VatRules.OnInvoicedAmount("CO"));
+        Assert.Equal(13m, MINV.Domain.Accounting.VatRules.IncludedTax(100m, 13m, onInvoicedAmount: true));
+        Assert.Equal(FiscalRules.Vat(2049m), MINV.Domain.Accounting.VatRules.IncludedTax(2049m, 13m, onInvoicedAmount: true));
+        Assert.Equal(11.50m, MINV.Domain.Accounting.VatRules.IncludedTax(100m, 13m, onInvoicedAmount: false));
+        Assert.Equal(19m, MINV.Domain.Accounting.VatRules.IncludedTax(119m, 19m, onInvoicedAmount: false));
+        Assert.Equal(1782.63m, MINV.Domain.Accounting.VatRules.NetOf(2049m, 13m, onInvoicedAmount: true));
+        Assert.Equal(100m, MINV.Domain.Accounting.VatRules.NetOf(119m, 19m, onInvoicedAmount: false));
+        Assert.Equal(100m, MINV.Domain.Accounting.VatRules.GrossOf(87m, 13m, onInvoicedAmount: true));
+        Assert.Equal(119m, MINV.Domain.Accounting.VatRules.GrossOf(100m, 19m, onInvoicedAmount: false));
+        Assert.Equal(0m, MINV.Domain.Accounting.VatRules.IncludedTax(100m, 0m, onInvoicedAmount: true));
+        // Con el costo y el precio netos al 87 %, el margen es (precio − costo con IVA) / precio: el «margen_pct» del catálogo
+        var (price, cost) = (2049m, FiscalRules.NetCost(1702m));
+        var net = MINV.Domain.Accounting.VatRules.NetOf(price, 13m, onInvoicedAmount: true);
+        Assert.InRange((net - cost) / net - (price - 1702m) / price, -0.0001m, 0.0001m);
+    }
+
+    /// <summary>
+    /// V4.2 · El IVA de una venta es el del total (el débito fiscal de la factura en el libro de ventas) repartido entre sus
+    /// líneas: redondear línea por línea daba 94,84 + 2,02 = 96,86 para 729,50 + 15,50, y el libro dice 96,85 (reparto: 94,84 +
+    /// 2,01; el centavo va a la línea de mayor fracción descartada y, en empate, a la de mayor importe). El reparto suma
+    /// siempre el IVA del total, ninguna línea queda negativa y, si el redondeo por línea ya cuadra, coincide con él.
+    /// </summary>
+    [Fact]
+    public void El_IVA_de_la_venta_es_el_del_total_repartido_entre_las_lineas()
+    {
+        Assert.Equal([94.84m, 2.01m], MINV.Domain.Accounting.VatRules.Allocate([729.50m, 15.50m], 13m, onInvoicedAmount: true));
+        Assert.Equal(FiscalRules.Vat(745m), MINV.Domain.Accounting.VatRules.Allocate([729.50m, 15.50m], 13m, onInvoicedAmount: true).Sum());
+        Assert.Equal([0.01m, 0.01m, 0m, 0m], MINV.Domain.Accounting.VatRules.Allocate([0.04m, 0.04m, 0.04m, 0.04m], 13m, onInvoicedAmount: true));
+        Assert.Equal([13m, 6.50m], MINV.Domain.Accounting.VatRules.Allocate([100m, 50m], 13m, onInvoicedAmount: true));
+        Assert.Empty(MINV.Domain.Accounting.VatRules.Allocate([], 13m, onInvoicedAmount: true));
+        Assert.Equal([0m, 0m], MINV.Domain.Accounting.VatRules.Allocate([100m, 50m], 0m, onInvoicedAmount: true));
+        var random = new Random(7);
+        foreach (var onAmount in new[] { true, false })
+        {
+            var rate = onAmount ? 13m : 19m;
+            for (var i = 0; i < 5_000; i++)
+            {
+                var amounts = Enumerable.Range(0, random.Next(1, 8)).Select(_ => random.Next(1, 2_000_000) / 100m).ToArray();
+                var taxes = MINV.Domain.Accounting.VatRules.Allocate(amounts, rate, onAmount);
+                Assert.Equal(MINV.Domain.Accounting.VatRules.IncludedTax(amounts.Sum(), rate, onAmount), taxes.Sum());
+                Assert.All(taxes, t => Assert.True(t >= 0 && t == decimal.Round(t, 2)));
+                var perLine = amounts.Select(a => MINV.Domain.Accounting.VatRules.IncludedTax(a, rate, onAmount)).ToArray();
+                if (perLine.Sum() == taxes.Sum())
+                {
+                    Assert.Equal(perLine, taxes);
+                }
+                else
+                {
+                    Assert.All(taxes.Zip(perLine), p => Assert.InRange(p.First - p.Second, -0.01m, 0.01m));
+                }
+            }
+        }
+    }
 }

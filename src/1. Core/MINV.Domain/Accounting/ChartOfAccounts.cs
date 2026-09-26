@@ -21,6 +21,9 @@ public static class AccountCodes
     public const string InventorySurplus = "4.1.02";
     public const string CostOfSales = "5.1.01";
     public const string InventoryShrinkage = "5.1.09";
+    /// <summary>V4.2 · Costo de las unidades entregadas como reposición por garantía (Debe 5.1.10 / Haber 1.1.05 al costo
+    /// promedio, regla T-05).</summary>
+    public const string WarrantyCost = "5.1.10";
 }
 
 /// <summary>
@@ -58,6 +61,7 @@ public static class ChartOfAccounts
         ("5.1", "Costo de ventas", AccountType.Expense, "5", false),
         (AccountCodes.CostOfSales, "Costo de ventas", AccountType.Expense, "5.1", true),
         (AccountCodes.InventoryShrinkage, "Mermas y ajustes de inventario", AccountType.Expense, "5.1", true),
+        (AccountCodes.WarrantyCost, "Costo de garantías", AccountType.Expense, "5.1", true),
         ("6", "GASTOS", AccountType.Expense, null, false),
         ("6.1", "Gastos de operación", AccountType.Expense, "6", false),
         ("6.1.01", "Sueldos y salarios", AccountType.Expense, "6.1", true),

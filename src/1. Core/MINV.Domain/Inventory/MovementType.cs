@@ -54,7 +54,8 @@ public sealed class MovementType : Entity
 
     public decimal Signed(decimal quantity) => quantity * StockFactor;
 
-    /// <summary>Tipos que se siembran en cada empresa: los 5 de la V2.1 con sus nombres originales y los de la V3.</summary>
+    /// <summary>Tipos que se siembran en cada empresa: los 5 de la V2.1 con sus nombres originales, los de la V3 y (V4.2)
+    /// la reposición por garantía.</summary>
     public static IReadOnlyList<MovementType> CreateDefaults(Guid tenantId) =>
     [
         new(tenantId, MovementTypeCodes.InitialBalance, "SALDO INICIAL",
@@ -79,7 +80,16 @@ public sealed class MovementType : Entity
             "Salida hacia otro almacén.", -1, MovementDomain.Warehouse, false, false, true),
         new(tenantId, MovementTypeCodes.TransferIn, "TRASLADO (ENTRADA)",
             "Entrada desde otro almacén.", 1, MovementDomain.Warehouse, false, false, true),
+        new(tenantId, MovementTypeCodes.WarrantyReplacement, WarrantyReplacementName, WarrantyReplacementDescription, -1,
+            MovementDomain.Warehouse, false, false, true),
     ];
+
+    /// <summary>V4.2 · Nombre y descripción del tipo de reposición por garantía (también los siembra la migración
+    /// V42TechRetail en las empresas existentes).</summary>
+    public const string WarrantyReplacementName = "REPOSICIÓN POR GARANTÍA";
+
+    public const string WarrantyReplacementDescription =
+        "Salida de una unidad nueva entregada al cliente en reemplazo de otra en garantía (RMA). Asiento: 5.1.10 Costo de garantías.";
 }
 
 /// <summary>Códigos estables de los tipos de movimiento y su correspondencia con la V2.1.</summary>
@@ -96,6 +106,9 @@ public static class MovementTypeCodes
     public const string PurchaseReturn = "DEVOLUCION_PROVEEDOR";
     public const string TransferOut = "TRASLADO_SALIDA";
     public const string TransferIn = "TRASLADO_ENTRADA";
+
+    /// <summary>V4.2 · Salida de la unidad entregada como reposición de una garantía (regla T-05).</summary>
+    public const string WarrantyReplacement = "REPOSICION_GARANTIA";
 
     /// <summary>Código de la V3 para el «Tipo» de un movimiento de la V2.1 (tblEntradas / tblSalidas).</summary>
     public static string FromV21(string tipo) => tipo.Trim().ToUpperInvariant() switch

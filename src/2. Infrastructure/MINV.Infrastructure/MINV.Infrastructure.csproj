@@ -18,11 +18,16 @@
     <ProjectReference Include="..\..\1. Core\MINV.Application\MINV.Application.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <!-- Ilustraciones de productos para los datos de prueba y la demostración (tools/generar_imagenes_productos.py). -->
-    <EmbeddedResource Include="Seeding\Imagenes\*.png" />
+    <!-- V4.2 · Datos del rubro Tecnología de la empresa de prueba Tech Zone Gaming S.R.L. (datos de prueba y demostración):
+         catálogo con fichas técnicas, productos del SIN de sus actividades e ilustraciones propias
+         (tools/tecnologia/generar_catalogo.py y tools/tecnologia/generar_imagenes_tecnologia.py). -->
+    <EmbeddedResource Include="Seeding\Tecnologia\catalogo-tecnologia.json" />
+    <EmbeddedResource Include="Seeding\Tecnologia\catalogo-productos-sin-tecnologia.csv" />
+    <EmbeddedResource Include="Seeding\Tecnologia\Imagenes\*.png" />
     <!-- V4.1 · XSD oficiales del SIN (modalidad computarizada): validación antes de guardar y en el simulador -->
     <EmbeddedResource Include="Billing\Xsd\*.xsd" />
-    <!-- V4.1 · Datos de SIMULACIÓN del simulador del SIN (catálogo de productos SIN de ferretería y construcción) -->
+    <!-- V4.1 · Datos de SIMULACIÓN del simulador del SIN (catálogo de productos SIN de ferretería y construcción; V4.2: más
+         los de tecnología, embebidos arriba) -->
     <EmbeddedResource Include="Billing\Simulator\Datos\*.csv" />
   </ItemGroup>
   <ItemGroup>

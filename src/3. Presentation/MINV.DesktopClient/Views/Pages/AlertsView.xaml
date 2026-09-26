@@ -20,7 +20,7 @@
             </StackPanel>
             <StackPanel>
                 <TextBlock Text="{Binding Title}" Style="{StaticResource H1}" />
-                <TextBlock Text="Ordenadas por urgencia, igual que 16_ALERTAS de la V2.1" Style="{StaticResource Caption}" FontSize="13" Margin="0,4,0,0" />
+                <TextBlock Text="Ordenadas por urgencia, con la acción sugerida para cada una" Style="{StaticResource Caption}" FontSize="13" Margin="0,4,0,0" />
             </StackPanel>
         </DockPanel>
 

@@ -907,8 +907,9 @@ public sealed class SiatWorker(IMinvDbContext db, ISiatGateway gateway, IFiscalD
                                join d in db.Set<FiscalDocument>() on r.InvoiceId equals d.InvoiceId
                                where d.Kind == FiscalDocumentKind.Invoice && d.Status == FiscalDocumentStatus.Valid && d.Environment == context.Environment
                                      && !notes.Any(n => n.SalesReturnId == r.Id)
-                               orderby r.ReturnedAt
-                               select r.Id).Distinct().Take(50).ToListAsync(ct);
+                               select new { r.Id, r.ReturnedAt })
+            // Distinct ANTES del orden (un OrderBy seguido de Distinct pierde el orden: EF 10114 y 10102): las 50 más antiguas
+            .Distinct().OrderBy(x => x.ReturnedAt).ThenBy(x => x.Id).Take(50).Select(x => x.Id).ToListAsync(ct);
         var issued = 0;
         await EachAsync(returnIds, async returnId =>
         {

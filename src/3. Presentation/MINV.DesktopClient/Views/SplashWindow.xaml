@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:c="clr-namespace:MINV.DesktopClient.Controls"
         xmlns:vm="clr-namespace:MINV.DesktopClient.ViewModels"
+        xmlns:s="clr-namespace:MINV.DesktopClient.Services"
         Title="M-INV" Width="620" Height="420" WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         ResizeMode="NoResize" WindowStartupLocation="CenterScreen" ShowInTaskbar="True" Icon="/Assets/minv.ico"
         FontFamily="{StaticResource UiFont}" Opacity="0">
@@ -15,6 +16,7 @@
             </BeginStoryboard>
         </EventTrigger>
     </Window.Triggers>
+    <!-- Sobre el degradado de marca los textos usan blanco y lavanda claro (≥ 4,5:1 donde están; regla A-09) -->
     <Border Margin="24" CornerRadius="20" Background="{DynamicResource BrandGradient}" Effect="{StaticResource PopupShadow}">
         <Grid ClipToBounds="True">
             <!-- Formas decorativas -->
@@ -35,29 +37,26 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-                <StackPanel Orientation="Horizontal">
-                    <Border Width="54" Height="54" CornerRadius="14" Background="#26FFFFFF">
-                        <Image Source="/Assets/minv-256.png" Width="40" Height="40" RenderOptions.BitmapScalingMode="HighQuality" />
-                    </Border>
-                    <StackPanel Margin="16,0,0,0" VerticalAlignment="Center">
-                        <TextBlock Text="M-INV" Foreground="#FFFFFF" FontSize="30" FontWeight="Bold" />
-                        <TextBlock Text="Inventario inteligente para su empresa" Foreground="#D6E6FF" FontSize="13" />
-                    </StackPanel>
+                <!-- V4.2 · Logotipo de la edición Tecnología y subtítulo de la edición -->
+                <StackPanel>
+                    <Image Source="/Assets/minv-logotipo.png" Height="56" HorizontalAlignment="Left" RenderOptions.BitmapScalingMode="HighQuality"
+                           AutomationProperties.Name="M-INV Tech · Gaming" />
+                    <TextBlock Text="{x:Static s:Brand.Edition}" Foreground="#EDE9FE" FontSize="13.5" FontWeight="SemiBold" Margin="2,10,0,0" />
                 </StackPanel>
 
-                <ItemsControl Grid.Row="1" ItemsSource="{Binding Steps}" Margin="2,30,0,0" VerticalAlignment="Center" Focusable="False">
+                <ItemsControl Grid.Row="1" ItemsSource="{Binding Steps}" Margin="2,18,0,0" VerticalAlignment="Center" Focusable="False">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate DataType="{x:Type vm:StartupStep}">
                             <StackPanel Orientation="Horizontal" Margin="0,5">
                                 <Grid Width="20" Height="20">
-                                    <Ellipse x:Name="Pending" Width="14" Height="14" Stroke="#9FC3F5" StrokeThickness="1.5" />
+                                    <Ellipse x:Name="Pending" Width="14" Height="14" Stroke="#C4B5FD" StrokeThickness="1.5" />
                                     <c:ProgressRing x:Name="Running" Width="16" Height="16" Foreground="#FFFFFF" Visibility="Collapsed" />
                                     <TextBlock x:Name="Done" Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.CheckCircle}" FontSize="17"
-                                               Foreground="#7EE2A8" Visibility="Collapsed" />
+                                               Foreground="#86EFAC" Visibility="Collapsed" />
                                     <TextBlock x:Name="Warn" Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Warning}" FontSize="15"
                                                Foreground="#FCD34D" Visibility="Collapsed" />
                                 </Grid>
-                                <TextBlock x:Name="Label" Text="{Binding Text}" Foreground="#B7D2F7" FontSize="13.5" Margin="12,0,0,0" VerticalAlignment="Center" />
+                                <TextBlock x:Name="Label" Text="{Binding Text}" Foreground="#DDD6FE" FontSize="13.5" Margin="12,0,0,0" VerticalAlignment="Center" />
                             </StackPanel>
                             <DataTemplate.Triggers>
                                 <DataTrigger Binding="{Binding State}" Value="Running">
@@ -69,7 +68,7 @@
                                 <DataTrigger Binding="{Binding State}" Value="Done">
                                     <Setter TargetName="Pending" Property="Visibility" Value="Collapsed" />
                                     <Setter TargetName="Done" Property="Visibility" Value="Visible" />
-                                    <Setter TargetName="Label" Property="Foreground" Value="#E6F0FF" />
+                                    <Setter TargetName="Label" Property="Foreground" Value="#F5F3FF" />
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding State}" Value="Warning">
                                     <Setter TargetName="Pending" Property="Visibility" Value="Collapsed" />
@@ -86,8 +85,8 @@
                     <ProgressBar x:Name="Bar" Minimum="0" Maximum="100" Height="5" Foreground="#FFFFFF" Background="#33FFFFFF" />
                 </StackPanel>
                 <DockPanel Grid.Row="3" Margin="0,16,0,0">
-                    <TextBlock DockPanel.Dock="Right" Text="{Binding Version}" Foreground="#9FC3F5" FontSize="11" />
-                    <TextBlock Text="© Z&amp;P Software Fast Solutions" Foreground="#9FC3F5" FontSize="11" />
+                    <TextBlock DockPanel.Dock="Right" Text="{Binding Version}" Foreground="#FFFFFF" FontSize="11" />
+                    <TextBlock Text="© Z&amp;P Software Fast Solutions" Foreground="#EDE9FE" FontSize="11" />
                 </DockPanel>
             </Grid>
         </Grid>

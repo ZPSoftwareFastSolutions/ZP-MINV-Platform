@@ -48,12 +48,20 @@ public static class PermissionCodes
     public const string BillingContingency = "billing.contingency";
     public const string BillingConfigure = "billing.configure";
 
+    // V4.2 · edición Tecnología (fichas técnicas, series e IMEI, garantías y RMA, armador de PC)
+    public const string SpecsManage = "catalog.specs.manage";
+    public const string SerialsView = "inventory.serials.view";
+    public const string SerialsManage = "inventory.serials.manage";
+    public const string ServiceOpen = "service.rma.open";
+    public const string ServiceManage = "service.rma.manage";
+    public const string PcBuildManage = "sales.pcbuild.manage";
+
     public static readonly IReadOnlyList<(string Code, string Description)> All =
     [
         (CatalogManage, "Crear y modificar productos, categorías, unidades y proveedores"),
         (UsersManage, "Administrar usuarios, roles y permisos"),
-        (MovementsRegisterWarehouse, "Registrar entradas, saldo inicial y ajustes (en la V2.1: 10A_ENTRADAS)"),
-        (MovementsRegisterSales, "Registrar salidas (en la V2.1: 10B_SALIDAS)"),
+        (MovementsRegisterWarehouse, "Registrar entradas, saldo inicial y ajustes"),
+        (MovementsRegisterSales, "Registrar salidas"),
         (StockView, "Consultar stock, alertas y pedido sugerido"),
         (PhysicalCountRecord, "Registrar conteos de la toma física"),
         (PhysicalCountPost, "Generar los ajustes de la toma física"),
@@ -73,20 +81,31 @@ public static class PermissionCodes
         (BillingVoid, "Anular y revertir documentos fiscales y emitir notas crédito-débito"),
         (BillingContingency, "Gestionar eventos significativos, paquetes de contingencia y CAFC"),
         (BillingConfigure, "Configurar la facturación SIAT: NIT, token, sucursales, puntos de venta, CUIS, CUFD, catálogos y homologación"),
+        (SpecsManage, "Fichas técnicas: especificaciones por categoría, valores de cada producto, garantía y control por serie o IMEI"),
+        (SerialsView, "Consultar series e IMEI, su trazabilidad, la garantía de una unidad y los casos RMA"),
+        (SerialsManage, "Registrar series e IMEI de unidades en stock (inventario inicial) y dar de baja unidades serializadas"),
+        (ServiceOpen, "Abrir casos de garantía (RMA) al recibir un equipo del cliente"),
+        (ServiceManage, "Garantías y RMA: diagnosticar, enviar al proveedor, reponer con otra unidad y entregar equipos"),
+        (PcBuildManage, "Armador de PC: armar, cotizar y anular armados (cotizaciones con precio congelado)"),
     ];
 
     /// <summary>Matriz rol → permisos (RBAC por defecto de un tenant nuevo). V3.1: cada rol suma las funciones de su
-    /// puesto (ventas y caja venden y atienden clientes, bodega compra y ve reportes, gerencia aprueba y contabiliza).</summary>
+    /// puesto (ventas y caja venden y atienden clientes, bodega compra y ve reportes, gerencia aprueba y contabiliza).
+    /// V4.2: bodega lleva series, fichas técnicas y RMA; ventas y caja arman PC, consultan series y abren RMA; gerencia
+    /// todo lo de la edición Tecnología; consulta solo lee series y casos.</summary>
     public static IReadOnlyList<string> ForRole(string roleCode) => roleCode switch
     {
         RoleCodes.Admin => All.Select(p => p.Code).ToList(),
         RoleCodes.Warehouse => [MovementsRegisterWarehouse, StockView, PhysicalCountRecord, PhysicalCountPost, PurchasingManage, ReportsView,
-            TransfersManage],
-        RoleCodes.Sales => [MovementsRegisterSales, StockView, PosOperate, CustomersManage, SalesView, ReportsView, BillingView, BillingIssue],
-        RoleCodes.Cashier => [PosOperate, MovementsRegisterSales, StockView, CustomersManage, SalesView, BillingView, BillingIssue],
+            TransfersManage, SpecsManage, SerialsView, SerialsManage, ServiceOpen, ServiceManage],
+        RoleCodes.Sales => [MovementsRegisterSales, StockView, PosOperate, CustomersManage, SalesView, ReportsView, BillingView, BillingIssue,
+            SerialsView, ServiceOpen, PcBuildManage],
+        RoleCodes.Cashier => [PosOperate, MovementsRegisterSales, StockView, CustomersManage, SalesView, BillingView, BillingIssue, SerialsView,
+            ServiceOpen, PcBuildManage],
         RoleCodes.Management => [StockView, AuditView, AccountingManage, ReportsView, SalesView, PurchasingManage, BranchesAll,
-            TransfersManage, BillingView, BillingVoid, BillingContingency],
-        RoleCodes.ReadOnly => [StockView, ReportsView, BillingView],
+            TransfersManage, BillingView, BillingVoid, BillingContingency, SpecsManage, SerialsView, SerialsManage, ServiceOpen, ServiceManage,
+            PcBuildManage],
+        RoleCodes.ReadOnly => [StockView, ReportsView, BillingView, SerialsView],
         _ => [],
     };
 }

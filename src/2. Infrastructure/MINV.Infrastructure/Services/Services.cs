@@ -88,15 +88,24 @@ public sealed class DemoClock : IClock
 }
 
 /// <summary>PBKDF2-HMAC-SHA256 con sal aleatoria de 16 bytes y 600.000 iteraciones (recomendación OWASP 2023).
-/// Formato: <c>base64(sal):base64(hash)</c>; el algoritmo y las iteraciones van en columnas propias.</summary>
-public sealed class Pbkdf2PasswordHasher : IPasswordHasher
+/// Formato: <c>base64(sal):base64(hash)</c>; el algoritmo y las iteraciones van en columnas propias (la verificación usa las
+/// iteraciones guardadas con cada credencial). V4.2: la demostración EN MEMORIA usa menos iteraciones
+/// (<see cref="DemoIterations"/>, el mínimo que admite <c>UserCredential</c>): su contraseña es aleatoria, vive solo en la
+/// memoria del proceso y nunca se guarda en disco ni en una base, y así la demostración abre en segundos (crea y verifica
+/// una credencial por usuario).</summary>
+public sealed class Pbkdf2PasswordHasher(int iterations = Pbkdf2PasswordHasher.DefaultIterations) : IPasswordHasher
 {
+    public const int DefaultIterations = 600_000;
+
+    /// <summary>Iteraciones de la demostración en memoria (y de las pruebas que la usan).</summary>
+    public const int DemoIterations = UserCredential.MinIterations;
+
     private const int SaltSize = 16;
     private const int HashSize = 32;
 
     public string Algorithm => "PBKDF2-SHA256";
 
-    public int Iterations => 600_000;
+    public int Iterations { get; } = iterations >= UserCredential.MinIterations ? iterations : throw new ArgumentOutOfRangeException(nameof(iterations));
 
     public string Hash(string password)
     {

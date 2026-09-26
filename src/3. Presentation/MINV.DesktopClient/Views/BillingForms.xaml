@@ -102,10 +102,16 @@
                     <DataTemplate DataType="{x:Type vm:ReturnLineItem}">
                         <Border Style="{StaticResource Panel}" Padding="12,10" Margin="0,0,0,8" IsEnabled="{Binding CanReturn}">
                             <DockPanel>
-                                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top">
                                     <TextBox Width="90" Height="32" Text="{Binding Quantity, UpdateSourceTrigger=PropertyChanged}" TextAlignment="Right"
-                                             c:Ui.Placeholder="0" c:Ui.HasError="{Binding HasError}" c:Ui.SelectAllOnFocus="True" AutomationProperties.Name="Cantidad a devolver" />
-                                    <TextBlock Text="{Binding Line.Unit}" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="6,0,0,0" MinWidth="30" />
+                                             c:Ui.Placeholder="0" c:Ui.HasError="{Binding HasError}" c:Ui.SelectAllOnFocus="True" AutomationProperties.Name="Cantidad a devolver"
+                                             Visibility="{Binding HasNoSerials, Converter={StaticResource Visible}}" />
+                                    <TextBlock Text="{Binding Line.Unit}" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="6,0,0,0" MinWidth="30"
+                                               Visibility="{Binding HasNoSerials, Converter={StaticResource Visible}}" />
+                                    <!-- V4.2 · Serializado: se devuelve por series -->
+                                    <Border Style="{StaticResource Badge}" Visibility="{Binding HasSerials, Converter={StaticResource Visible}}">
+                                        <TextBlock Text="{Binding SelectedText}" />
+                                    </Border>
                                 </StackPanel>
                                 <StackPanel Margin="0,0,12,0">
                                     <TextBlock FontWeight="SemiBold" TextTrimming="CharacterEllipsis">
@@ -113,6 +119,16 @@
                                     </TextBlock>
                                     <TextBlock Text="{Binding AvailableText}" Style="{StaticResource Caption}" FontSize="11.5" />
                                     <TextBlock Text="{Binding PriceText}" Style="{StaticResource Caption}" FontSize="11.5" />
+                                    <ItemsControl ItemsSource="{Binding SerialOptions}" Focusable="False" Margin="0,6,0,0" ItemsPanel="{StaticResource WrapPanelTemplate}"
+                                                  Visibility="{Binding HasSerials, Converter={StaticResource Visible}}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type vm:ReturnSerialOption}">
+                                                <CheckBox IsChecked="{Binding IsChecked}" Margin="0,0,12,4">
+                                                    <TextBlock Text="{Binding Serial}" Style="{StaticResource Mono}" FontSize="12" />
+                                                </CheckBox>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
                                 </StackPanel>
                             </DockPanel>
                         </Border>
@@ -134,6 +150,13 @@
                     <ComboBox ItemsSource="{Binding Methods}" SelectedItem="{Binding Method}" DisplayMemberPath="Name" />
                 </StackPanel>
             </Grid>
+            <!-- V4.2 · Devolución por falla: la mercadería queda en garantía (no vuelve al stock vendible) -->
+            <Border Style="{StaticResource Panel}" Margin="0,14,0,0">
+                <StackPanel>
+                    <CheckBox Style="{StaticResource Switch}" Content="Devolución por falla" IsChecked="{Binding Defective}" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding DefectiveHelp}" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,8,0,0" />
+                </StackPanel>
+            </Border>
             <TextBlock Text="{Binding RefundText}" FontWeight="SemiBold" FontSize="15" Margin="0,14,0,0" Foreground="{DynamicResource BrandText}" />
         </StackPanel>
     </DataTemplate>
@@ -402,12 +425,16 @@
                     <TextBox Text="{Binding NotSubject, UpdateSourceTrigger=PropertyChanged}" TextAlignment="Right" c:Ui.Placeholder="0" />
                 </StackPanel>
             </Grid>
+            <TextBlock Text="{Binding ProposalText}" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,6,0,0" />
             <TextBlock Text="Tipo de compra" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
             <ComboBox ItemsSource="{Binding Types}" SelectedItem="{Binding Type}" />
             <TextBlock Text="Código de control (solo facturas antiguas, opcional)" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
             <TextBox Text="{Binding ControlCode, UpdateSourceTrigger=PropertyChanged}" MaxLength="17" />
             <Border Background="{DynamicResource InfoSoft}" CornerRadius="8" Padding="12,8" Margin="0,14,0,0">
-                <TextBlock Text="{Binding CreditText}" Foreground="{DynamicResource Info}" TextWrapping="Wrap" FontWeight="SemiBold" />
+                <StackPanel>
+                    <TextBlock Text="{Binding CreditText}" Foreground="{DynamicResource Info}" TextWrapping="Wrap" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding AccountingText}" Foreground="{DynamicResource Info}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                </StackPanel>
             </Border>
         </StackPanel>
     </DataTemplate>

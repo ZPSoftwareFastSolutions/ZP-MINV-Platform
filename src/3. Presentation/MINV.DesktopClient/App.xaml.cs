@@ -16,8 +16,8 @@ namespace MINV.DesktopClient;
 /// <summary>
 /// Arranque del cliente de escritorio: pantalla de carga (preferencias, tema y comprobación de la base de datos) →
 /// inicio de sesión (PostgreSQL o demostración) → ventana principal; al cerrar sesión se vuelve al inicio de sesión.
-/// Opciones: <c>--capturas &lt;carpeta&gt;</c> genera imágenes de todas las pantallas con la demostración (documentación y
-/// revisión visual).
+/// Opciones: <c>--capturas &lt;carpeta&gt; [--tema claro|oscuro]</c> genera imágenes de todas las pantallas con la
+/// demostración (documentación y revisión visual; tema base claro si no se indica).
 /// </summary>
 public partial class App
 {
@@ -52,7 +52,8 @@ public partial class App
 
         if (captures is not null)
         {
-            var code = await new ScreenshotRunner(_host, _settings, _theme).RunAsync(captures);
+            var baseTheme = ThemeService.Parse(e.Args.SkipWhile(a => a != "--tema").Skip(1).FirstOrDefault() ?? "claro");
+            var code = await new ScreenshotRunner(_host, _settings, _theme).RunAsync(captures, baseTheme);
             Shutdown(code);
             return;
         }

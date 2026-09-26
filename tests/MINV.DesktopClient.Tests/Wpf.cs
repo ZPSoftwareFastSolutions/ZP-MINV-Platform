@@ -1,7 +1,9 @@
 using System.Runtime.ExceptionServices;
 using System.Windows.Threading;
+using MINV.Application.Tech;
 using MINV.DesktopClient.Hosting;
 using MINV.DesktopClient.Services;
+using MINV.DesktopClient.ViewModels;
 
 namespace MINV.DesktopClient.Tests;
 
@@ -71,4 +73,12 @@ internal static class Wpf
         var settings = new ClientSettings { IsReadOnly = true };
         return new ClientHost([], settings, new ThemeService(settings));
     }
+}
+
+/// <summary>V4.2 · Datos de la demostración de Tech Zone Gaming que usan las pruebas de las pantallas.</summary>
+internal static class DemoData
+{
+    /// <summary>SKU de los productos que llevan serie o IMEI (regla T-02: se venden, reciben y cuentan con sus series).</summary>
+    public static async Task<IReadOnlySet<string>> SerializedAsync(AppServices app) =>
+        (await app.SendAsync(new SearchTechProductsQuery(Max: 1000))).Where(p => p.TrackSerials).Select(p => p.Sku).ToHashSet(StringComparer.Ordinal);
 }

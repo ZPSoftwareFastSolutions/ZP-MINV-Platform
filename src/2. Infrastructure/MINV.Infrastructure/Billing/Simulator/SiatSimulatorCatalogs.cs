@@ -6,18 +6,31 @@ using MINV.Domain.Billing;
 namespace MINV.Infrastructure.Billing.Simulator;
 
 /// <summary>
-/// V4.1 · Catálogos del simulador del SIN. SON DATOS DE SIMULACIÓN (regla F-16): verosímiles para una ferretería, pero
-/// en producción mandan los que devuelve la sincronización real. Los códigos que la investigación documenta están tal
-/// cual (tipos de documento de identidad, tipos de punto de venta, tipo de emisión, tipos de factura, 57/58 de unidad,
-/// eventos significativos con la numeración del Excel de la Etapa V); los demás son códigos plausibles de prueba.
-/// El catálogo de productos del SIN es el subconjunto de ferretería y construcción de la investigación (CSV embebido).
+/// V4.1 · Catálogos del simulador del SIN. SON DATOS DE SIMULACIÓN (regla F-16): verosímiles para una tienda de
+/// tecnología (V4.2) y, como actividades secundarias, para una ferretería, pero en producción mandan los que devuelve la
+/// sincronización real. Los códigos que la investigación documenta están tal cual (tipos de documento de identidad, tipos
+/// de punto de venta, tipo de emisión, tipos de factura, 57/58 de unidad, eventos significativos con la numeración del
+/// Excel de la Etapa V); los demás son códigos plausibles de prueba. El catálogo de productos del SIN es el de las tres
+/// actividades de la tienda de tecnología (CSV de la edición Tecnología) más el subconjunto de ferretería y construcción de
+/// la investigación (CSV embebido). V4.2: lo que depende de las actividades (actividades, documentos sector, leyendas y
+/// productos) se entrega según el padrón simulado del NIT que pregunta (<see cref="Rows(string, long)"/>): Tech Zone Gaming
+/// ve solo las tres de tecnología.
 /// </summary>
 public static class SiatSimulatorCatalogs
 {
-    /// <summary>Actividad principal simulada del NIT (CAEB, texto de 7 dígitos).</summary>
-    public const string MainActivity = "4752100";
+    /// <summary>V4.2 · Actividad principal simulada del NIT (CAEB, texto de 7 dígitos): computadoras, periféricos y software.</summary>
+    public const string MainActivity = "4741100";
 
-    /// <summary>Actividad secundaria simulada.</summary>
+    /// <summary>V4.2 · Consolas de videojuegos y sus juegos (y equipos de comunicación).</summary>
+    public const string ConsolesActivity = "4741200";
+
+    /// <summary>V4.2 · Equipo de radio, televisión y estereofónico (monitores).</summary>
+    public const string MonitorsActivity = "4742100";
+
+    /// <summary>V4.1 · Ferretería (actividad secundaria simulada: la conservan las pruebas de homologación de la V4.1).</summary>
+    public const string HardwareActivity = "4752100";
+
+    /// <summary>V4.1 · Materiales de construcción (actividad secundaria simulada).</summary>
     public const string SecondaryActivity = "4752400";
 
     private static readonly Lazy<IReadOnlyList<SiatCatalogRow>> ProductRows = new(LoadProducts);
@@ -103,21 +116,26 @@ public static class SiatSimulatorCatalogs
         [3012] = "La Solicitud De Reversión Se Encuentra Fuera De Plazo",
     };
 
-    /// <summary>Actividades del NIT simulado (tipo P = principal, S = secundaria).</summary>
+    /// <summary>Actividades del NIT simulado (tipo P = principal, S = secundaria). V4.2: la principal es la venta de
+    /// computadoras; consolas y monitores son secundarias (edición Tecnología), como las de ferretería de la V4.1.</summary>
     public static readonly IReadOnlyList<SiatCatalogRow> Activities =
     [
-        new(MainActivity, "VENTA AL POR MENOR DE ARTÍCULOS DE FERRETERÍA, FONTANERÍA Y CALEFACCIÓN", null, "P"),
+        new(MainActivity, "VENTA AL POR MENOR DE COMPUTADORAS, EQUIPO PERIFÉRICO Y PROGRAMAS INFORMÁTICOS", null, "P"),
+        new(ConsolesActivity, "VENTA AL POR MENOR DE APARATOS TELEFÓNICOS, EQUIPO DE COMUNICACIÓN, CONSOLAS DE VIDEOJUEGOS Y SUS JUEGOS", null, "S"),
+        new(MonitorsActivity, "VENTA AL POR MENOR DE EQUIPO DE RADIO, TELEVISIÓN Y ESTEREOFÓNICO", null, "S"),
+        new(HardwareActivity, "VENTA AL POR MENOR DE ARTÍCULOS DE FERRETERÍA, FONTANERÍA Y CALEFACCIÓN", null, "S"),
         new(SecondaryActivity, "VENTA AL POR MENOR DE LADRILLO, MADERA, CEMENTO Y OTROS MATERIALES DE CONSTRUCCIÓN", null, "S"),
     ];
 
     /// <summary>Actividad ↔ documento sector (Code = sector, Extra = tipo de documento sector, que es también la descripción:
-    /// la respuesta del SIN no trae otra).</summary>
+    /// la respuesta del SIN no trae otra). Todas las actividades emiten factura Compra Venta y notas crédito-débito.</summary>
     public static readonly IReadOnlyList<SiatCatalogRow> ActivitySectors =
     [
-        new("1", "FACTURA", MainActivity, "FACTURA"),
-        new("24", "DOCUMENTO AJUSTE", MainActivity, "DOCUMENTO AJUSTE"),
-        new("1", "FACTURA", SecondaryActivity, "FACTURA"),
-        new("24", "DOCUMENTO AJUSTE", SecondaryActivity, "DOCUMENTO AJUSTE"),
+        .. Activities.SelectMany(a => new SiatCatalogRow[]
+        {
+            new("1", "FACTURA", a.Code, "FACTURA"),
+            new("24", "DOCUMENTO AJUSTE", a.Code, "DOCUMENTO AJUSTE"),
+        }),
     ];
 
     /// <summary>Leyendas de la Ley N° 453 (textos reales conocidos) para cada actividad.</summary>
@@ -134,7 +152,8 @@ public static class SiatSimulatorCatalogs
     public static IReadOnlyList<SiatCatalogRow> Legends { get; } =
         [.. Activities.SelectMany(a => LegendTexts.Select(t => new SiatCatalogRow(a.Code, t, a.Code)))];
 
-    /// <summary>Productos y servicios del SIN: TODAS las filas del CSV de ferretería y construcción de la investigación.</summary>
+    /// <summary>Productos y servicios del SIN: V4.2, las filas del CSV de la tienda de tecnología (actividades 4741100,
+    /// 4741200 y 4742100) y TODAS las del CSV de ferretería y construcción de la investigación.</summary>
     public static IReadOnlyList<SiatCatalogRow> Products => ProductRows.Value;
 
     /// <summary>Eventos significativos con la numeración del Excel de la Etapa V (investigación 03 §6.2): 1–4 fuera de
@@ -216,7 +235,21 @@ public static class SiatSimulatorCatalogs
         ],
     };
 
-    /// <summary>Filas de un catálogo (<see cref="SiatCatalogNames"/>, salvo la fecha y hora), o null si no existe.</summary>
+    /// <summary>V4.2 · NIT de simulación de Tech Zone Gaming S.R.L. (empresa de prueba de la edición Tecnología).</summary>
+    public const long TechZoneNit = 1023456029;
+
+    /// <summary>
+    /// V4.2 · Padrón SIMULADO de actividades por contribuyente: el SIN devuelve las actividades, sus documentos sector, las
+    /// leyendas y los productos del NIT que pregunta. Tech Zone Gaming solo tiene las tres actividades de tecnología; cualquier
+    /// otro NIT (p. ej. el del ejemplo oficial que usan las pruebas de la V4.1) conserva además las de ferretería y construcción.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<long, IReadOnlySet<string>> TaxpayerActivities = new Dictionary<long, IReadOnlySet<string>>
+    {
+        [TechZoneNit] = new HashSet<string>(StringComparer.Ordinal) { MainActivity, ConsolesActivity, MonitorsActivity },
+    };
+
+    /// <summary>Filas de un catálogo (<see cref="SiatCatalogNames"/>, salvo la fecha y hora), o null si no existe: el padrón
+    /// completo del simulador, sin filtrar por contribuyente.</summary>
     public static IReadOnlyList<SiatCatalogRow>? Rows(string catalog) => catalog switch
     {
         SiatCatalogNames.Activities => Activities,
@@ -225,6 +258,24 @@ public static class SiatSimulatorCatalogs
         SiatCatalogNames.Products => Products,
         _ => Parametric.GetValueOrDefault(catalog),
     };
+
+    /// <summary>V4.2 · Filas de un catálogo para el contribuyente <paramref name="nit"/>: las actividades, documentos sector,
+    /// leyendas y productos se limitan a las actividades de ese NIT en el padrón simulado; las paramétricas son de todos.</summary>
+    public static IReadOnlyList<SiatCatalogRow>? Rows(string catalog, long nit)
+    {
+        var rows = Rows(catalog);
+        if (rows is null || !TaxpayerActivities.TryGetValue(nit, out var activities))
+        {
+            return rows;
+        }
+        return catalog switch
+        {
+            SiatCatalogNames.Activities => [.. rows.Where(r => activities.Contains(r.Code))],
+            SiatCatalogNames.ActivitySectors or SiatCatalogNames.Legends or SiatCatalogNames.Products =>
+                [.. rows.Where(r => r.ActivityCode is { } code && activities.Contains(code))],
+            _ => rows,
+        };
+    }
 
     /// <summary>¿El código existe en una paramétrica?</summary>
     public static bool Contains(string catalog, int code) =>
@@ -308,12 +359,16 @@ public static class SiatSimulatorCatalogs
     private static IReadOnlyList<SiatCatalogRow> LoadProducts()
     {
         var assembly = typeof(SiatSimulatorCatalogs).Assembly;
-        var resource = assembly.GetManifestResourceNames().Single(n => n.EndsWith(".productos-sin-ferreteria.csv", StringComparison.Ordinal));
-        using var stream = assembly.GetManifestResourceStream(resource)!;
-        using var reader = new StreamReader(stream, Encoding.UTF8);
-        return ParseCsv(reader.ReadToEnd())
-            .Where(r => r.Count >= 3 && r[0].Trim().Length > 0)
-            .Select(r => new SiatCatalogRow(r[0].Trim(), r[1].Trim(), r[2].Trim()))
-            .ToList();
+        var rows = new List<SiatCatalogRow>();
+        foreach (var suffix in new[] { ".catalogo-productos-sin-tecnologia.csv", ".productos-sin-ferreteria.csv" })
+        {
+            var resource = assembly.GetManifestResourceNames().Single(n => n.EndsWith(suffix, StringComparison.Ordinal));
+            using var stream = assembly.GetManifestResourceStream(resource)!;
+            using var reader = new StreamReader(stream, Encoding.UTF8);
+            rows.AddRange(ParseCsv(reader.ReadToEnd())
+                .Where(r => r.Count >= 3 && r[0].Trim().Length > 0)
+                .Select(r => new SiatCatalogRow(r[0].Trim(), r[1].Trim(), r[2].Trim())));
+        }
+        return rows;
     }
 }

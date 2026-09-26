@@ -138,6 +138,29 @@ public sealed class FiscalRollRendererTests
         Assert.Equal("https://x/QR?t=1", FiscalRollRenderer.WithQrSize("https://x/QR", 1));
     }
 
+    [Fact]
+    public void V42_el_rollo_lleva_las_series_o_IMEI_y_la_garantia_de_cada_linea()
+    {
+        var model = Invoice() with
+        {
+            Lines =
+            [
+                new("CEL-A15", "SMARTPHONE GALAXY A15 128 GB", "UNIDAD (BIENES)", 1m, 1450m, 0m, 1450m, SerialsText: "IMEI: 352099001761481",
+                    WarrantyUntil: new DateOnly(2023, 5, 6)),
+                new("GPU-4060", "TARJETA DE VIDEO RTX 4060 8 GB", "UNIDAD (BIENES)", 2m, 2600m, 0m, 5200m, SerialsText: "S/N: GPU4060A1, GPU4060A2",
+                    WarrantyUntil: new DateOnly(2025, 5, 6)),
+                new("CAB-HDMI", "CABLE HDMI 2 M", "UNIDAD (BIENES)", 1m, 35m, 0m, 35m),
+            ],
+        };
+        var lines = Lines(new FiscalRollRenderer().RenderRoll(model, columns: 48));
+        Assert.Contains("  IMEI: 352099001761481", lines);
+        Assert.Contains("  Garantía hasta 06/05/2023", lines);
+        Assert.Contains("  S/N: GPU4060A1, GPU4060A2", lines);
+        Assert.Contains("  Garantía hasta 06/05/2025", lines);
+        Assert.Equal(2, lines.Count(l => l.Contains("Garantía hasta", StringComparison.Ordinal)));   // el cable no lleva garantía
+        Assert.All(lines, l => Assert.True(l.Length <= 48, l));
+    }
+
     /// <summary>Texto imprimible del documento: quita los comandos ESC/GS y el QR, y separa las líneas.</summary>
     private static string Text(byte[] bytes) => string.Join('\n', Lines(bytes));
 

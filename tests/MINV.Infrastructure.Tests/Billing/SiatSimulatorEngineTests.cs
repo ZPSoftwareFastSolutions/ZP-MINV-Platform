@@ -150,10 +150,14 @@ public sealed class SiatSimulatorEngineTests
         SiatCatalogReply Sync(string catalog) => _engine.SyncCatalog(Token, Caller, Main, cuis, catalog);
         var products = Sync(SiatCatalogNames.Products);
         Assert.True(products.Transaction);
-        Assert.Equal(276, products.Rows.Count);   // todas las filas del CSV de ferretería y construcción
+        Assert.Equal(276 + 31, products.Rows.Count);   // V4.2: las 31 de tecnología y todas las filas del CSV de ferretería y construcción
+        Assert.Contains(products.Rows, r => r.Code == "1001977" && r.ActivityCode == "4741100");   // V4.2: cascos de realidad virtual
         Assert.Contains(products.Rows, r => r.Code == "1001658" && r.ActivityCode == "4752300" && r.Description.Contains("; desperdicios", StringComparison.Ordinal));
         var activities = Sync(SiatCatalogNames.Activities);
-        Assert.Contains(activities.Rows, r => r.Code == "4752100" && r.Extra == "P"
+        // V4.2: la actividad principal simulada es la venta de computadoras (Tech Zone Gaming); ferretería queda como secundaria
+        Assert.Contains(activities.Rows, r => r.Code == "4741100" && r.Extra == "P"
+                                              && r.Description == "VENTA AL POR MENOR DE COMPUTADORAS, EQUIPO PERIFÉRICO Y PROGRAMAS INFORMÁTICOS");
+        Assert.Contains(activities.Rows, r => r.Code == "4752100" && r.Extra == "S"
                                               && r.Description == "VENTA AL POR MENOR DE ARTÍCULOS DE FERRETERÍA, FONTANERÍA Y CALEFACCIÓN");
         Assert.Contains(activities.Rows, r => r.Extra == "S");
         var sectors = Sync(SiatCatalogNames.ActivitySectors);
@@ -177,6 +181,26 @@ public sealed class SiatSimulatorEngineTests
             Assert.True(reply.Transaction && reply.Rows.Count > 0, catalog);
         }
         Assert.Equal(913, _engine.SyncCatalog(Token, Caller, Main, "OTRO", SiatCatalogNames.Currencies).Messages[0].Code);
+    }
+
+    [Fact]
+    public void V42_Tech_Zone_Gaming_solo_sincroniza_sus_tres_actividades_de_tecnologia()
+    {
+        // El padrón simulado entrega a cada NIT sus actividades: Tech Zone Gaming no ve las de ferretería de la V4.1
+        var techZone = Caller with { Nit = SiatSimulatorCatalogs.TechZoneNit };
+        var cuis = _engine.RequestCuis(Token, techZone, Main);
+        Assert.True(cuis.Transaction);
+        SiatCatalogReply Sync(string catalog) => _engine.SyncCatalog(Token, techZone, Main, cuis.Code, catalog);
+        string[] tech = [SiatSimulatorCatalogs.MainActivity, SiatSimulatorCatalogs.ConsolesActivity, SiatSimulatorCatalogs.MonitorsActivity];
+        Assert.Equal(tech, Sync(SiatCatalogNames.Activities).Rows.Select(r => r.Code));
+        Assert.Equal("P", Sync(SiatCatalogNames.Activities).Rows.Single(r => r.Code == SiatSimulatorCatalogs.MainActivity).Extra);
+        Assert.Equal(tech, Sync(SiatCatalogNames.ActivitySectors).Rows.Select(r => r.ActivityCode!).Distinct());
+        Assert.Equal(tech, Sync(SiatCatalogNames.Legends).Rows.Select(r => r.ActivityCode!).Distinct());
+        var products = Sync(SiatCatalogNames.Products).Rows;
+        Assert.Equal(31, products.Count);   // solo las filas del CSV de la edición Tecnología
+        Assert.All(products, p => Assert.Contains(p.ActivityCode, tech));
+        // Las paramétricas no dependen del contribuyente
+        Assert.Equal(Sync(SiatCatalogNames.UnitsOfMeasure).Rows, SiatSimulatorCatalogs.Rows(SiatCatalogNames.UnitsOfMeasure));
     }
 
     [Fact]

@@ -381,6 +381,11 @@ Se suman al catálogo `iam.modules` (precios en bolivianos) y habilitan casos de
 
 ### 2.13 Datos de prueba multi-sucursal
 
+> **Rama `Inventario-V4.2`:** esta sección describe los datos de la V4 (ferretería de ejemplo, empresa **MINV**). En la
+> V4.2 el mismo generador carga la tienda de tecnología **Tech Zone Gaming** (empresa **TECHZONE**, sucursales **CM**,
+> **CB** Cochabamba y **SC**): ver [`edicion-tecnologia-v4.2.md`](edicion-tecnologia-v4.2.md) §12. Los ejemplos con
+> `FER-004` y El Alto de este documento son de la V4.
+
 `minv datos-prueba` (`Infrastructure/Seeding/LocalDataSeeder.cs`) arma la empresa **MINV** con los casos de uso reales:
 
 - 3 sucursales: **CM** Casa matriz (almacén `ALM01`, cajas `CAJA01`, `CAJA02`, `CAJA03`), **EA** El Alto (`ALMEA`,

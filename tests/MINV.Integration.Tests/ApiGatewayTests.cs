@@ -26,7 +26,10 @@ public sealed class ApiGatewayTests(ApiGatewayFixture server) : IClassFixture<Ap
         return http;
     }
 
-    private static object Order(string externalId, string sku = "FER-001", decimal quantity = 1) => new
+    // V4.2 · Un gabinete (sin serie: el pedido no necesita series) que la carga de prueba deja con existencia en la casa matriz
+    private const string Sku = "CASE-COR-4000D";
+
+    private static object Order(string externalId, string sku = Sku, decimal quantity = 1) => new
     {
         externalId,
         customerCode = "CF",
@@ -50,9 +53,14 @@ public sealed class ApiGatewayTests(ApiGatewayFixture server) : IClassFixture<Ap
     {
         var http = Client(server.Seed.ApiKeyToken);
         var catalog = await http.GetFromJsonAsync<JsonElement>("/v1/catalog?pageSize=500");
-        Assert.Equal(61, catalog.GetProperty("total").GetInt32());
+        Assert.Equal(159, catalog.GetProperty("total").GetInt32());   // V4.2: el catálogo de Tech Zone Gaming
         var stock = await http.GetFromJsonAsync<JsonElement>("/v1/stock?pageSize=500");
         Assert.All(stock.GetProperty("items").EnumerateArray(), i => Assert.Equal("CM", i.GetProperty("branchCode").GetString()));
+        // V4.2 · Ficha técnica de un producto (alcance catalog:read)
+        var specs = await http.GetFromJsonAsync<JsonElement>($"/v1/products/{Sku}/specs");
+        Assert.Equal(Sku, specs.GetProperty("sku").GetString());
+        Assert.False(specs.GetProperty("trackSerials").GetBoolean());
+        Assert.Equal(HttpStatusCode.NotFound, (await http.GetAsync("/v1/products/NO-EXISTE/specs")).StatusCode);
         // La llave no tiene el alcance transfers:read ni webhooks:manage
         Assert.Equal(HttpStatusCode.Forbidden, (await http.GetAsync("/v1/transfers")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await http.GetAsync("/v1/webhooks")).StatusCode);

@@ -1,7 +1,8 @@
 # Guía UX/UI · M-INV V1.2 ("App-like Excel")
 
 > **Cliente de escritorio (V3.1):** su sistema visual, pantallas y atajos están en
-> [`escritorio-v3.1.md`](escritorio-v3.1.md). Esta guía describe los libros de Excel (V1.2 y V2.x).
+> [`escritorio-v3.1.md`](escritorio-v3.1.md). Esta guía describe los libros de Excel (V1.2 y V2.x) y, en el §13, el
+> **tema gaming de la V4.2** (edición Tecnología) del escritorio.
 
 Objetivo: que un operador sin conocimientos técnicos perciba M-INV como **software nativo**, no como una hoja de
 cálculo, y que le resulte **imposible romper el sistema por accidente**. Todo lo descrito aquí está implementado en
@@ -222,4 +223,81 @@ La V2 conserva la paleta, la tipografía y los principios de esta guía, con est
 - Los recuadros `⚙` indican dónde va cada botón de script y explican qué hacer si aún no está instalado.
 - Nada de formas con vínculo, imágenes clicables ni cuadros vinculados: en la web no son fiables. Los gráficos nativos
   sí se usan (dona de salud del inventario, columnas de unidades despachadas).
+
+## 13. Escritorio V4.2 · tema gaming de la edición Tecnología
+
+La V4.2 (rama `Inventario-V4.2`) viste el cliente de escritorio para una tienda de tecnología y gaming sin cambiar su
+estructura (menú lateral, barra superior, tarjetas, tablas y formularios de la V3.1). Reglas: A-09 (colores solo de la
+paleta con `DynamicResource`, nada fijo en las vistas salvo sobre el degradado de marca) y **T-08** (oscuro por defecto;
+claro y oscuro con las MISMAS claves y contraste WCAG AA). Pantallas: [`escritorio-v4.2.md`](escritorio-v4.2.md).
+
+### Principios
+
+1. **Oscuro primero.** Una instalación nueva abre en el tema oscuro; el claro sigue a un clic (ícono de luna o sol de la
+   barra superior o `Ctrl + Shift + L`) y la preferencia se guarda en `%LOCALAPPDATA%\M-INV\cliente.json`.
+2. **Neón con medida.** El violeta y el cian marcan la marca y la acción principal; los estados usan verde, ámbar, rojo y
+   cian legibles sobre su superficie y sobre su fondo suave. El color nunca va solo: siempre con texto o ícono.
+3. **Capas, no cajas.** En el oscuro, lienzo casi negro azulado y superficies en capas (lienzo → superficie alterna →
+   tarjeta → hover → presionado) separadas por bordes sutiles.
+4. **Técnico y legible.** Títulos y cifras con Bahnschrift; datos técnicos (plataformas, series) en insignias compactas.
+
+### Paleta (claves principales de `Theme/Palette.Dark.xaml` y `Theme/Palette.Light.xaml`)
+
+| Clave | Oscuro (predeterminado) | Claro | Uso |
+|---|---|---|---|
+| `Canvas` · `Surface` | `#0A0E17` · `#141B2B` | `#F3F4FA` · `#FFFFFF` | Lienzo y tarjetas |
+| `Sidebar` | `#070A12` | `#0B0F1A` | Menú lateral (oscuro en ambos temas) |
+| `TextPrimary` · `TextMuted` | `#EEF1FA` · `#8E97B2` | `#0B1020` · `#5B6380` | Texto principal y secundario |
+| `Brand` · `BrandText` | `#7C3AED` · `#C4B5FD` | `#7C3AED` · `#5B21B6` | Marca violeta; texto de marca sobre fondos suaves |
+| `BrandGradient` | `#2E1065` → `#6D28D9` → `#0891B2` | igual | Paneles de marca (carga, inicio de sesión) |
+| `BrandGradientButton` | `#7C3AED` → `#0E7490` | igual | Botón principal y opción activa del menú (texto blanco ≥ 5,3:1) |
+| `BrandGradientStrip` | `#7C3AED` → `#22D3EE` | `#7C3AED` → `#0891B2` | Líneas de acento, barras de progreso e indicadores (sin texto encima) |
+| `FocusRingBrush` | `#22D3EE` | `#0891B2` | Anillo de foco del teclado (≥ 3:1 sobre todas las superficies) |
+| `Success` · `Warning` · `Danger` · `Info` | `#4ADE80` · `#FBBF24` · `#FB7185` · `#22D3EE` | `#15803D` · `#B45309` · `#C81E1E` · `#0E7490` | Estados (cada uno con su fondo suave `…Soft`) |
+| `ChartEntries` · `ChartIssues` | `#22D3EE` · `#E879F9` | `#0891B2` · `#C026D3` | Gráficos: entradas cian, salidas magenta |
+| `BloodRed` | `#A10A0A` | `#8A0303` | Poka-yoke de la V2.1 (rojo sangre con texto blanco) |
+
+El semáforo del stock (AGOTADO, CRÍTICO, BAJO, ÓPTIMO, SOBRESTOCK, INCONSISTENTE) conserva su significado de la V2.1 con
+tonos ajustados a cada tema.
+
+### Componentes nuevos o cambiados (`Theme/Controls.xaml`)
+
+| Componente | Cómo se ve | Dónde |
+|---|---|---|
+| Botón principal y menú activo | Degradado `BrandGradientButton` (al pasar el mouse, `BrandGradientButtonHover`) | Acciones principales, opción seleccionada del menú |
+| `KpiCardButton` | Tarjeta de indicador clicable con una **línea de acento** arriba (por defecto el degradado de marca; otro color de la paleta con `Tag`) y el contorno en el color de marca al pasar el mouse | Tablero de Inicio (también su sección Tecnología) |
+| `Badge` | Insignia de texto corto con contorno (por defecto, colores de marca) | Estados de series, casos y documentos; Serie / IMEI / Garantía en el catálogo |
+| `PlatformBadge` | Etiqueta compacta y técnica en Bahnschrift; su texto sale de las opciones de la especificación «Plataforma» (T-07), nunca de una lista fija | Catálogo, caja y candidatos del armador |
+| Foco del teclado | Anillo neón (`FocusRing`, `FocusRingBrush`) en botones, campos y listas | Toda la aplicación |
+| Barra de progreso | Pista `ChartTrack` y avance con `BrandGradientStrip` | Pantalla de carga y barra superior mientras se trabaja |
+| Interruptor (`Switch`) | Encendido con el degradado `BrandGradientButton` | «Lleva serie o IMEI» de la ficha técnica, «Devolución por falla», «Devolver la mercadería», opciones de la facturación |
+
+### Tipografía, íconos y marca
+
+- **Tipografía**: Segoe UI en el cuerpo; `DisplayFont` = **Bahnschrift** (incluida en Windows; respaldo Segoe UI Variable
+  Display y Segoe UI) en títulos, cifras grandes y plataformas; `MonoFont` = Cascadia Mono / Consolas. Íconos Segoe
+  Fluent Icons con respaldo en Segoe MDL2 Assets.
+- **Marca**: textos de la edición en `Services/Brand.cs` («Edición Tecnología · PC, componentes y consolas», titular y
+  texto del inicio de sesión), usados por la pantalla de carga, el inicio de sesión, la barra lateral, «Acerca de» y la
+  ayuda.
+- **Ícono y logotipo** (`Assets/minv.ico`, `minv-256.png`, `minv-logotipo.png`): cubo-chip isométrico con degradado
+  violeta → cian y aristas de neón sobre un cuadrado redondeado casi negro; dibujo propio, sin textos ni marcas de
+  terceros (T-09). Se generan con `tools/tecnologia/generar_icono_gaming.py`.
+- **Imágenes de producto**: ilustraciones propias por tipo de producto (`Seeding/Tecnologia/Imagenes`), sin logotipos.
+
+### Preferencias guardadas
+
+`cliente.json` guarda «sistema», «claro» u «oscuro». Una instalación nueva empieza en **oscuro**. Hasta la V4.1, «sistema»
+era el valor por defecto que se guardaba solo (no una elección): al abrir la V4.2 por primera vez ese valor pasa **una
+vez** al oscuro (`ThemeEdition = 42`); un «claro» u «oscuro» elegido antes se respeta.
+
+### Verificación
+
+- `ThemeTests` (pruebas del escritorio): oscuro por defecto y preferencia guardada, mismas claves en el mismo orden y del
+  mismo tipo, paletas cargables en WPF, contraste WCAG AA de los textos y del foco, vistas solo con colores de la paleta y
+  recursos existentes, `StaticResource` al alcance y marca en la carga, el inicio de sesión y la ayuda.
+- `tools/tecnologia/verificar_paleta.py <Theme original> <Theme nueva>`: mismas claves y tipos, contraste de los pares que
+  usa la interfaz y una muestra visual de ambos temas.
+- Capturas de las pantallas de la edición en ambos temas (`M-INV.exe --capturas`, pantallas 81 a 98; ver
+  `escritorio-v4.2.md` §10).
 

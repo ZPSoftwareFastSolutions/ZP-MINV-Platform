@@ -1,5 +1,7 @@
 # Inicio rápido · M-INV V4.1 (facturación SIAT) · paso a paso
 
+> **Rama `Inventario-V4.2`:** esta guía describe la edición de su rama con la ferretería de ejemplo (empresa **MINV**). En la V4.2 los mismos scripts cargan la tienda de tecnología **Tech Zone Gaming** (empresa **TECHZONE**, sucursales CM, CB y SC): siga [`inicio-rapido-v4.2.md`](inicio-rapido-v4.2.md).
+
 La **V4.1** (4.1.0-alpha.1, rama `Inventario-V4.1`) agrega a M-INV la **facturación SIAT** de Bolivia en la modalidad
 **Facturación Computarizada en Línea**: cada venta de caja o de la tienda en línea emite su **factura Compra Venta**, las
 devoluciones emiten una **nota crédito-débito**, y M-INV se encarga solo de enviarlas al SIN, de seguir facturando
@@ -201,8 +203,11 @@ tiene el correo activo).
 ## Paso 9 · Registrar la factura de un proveedor (Bodega o Administrador)
 
 **Facturación › Libros fiscales › Compras** muestra las **recepciones de mercadería sin factura**. Elija una e ingrese
-el **número de factura** del proveedor, su **código de autorización**, la fecha y el importe: queda registrada con sus
-líneas (las de la recepción), su crédito fiscal y su asiento contable, y entra al **libro de compras** del mes.
+el **número de factura** del proveedor, su **código de autorización**, la fecha y el importe **con IVA** de la factura
+(el formulario propone el valor de la recepción): queda registrada con sus líneas (las de la recepción), su crédito fiscal
+y su asiento contable, y entra al **libro de compras** del mes. El asiento lleva el crédito fiscal a 1.1.04 y ajusta la
+deuda con el proveedor al importe de la factura: si la recepción se hizo al costo con IVA, el crédito sale del inventario;
+si se hizo al costo neto (V4.2), el IVA se suma a 2.1.01 Proveedores.
 
 ## Paso 10 · Sacar los libros del mes (el contador)
 

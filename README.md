@@ -1,9 +1,13 @@
-# ZP-MINV-Platform · M-INV V4.1 (facturación SIAT) · V4 (multi-sucursal en la nube) · V3.1 (escritorio + PostgreSQL) · V2.1 (colaborativo)
+# ZP-MINV-Platform · M-INV V4.2 (edición Tecnología) · V4.1 (facturación SIAT) · V4 (multi-sucursal en la nube) · V3.1 (escritorio + PostgreSQL) · V2.1 (colaborativo)
 
-> **¿Por dónde empiezo?** Lea la [guía de inicio de las cuatro ediciones](GUIA-DE-INICIO.md): Excel local, Excel
-> compartido, escritorio con base local y escritorio con base en la nube y facturación SIAT (V4.1, en desarrollo).
+> **¿Por dónde empiezo?** Lea la [guía de inicio de las cinco ediciones](GUIA-DE-INICIO.md): Excel local, Excel
+> compartido, escritorio con base local, escritorio con base en la nube y facturación SIAT, y la edición Tecnología
+> (V4.2, en desarrollo) para tiendas de computadoras, componentes, consolas y videojuegos.
 
-**Sistema de inventarios y punto de venta B2B de Z&P Software Fast Solutions.** La **V4.1** (en desarrollo) agrega la
+**Sistema de inventarios y punto de venta B2B de Z&P Software Fast Solutions.** La **V4.2** (en desarrollo) lo
+especializa para **tiendas de tecnología y gaming**: series e IMEI por unidad (también en la factura del SIN), garantías y
+RMA, fichas técnicas con filtros por especificación, armador de PC con compatibilidad y cotización, tablero Tecnología y
+tema gaming (152 tablas en 10 esquemas). La **V4.1** agrega la
 **facturación SIAT** de Bolivia (Facturación Computarizada en Línea: facturas y notas crédito-débito, contingencia,
 anulación y libros; 140 tablas en 9 esquemas). La **V4** convierte M-INV en una
 plataforma **multi-sucursal en la nube**: cada sucursal ve y opera solo lo suyo, la mercadería viaja entre sucursales
@@ -15,7 +19,9 @@ cliente-servidor: solución **.NET 8** en Clean Architecture (dominio rico, CQRS
 construida sobre el modelo de la **V2.1** (su importador migra el libro colaborativo y verifica la paridad). La V2.1
 (Excel en Microsoft 365) y la V1.2 (Excel local) siguen en el repositorio.
 
-> **¿Cómo la ejecuto?** V4.1 (facturación): [`docs/deployment/inicio-rapido-v4.1.md`](docs/deployment/inicio-rapido-v4.1.md).
+> **¿Cómo la ejecuto?** V4.2 (edición Tecnología, el algoritmo paso a paso):
+> [`docs/deployment/inicio-rapido-v4.2.md`](docs/deployment/inicio-rapido-v4.2.md).
+> V4.1 (facturación): [`docs/deployment/inicio-rapido-v4.1.md`](docs/deployment/inicio-rapido-v4.1.md).
 > V4: siga [`docs/deployment/inicio-rapido-v4.md`](docs/deployment/inicio-rapido-v4.md): base
 > local con 3 sucursales y datos de prueba (`tools\bd_local.ps1 -Accion recrear`), `M-INV.exe` en modo «Base local»,
 > la nube simulada en su equipo (`tools\servidores_locales.ps1 -Accion iniciar`) y el API con `curl`; para una nube
@@ -24,7 +30,47 @@ construida sobre el modelo de la **V2.1** (su importador migra el libro colabora
 > [`docs/product/escritorio-v3.1.md`](docs/product/escritorio-v3.1.md). Modelo de datos (V3 y V4):
 > [`docs/database/ERD-MINV-V3.md`](docs/database/ERD-MINV-V3.md).
 
-## M-INV V4.1 · rama `Inventario-V4.1` (4.1.0-alpha.1) · facturación SIAT (en desarrollo)
+## M-INV V4.2 · rama `Inventario-V4.2` (4.2.0-alpha.1) · edición Tecnología (en desarrollo)
+
+Construida sobre `Inventario-V4.1`. M-INV pasa a ser el sistema de inventarios de una **tienda de tecnología y gaming**
+(componentes de PC, computadoras, monitores, periféricos, consolas PS4 y PS5, Xbox Series X y Series S, Nintendo Switch y
+Switch 2, videojuegos, accesorios, redes y software) **con datos, no con código a medida**: fichas técnicas, plataformas
+y reglas de compatibilidad son especificaciones por categoría. Cada unidad serializada es un hecho trazable: entra, viaja,
+se vende (la factura del SIN lleva su `numeroSerie` o `numeroImei`) y vuelve por garantía con su serie. **152 tablas en
+10 esquemas** (12 nuevas; esquema `service`). Diseño:
+[`docs/architecture/edicion-tecnologia-v4.2.md`](docs/architecture/edicion-tecnologia-v4.2.md) · reglas T-01 a T-10:
+[`.claude/v42-tech-rules.md`](.claude/v42-tech-rules.md) · interfaz:
+[`docs/product/escritorio-v4.2.md`](docs/product/escritorio-v4.2.md).
+
+```text
+  recepción (series escaneadas o pegadas) ─► EN STOCK ─► transferencia (EN TRÁNSITO) ─► EN STOCK de otra sucursal
+                                                │ venta en la caja / API / armado cotizado (factura con numeroSerie o numeroImei)
+                                                ▼
+                                             VENDIDA ─► garantía derivada (venta + meses) ─► caso RMA (EN GARANTÍA)
+                                                        ─► proveedor / reparada / reemplazo con otra unidad (5.1.10) ─► entregada
+```
+
+| Parte | Contenido |
+|---|---|
+| `MINV.Domain` | `Catalog/TechCatalog.cs` (especificaciones, opciones, valores, perfil técnico, `CompatibilityKeys`), `Catalog/PcCompatibility.cs` (reglas del armador), `Inventory/SerialNumber.cs` y `SerialTracking.cs` (estados y bitácora de cada serie, IMEI con Luhn), `Service/WarrantyClaim.cs` (RMA), `Sales/PcBuild.cs` (armado y cotización) |
+| `MINV.Application/Tech` | Fichas técnicas y facetas, series e IMEI (trazabilidad, garantía derivada, registrar y dar destino), garantías y RMA con reposición, armador de PC (revisión, candidatos, cotización, venta en la caja) y tablero Tecnología; series en la venta, la devolución (también por falla), las transferencias, las compras, los movimientos y la factura |
+| Base de datos | Migración `V42TechRetail`: 12 tablas, relleno de las series existentes, RLS por empresa y sucursal, 5 bitácoras append-only (29 en total), trigger de fichas tipadas, vista `inventory.v_serial_breaches`, permisos `catalog.specs.manage`, `inventory.serials.*`, `service.rma.*`, `sales.pcbuild.manage`, tipo de movimiento REPOSICIÓN POR GARANTÍA y cuenta 5.1.10 |
+| Escritorio | Menú **Tecnología** (Armador de PC, Series e IMEI, Garantías y RMA), catálogo técnico con facetas, caja con series e IMEI y chips de plataforma, sección Tecnología del tablero y **tema gaming** oscuro por defecto |
+| API Gateway | `GET /v1/products/{sku}/specs` y `serials` en los pedidos |
+| Datos de prueba | **Tech Zone Gaming S.R.L.** (`TECHZONE`, sucursales CM La Paz, CB Cochabamba y SC Santa Cruz): 159 productos con ficha técnica e imagen propia, 60 días de operación con series, 7 casos RMA, 8 armados y facturación; la **demostración** es la misma empresa generada en memoria (~17 s) |
+
+```powershell
+git switch Inventario-V4.2
+powershell -ExecutionPolicy Bypass -File tools\bd_local.ps1 -Accion recrear              # base local con Tech Zone Gaming (borra la anterior)
+powershell -ExecutionPolicy Bypass -File tools\publicar_escritorio.ps1                    # dist\M-INV-4.2.0-alpha.1-win-x64\M-INV.exe
+powershell -ExecutionPolicy Bypass -File tools\servidores_locales.ps1 -Accion iniciar    # simulador del SIN :5095 + nube :5080 + API :5090
+```
+
+Paso a paso (el algoritmo, qué probar con cada rol, usuarios y archivos):
+[`docs/deployment/inicio-rapido-v4.2.md`](docs/deployment/inicio-rapido-v4.2.md) · guía para todos:
+[`GUIA-DE-INICIO.md`](GUIA-DE-INICIO.md) §5.
+
+## M-INV V4.1 · rama `Inventario-V4.1` (4.1.0-alpha.1) · facturación SIAT (versión anterior)
 
 Construida sobre `Inventario-V4.-BaseDeDatosNube`. M-INV emite **facturas Compra Venta** (sector 1) y **notas
 Crédito-Débito** (sector 24) del **SIAT** de Bolivia en la modalidad **Facturación Computarizada en Línea**: cada venta de
@@ -48,7 +94,7 @@ con **CAFC**, anulación con plazo del día 9, reversión, notas por devolucione
 | `MINV.Domain/Billing` · `MINV.Application/Billing` | Documento fiscal, CUF, reglas del SIN, puntos de venta, eventos, paquetes, CAFC; casos de uso de emisión, envío, contingencia, anulación, notas, administración SIAT, homologación y libros (`BillingContracts.cs`) |
 | `MINV.Infrastructure/Billing` | XML/XSD, GZIP/TAR/SHA-256, PDF y rollo con QR, cliente SOAP (`SiatSoapContract`), simulador del SIN, despachador en segundo plano |
 | `src/4. Tools/MINV.SiatSimulator` | Simulador HTTP del SIN (puerto 5095, `/control/offline` para simular cortes; estado en JSON) |
-| Datos de prueba | La empresa MINV factura los últimos 25 días contra el simulador (corte de internet en El Alto, contingencia CAFC en Santa Cruz, anulaciones, reversión, notas, NIT rechazado, facturas de proveedores) |
+| Datos de prueba | En su rama, la empresa MINV factura los últimos 25 días contra el simulador (corte de internet en El Alto, contingencia CAFC en Santa Cruz, anulaciones, reversión, notas, NIT rechazado, facturas de proveedores); en la V4.2 los mismos escenarios los factura Tech Zone Gaming (el corte de internet, en Cochabamba) |
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\bd_local.ps1 -Accion recrear              # base local + datos de prueba QUE FACTURAN (-SinFacturacion: sin)
@@ -362,8 +408,11 @@ La protección de Excel evita errores, no ataques; la seguridad real es el permi
   WPF, escritorio completo y base local con datos de prueba.
 - **V4** (rama `Inventario-V4.-BaseDeDatosNube`, 4.0.0-alpha.1): multi-sucursal, transferencias en tránsito, servidor
   en la nube, API Gateway B2B y webhooks; ver la sección M-INV V4.
-- **V4.1** · En curso (rama `Inventario-V4.1`, 4.1.0-alpha.1): facturación SIAT (Computarizada en Línea) con simulador
-  del SIN; siguiente paso: confirmar el WSDL en el piloto del SIN y la autorización del sistema.
+- **V4.1** (rama `Inventario-V4.1`, 4.1.0-alpha.1): facturación SIAT (Computarizada en Línea) con simulador del SIN;
+  siguiente paso: confirmar el WSDL en el piloto del SIN y la autorización del sistema.
+- **V4.2** · En curso (rama `Inventario-V4.2`, 4.2.0-alpha.1): edición Tecnología para tiendas de computadoras,
+  componentes, consolas y videojuegos (series e IMEI, garantías y RMA, fichas técnicas, armador de PC y tema gaming); ver
+  la sección M-INV V4.2.
 
 ---
-© Z&P Software Fast Solutions · M-INV V4.1.0-alpha.1 · V4.0.0-alpha.1 · V3.1.0-alpha.1 · V2.1.0 colaborativa · V1.2.0 local
+© Z&P Software Fast Solutions · M-INV V4.2.0-alpha.1 edición Tecnología · V4.1.0-alpha.1 · V4.0.0-alpha.1 · V3.1.0-alpha.1 · V2.1.0 colaborativa · V1.2.0 local

@@ -50,7 +50,8 @@ public static class DependencyInjection
 
     /// <summary>
     /// Modo demostración: el mismo modelo, los mismos casos de uso y las mismas guardas, pero sobre una base en memoria
-    /// (sin PostgreSQL) que <see cref="DemoWorkspace"/> llena con el libro de la V2.1. Los datos se pierden al cerrar.
+    /// (sin PostgreSQL) que <see cref="DemoWorkspace"/> llena con la empresa de prueba Tech Zone Gaming (V4.2: el mismo
+    /// generador de datos de prueba que la base local). Los datos se pierden al cerrar.
     /// No hay Row Level Security ni triggers (son de PostgreSQL): el aislamiento lo dan los filtros globales de EF Core.
     /// </summary>
     public static IServiceCollection AddMinvDemoInfrastructure(this IServiceCollection services)
@@ -62,6 +63,8 @@ public static class DependencyInjection
         services.AddSingleton<IClock>(sp => sp.GetRequiredService<DemoClock>());
         services.AddScoped<DemoWorkspace>();
         services.TryAddSingleton<ISecretProtector>(AesGcmSecretProtector.Ephemeral());
+        // V4.2 · Credenciales de la demostración (solo en memoria, contraseña aleatoria): PBKDF2 con menos iteraciones
+        services.TryAddSingleton<IPasswordHasher>(new Pbkdf2PasswordHasher(Pbkdf2PasswordHasher.DemoIterations));
         // V4.1 · En la demostración el SIN es el simulador en memoria (sin red ni token real)
         services.AddMinvSiat(new SiatOptions { Mode = SiatGatewayMode.InProcessSimulator });
         return services.AddMinvPersistence((_, options) => ConfigureInMemory(options, name, root));
@@ -76,7 +79,7 @@ public static class DependencyInjection
         services.AddScoped<Integration.ApiKeyAuthenticator>();
         services.AddScoped<Integration.CloudSessionAuthenticator>();
         services.AddScoped<IReportingReader, ReportingReader>();
-        services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
+        services.TryAddSingleton<IPasswordHasher>(new Pbkdf2PasswordHasher());
         services.AddScoped<MinvSaveChangesInterceptor>();
         services.AddDbContextFactory<MinvWriteDbContext>((sp, options) =>
         {

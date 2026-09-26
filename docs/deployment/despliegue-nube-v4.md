@@ -1,6 +1,6 @@
 # Despliegue en la nube · M-INV V4 (PostgreSQL gestionado + servidores) · paso a paso
 
-Cómo llevar M-INV 4.1.0-alpha.1 (V4 multi-sucursal + V4.1 facturación SIAT) a una base PostgreSQL **gestionada** (DigitalOcean, AWS RDS o Supabase) con el
+Cómo llevar M-INV 4.2.0-alpha.1 (V4 multi-sucursal + V4.1 facturación SIAT + V4.2 edición Tecnología) a una base PostgreSQL **gestionada** (DigitalOcean, AWS RDS o Supabase) con el
 **servidor en la nube** (`MINV.CloudServer`, para los escritorios) y el **API Gateway** (`MINV.ApiGateway`, para
 integraciones B2B). Arquitectura: [`docs/architecture/arquitectura-v4.md`](../architecture/arquitectura-v4.md) ·
 integradores: [`docs/integration/api-gateway-v1.md`](../integration/api-gateway-v1.md) · probar todo primero en un solo
@@ -13,7 +13,7 @@ ALGORITMO DE DESPLIEGUE EN LA NUBE
  1. Crear el PostgreSQL gestionado (15 o superior; 16 recomendado), con TLS y acceso solo desde sus servidores.
  2. Como administrador del proveedor: rol dueño «minv_owner» (con CREATEROLE) y base «minv» a su nombre.
  3. Preparar la base:   tools\bd_nube.ps1 -Accion preparar -Conexion "<cadena del rol dueño>" [-DatosPrueba]
-       → crea minv_server y minv_app (claves al azar), aplica scripts\db_init.sql (140 tablas, RLS, funciones),
+       → crea minv_server y minv_app (claves al azar), aplica scripts\db_init.sql (152 tablas, RLS, funciones),
          guarda %LOCALAPPDATA%\M-INV\credenciales-nube.txt.        Comprobar:  tools\bd_nube.ps1 -Accion estado
  4. Generar la clave maestra de integraciones (MINV_INTEGRATION_KEYS) y guardarla en una bóveda.
  5. Levantar los dos servidores con el rol minv_server (dotnet, ejecutable publicado o docker compose) detrás de https.
@@ -37,7 +37,7 @@ ALGORITMO DE DESPLIEGUE EN LA NUBE
                               │   rol minv_server · SSL Mode=VerifyFull  │
                               ▼                                          ▼
               ┌─────────────────────────────────────────────────────────────────────┐   ┌──────────────────┐
-              │ PostgreSQL gestionado: base «minv» · 140 tablas · RLS · PITR         │──►│ réplica (opcional)│
+              │ PostgreSQL gestionado: base «minv» · 152 tablas · RLS · PITR         │──►│ réplica (opcional)│
               └─────────────────────────────────────────────────────────────────────┘   │ MINV_DB_READ      │
                                                                                           └──────────────────┘
 ```
@@ -67,7 +67,7 @@ ALGORITMO DE DESPLIEGUE EN LA NUBE
 | Rol | Uso | Propiedades |
 |---|---|---|
 | `minv_owner` | dueño de la base y de las tablas; aplica migraciones; crea los otros roles | `LOGIN CREATEROLE`; salta RLS por ser dueño: **nunca** lo usa un servidor ni un escritorio |
-| `minv_server` | `MINV.CloudServer` y `MINV.ApiGateway` | `LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE`; no es dueño de nada; sin UPDATE/DELETE/TRUNCATE en los 15 libros append-only; EXECUTE en las 4 funciones SECURITY DEFINER |
+| `minv_server` | `MINV.CloudServer` y `MINV.ApiGateway` | `LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE`; no es dueño de nada; sin UPDATE/DELETE/TRUNCATE en los 29 libros append-only (V4.2); EXECUTE en las 4 funciones SECURITY DEFINER |
 | `minv_app` | escritorio con conexión directa (solo en red local; en la nube se usa el modo «Nube») | igual que `minv_server`, sin las funciones SECURITY DEFINER |
 
 Los servidores **se niegan a arrancar** si su rol es superusuario, tiene BYPASSRLS o es dueño de alguna tabla («El rol
@@ -194,7 +194,7 @@ Réplica de lectura: **Actions › Create read replica** (misma región o entre 
 Respaldos: diarios según el plan; la restauración a un punto en el tiempo (PITR) es un complemento del plan Pro o
 superior: actívelo si contrató CLOUD_HA. Réplicas de lectura: disponibles en planes pagos → `MINV_DB_READ`.
 
-## 4. Preparar la base (roles, 140 tablas, seguridad)
+## 4. Preparar la base (roles, 152 tablas, seguridad)
 
 ### 4.1 Con la herramienta (recomendado)
 
@@ -204,11 +204,11 @@ powershell -ExecutionPolicy Bypass -File tools\bd_nube.ps1 -Accion preparar `
 ```
 
 - Crea los roles `minv_server` y `minv_app` con contraseñas **aleatorias**, aplica `scripts\db_init.sql` (idempotente:
-  140 tablas en 9 esquemas —V4.1: 27 de facturación en `billing`—, triggers append-only, Row Level Security por
+  152 tablas en 10 esquemas —V4.1: 27 de facturación en `billing`; V4.2: 2 de garantías en `service`—, triggers append-only, Row Level Security por
   empresa y por sucursal, funciones SECURITY DEFINER, modelo de lectura `reporting` y permisos) y escribe las cadenas de conexión en
   `%LOCALAPPDATA%\M-INV\credenciales-nube.txt` (solo en ese equipo: cópielas a su bóveda y **borre el archivo** cuando
   termine).
-- `-DatosPrueba` carga además la empresa de prueba multi-sucursal (MINV, sucursales CM, EA y SC, 12 usuarios): útil
+- `-DatosPrueba` carga además la empresa de prueba multi-sucursal (V4.2: TECHZONE · Tech Zone Gaming S.R.L., sucursales CM, CB y SC, 12 usuarios, con series, RMA y armados): útil
   para una demostración o un entorno de pruebas; **no** en la base de producción de un cliente. (La facturación de la
   empresa de prueba apunta al simulador del SIN en `http://localhost:5095`: en la nube, levántelo con el perfil
   `siat-simulador` de Docker Compose, §6.3, o desactívela en Facturación SIAT.)
@@ -264,16 +264,17 @@ GRANT EXECUTE ON FUNCTION integration.resolve_api_key(text), iam.resolve_session
 ```sql
 SELECT count(*) FROM information_schema.tables
  WHERE table_type = 'BASE TABLE' AND table_name <> '__ef_migrations_history'
-   AND table_schema IN ('iam','catalog','warehouse','inventory','purchasing','sales','accounting','integration','billing');   -- 140
-SELECT count(*) FROM pg_policies WHERE policyname = 'tenant_isolation';                                           -- 138
-SELECT count(*) FROM pg_policies WHERE policyname = 'branch_isolation';                                           -- 55
-SELECT count(*) FROM pg_trigger  WHERE tgname = 'trg_append_only';                                                -- 24
+   AND table_schema IN ('iam','catalog','warehouse','inventory','purchasing','sales','accounting','integration','billing','service');   -- 152
+SELECT count(*) FROM pg_policies WHERE policyname = 'tenant_isolation';                                           -- 150
+SELECT count(*) FROM pg_policies WHERE policyname = 'branch_isolation';                                           -- 62
+SELECT count(*) FROM pg_trigger  WHERE tgname = 'trg_append_only';                                                -- 29
 SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname LIKE 'minv_%';     -- minv_server y minv_app: f, f
 ```
 
 O, con la herramienta: `dotnet run --project "src/4. Tools/MINV.Cli" -c Release -- verify [--codigo <empresa>] --conexion "<cadena del dueño>"`
 (con `--codigo`, además, conservación del stock, transferencias y, V4.1, que el total de cada factura válida sea el
-cobrado y que ninguna venta tenga dos documentos fiscales vigentes).
+cobrado y que ninguna venta tenga dos documentos fiscales vigentes; V4.2, que las series en stock coincidan con el stock,
+`inventory.v_serial_breaches` vacía).
 
 ## 5. Variables de entorno
 
@@ -402,14 +403,14 @@ defina `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` y no publique los puertos 5080
 3. El rol puede ejecutar `iam.resolve_session` (si no: es otro rol o se creó después de migrar, §4.3).
 
 Luego: `GET /api/v1/health` (servidor en la nube) y `GET /health` (gateway) responden
-`{"status":"ok",…,"version":"4.1.0-alpha.1"}`.
+`{"status":"ok",…,"version":"4.2.0-alpha.1"}`.
 
 ## 7. Conectar los escritorios
 
 1. Publique el escritorio (`tools\publicar_escritorio.ps1`) y distribúyalo: **no** necesita `ConnectionStrings` ni
    `MINV_DB` en modo nube.
 2. En el inicio de sesión elija **Nube**, escriba `https://minv.suempresa.com` en **Servidor** y pulse
-   **Probar**: debe decir «Servidor M-INV 4.1.0-alpha.1 disponible».
+   **Probar**: debe decir «Servidor M-INV 4.2.0-alpha.1 disponible».
 3. Empresa, correo y contraseña. El escritorio recuerda el modo y la dirección en `%LOCALAPPDATA%\M-INV\cliente.json`;
    el token de sesión vive solo en memoria y vence tras 12 horas sin actividad.
 4. La barra superior muestra la sucursal activa; la gerencia global puede elegir «Todas las sucursales».
@@ -461,7 +462,7 @@ la misma versión mayor (4), si no: «Este servidor es M-INV 4.x: actualice el e
 - [ ] PostgreSQL 15+ gestionado, TLS obligatorio, acceso de red solo desde los servidores (y temporalmente desde el
       equipo de preparación).
 - [ ] Rol `minv_owner` dueño de la base `minv`; `minv_server` y `minv_app` creados **antes** de migrar.
-- [ ] 140 tablas en 9 esquemas, 138 políticas `tenant_isolation`, 55 `branch_isolation`, 24 triggers append-only (§4.4 o
+- [ ] 152 tablas en 10 esquemas, 150 políticas `tenant_isolation`, 62 `branch_isolation`, 29 triggers append-only (§4.4 o
       `minv verify`).
 - [ ] `minv_server`: `rolsuper = f`, `rolbypassrls = f`, sin tablas propias.
 - [ ] Conexión directa o pool en **modo sesión** (nunca transacción, nunca RDS Proxy).

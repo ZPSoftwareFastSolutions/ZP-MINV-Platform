@@ -6,16 +6,19 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using MINV.Application.Catalog;
 using MINV.Application.Inventory.Queries;
+using MINV.Application.Tech;
 using MINV.DesktopClient.Controls;
 using MINV.DesktopClient.Mvvm;
 using MINV.DesktopClient.Services;
+using MINV.Domain.Accounting;
 using MINV.Domain.Iam;
 using MINV.Domain.Inventory;
 
 namespace MINV.DesktopClient.ViewModels;
 
 /// <summary>Producto del catálogo en la galería (imagen, precio, margen y stock actual).</summary>
-public sealed class CatalogProduct(CatalogItem item, StockRow? stock, ImageSource? image, decimal taxRate) : ObservableObject
+public sealed class CatalogProduct(CatalogItem item, StockRow? stock, ImageSource? image, decimal taxRate, bool vatOnInvoicedAmount = true)
+    : ObservableObject
 {
     public CatalogItem Item { get; } = item;
 
@@ -39,8 +42,11 @@ public sealed class CatalogProduct(CatalogItem item, StockRow? stock, ImageSourc
 
     public string CostText => Fmt.Money(Item.UnitCost);
 
-    /// <summary>Margen bruto sobre el precio sin impuesto (el precio de venta incluye el IVA).</summary>
-    public decimal Margin => Item.SalePrice <= 0 ? 0 : (Item.SalePrice * 100 / (100 + taxRate) - Item.UnitCost) / (Item.SalePrice * 100 / (100 + taxRate));
+    /// <summary>Margen bruto sobre el precio neto (el precio de venta incluye el IVA). V4.2 · En Bolivia el neto es el 87 % del
+    /// precio (el 13 % es el débito fiscal, <see cref="VatRules"/>), el mismo criterio del costo neto de las compras.</summary>
+    public decimal Margin => Item.SalePrice <= 0 ? 0 : (NetPrice - Item.UnitCost) / NetPrice;
+
+    private decimal NetPrice => VatRules.NetOf(Item.SalePrice, taxRate, vatOnInvoicedAmount);
 
     public string MarginText => Item.SalePrice <= 0 ? "—" : Margin.ToString("P0", Fmt.Culture);
 
@@ -57,6 +63,25 @@ public sealed class CatalogProduct(CatalogItem item, StockRow? stock, ImageSourc
     public string BinText => Item.BinCode ?? "—";
 
     public bool IsActive => Item.IsActive;
+
+    /// <summary>V4.2 · Ficha resumida del catálogo técnico (serie o IMEI, garantía, plataformas, especificaciones clave).</summary>
+    public TechProductRow? Tech { get; init; }
+
+    public string? SerialBadge => Tech is { TrackSerials: true } t ? TechText.KindBadge(t.SerialKind) : null;
+
+    public bool HasSerialBadge => SerialBadge is not null;
+
+    public string? WarrantyBadge => Tech is { WarrantyMonths: > 0 } t ? TechText.Warranty(t.WarrantyMonths) : null;
+
+    public bool HasWarrantyBadge => WarrantyBadge is not null;
+
+    public IReadOnlyList<string> Platforms => Tech?.Platforms ?? [];
+
+    public bool HasPlatforms => Platforms.Count > 0;
+
+    public string KeySpecs => Tech?.KeySpecs ?? string.Empty;
+
+    public bool HasKeySpecs => KeySpecs.Length > 0;
 }
 
 /// <summary>
@@ -77,7 +102,13 @@ public sealed class CatalogViewModel : PageViewModel
     private string _summary = string.Empty;
     private int _visible;
     private decimal _taxRate = 13;
+    private bool _vatOnInvoicedAmount = true;
     private CatalogEditor? _editor;
+    private IReadOnlyDictionary<string, TechProductRow> _tech = new Dictionary<string, TechProductRow>();
+    private string? _platform;
+    private HashSet<string>? _matched;
+    private HashSet<string>? _inCategory;
+    private int _facetVersion;
 
     public CatalogViewModel(AppServices app) : base(app, "catalogo", "Catálogo", "Productos, precios e imágenes", Glyphs.Tag)
     {
@@ -105,9 +136,22 @@ public sealed class CatalogViewModel : PageViewModel
         ClearSearch = new RelayCommand(() =>
         {
             Search = string.Empty;
+            SelectPlatformChip(null);
             Category = AllCategories;
             State = States[0];
         });
+        // V4.2 · Filtros técnicos: plataforma (chips de las opciones de la especificación) y especificaciones de la categoría
+        SelectPlatform = new RelayCommand<FilterChip>(chip => SelectPlatformChip(chip.Value as string));
+        ClearTechFilters = new RelayCommand(() =>
+        {
+            foreach (var facet in Facets)
+            {
+                facet.Reset();
+            }
+            _matched = null;
+            SelectPlatformChip(null);
+        });
+        ManageSpecs = new AsyncRelayCommand(ManageSpecsAsync, () => CanManageSpecs);
         Export = new RelayCommand(ExportCsv, () => _items.Count > 0);
         App.Images.Changed += (_, _) => _ = LoadAsync(force: false);
     }
@@ -121,6 +165,27 @@ public sealed class CatalogViewModel : PageViewModel
     public IReadOnlyList<Choice<string>> Sorts { get; }
 
     public bool CanEdit => App.Session.Can(PermissionCodes.CatalogManage);
+
+    /// <summary>V4.2 · Administrar especificaciones por categoría y fichas técnicas.</summary>
+    public bool CanManageSpecs => App.Session.Can(PermissionCodes.SpecsManage);
+
+    /// <summary>V4.2 · Chips de plataforma (opciones de la especificación «plataforma», regla T-07).</summary>
+    public BulkObservableCollection<FilterChip> PlatformChips { get; } = [];
+
+    public bool HasPlatforms => PlatformChips.Count > 1;
+
+    /// <summary>V4.2 · Filtros por especificación de la categoría elegida (facetas).</summary>
+    public BulkObservableCollection<FacetFilter> Facets { get; } = [];
+
+    public bool HasFacets => Facets.Count > 0;
+
+    public bool HasTechFilters => _platform is not null || Facets.Any(f => f.IsActive);
+
+    public RelayCommand<FilterChip> SelectPlatform { get; }
+
+    public RelayCommand ClearTechFilters { get; }
+
+    public AsyncRelayCommand ManageSpecs { get; }
 
     public string Search
     {
@@ -142,7 +207,10 @@ public sealed class CatalogViewModel : PageViewModel
         {
             if (Set(ref _category, value ?? AllCategories))
             {
+                _matched = null;
+                _inCategory = null;
                 ApplyFilter();
+                _ = LoadFacetsAsync();
             }
         }
     }
@@ -231,18 +299,24 @@ public sealed class CatalogViewModel : PageViewModel
     {
         var options = await App.SendAsync(new GetCatalogOptionsQuery());
         _taxRate = options.TaxRate;
+        _vatOnInvoicedAmount = options.VatOnInvoicedAmount;
         var catalog = await App.SendAsync(new GetCatalogQuery());
         var projection = await App.Data.ProjectionAsync(force);
         var stock = projection.Result.Stock.ToDictionary(s => s.Sku, StringComparer.OrdinalIgnoreCase);
         var images = await App.Images.AllAsync(force);
-        _items = catalog.Select(c => new CatalogProduct(c, stock.GetValueOrDefault(c.Sku), images.GetValueOrDefault(c.Sku), _taxRate)).ToList();
+        _tech = await TechCatalog.LoadAsync(App);
+        _items = catalog.Select(c => new CatalogProduct(c, stock.GetValueOrDefault(c.Sku), images.GetValueOrDefault(c.Sku), _taxRate, _vatOnInvoicedAmount)
+        {
+            Tech = _tech.GetValueOrDefault(c.Sku),
+        }).ToList();
         Rows = CollectionViewSource.GetDefaultView(_items);
         Rows.Filter = Matches;
         OnPropertyChanged(nameof(Rows));
 
         var previous = _category.Value;
+        // V4.2 · Una categoría madre puede no tener productos propios (están en sus subcategorías): sin «(0)» engañoso
         Categories.ReplaceAll(new[] { AllCategories }.Concat(options.Categories.Select(c =>
-            new Choice<string?>($"{c.Name} ({_items.Count(i => i.Item.CategoryCode == c.Code)})", c.Code))));
+            _items.Count(i => i.Item.CategoryCode == c.Code) is var own and > 0 ? new Choice<string?>($"{c.Name} ({own})", c.Code) : new Choice<string?>(c.Name, c.Code))));
         _category = Categories.FirstOrDefault(c => c.Value == previous) ?? AllCategories;
         OnPropertyChanged(nameof(Category));
 
@@ -256,7 +330,107 @@ public sealed class CatalogViewModel : PageViewModel
         PriceKpi.Detail = $"Lista {options.PriceListName} · IVA {options.TaxRate:0.##} % incluido";
         MarginKpi.Value = priced.Count > 0 ? priced.Average(i => i.Margin).ToString("P1", Fmt.Culture) : "—";
         MarginKpi.Detail = $"{priced.Count(i => i.LowMargin)} con margen bajo";
+        // V4.2 · Plataformas de las opciones de la especificación (con cuántos productos tiene cada una)
+        var platforms = await TechCatalog.PlatformsAsync(App);
+        var platformChips = platforms.Select(p => new FilterChip(p, p, _items.Count(i => i.Platforms.Contains(p, StringComparer.OrdinalIgnoreCase))))
+            .Where(c => c.Count > 0).ToList();
+        PlatformChips.ReplaceAll(platformChips.Count == 0 ? [] : [new FilterChip("Todas", null, _items.Count(i => i.HasPlatforms)), .. platformChips]);
+        if (PlatformChips.FirstOrDefault(c => Equals(c.Value, _platform)) is { } chip)
+        {
+            chip.IsSelected = true;
+        }
+        else
+        {
+            _platform = null;
+            if (PlatformChips.FirstOrDefault() is { } all)
+            {
+                all.IsSelected = true;
+            }
+        }
+        OnPropertyChanged(nameof(HasPlatforms));
+        await LoadFacetsAsync();
         ApplySort();
+    }
+
+    private void SelectPlatformChip(string? platform)
+    {
+        _platform = platform;
+        foreach (var c in PlatformChips)
+        {
+            c.IsSelected = Equals(c.Value, platform);
+        }
+        OnPropertyChanged(nameof(HasTechFilters));
+        ApplyFilter();
+    }
+
+    /// <summary>V4.2 · Facetas de la categoría elegida (especificaciones filtrables con la cantidad de productos por valor).</summary>
+    private async Task LoadFacetsAsync()
+    {
+        var version = ++_facetVersion;
+        IReadOnlyList<SpecFacet> facets = [];
+        HashSet<string>? inCategory = null;
+        if (_category.Value is { } code)
+        {
+            try
+            {
+                // La categoría incluye sus subcategorías (el catálogo del servidor conoce el árbol)
+                inCategory = (await App.SendAsync(new GetCatalogQuery(null, code))).Select(r => r.Sku).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                facets = await App.SendAsync(new GetSpecFacetsQuery(code));
+            }
+            catch (Exception ex) when (AppServices.IsExpected(ex))
+            {
+                System.Diagnostics.Trace.TraceWarning("M-INV · facetas de {0}: {1}", code, ex.Message);
+            }
+        }
+        if (version != _facetVersion)
+        {
+            return;
+        }
+        Facets.ReplaceAll(facets.Select(f => new FacetFilter(f, () => _ = ApplySpecFiltersAsync())));
+        _matched = null;
+        _inCategory = inCategory;
+        OnPropertiesChanged(nameof(HasFacets), nameof(HasTechFilters));
+        ApplyFilter();
+    }
+
+    /// <summary>V4.2 · Productos que cumplen las especificaciones elegidas (el filtro lo resuelve el catálogo en el servidor).</summary>
+    private async Task ApplySpecFiltersAsync()
+    {
+        var filters = Facets.Select(f => f.ToFilter()).Where(f => f is not null).Select(f => f!).ToList();
+        OnPropertyChanged(nameof(HasTechFilters));
+        if (filters.Count == 0)
+        {
+            _matched = null;
+            ApplyFilter();
+            return;
+        }
+        try
+        {
+            var rows = await App.SendAsync(new GetCatalogQuery(filters, _category.Value));
+            _matched = rows.Select(r => r.Sku).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (AppServices.IsExpected(ex))
+        {
+            App.Notify.Error("No se pudo filtrar por especificación", AppServices.Describe(ex));
+            _matched = null;
+        }
+        ApplyFilter();
+    }
+
+    private async Task ManageSpecsAsync()
+    {
+        try
+        {
+            var options = await App.SendAsync(new GetCatalogOptionsQuery());
+            var dialog = new SpecsAdminDialog(App, options.Categories, _category.Value);
+            await dialog.LoadAsync();
+            await App.Dialogs.ShowAsync(dialog);
+            await LoadAsync(force: true);
+        }
+        catch (Exception ex) when (AppServices.IsExpected(ex))
+        {
+            App.Notify.Error("No se pudieron abrir las especificaciones", AppServices.Describe(ex));
+        }
     }
 
     public override void OnNavigatedTo(object? parameter)
@@ -319,7 +493,15 @@ public sealed class CatalogViewModel : PageViewModel
         {
             return false;
         }
-        if (_category.Value is { } code && p.Item.CategoryCode != code)
+        if (_category.Value is { } code && !(_inCategory?.Contains(p.Sku) ?? p.Item.CategoryCode == code))
+        {
+            return false;
+        }
+        if (_matched is not null && !_matched.Contains(p.Sku))
+        {
+            return false;
+        }
+        if (_platform is not null && !p.Platforms.Contains(_platform, StringComparer.OrdinalIgnoreCase))
         {
             return false;
         }
@@ -410,6 +592,7 @@ public sealed class CatalogEditor : ObservableObject
     private readonly AppServices _app;
     private readonly string? _originalSku;
     private readonly decimal _taxRate;
+    private readonly bool _vatOnInvoicedAmount;
     private string _sku;
     private string _name;
     private string _description;
@@ -427,6 +610,11 @@ public sealed class CatalogEditor : ObservableObject
     private PickedImage? _pendingImage;
     private bool _removeImage;
     private string? _error;
+    private string? _savedSku;
+    private string _tab = "general";
+    private TechSheetEditor? _techSheet;
+    private bool _loadingTech;
+    private int _techVersion;
 
     public CatalogEditor(CatalogViewModel owner, AppServices app, CatalogOptions options, IReadOnlyList<string> bins, CatalogItem? item, ImageSource? image)
     {
@@ -434,6 +622,7 @@ public sealed class CatalogEditor : ObservableObject
         _app = app;
         _originalSku = item?.Sku;
         _taxRate = options.TaxRate;
+        _vatOnInvoicedAmount = options.VatOnInvoicedAmount;
         Categories = [.. options.Categories];
         Units = options.Units;
         Suppliers = [NoSupplier, .. options.Suppliers.Select(s => new Choice<string?>(s.Name, s.Code))];
@@ -468,6 +657,97 @@ public sealed class CatalogEditor : ObservableObject
         }, () => Image is not null);
         NewCategory = new AsyncRelayCommand(NewCategoryAsync);
         GenerateBarcode = new RelayCommand(() => Barcode = NewEan13());
+        _ = LoadTechAsync();
+    }
+
+    // ------------------------------------------------------------------------------------------------ V4.2 · ficha técnica
+    /// <summary>Pestaña visible: «general» o «tech» (ficha técnica).</summary>
+    public string Tab
+    {
+        get => _tab;
+        set
+        {
+            if (Set(ref _tab, value ?? "general"))
+            {
+                OnPropertiesChanged(nameof(IsGeneralTab), nameof(IsTechTab));
+            }
+        }
+    }
+
+    public bool IsGeneralTab
+    {
+        get => _tab == "general";
+        set
+        {
+            if (value)
+            {
+                Tab = "general";
+            }
+        }
+    }
+
+    public bool IsTechTab
+    {
+        get => _tab == "tech";
+        set
+        {
+            if (value)
+            {
+                Tab = "tech";
+            }
+        }
+    }
+
+    public bool CanEditSpecs => _app.Session.Can(PermissionCodes.SpecsManage);
+
+    public TechSheetEditor? TechSheet
+    {
+        get => _techSheet;
+        private set
+        {
+            if (Set(ref _techSheet, value))
+            {
+                OnPropertyChanged(nameof(HasTechSheet));
+            }
+        }
+    }
+
+    public bool HasTechSheet => _techSheet is not null;
+
+    public bool IsLoadingTech { get => _loadingTech; private set => Set(ref _loadingTech, value); }
+
+    /// <summary>Especificaciones de la categoría elegida con los valores del producto (se vuelve a leer al cambiar la categoría).</summary>
+    public async Task LoadTechAsync()
+    {
+        var version = ++_techVersion;
+        if (_category is null)
+        {
+            TechSheet = null;
+            return;
+        }
+        IsLoadingTech = true;
+        try
+        {
+            var definitions = await _app.SendAsync(new GetSpecDefinitionsQuery(_category.Code));
+            var sku = _savedSku ?? _originalSku;
+            var current = sku is null ? null : await TechCatalog.ProductAsync(_app, sku);
+            if (version == _techVersion)
+            {
+                TechSheet = new TechSheetEditor(definitions, current, CanEditSpecs, _category.Name);
+            }
+        }
+        catch (Exception ex) when (AppServices.IsExpected(ex))
+        {
+            System.Diagnostics.Trace.TraceWarning("M-INV · ficha técnica: {0}", ex.Message);
+            TechSheet = null;
+        }
+        finally
+        {
+            if (version == _techVersion)
+            {
+                IsLoadingTech = false;
+            }
+        }
     }
 
     public bool IsNew => _originalSku is null;
@@ -492,7 +772,17 @@ public sealed class CatalogEditor : ObservableObject
 
     public string Description { get => _description; set => Set(ref _description, value ?? string.Empty); }
 
-    public OptionItem? Category { get => _category; set => Set(ref _category, value); }
+    public OptionItem? Category
+    {
+        get => _category;
+        set
+        {
+            if (Set(ref _category, value))
+            {
+                _ = LoadTechAsync();
+            }
+        }
+    }
 
     public UnitOption? Unit { get => _unit; set => Set(ref _unit, value); }
 
@@ -547,7 +837,8 @@ public sealed class CatalogEditor : ObservableObject
 
     public bool HasImage => _image is not null;
 
-    /// <summary>Elegir un margen del combo calcula el precio de venta (con IVA) a partir del costo.</summary>
+    /// <summary>Elegir un margen del combo calcula el precio de venta (con IVA) a partir del costo: el neto que da ese margen
+    /// y, encima, el IVA (en Bolivia, neto / 0,87: <see cref="VatRules.GrossOf"/>).</summary>
     public Choice<decimal>? MarginPreset
     {
         get => null;
@@ -556,7 +847,7 @@ public sealed class CatalogEditor : ObservableObject
             if (value is { Value: > 0 } preset && Numbers.TryParse(_cost, out var cost) && cost > 0)
             {
                 var net = cost / (1 - preset.Value);
-                Price = Numbers.Plain(decimal.Round(net * (100 + _taxRate) / 100, 1, MidpointRounding.AwayFromZero));
+                Price = Numbers.Plain(decimal.Round(VatRules.GrossOf(net, _taxRate, _vatOnInvoicedAmount), 1, MidpointRounding.AwayFromZero));
             }
             OnPropertyChanged();
         }
@@ -570,14 +861,14 @@ public sealed class CatalogEditor : ObservableObject
             {
                 return "Indique costo y precio para ver el margen.";
             }
-            var net = price * 100 / (100 + _taxRate);
+            var net = VatRules.NetOf(price, _taxRate, _vatOnInvoicedAmount);
             var margin = (net - cost) / net;
             return $"Margen {margin.ToString("P1", Fmt.Culture)} · ganancia {Fmt.Money(net - cost)} por unidad (sin IVA)";
         }
     }
 
     public string NetPriceText => Numbers.TryParse(_price, out var price) && price > 0
-        ? $"Sin IVA: {Fmt.Money(price * 100 / (100 + _taxRate))} · IVA {Fmt.Money(price * _taxRate / (100 + _taxRate))}"
+        ? $"Sin IVA: {Fmt.Money(VatRules.NetOf(price, _taxRate, _vatOnInvoicedAmount))} · IVA {Fmt.Money(VatRules.IncludedTax(price, _taxRate, _vatOnInvoicedAmount))}"
         : $"El precio incluye el IVA ({_taxRate:0.##} %).";
 
     public string? Error
@@ -618,8 +909,8 @@ public sealed class CatalogEditor : ObservableObject
     private async Task NewCategoryAsync()
     {
         var name = await _app.Dialogs.PromptAsync("Nueva categoría", "La categoría queda disponible para todos los productos.", "Nombre de la categoría",
-            ["Ferretería", "Eléctricos", "Plomería", "Pinturas", "Herramientas", "Jardinería", "Limpieza", "Seguridad"], "Crear categoría",
-            placeholder: "Ej.: Jardinería", glyph: Glyphs.Tag);
+            ["Componentes", "Computadoras", "Monitores", "Periféricos", "Consolas", "Videojuegos", "Accesorios", "Redes", "Cables", "Software"],
+            "Crear categoría", placeholder: "Ej.: Periféricos", glyph: Glyphs.Tag);
         if (string.IsNullOrWhiteSpace(name))
         {
             return;
@@ -659,9 +950,16 @@ public sealed class CatalogEditor : ObservableObject
             Error = "Elija la categoría y la unidad.";
             return;
         }
+        var tech = CanEditSpecs && _techSheet is { IsDirty: true } sheet ? sheet : null;
+        if (tech?.Check() is { } techProblem)
+        {
+            Error = "Ficha técnica: " + techProblem;
+            Tab = "tech";
+            return;
+        }
         try
         {
-            var sku = await _app.SendAsync(new SaveProductCommand(_originalSku, _sku.Trim(), _name.Trim(), string.IsNullOrWhiteSpace(_description) ? null : _description.Trim(),
+            var sku = await _app.SendAsync(new SaveProductCommand(_savedSku ?? _originalSku, _sku.Trim(), _name.Trim(), string.IsNullOrWhiteSpace(_description) ? null : _description.Trim(),
                 _category.Code, _unit.Code, _supplier.Value, min, max, cost, price, string.IsNullOrWhiteSpace(_barcode) ? null : _barcode.Trim(), _isActive,
                 string.IsNullOrWhiteSpace(_bin) ? null : _bin.Trim()));
             if (_pendingImage is { } image)
@@ -671,6 +969,22 @@ public sealed class CatalogEditor : ObservableObject
             else if (_removeImage && !IsNew)
             {
                 await _app.SendAsync(new RemoveProductImageCommand(sku));
+            }
+            _savedSku = sku;
+            _pendingImage = null;
+            if (tech is not null)
+            {
+                // V4.2 · Ficha técnica, garantía y control por serie (después del producto: el SKU ya existe)
+                try
+                {
+                    await _app.SendAsync(tech.ToCommand(sku));
+                }
+                catch (Exception ex) when (AppServices.IsExpected(ex))
+                {
+                    Error = $"El producto {sku} se guardó, pero la ficha técnica no: {AppServices.Describe(ex)}";
+                    Tab = "tech";
+                    return;
+                }
             }
             _app.Notify.Success(IsNew ? "Producto creado" : "Producto actualizado", $"{sku} · {_name.Trim()}");
             await _owner.AfterSaveAsync(sku);

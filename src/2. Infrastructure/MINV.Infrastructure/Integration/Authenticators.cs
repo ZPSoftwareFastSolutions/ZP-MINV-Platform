@@ -80,7 +80,7 @@ public sealed class ApiKeyAuthenticator(MinvWriteDbContext db, ITenantContext te
         {
             return await db.Database.SqlQuery<KeyRow>(
                     $"SELECT api_key_id AS \"ApiKeyId\", tenant_id AS \"TenantId\", token_hash AS \"TokenHash\", owner_user_id AS \"OwnerUserId\", branch_id AS \"BranchId\", expires_at AS \"ExpiresAt\", revoked_at AS \"RevokedAt\" FROM integration.resolve_api_key({prefix})")
-                .FirstOrDefaultAsync(ct);
+                .OrderBy(r => r.ApiKeyId).FirstOrDefaultAsync(ct);   // a lo sumo una fila (prefijo único); orden explícito (EF 10103)
         }
         // Demostración en memoria (sin RLS): búsqueda de plataforma por el prefijo, que es único en toda la base
         return await db.ApiKeys.IgnoreQueryFilters().AsNoTracking().Where(k => k.Prefix == prefix)
@@ -156,7 +156,7 @@ public sealed class CloudSessionAuthenticator(MinvWriteDbContext db, ITenantCont
         {
             return await db.Database.SqlQuery<SessionRow>(
                     $"SELECT session_id AS \"SessionId\", tenant_id AS \"TenantId\", user_id AS \"UserId\", active_branch_id AS \"ActiveBranchId\", expires_at AS \"ExpiresAt\", ended_at AS \"EndedAt\" FROM iam.resolve_session({hash})")
-                .FirstOrDefaultAsync(ct);
+                .OrderBy(r => r.SessionId).FirstOrDefaultAsync(ct);   // a lo sumo una fila (hash único); orden explícito (EF 10103)
         }
         return await db.Sessions.IgnoreQueryFilters().AsNoTracking().Where(s => s.TokenHash == hash)
             .Select(s => new SessionRow(s.Id, s.TenantId, s.UserId, s.ActiveBranchId, s.ExpiresAt, s.EndedAt)).FirstOrDefaultAsync(ct);
