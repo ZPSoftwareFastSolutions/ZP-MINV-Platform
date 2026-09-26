@@ -21,10 +21,13 @@ public static class Schemas
     public const string Accounting = "accounting";
     public const string Integration = "integration";
 
+    /// <summary>V4.1 · Facturación SIAT (documentos fiscales, códigos del SIN, catálogos, contingencia).</summary>
+    public const string Billing = "billing";
+
     /// <summary>Vistas materializadas y vistas de seguridad del modelo de lectura (no son tablas del modelo EF).</summary>
     public const string Reporting = "reporting";
 
-    public static readonly IReadOnlyList<string> All = [Iam, Catalog, Warehousing, Inventory, Purchasing, Sales, Accounting, Integration];
+    public static readonly IReadOnlyList<string> All = [Iam, Catalog, Warehousing, Inventory, Purchasing, Sales, Accounting, Integration, Billing];
 }
 
 /// <summary>Reglas transversales del modelo (se aplican después de las configuraciones de cada entidad).</summary>

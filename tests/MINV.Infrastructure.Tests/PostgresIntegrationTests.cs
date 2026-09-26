@@ -7,6 +7,7 @@ using MINV.Application.Common;
 using MINV.Application.Iam;
 using MINV.Application.Inventory.Movements;
 using MINV.Application.Inventory.Queries;
+using MINV.Domain.Billing;
 using MINV.Domain.Common;
 using MINV.Domain.Iam;
 using MINV.Domain.Inventory;
@@ -111,27 +112,191 @@ public sealed class PostgresIntegrationTests(PostgresFixture pg) : IClassFixture
     }
 
     [PostgresFact]
-    public async Task Las_migraciones_crean_110_tablas_triggers_RLS_por_sucursal_y_vistas()
+    public async Task Las_migraciones_crean_140_tablas_triggers_RLS_por_sucursal_y_vistas()
     {
         await using var provider = pg.Services();
         using var scope = provider.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MinvWriteDbContext>();
         async Task<int> Count(string sql) => await db.Database.SqlQueryRaw<int>(sql).SingleAsync();
-        Assert.Equal(110, await Count("SELECT count(*)::int AS \"Value\" FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema IN ('iam','catalog','warehouse','inventory','purchasing','sales','accounting','integration') AND table_name <> '__ef_migrations_history'"));
-        Assert.Equal(15, await Count("SELECT count(*)::int AS \"Value\" FROM pg_trigger WHERE tgname = 'trg_append_only'"));
-        Assert.Equal(108, await Count("SELECT count(*)::int AS \"Value\" FROM pg_policies WHERE policyname = 'tenant_isolation'"));
-        Assert.Equal(40, await Count("SELECT count(*)::int AS \"Value\" FROM pg_policies WHERE policyname = 'branch_isolation' AND permissive = 'RESTRICTIVE'"));
-        Assert.Equal(4, await Count("SELECT count(*)::int AS \"Value\" FROM information_schema.views WHERE table_name IN ('v_stock_by_variant','v_conservation_breaches','v_activity','v_transfer_breaches')"));
+        Assert.Equal(140, await Count("SELECT count(*)::int AS \"Value\" FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema IN ('iam','catalog','warehouse','inventory','purchasing','sales','accounting','integration','billing') AND table_name <> '__ef_migrations_history'"));
+        Assert.Equal(27, await Count("SELECT count(*)::int AS \"Value\" FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema = 'billing'"));
+        Assert.Equal(24, await Count("SELECT count(*)::int AS \"Value\" FROM pg_trigger WHERE tgname = 'trg_append_only'"));
+        Assert.Equal(24, await Count("SELECT count(*)::int AS \"Value\" FROM pg_trigger WHERE tgname = 'trg_append_only_truncate'"));
+        Assert.Equal(138, await Count("SELECT count(*)::int AS \"Value\" FROM pg_policies WHERE policyname = 'tenant_isolation'"));
+        Assert.Equal(55, await Count("SELECT count(*)::int AS \"Value\" FROM pg_policies WHERE policyname = 'branch_isolation' AND permissive = 'RESTRICTIVE'"));
+        // Toda tabla con tenant_id tiene la política de empresa (incluidas las 30 de la V4.1)
+        Assert.Equal(0, await Count("SELECT count(*)::int AS \"Value\" FROM information_schema.columns c JOIN pg_tables t ON t.schemaname = c.table_schema AND t.tablename = c.table_name WHERE c.column_name = 'tenant_id' AND NOT EXISTS (SELECT 1 FROM pg_policies p WHERE p.schemaname = c.table_schema AND p.tablename = c.table_name AND p.policyname = 'tenant_isolation')"));
+        Assert.Equal(5, await Count("SELECT count(*)::int AS \"Value\" FROM information_schema.views WHERE table_name IN ('v_stock_by_variant','v_conservation_breaches','v_activity','v_transfer_breaches','v_fiscal_document_totals')"));
         Assert.Equal(2, await Count("SELECT count(*)::int AS \"Value\" FROM pg_matviews WHERE schemaname = 'reporting'"));
-        Assert.Equal(4, await Count("SELECT count(*)::int AS \"Value\" FROM pg_proc WHERE prosecdef AND proname IN ('resolve_api_key','resolve_session','claim_deliveries','refresh_all')"));
-        Assert.Equal(9, await db.Modules.CountAsync());
-        // Las listas de la migración coinciden con el modelo (una tabla nueva por sucursal no puede quedar sin política)
+        Assert.Equal(5, await Count("SELECT count(*)::int AS \"Value\" FROM pg_proc WHERE prosecdef AND proname IN ('resolve_api_key','resolve_session','claim_deliveries','refresh_all','siat_active_tenants')"));
+        Assert.Equal(10, await db.Modules.CountAsync());
+        Assert.True(await db.Modules.AnyAsync(m => m.Code == LicenseModuleCodes.FiscalSiat));
+        // Las listas de las migraciones coinciden con el modelo (una tabla nueva por sucursal no puede quedar sin política)
         var model = db.Model.GetEntityTypes().Where(e => !e.IsOwned()).ToList();
         string Name(Microsoft.EntityFrameworkCore.Metadata.IEntityType e) => $"{e.GetSchema()}.{e.GetTableName()}";
         Assert.Equal(model.Where(e => typeof(IBranchScoped).IsAssignableFrom(e.ClrType)).Select(Name).Order(),
-            Persistence.Migrations.V4MultiBranchCloud.BranchTables.Order());
+            Persistence.Migrations.V4MultiBranchCloud.BranchTables.Concat(Persistence.Migrations.V41SiatBilling.BranchTablesV41).Order());
         Assert.Equal(model.Where(e => typeof(IInterBranch).IsAssignableFrom(e.ClrType)).Select(Name).Order(),
             Persistence.Migrations.V4MultiBranchCloud.InterBranchTables.Order());
+        Assert.Equal(model.Where(e => typeof(IAppendOnly).IsAssignableFrom(e.ClrType)).Select(Name).Order(),
+            Persistence.Migrations.GuardsRlsAndViews.AppendOnlyTables.Concat(Persistence.Migrations.V4MultiBranchCloud.AppendOnlyTablesV4)
+                .Concat(Persistence.Migrations.V41SiatBilling.AppendOnlyTablesV41).Order());
+        // Cada tabla de las listas tiene de verdad su política y su trigger
+        var branchPolicies = await db.Database.SqlQueryRaw<string>(
+            "SELECT schemaname || '.' || tablename AS \"Value\" FROM pg_policies WHERE policyname = 'branch_isolation'").ToListAsync();
+        Assert.All(Persistence.Migrations.V41SiatBilling.BranchTablesV41, t => Assert.Contains(t, branchPolicies));
+        var appendOnly = await db.Database.SqlQueryRaw<string>(
+            "SELECT n.nspname || '.' || c.relname AS \"Value\" FROM pg_trigger g JOIN pg_class c ON c.oid = g.tgrelid " +
+            "JOIN pg_namespace n ON n.oid = c.relnamespace WHERE g.tgname = 'trg_append_only'").ToListAsync();
+        Assert.All(Persistence.Migrations.V41SiatBilling.AppendOnlyTablesV41, t => Assert.Contains(t, appendOnly));
+    }
+
+    /// <summary>
+    /// V4.1 · Facturación sobre PostgreSQL real con un rol sin privilegios (como minv_server): los documentos fiscales, sus
+    /// líneas, los puntos de venta y los totales derivados solo se ven desde la sucursal que los emitió; los libros fiscales
+    /// son append-only; la función SECURITY DEFINER del despachador no la puede ejecutar cualquiera.
+    /// </summary>
+    [PostgresFact]
+    public async Task La_facturacion_aisla_las_sucursales_y_protege_sus_libros()
+    {
+        await using var provider = pg.Services();
+        var (scope, tenant) = await NewTenantAsync(provider, "F" + Random.Shared.Next(1000, 9999));
+        var role = "minv_fis_" + Guid.NewGuid().ToString("N")[..8];
+        const string password = "Fis-Prueba-2026-x";
+        Guid otherBranchId;
+        using (scope)
+        {
+            // Una segunda sucursal y, en la principal, un punto de venta con CUIS, CUFD y una factura emitida en línea
+            var db = scope.ServiceProvider.GetRequiredService<MinvWriteDbContext>();
+            var now = DateTimeOffset.UtcNow;
+            var other = new Domain.Warehousing.Branch(tenant.TenantId, "SB", "Sucursal B", null);
+            otherBranchId = other.Id;
+            var settings = new SiatSettings(tenant.TenantId, 1234567019, "EMPRESA DE PRUEBA", "SIS-PRUEBA", SiatCodes.EnvironmentTest);
+            settings.Enable();
+            var pos = new SiatPointOfSale(tenant.TenantId, tenant.BranchId, SiatCodes.EnvironmentTest, 0, 0, "Sin punto de venta", null, null, now);
+            var cuis = new SiatCuis(tenant.TenantId, tenant.BranchId, pos.Id, "C2FC6F36", now.AddDays(365), now);
+            var cufd = new SiatCufd(tenant.TenantId, tenant.BranchId, pos.Id, cuis.Id, "BQUFDQ0FDREFBQkM=", "A19E23EF34124CD", "AV. PRUEBA 123",
+                now.AddHours(24), now);
+            var issuedAt = new DateTime(2026, 9, 25, 10, 30, 15, 123, DateTimeKind.Unspecified);
+            var invoice = FiscalDocument.IssueInvoice(tenant.TenantId,
+                new FiscalEmission(tenant.BranchId, SiatCodes.EnvironmentTest, settings.Nit, pos.Id, 0, 0, cuis.Id, cufd.Id, cufd.ControlCode,
+                    SiatCodes.EmissionOnline, issuedAt, 1, "Ley N° 453: prueba", "ADMIN"),
+                FiscalBuyer.Create(null, "CLI-1", SiatCodes.DocumentCi, "1234567", "1A", "JUAN PEREZ", null), null,
+                [new FiscalLineInput(null, "4610000", 12345, "FER-001", "Martillo", 2m, 57, 10.50m, null),
+                 new FiscalLineInput(null, "4610000", 12346, "FER-002", "Clavos", 1m, 57, 5m, 0.50m)],
+                1, null, 1m, 0m, false, now);
+            db.AddRange(other, settings, pos, cuis, cufd, invoice,
+                new FiscalDocumentEvent(tenant.TenantId, tenant.BranchId, invoice.Id, FiscalDocumentAction.Issued, now, null, "Emitida", null, null,
+                    tenant.AdminUserId));
+            await db.SaveChangesAsync();
+
+            // Libros fiscales append-only también en la base
+            var update = await Assert.ThrowsAsync<PostgresException>(() =>
+                db.Database.ExecuteSqlRawAsync("UPDATE billing.fiscal_document_lines SET quantity = 99"));
+            Assert.Contains("append-only", update.MessageText);
+            await Assert.ThrowsAsync<PostgresException>(() => db.Database.ExecuteSqlRawAsync("DELETE FROM billing.siat_cufds"));
+            // FK compuesta con la sucursal: un CUFD de otra sucursal no puede colgar de este punto de venta
+            var foreign = await Assert.ThrowsAsync<PostgresException>(() => db.Database.ExecuteSqlRawAsync(
+                "INSERT INTO billing.siat_cufds (id, tenant_id, branch_id, point_of_sale_id, cuis_id, code, control_code, address, valid_until, obtained_at) " +
+                $"VALUES (gen_random_uuid(), '{tenant.TenantId}', '{other.Id}', '{pos.Id}', '{cuis.Id}', 'X', 'Y', 'Z', now() + interval '1 day', now())"));
+            Assert.Equal("23503", foreign.SqlState);
+
+            await using (var owner = new NpgsqlConnection(pg.ConnectionString))
+            {
+                await owner.OpenAsync();
+                var sql = $"""
+                    CREATE ROLE {role} LOGIN NOBYPASSRLS PASSWORD '{password}';
+                    GRANT CONNECT ON DATABASE {pg.Database} TO {role};
+                    GRANT USAGE ON SCHEMA iam, billing TO {role};
+                    GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA billing TO {role};
+                    GRANT EXECUTE ON FUNCTION iam.current_tenant_id(), iam.branch_visible(uuid) TO {role};
+                    """;
+                await using var cmd = new NpgsqlCommand(sql, owner);
+                await cmd.ExecuteNonQueryAsync();
+                // Como dueño (sin RLS) la función devuelve las empresas con la facturación activa
+                await using var active = new NpgsqlCommand($"SELECT count(*) FROM billing.siat_active_tenants() t WHERE t = '{tenant.TenantId}'", owner);
+                Assert.Equal(1L, Convert.ToInt64(await active.ExecuteScalarAsync()));
+                // Nadie la hereda por PUBLIC; si existe minv_server, es el único rol de aplicación que la ejecuta
+                await using var acl = new NpgsqlCommand(
+                    "SELECT count(*) FROM pg_proc p WHERE p.proname = 'siat_active_tenants' " +
+                    "AND (p.proacl IS NULL OR EXISTS (SELECT 1 FROM aclexplode(p.proacl) a WHERE a.grantee = 0))", owner);
+                Assert.Equal(0L, Convert.ToInt64(await acl.ExecuteScalarAsync()));
+                await using var config = new NpgsqlCommand(
+                    "SELECT array_to_string(proconfig, ',') FROM pg_proc WHERE proname = 'siat_active_tenants' AND prosecdef", owner);
+                Assert.Contains("search_path=pg_catalog", (string)(await config.ExecuteScalarAsync())!, StringComparison.Ordinal);
+                await using var roles = new NpgsqlCommand(
+                    "SELECT rolname, has_function_privilege(rolname, 'billing.siat_active_tenants()', 'EXECUTE') FROM pg_roles " +
+                    "WHERE rolname IN ('minv_server', 'minv_app')", owner);
+                await using var reader = await roles.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    Assert.Equal(reader.GetString(0) == "minv_server", reader.GetBoolean(1));
+                }
+            }
+        }
+        try
+        {
+            var limited = new NpgsqlConnectionStringBuilder(pg.ConnectionString) { Username = role, Password = password }.ConnectionString;
+            await using var conn = new NpgsqlConnection(limited);
+            await conn.OpenAsync();
+            async Task<long> Scalar(string text)
+            {
+                await using var c = new NpgsqlCommand(text, conn);
+                return Convert.ToInt64(await c.ExecuteScalarAsync());
+            }
+            async Task Session(string branches)
+            {
+                await using var c = new NpgsqlCommand(
+                    $"SELECT set_config('minv.tenant_id', '{tenant.TenantId}', false), set_config('minv.branch_ids', '{branches}', false)", conn);
+                await c.ExecuteNonQueryAsync();
+            }
+            // Sin empresa en la sesión: nada visible
+            Assert.Equal(0, await Scalar("SELECT count(*) FROM billing.fiscal_documents"));
+            await Session("*");
+            Assert.Equal(1, await Scalar("SELECT count(*) FROM billing.fiscal_documents"));
+            Assert.Equal(2, await Scalar("SELECT count(*) FROM billing.fiscal_document_lines"));
+            Assert.Equal(1, await Scalar("SELECT count(*) FROM billing.siat_points_of_sale"));
+            // Desde otra sucursal: ni documentos, ni líneas, ni puntos de venta, ni totales
+            await Session(otherBranchId.ToString());
+            Assert.Equal(0, await Scalar("SELECT count(*) FROM billing.fiscal_documents"));
+            Assert.Equal(0, await Scalar("SELECT count(*) FROM billing.fiscal_document_lines"));
+            Assert.Equal(0, await Scalar("SELECT count(*) FROM billing.fiscal_document_events"));
+            Assert.Equal(0, await Scalar("SELECT count(*) FROM billing.siat_points_of_sale"));
+            Assert.Equal(0, await Scalar("SELECT count(*) FROM billing.siat_cufds"));
+            Assert.Equal(0, await Scalar("SELECT count(*) FROM billing.v_fiscal_document_totals"));
+            Assert.Equal(1, await Scalar("SELECT count(*) FROM billing.siat_settings"));   // la configuración es de la empresa
+            // Escribir un punto de venta en la sucursal ajena lo rechaza la política restrictiva (WITH CHECK)
+            var error = await Assert.ThrowsAsync<PostgresException>(async () => await new NpgsqlCommand(
+                "INSERT INTO billing.siat_points_of_sale (id, tenant_id, branch_id, environment, code, type_code, name, pos_register_id, mode, " +
+                "mode_since, consecutive_failures) " +
+                $"VALUES (gen_random_uuid(), '{tenant.TenantId}', '{tenant.BranchId}', 2, 1, 5, 'PV ajeno', NULL, 'Online', now(), 0)",
+                conn).ExecuteNonQueryAsync());
+            Assert.Equal("42501", error.SqlState);
+            // Desde la sucursal emisora: los totales derivados de la vista coinciden con el dominio
+            await Session(tenant.BranchId.ToString());
+            await using (var totals = new NpgsqlCommand(
+                "SELECT lines_subtotal, total_amount, total_subject_to_vat, vat_amount FROM billing.v_fiscal_document_totals", conn))
+            await using (var reader = await totals.ExecuteReaderAsync())
+            {
+                Assert.True(await reader.ReadAsync());
+                Assert.Equal(25.50m, reader.GetDecimal(0));   // 2 × 10,50 + (1 × 5 − 0,50)
+                Assert.Equal(24.50m, reader.GetDecimal(1));   // − descuento adicional 1
+                Assert.Equal(24.50m, reader.GetDecimal(2));
+                Assert.Equal(3.19m, reader.GetDecimal(3));    // round2(24,50 × 0,13) = 3,185 → 3,19 (HALF-UP)
+            }
+            // La función del despachador no la ejecuta un rol cualquiera
+            var denied = await Assert.ThrowsAsync<PostgresException>(async () =>
+                await new NpgsqlCommand("SELECT count(*) FROM billing.siat_active_tenants()", conn).ExecuteScalarAsync());
+            Assert.Equal("42501", denied.SqlState);
+        }
+        finally
+        {
+            NpgsqlConnection.ClearAllPools();
+            await using var owner = new NpgsqlConnection(pg.ConnectionString);
+            await owner.OpenAsync();
+            await using var cmd = new NpgsqlCommand($"DROP OWNED BY {role}; DROP ROLE IF EXISTS {role};", owner);
+            await cmd.ExecuteNonQueryAsync();
+        }
     }
 
     [PostgresFact]

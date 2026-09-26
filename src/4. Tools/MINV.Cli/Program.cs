@@ -182,20 +182,25 @@ internal static class Cli
         return 0;
     }
 
-    /// <summary>Comprobaciones de la base: tablas, triggers append-only, RLS y conservación (Σ existencias = Σ movimientos).</summary>
+    /// <summary>Comprobaciones de la base: tablas, triggers append-only, RLS y conservación (Σ existencias = Σ movimientos).
+    /// Mínimos de la V4.1: 140 tablas en 9 esquemas (27 de facturación en <c>billing</c>), 24 libros append-only, RLS por
+    /// empresa en las 138 tablas con <c>tenant_id</c> y política restrictiva por sucursal en 55.</summary>
     private static async Task<int> VerifyAsync(MinvWriteDbContext db, ITenantContext tenantContext, string? tenantCode)
     {
+        const int MinTables = 140, MinBilling = 27, MinLedgers = 24, MinRls = 138, MinBranch = 55;
         var schemas = string.Join(",", Schemas.All.Select(s => $"'{s}'"));
         async Task<int> Scalar(string sql) => await db.Database.SqlQueryRaw<int>(sql).SingleAsync();
         var tables = await Scalar($"SELECT count(*)::int AS \"Value\" FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema IN ({schemas}) AND table_name <> '__ef_migrations_history'");
+        var billing = await Scalar($"SELECT count(*)::int AS \"Value\" FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema = '{Schemas.Billing}'");
         var triggers = await Scalar("SELECT count(*)::int AS \"Value\" FROM pg_trigger WHERE tgname = 'trg_append_only'");
         var rls = await Scalar($"SELECT count(*)::int AS \"Value\" FROM pg_tables WHERE rowsecurity AND schemaname IN ({schemas})");
         var branchPolicies = await Scalar("SELECT count(*)::int AS \"Value\" FROM pg_policies WHERE policyname = 'branch_isolation'");
-        var ok = tables >= 110 && triggers >= 15 && rls >= 100 && branchPolicies >= 40;
-        Console.WriteLine($"{(tables >= 110 ? "✔" : "✖")} {tables} tablas en {Schemas.All.Count} esquemas");
-        Console.WriteLine($"{(triggers >= 15 ? "✔" : "✖")} {triggers} libros mayores protegidos (append-only)");
-        Console.WriteLine($"{(rls >= 100 ? "✔" : "✖")} Row Level Security activa en {rls} tablas");
-        Console.WriteLine($"{(branchPolicies >= 40 ? "✔" : "✖")} Aislamiento por sucursal (política restrictiva) en {branchPolicies} tablas");
+        var ok = tables >= MinTables && billing >= MinBilling && triggers >= MinLedgers && rls >= MinRls && branchPolicies >= MinBranch;
+        Console.WriteLine($"{(tables >= MinTables ? "✔" : "✖")} {tables} tablas en {Schemas.All.Count} esquemas");
+        Console.WriteLine($"{(billing >= MinBilling ? "✔" : "✖")} Facturación SIAT: {billing} tablas en el esquema {Schemas.Billing}");
+        Console.WriteLine($"{(triggers >= MinLedgers ? "✔" : "✖")} {triggers} libros mayores protegidos (append-only)");
+        Console.WriteLine($"{(rls >= MinRls ? "✔" : "✖")} Row Level Security activa en {rls} tablas");
+        Console.WriteLine($"{(branchPolicies >= MinBranch ? "✔" : "✖")} Aislamiento por sucursal (política restrictiva) en {branchPolicies} tablas");
         if (tenantCode is { Length: > 0 })
         {
             var tenant = await db.Tenants.FirstOrDefaultAsync(t => t.Code == tenantCode.ToUpperInvariant())
