@@ -21,6 +21,7 @@ public sealed record BranchOption(Guid? Id, string Code, string Label);
 public sealed class ShellViewModel : ObservableObject, INavigator
 {
     private readonly AppServices _app;
+    private readonly BillingWorkService _billingWork;
     private readonly DispatcherTimer _clock = new() { Interval = TimeSpan.FromSeconds(20) };
     private PageViewModel _current;
     private ProductDetailViewModel? _product;
@@ -35,9 +36,11 @@ public sealed class ShellViewModel : ObservableObject, INavigator
         SettingsViewModel settings, HelpViewModel help, CatalogViewModel catalog, PosViewModel pos, SalesViewModel sales,
         CustomersViewModel customers, PurchaseOrdersViewModel purchases, SuppliersViewModel suppliers, ReportsViewModel reports,
         AccountingViewModel accounting, UsersViewModel users, BranchesViewModel branches, TransfersViewModel transfers,
-        IntegrationsViewModel integrations)
+        IntegrationsViewModel integrations, FiscalDocumentsViewModel fiscalDocuments, SiatStatusViewModel siatStatus,
+        HomologationViewModel homologation, FiscalBooksViewModel fiscalBooks, BillingSettingsViewModel billingSettings, BillingWorkService billingWork)
     {
         _app = app;
+        _billingWork = billingWork;
         app.Navigator = this;
         var s = app.Session;
         // Cada rol ve solo lo que puede hacer (la tubería vuelve a verificar el permiso en cada caso de uso)
@@ -60,12 +63,20 @@ public sealed class ShellViewModel : ObservableObject, INavigator
         Add(sections, "Sucursales",
             (branches, s.Can(PermissionCodes.ReportsView) || s.Can(PermissionCodes.BranchesManage) || s.Can(PermissionCodes.BranchesAll)),
             (transfers, s.Can(PermissionCodes.TransfersManage) || s.Can(PermissionCodes.BranchesAll)));
+        // V4.1 · Facturación SIAT: solo si la empresa tiene el módulo licenciado (y según los permisos billing.*)
+        var billing = s.HasBillingModule;
+        Add(sections, "Facturación",
+            (fiscalDocuments, billing && s.Can(PermissionCodes.BillingView)),
+            (siatStatus, billing && s.Can(PermissionCodes.BillingView)),
+            (homologation, billing && s.Can(PermissionCodes.BillingView)),
+            (fiscalBooks, billing && s.Can(PermissionCodes.BillingView)));
         Add(sections, "Análisis",
             (reports, s.Can(PermissionCodes.ReportsView)),
             (accounting, s.Can(PermissionCodes.AccountingManage)));
         Add(sections, "Administración",
             (users, s.Can(PermissionCodes.UsersManage)),
             (integrations, s.Can(PermissionCodes.IntegrationManage)),
+            (billingSettings, billing && s.Can(PermissionCodes.BillingConfigure)),
             (activity, s.Can(PermissionCodes.AuditView)));
         Sections = sections;
         Footer = [settings, help];
@@ -252,7 +263,12 @@ public sealed class ShellViewModel : ObservableObject, INavigator
         await Search.EnsureLoadedAsync();
         await Current.EnsureLoadedAsync();
         await UpdateBadgesAsync();
+        // V4.1 · En modo local y demostración este equipo envía los documentos fiscales y mantiene los códigos del SIN
+        _billingWork.Start();
     }
+
+    /// <summary>V4.1 · Trabajo automático de la facturación de esta sesión (modo local o demostración).</summary>
+    public BillingWorkService BillingWork => _billingWork;
 
     public void Navigate(string key, object? parameter = null)
     {
@@ -325,6 +341,7 @@ public sealed class ShellViewModel : ObservableObject, INavigator
                 System.Diagnostics.Trace.TraceWarning("M-INV · no se pudo cerrar la sesión en la base: {0}", ex.Message);
             }
             _clock.Stop();
+            _billingWork.Stop();
             LogoutRequested?.Invoke(this, EventArgs.Empty);
         }
     }

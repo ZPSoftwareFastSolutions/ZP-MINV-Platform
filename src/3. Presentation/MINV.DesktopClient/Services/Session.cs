@@ -1,4 +1,5 @@
 using MediatR;
+using MINV.Application.Billing;
 using MINV.Application.Iam;
 using MINV.Application.Inventory.Queries;
 using MINV.Domain.Iam;
@@ -49,6 +50,33 @@ public sealed class SessionContext
 
     public bool Can(string permission) => _login?.Permissions.Contains(permission) == true;
 
+    /// <summary>V4.1 · Facturación SIAT de la empresa (módulo licenciado, configurada, activa). Null si no se pudo leer.</summary>
+    public BillingAccessView? Billing { get; private set; }
+
+    /// <summary>V4.1 · ¿La empresa tiene el módulo Facturación SIAT? (arma el menú «Facturación»).</summary>
+    public bool HasBillingModule => Billing?.ModuleActive == true;
+
+    /// <summary>V4.1 · ¿La empresa emite documentos fiscales ahora? (módulo + configuración activada).</summary>
+    public bool IsBillingEnabled => Billing?.Enabled == true;
+
+    /// <summary>V4.1 · Vuelve a leer el estado de la facturación (después de configurarla o periódicamente).</summary>
+    public async Task RefreshBillingAsync(SerialMediator mediator, CancellationToken ct = default)
+    {
+        try
+        {
+            Billing = await mediator.SendAsync(new GetBillingAccessQuery(), ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Un servidor anterior a la V4.1 no conoce la consulta: la sesión sigue sin el menú de facturación
+            System.Diagnostics.Trace.TraceWarning("M-INV · no se pudo leer el estado de la facturación: {0}", ex.Message);
+        }
+        BillingChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>V4.1 · Cambió el estado de la facturación (se activó, se desactivó o se configuró).</summary>
+    public event EventHandler? BillingChanged;
+
     /// <summary>V4 · Cambió la sucursal activa: las pantallas recargan con los datos de la nueva sucursal.</summary>
     public event EventHandler? BranchChanged;
 
@@ -60,6 +88,7 @@ public sealed class SessionContext
         Connection = connection;
         StartedAt = DateTimeOffset.Now;
         await LoadWorkspaceAsync(mediator, ct);
+        await RefreshBillingAsync(mediator, ct);
     }
 
     /// <summary>V4 · Cambia la sucursal activa (el servidor valida que esté entre las del usuario).</summary>

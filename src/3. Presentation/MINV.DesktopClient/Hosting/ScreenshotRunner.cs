@@ -48,11 +48,13 @@ public sealed class ScreenshotRunner(ClientHost host, ClientSettings settings, T
             {
                 using var admin = await host.SignInAsync(local.Tenant, local.Admin.Email, local.Admin.Password);
                 await CaptureBusinessAsync(admin, local.Cashier is { } c ? await host.SignInAsync(local.Tenant, c.Email, c.Password) : null);
+                await CaptureBillingAsync(admin);
             }
             else
             {
                 using var admin = await host.SignInDemoAsync(demo, DemoWorkspace.AdminEmail);
                 await CaptureBusinessAsync(admin, null);
+                await CaptureBillingAsync(admin);
             }
             File.WriteAllLines(log, _saved.Prepend($"✔ {_saved.Count} capturas · M-INV {App.Version} · {DateTime.Now:dd/MM/yyyy HH:mm}"));
             return 0;
@@ -346,6 +348,11 @@ public sealed class ScreenshotRunner(ClientHost host, ClientSettings settings, T
         await GoAsync(posShell, "pos");
         await WaitImagesAsync(posShell);
         var pos = (PosViewModel)posShell.Current;
+        if (pos.IsClosed && posShell.Session.IsDemo)
+        {
+            await pos.OpenSession.ExecuteAsync();   // demostración: el administrador abre la caja para mostrar la venta
+            await SettleAsync(400);
+        }
         foreach (var item in pos.Products.Cast<PosProduct>().Where(p => !p.IsOut && p.Image is not null).Take(3).ToList())
         {
             pos.Add.Execute(item);
@@ -365,6 +372,135 @@ public sealed class ScreenshotRunner(ClientHost host, ClientSettings settings, T
         pos.Cart.Clear();
         posWindow.Close();
         cashier?.Dispose();
+    }
+
+    // -------------------------------------------------------------------------------------------- V4.1 · facturación SIAT
+    /// <summary>
+    /// Pantallas de la facturación (69 en adelante). En la demostración se activa antes la facturación de prueba con el
+    /// simulador del SIN en memoria (<see cref="DesktopDemoBilling"/>) y se cobran dos ventas; con la base local se captura lo que
+    /// haya (sin cobrar nada): las pantallas se ven bien aunque todavía no existan documentos.
+    /// </summary>
+    private async Task CaptureBillingAsync(SessionHandle admin)
+    {
+        var shell = admin.Services.GetRequiredService<ShellViewModel>();
+        if (!shell.Session.HasBillingModule)
+        {
+            _saved.Add("(sin capturas de facturación: la empresa no tiene el módulo FISCAL_SIAT)");
+            return;
+        }
+        if (shell.Session.IsDemo && !shell.Session.IsBillingEnabled)
+        {
+            _saved.Add("· " + await DesktopDemoBilling.ConfigureAsync(shell.App));
+        }
+        var window = new MainWindow(shell) { Width = 1440, Height = 900 };
+        Place(window);
+        window.Show();
+        await WaitAsync(() => shell.Current.HasLoaded, 30000);
+
+        // Punto de venta con datos de facturación y resultado fiscal
+        await GoAsync(shell, "pos");
+        await WaitImagesAsync(shell);
+        var pos = (PosViewModel)shell.Current;
+        await pos.LoadAsync(force: true);   // la caja ya estaba cargada antes de activar la facturación: banda fiscal y comprador
+        if (pos.IsClosed && shell.Session.IsDemo)
+        {
+            await pos.OpenSession.ExecuteAsync();
+            await SettleAsync(400);
+        }
+        if (pos.Buyer is { } buyer)
+        {
+            buyer.Prefill(MINV.Domain.Billing.SiatCodes.DocumentNit, "1020703023", null, "Constructora Andina S.R.L.", "compras@andina.example");
+        }
+        foreach (var item in pos.Products.Cast<PosProduct>().Where(p => !p.IsOut && p.Available >= 2 && p.Image is not null).Take(2).ToList())
+        {
+            pos.Add.Execute(item);
+        }
+        pos.QuickCash.Execute("exacto");
+        await SettleAsync(700);
+        await CaptureAsync(window, "75-punto-de-venta-datos-de-facturacion.png");
+        if (shell.Session.IsDemo && pos.IsBilling && pos.IsOpen && pos.Cart.Count > 0)
+        {
+            await pos.Checkout.ExecuteAsync();
+            await WaitAsync(() => !pos.IsBusy, 20000);
+            await SettleAsync(900);
+            await CaptureAsync(window, "76-punto-de-venta-resultado-fiscal.png");
+            pos.CloseFiscalResult.Execute(null);
+            // Una segunda venta (ventas menores del día) para que la lista tenga más de un documento
+            pos.Buyer?.UseSpecial.Execute(BuyerForm.SpecialNits[0]);
+            if (pos.Products.Cast<PosProduct>().FirstOrDefault(p => !p.IsOut) is { } other)
+            {
+                pos.Add.Execute(other);
+                await pos.Checkout.ExecuteAsync();
+                await WaitAsync(() => !pos.IsBusy, 20000);
+                pos.CloseFiscalResult.Execute(null);
+            }
+        }
+        pos.Cart.Clear();
+        pos.Buyer?.Clear();
+        shell.App.Notify.Items.Clear();   // los avisos de las ventas no tapan las capturas siguientes
+
+        await GoAsync(shell, "estado-siat");
+        await WaitAsync(() => !shell.Current.IsBusy, 20000);
+        await SettleAsync(800);
+        await CaptureAsync(window, "69-estado-siat.png");
+
+        await GoAsync(shell, "documentos-fiscales");
+        var documents = (FiscalDocumentsViewModel)shell.Current;
+        documents.Selected = documents.Rows.Cast<FiscalDocumentItem>().FirstOrDefault(d => d.Status == MINV.Domain.Billing.FiscalDocumentStatus.Valid)
+                             ?? documents.Rows.Cast<FiscalDocumentItem>().FirstOrDefault();
+        await WaitAsync(() => documents.Selected is null || documents.Detail is not null, 15000);
+        await SettleAsync(900);
+        await CaptureAsync(window, "70-documentos-fiscales-detalle.png");
+        if (documents.Void.CanExecute(null))
+        {
+            var voiding = documents.Void.ExecuteAsync();
+            await WaitAsync(() => shell.Dialogs.Form is not null || voiding.IsCompleted, 15000);
+            if (shell.Dialogs.Form is VoidFiscalDialog dialog)
+            {
+                dialog.Note = "El cliente pidió la factura a nombre de su empresa";
+                await SettleAsync(600);
+                await CaptureAsync(window, "71-anular-documento-fiscal.png");
+                dialog.Cancel.Execute(null);
+            }
+            await voiding;
+        }
+
+        // Ventas: la factura del SIN de cada venta (la venta facturada, seleccionada, con «Devolución» y «Anular»)
+        await GoAsync(shell, "ventas");
+        var sales = (SalesViewModel)shell.Current;
+        await sales.LoadAsync(force: true);
+        sales.Selected = sales.Rows.Cast<SaleItem>().FirstOrDefault(s => s.HasFiscal);
+        await SettleAsync(700);
+        await CaptureAsync(window, "80-ventas-con-factura-del-sin.png");
+        sales.Selected = null;
+
+        await GoAsync(shell, "homologacion");
+        await SettleAsync(600);
+        await CaptureAsync(window, "72-homologacion.png");
+
+        await GoAsync(shell, "libros-fiscales");
+        await WaitAsync(() => !shell.Current.IsBusy, 20000);
+        await SettleAsync(600);
+        await CaptureAsync(window, "73-libros-fiscales-ventas.png");
+        var books = (FiscalBooksViewModel)shell.Current;
+        books.Tab = 2;
+        await SettleAsync(500);
+        await CaptureAsync(window, "77-libros-fiscales-resumen-iva-it.png");
+        books.Tab = 0;
+
+        await GoAsync(shell, "facturacion-siat");
+        await SettleAsync(700);
+        await CaptureAsync(window, "74-configuracion-facturacion-siat.png");
+
+        theme.Apply(ThemeMode.Dark, save: false);
+        await GoAsync(shell, "documentos-fiscales");
+        await SettleAsync(800);
+        await CaptureAsync(window, "78-oscuro-documentos-fiscales.png");
+        await GoAsync(shell, "estado-siat");
+        await SettleAsync(600);
+        await CaptureAsync(window, "79-oscuro-estado-siat.png");
+        theme.Apply(ThemeMode.Light, save: false);
+        window.Close();
     }
 
     private static async Task WaitImagesAsync(ShellViewModel shell)

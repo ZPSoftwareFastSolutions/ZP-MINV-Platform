@@ -1,0 +1,19 @@
+# M-INV V4.1 · Simulador del SIN (MINV.SiatSimulator): SOLO para ensayos (datos de simulación sin valor legal).
+# Construcción: docker build -f deploy/Dockerfile.siatsimulator -t minv-siatsimulator:4.1.0-alpha.1 .
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /src
+COPY . .
+RUN dotnet publish "src/4. Tools/MINV.SiatSimulator/MINV.SiatSimulator.csproj" -c Release -o /app /p:UseAppHost=false
+
+FROM mcr.microsoft.com/dotnet/aspnet:8.0
+WORKDIR /app
+COPY --from=build /app .
+# Carpeta del estado (CUIS, CUFD, documentos, eventos y paquetes) con dueño «app»: el volumen la hereda
+RUN mkdir -p /data && chown app:app /data
+USER app
+ENV ASPNETCORE_URLS=http://+:5095 \
+    Siat__StateFile=/data/siat-simulador.json \
+    DOTNET_CLI_TELEMETRY_OPTOUT=1
+EXPOSE 5095
+VOLUME ["/data"]
+ENTRYPOINT ["dotnet", "MINV.SiatSimulator.dll"]

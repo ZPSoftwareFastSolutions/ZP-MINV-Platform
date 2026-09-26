@@ -21,6 +21,15 @@ public sealed class BusinessScreenTests
         var demo = await host.PrepareDemoAsync();
         using var admin = await host.SignInDemoAsync(demo, DemoWorkspace.AdminEmail);
         var shell = admin.Services.GetRequiredService<ShellViewModel>();
+        // V4.1 · La demostración factura con el simulador del SIN; esta prueba cubre la venta SIN facturación (anular
+        // desde Ventas devuelve el stock). La venta facturada y su anulación ante el SIN están en BillingScreenTests.
+        var siat = await shell.App.SendAsync(new MINV.Application.Billing.GetSiatSettingsQuery());
+        if (siat is { Configured: true, IsEnabled: true })
+        {
+            await shell.App.SendAsync(new MINV.Application.Billing.SaveSiatSettingsCommand(siat.Nit!.Value, siat.BusinessName!, siat.SystemCode!,
+                siat.Environment, siat.OnlineLegend, siat.OfflineLegend, Enabled: false));
+            await shell.App.RefreshBillingAsync();
+        }
 
         shell.Navigate("pos");
         var pos = (PosViewModel)shell.Current;

@@ -116,7 +116,9 @@ public sealed class ApiGatewayTests(ApiGatewayFixture server) : IClassFixture<Ap
             context.Response.Close();
             return (Body: text, Signature: header);
         });
-        var summary = await server.Services.GetRequiredService<WebhookDispatcher>().RunOnceAsync(100, default);
+        // Lote amplio: la empresa de prueba deja cientos de eventos anteriores sin despachar (webhooks apagados en la prueba)
+        // y el despachador los toma por antigüedad; el del pedido de esta prueba es el último
+        var summary = await server.Services.GetRequiredService<WebhookDispatcher>().RunOnceAsync(5000, default);
         if (summary.Delivered == 0)
         {
             using var scope = server.Services.CreateScope();

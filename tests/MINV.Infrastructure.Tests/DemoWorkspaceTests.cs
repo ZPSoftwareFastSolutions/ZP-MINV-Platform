@@ -1,11 +1,13 @@
 using MediatR;
 using Microsoft.Extensions.DependencyInjection;
 using MINV.Application;
+using MINV.Application.Billing;
 using MINV.Application.Common;
 using MINV.Application.Iam;
 using MINV.Application.Inventory.Movements;
 using MINV.Application.Inventory.PhysicalCounts;
 using MINV.Application.Inventory.Queries;
+using MINV.Domain.Billing;
 using MINV.Domain.Common;
 using MINV.Domain.Iam;
 using MINV.Domain.Inventory;
@@ -60,7 +62,7 @@ public sealed class DemoWorkspaceTests
             Assert.Equal(demo.Today, workspace.Today);
             var view = await mediator.Send(new GetStockProjectionQuery());
             Assert.Equal(34, view.Result.Stock.Count);
-            Assert.Equal(473, view.Result.Movements);
+            Assert.Equal(473 + demo.Billing!.SampleSaleLines, view.Result.Movements);   // V4.1: más las ventas de las facturas de ejemplo
             Assert.NotEmpty(view.Result.Alerts);
             Assert.NotEmpty(view.Result.Order);
         }
@@ -74,6 +76,49 @@ public sealed class DemoWorkspaceTests
                 Assert.Contains(user.RoleCode, l.Roles);
             }
         }
+    }
+
+    /// <summary>
+    /// V4.1 · La demostración FACTURA sin PostgreSQL ni red: simulador del SIN en memoria (sin archivo de estado), facturas de
+    /// ejemplo de hace una semana válidas, los últimos 7 días sin ventas, y la caja emite, envía y representa su documento;
+    /// el consumidor final sin datos factura con el NIT especial 99003.
+    /// </summary>
+    [Fact]
+    public async Task V41_la_demostracion_factura_con_el_simulador_en_memoria()
+    {
+        var (sp, demo) = await PrepareAsync();
+        var billing = Assert.IsType<DemoBilling>(demo.Billing);
+        Assert.Equal(4, billing.Documents);
+        Assert.Equal(4, billing.ValidDocuments);
+        Assert.Null(sp.GetRequiredService<MINV.Infrastructure.Billing.Simulator.SiatSimulatorEngine>().Options.StateFile);   // nada en disco
+
+        var (scope, mediator, _) = await SignInAsync(sp, demo);
+        using var _s = scope;
+        var status = await mediator.Send(new GetSiatStatusQuery());
+        Assert.True(status.Enabled && status.HasToken);
+        Assert.Equal(2, status.Points.Count);   // punto 0 de la casa matriz y el de la caja 1
+        Assert.All(status.Points, p => Assert.Equal(SiatConnectionMode.Online, p.Mode));
+        var clock = sp.GetRequiredService<MINV.Application.Abstractions.IClock>();
+        Assert.All(status.Points, p => Assert.True(p.CufdValidUntil > clock.UtcNow));
+        Assert.Equal(0, (await mediator.Send(new GetHomologationQuery())).PendingProducts);
+        Assert.Equal(demo.Today.AddDays(-DemoBillingSetup.SampleDaysAgo), billing.SamplesOn);
+        var samples = await mediator.Send(new GetFiscalDocumentsQuery(billing.SamplesOn, demo.Today));
+        Assert.Equal(4, samples.Count);
+        Assert.All(samples, d => Assert.Equal(FiscalDocumentStatus.Valid, d.Status));
+        Assert.Empty(await mediator.Send(new MINV.Application.Sales.GetSalesQuery(demo.Today.AddDays(-6), demo.Today)));
+
+        // La caja: el consumidor final sin datos de facturación sale con el NIT especial 99003 y el documento es válido
+        await mediator.Send(new MINV.Application.Sales.OpenPosSessionCommand("CAJA01", 100m));
+        var product = (await mediator.Send(new MINV.Application.Sales.GetSellableProductsQuery())).First(p => p.Available >= 5);
+        var sale = await mediator.Send(new MINV.Application.Sales.CheckoutCommand("CF", "EFECTIVO",
+            [new MINV.Application.Sales.SaleLineInput(product.Sku, 1)]));
+        Assert.Equal(FiscalDocumentStatus.Pending, sale.FiscalStatus);
+        var sent = await mediator.Send(new DispatchFiscalDocumentsCommand(sale.FiscalDocumentId));
+        var document = Assert.Single(sent.Documents);
+        Assert.Equal(FiscalDocumentStatus.Valid, document.Status);
+        Assert.Equal(SiatCodes.SpecialMinorSales, document.BuyerDocument);
+        var pdf = await mediator.Send(new RenderFiscalDocumentQuery(document.Id));
+        Assert.Equal("%PDF", System.Text.Encoding.ASCII.GetString(pdf.Content, 0, 4));
     }
 
     [Fact]

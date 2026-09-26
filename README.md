@@ -1,9 +1,11 @@
-# ZP-MINV-Platform · M-INV V4 (multi-sucursal en la nube) · V3.1 (escritorio + PostgreSQL) · V2.1 (colaborativo)
+# ZP-MINV-Platform · M-INV V4.1 (facturación SIAT) · V4 (multi-sucursal en la nube) · V3.1 (escritorio + PostgreSQL) · V2.1 (colaborativo)
 
 > **¿Por dónde empiezo?** Lea la [guía de inicio de las cuatro ediciones](GUIA-DE-INICIO.md): Excel local, Excel
 > compartido, escritorio con base local y escritorio con base en la nube y facturación SIAT (V4.1, en desarrollo).
 
-**Sistema de inventarios y punto de venta B2B de Z&P Software Fast Solutions.** La **V4** convierte M-INV en una
+**Sistema de inventarios y punto de venta B2B de Z&P Software Fast Solutions.** La **V4.1** (en desarrollo) agrega la
+**facturación SIAT** de Bolivia (Facturación Computarizada en Línea: facturas y notas crédito-débito, contingencia,
+anulación y libros; 140 tablas en 9 esquemas). La **V4** convierte M-INV en una
 plataforma **multi-sucursal en la nube**: cada sucursal ve y opera solo lo suyo, la mercadería viaja entre sucursales
 con **transferencias en tránsito**, el escritorio trabaja **por internet** contra un servidor M-INV y la tienda en línea
 o el ERP se integran por un **API Gateway B2B** con API Keys y **webhooks firmados** (PostgreSQL gestionado en
@@ -13,13 +15,52 @@ cliente-servidor: solución **.NET 8** en Clean Architecture (dominio rico, CQRS
 construida sobre el modelo de la **V2.1** (su importador migra el libro colaborativo y verifica la paridad). La V2.1
 (Excel en Microsoft 365) y la V1.2 (Excel local) siguen en el repositorio.
 
-> **¿Cómo la ejecuto?** V4: siga [`docs/deployment/inicio-rapido-v4.md`](docs/deployment/inicio-rapido-v4.md): base
+> **¿Cómo la ejecuto?** V4.1 (facturación): [`docs/deployment/inicio-rapido-v4.1.md`](docs/deployment/inicio-rapido-v4.1.md).
+> V4: siga [`docs/deployment/inicio-rapido-v4.md`](docs/deployment/inicio-rapido-v4.md): base
 > local con 3 sucursales y datos de prueba (`tools\bd_local.ps1 -Accion recrear`), `M-INV.exe` en modo «Base local»,
 > la nube simulada en su equipo (`tools\servidores_locales.ps1 -Accion iniciar`) y el API con `curl`; para una nube
 > real, [`docs/deployment/despliegue-nube-v4.md`](docs/deployment/despliegue-nube-v4.md). V3.1:
 > [`docs/deployment/inicio-rapido-v3.md`](docs/deployment/inicio-rapido-v3.md). Interfaz:
 > [`docs/product/escritorio-v3.1.md`](docs/product/escritorio-v3.1.md). Modelo de datos (V3 y V4):
 > [`docs/database/ERD-MINV-V3.md`](docs/database/ERD-MINV-V3.md).
+
+## M-INV V4.1 · rama `Inventario-V4.1` (4.1.0-alpha.1) · facturación SIAT (en desarrollo)
+
+Construida sobre `Inventario-V4.-BaseDeDatosNube`. M-INV emite **facturas Compra Venta** (sector 1) y **notas
+Crédito-Débito** (sector 24) del **SIAT** de Bolivia en la modalidad **Facturación Computarizada en Línea**: cada venta de
+caja o de la tienda en línea factura dentro de la misma transacción, se envía al SIN después de cobrar, sigue facturando
+**fuera de línea** si se corta internet y se pone al día **sola** (evento significativo + paquetes); contingencia manual
+con **CAFC**, anulación con plazo del día 9, reversión, notas por devoluciones, homologación, libros de ventas y compras.
+**140 tablas en 9 esquemas** (27 en `billing`). Qué es y qué falta confirmar con el SIN:
+[`docs/billing/README.md`](docs/billing/README.md) · diseño:
+[`docs/architecture/facturacion-siat-v4.1.md`](docs/architecture/facturacion-siat-v4.1.md) · reglas F-01 a F-17:
+[`.claude/v41-billing-rules.md`](.claude/v41-billing-rules.md).
+
+```text
+  Caja / API ──► venta + documento fiscal (CUF, XML validado contra el XSD) en UNA transacción
+                     │ después del COMMIT                         sin respuesta del SIN ─► FUERA DE LÍNEA (la caja no se bloquea)
+                     ▼                                                                      │ al volver: CUFD → evento → paquete → 908
+  MINV.CloudServer (despachador fiscal) ── SOAP + apikey TokenApi ──► SIN (piloto / producción)  ·  MINV.SiatSimulator (:5095, pruebas)
+```
+
+| Parte | Contenido |
+|---|---|
+| `MINV.Domain/Billing` · `MINV.Application/Billing` | Documento fiscal, CUF, reglas del SIN, puntos de venta, eventos, paquetes, CAFC; casos de uso de emisión, envío, contingencia, anulación, notas, administración SIAT, homologación y libros (`BillingContracts.cs`) |
+| `MINV.Infrastructure/Billing` | XML/XSD, GZIP/TAR/SHA-256, PDF y rollo con QR, cliente SOAP (`SiatSoapContract`), simulador del SIN, despachador en segundo plano |
+| `src/4. Tools/MINV.SiatSimulator` | Simulador HTTP del SIN (puerto 5095, `/control/offline` para simular cortes; estado en JSON) |
+| Datos de prueba | La empresa MINV factura los últimos 25 días contra el simulador (corte de internet en El Alto, contingencia CAFC en Santa Cruz, anulaciones, reversión, notas, NIT rechazado, facturas de proveedores) |
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\bd_local.ps1 -Accion recrear              # base local + datos de prueba QUE FACTURAN (-SinFacturacion: sin)
+powershell -ExecutionPolicy Bypass -File tools\servidores_locales.ps1 -Accion iniciar    # simulador del SIN :5095 + servidor en la nube :5080 + API :5090
+dotnet run --project "src/4. Tools/MINV.Cli" -- siat estado                                # estado de la facturación (también preparar, sincronizar, procesar)
+dotnet run --project "src/4. Tools/MINV.Cli" -- siat simulador-apagar                      # corte de internet simulado (simulador-encender para volver)
+```
+
+Paso a paso (el algoritmo): [`docs/deployment/inicio-rapido-v4.1.md`](docs/deployment/inicio-rapido-v4.1.md) · al SIN
+real (autorización, piloto, inspección, producción):
+[`docs/billing/puesta-en-produccion-siat.md`](docs/billing/puesta-en-produccion-siat.md) · interfaz:
+`docs/product/escritorio-v4.1.md`.
 
 ## M-INV V4 · rama `Inventario-V4.-BaseDeDatosNube` (4.0.0-alpha.1) · multi-sucursal en la nube
 
@@ -224,14 +265,20 @@ ZP-MINV-Platform/
 │   ├── v2-concurrency-rules.md          Reglas de coautoría y fragmentación (V2; prevalecen en el libro colaborativo)
 │   ├── v3-architecture-rules.md         Reglas A-01 a A-13 de la solución .NET (V3)
 │   ├── v4-architecture-rules.md         Reglas B-01 a B-17: multi-sucursal, nube, integraciones (V4)
+│   ├── v41-billing-rules.md             Reglas F-01 a F-17: facturación SIAT (V4.1)
 │   └── database-migration-guide.md      Migraciones de esquema y de datos (V2.1 → V3 → V4)
 ├── CLAUDE.md · CHANGELOG.md · README.md
-├── deploy/                                    V4: docker-compose.yml, Dockerfiles de los servidores, .env.example
+├── deploy/                                    V4: docker-compose.yml, Dockerfiles de los servidores (V4.1: y del simulador del SIN), .env.example
 ├── docs/
 │   ├── architecture/arquitectura-v4.md        Arquitectura V4 (sucursales, transferencias, nube, API, webhooks)
+│   ├── architecture/facturacion-siat-v4.1.md  V4.1: diseño de la facturación SIAT (modelo, estados, algoritmos, puertos)
+│   ├── billing/README.md                      V4.1: qué es la facturación, investigación del SIN, huecos por confirmar
+│   ├── billing/puesta-en-produccion-siat.md   V4.1: del simulador al SIN real (autorización, Fases I-III, producción)
+│   ├── billing/investigacion-siat/            V4.1: normativa del SIN resumida y citada (especificaciones 00 a 08)
 │   ├── architecture/data-dictionary.md       Modelo V1.2
 │   ├── architecture/data-dictionary-v2.md    Modelo V2 (usuarios, captura, bitácoras, instantáneas)
-│   ├── database/ERD-MINV-V3.md                Modelo relacional V3 y V4 (110 tablas)
+│   ├── database/ERD-MINV-V3.md                Modelo relacional V3, V4 y V4.1 (140 tablas)
+│   ├── deployment/inicio-rapido-v4.1.md       V4.1: el algoritmo de la facturación con el simulador del SIN
 │   ├── deployment/inicio-rapido-v4.md         V4: paso a paso en un solo equipo (base local, nube simulada, API)
 │   ├── deployment/despliegue-nube-v4.md       V4: DigitalOcean, AWS RDS y Supabase, servidores, TLS, respaldos
 │   ├── deployment/inicio-rapido-v3.md         V3.1: base local, escritorio y demostración
@@ -244,7 +291,7 @@ ZP-MINV-Platform/
 │   ├── 1. Core/                         MINV.Domain · MINV.Application (casos de uso, contrato RPC)
 │   ├── 2. Infrastructure/               MINV.Infrastructure (EF Core, migraciones, servidores, webhooks) · MINV.Hardware
 │   ├── 3. Presentation/                 MINV.DesktopClient (M-INV.exe) · MINV.CloudServer (V4) · MINV.ApiGateway (V4)
-│   ├── 4. Tools/                        MINV.Cli (minv)
+│   ├── 4. Tools/                        MINV.Cli (minv) · MINV.SiatSimulator (V4.1: simulador del SIN)
 │   ├── office-scripts/                  Office Scripts (TypeScript) + lib/comun.ts (bloque compartido)
 │   ├── macros/                          VBA de la edición Plus V1.2
 │   ├── M-INV_V2_Colaborativo.xlsx       Libro colaborativo · Core (demo)
@@ -254,7 +301,7 @@ ZP-MINV-Platform/
 ├── tests/MINV.*.Tests                   Pruebas .NET (V4: MINV.Integration.Tests, servidores reales)
 ├── tests/office-scripts/                Simulador de ExcelScript y pruebas de los scripts (Node)
 └── tools/
-    ├── bd_local.ps1 · servidores_locales.ps1 · bd_nube.ps1   V3/V4: base local, nube simulada, nube gestionada
+    ├── bd_local.ps1 · servidores_locales.ps1 · bd_nube.ps1   V3/V4/V4.1: base local, nube simulada (y SIN simulado), nube gestionada
     ├── build_v3.ps1 · publicar_escritorio.ps1                V3/V4: compilar, probar, db_init.sql, M-INV.exe
     ├── build_minv_v2.py + minv2/        Generador del libro colaborativo
     ├── office_scripts.py                Sincroniza el bloque común y genera los scripts instalables
@@ -313,8 +360,10 @@ La protección de Excel evita errores, no ataques; la seguridad real es el permi
 - **V2.1** ✔ · Gerencia, consulta por usuario, toma física colaborativa, pedido sugerido, actividad y resumen diario.
 - **V3 / V3.1** ✔ (ramas `Inventario-V3`, `Inventario-V3.1`, `Inventario-V3.-BaseDeDatosLocal`): .NET 8 + PostgreSQL +
   WPF, escritorio completo y base local con datos de prueba.
-- **V4** · En curso (rama `Inventario-V4.-BaseDeDatosNube`, 4.0.0-alpha.1): multi-sucursal, transferencias en
-  tránsito, servidor en la nube, API Gateway B2B y webhooks; ver la sección M-INV V4 al inicio.
+- **V4** (rama `Inventario-V4.-BaseDeDatosNube`, 4.0.0-alpha.1): multi-sucursal, transferencias en tránsito, servidor
+  en la nube, API Gateway B2B y webhooks; ver la sección M-INV V4.
+- **V4.1** · En curso (rama `Inventario-V4.1`, 4.1.0-alpha.1): facturación SIAT (Computarizada en Línea) con simulador
+  del SIN; siguiente paso: confirmar el WSDL en el piloto del SIN y la autorización del sistema.
 
 ---
-© Z&P Software Fast Solutions · M-INV V4.0.0-alpha.1 · V3.1.0-alpha.1 · V2.1.0 colaborativa · V1.2.0 local
+© Z&P Software Fast Solutions · M-INV V4.1.0-alpha.1 · V4.0.0-alpha.1 · V3.1.0-alpha.1 · V2.1.0 colaborativa · V1.2.0 local

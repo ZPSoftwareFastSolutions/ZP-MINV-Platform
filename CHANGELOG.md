@@ -2,6 +2,114 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semántico.
 
+## [4.1.0-alpha.1 · facturación SIAT] · 2026-09-26 · rama `Inventario-V4.1`
+
+Tema: **facturación SIAT de Bolivia** en la modalidad **Facturación Computarizada en Línea**: cada venta (caja, tienda en
+línea por el API y facturas manuales de contingencia transcritas) emite su **factura Compra Venta** (sector 1) y cada
+devolución su **nota Crédito-Débito** (sector 24); M-INV las envía al SIN, sigue facturando sin internet, se recupera
+solo y lleva los libros de ventas y compras. Construida sobre `Inventario-V4.-BaseDeDatosNube`. **140 tablas en 9
+esquemas** (27 nuevas en `billing`). Diseño: `docs/architecture/facturacion-siat-v4.1.md` · reglas F-01 a F-17:
+`.claude/v41-billing-rules.md` · qué es y qué falta confirmar: `docs/billing/README.md` · paso a paso:
+`docs/deployment/inicio-rapido-v4.1.md` · al SIN real: `docs/billing/puesta-en-produccion-siat.md`.
+
+### Agregado
+
+- **Investigación de la normativa del SIN** (`docs/billing/investigacion-siat/`, especificaciones 00 a 08 con cada dato
+  citado a su página): códigos y operaciones, servicios de facturación, emisión, contingencia y anulación, 18 catálogos y
+  193 códigos de respuesta, XML/XSD, CUF y representación gráfica, notas crédito-débito, autorización e inspección;
+  contradicciones resueltas y huecos abiertos H-01 … H-29.
+- **Dominio** (`MINV.Domain/Billing`): `FiscalDocument` (agregado con estados `Pending`, `Valid`, `Rejected`,
+  `NoResponse`, `Offline`, `InPackage`, `PackageRejected`, `DuplicateToVoid`, `Voided` con reversión única, `Discarded`),
+  líneas y comprador **congelados**, totales DERIVADOS de las líneas; **CUF** (`Cuf.Generate`: Módulo 11, Base 16 y
+  código de control, verificado con los vectores oficiales); `FiscalRules` (redondeo HALF-UP a 2 decimales por línea,
+  plazo de anulación y reversión hasta el día 9 del mes siguiente, 48 h y 72 h de contingencia, tarjeta enmascarada);
+  `SiatPointOfSale` (en línea → fuera de línea tras dos fallos → recuperando → en línea; contingencia manual), CUIS,
+  CUFD, eventos significativos, paquetes (≤ 500), CAFC, configuración por empresa y ambiente (token cifrado), sucursales
+  del Padrón, homologación y devoluciones de venta (`SalesReturn`).
+- **Casos de uso** (`MINV.Application/Billing`, contratos en `BillingContracts.cs`, módulo `FISCAL_SIAT`, permisos
+  `billing.view`, `billing.issue`, `billing.void`, `billing.contingency`, `billing.configure`):
+  - emisión dentro de la venta (`CheckoutCommand` con `FiscalBuyerInput` y tarjeta; pedidos externos del API con
+    comprador) con `FiscalIssuer`: comprador nominativo (NIT/CI/CEX/pasaporte/otro, complemento, NIT especiales 99001,
+    99002 y 99003 con código de excepción), homologación obligatoria, total fiscal = total cobrado, leyenda Ley 453 al
+    azar, fuera de línea automático con el último CUFD;
+  - envío después del COMMIT (`DispatchFiscalDocumentsCommand`) y trabajo automático (`RunSiatWorkCommand`,
+    `ISiatWorker`): 908/902/904, sin respuesta → re-emisión fuera de línea, recuperación (CUFD nuevo → evento → verificación
+    de los sin respuesta y duplicados → paquetes → validación), notas en cola y correos;
+  - anulación (motivo del catálogo, plazo, «anular y devolver mercadería»), reversión única, re-emisión, verificación de
+    estado, devoluciones parciales con nota crédito-débito (`CreateSalesReturnCommand`), contingencia manual con CAFC
+    (registro del talonario, transcripción con su numeración propia, paquete), fin de contingencia y recuperación forzada;
+  - administración: configuración, conexión por ambiente, sucursales del Padrón, puntos de venta (registro, vínculo con
+    la caja, cierre), CUIS/CUFD, «Preparar SIAT», 18 catálogos, hora del SIN, verificación de comunicación y de NIT,
+    estado SIAT con alertas y plazos, homologación con sugerencias, correo SMTP de la empresa;
+  - consultas: documentos fiscales (búsqueda, detalle, bitácora, XML), representación gráfica (PDF media carta y rollo
+    ESC/POS 80 mm con QR, «SIN VALOR LEGAL» en pruebas), libros de ventas IVA y de compras (CSV y Excel), resumen IVA/IT,
+    facturas de proveedores con crédito fiscal y asiento, bitácora técnica de llamadas al SIN.
+- **Persistencia**: esquema `billing` (27 tablas) + `sales.sales_returns`, `sales.sales_return_lines` y
+  `purchasing.supplier_invoice_fiscal`; migraciones `V41SiatBilling` (RLS por empresa y por sucursal, 9 libros
+  append-only más, `billing.siat_active_tenants`, vista `billing.v_fiscal_document_totals` con los totales derivados,
+  permisos y privilegios) y `V41CafcNumbering` (las facturas CAFC llevan la numeración de su talonario).
+- **XML y archivos**: `SiatXmlSerializer` (orden del XSD, `xsi:nil`, UTF-8 sin BOM, validación contra los XSD oficiales
+  embebidos, GZIP, paquetes GZIP(TAR) y SHA-256), `FiscalPdfRenderer` (PDF propio sin dependencias, QR vectorial),
+  `FiscalRollRenderer` (ESC/POS con QR nativo) y monto literal.
+- **Cliente SOAP del SIN** (`SiatSoapGateway`, contrato centralizado en `SiatSoapContract`, cabecera
+  `apikey: TokenApi <token>`, lectura tolerante, bitácora técnica **sin el token**) y **simulador del SIN**
+  (`SiatSimulatorEngine`: CUIS, CUFD, puntos de venta, eventos, catálogos de ferretería, verificarNit, recepción con
+  XSD/hash/CUF/fórmulas, NIT del comprador inactivo → 1037, paquetes, anulación y reversión con plazo, estado en JSON):
+  en proceso (`InProcessSiatGateway`, demostración y pruebas) y por HTTP (`src/4. Tools/MINV.SiatSimulator`, puerto
+  5095, `/control/offline` para simular cortes).
+- **Servidor en la nube**: despachador fiscal en segundo plano (`SiatBackgroundService`, `Minv:Siat:Background`): envío
+  cada 10 s y mantenimiento cada 60 s de cada empresa con la facturación activa. El escritorio en modo nube nunca ve el
+  token.
+- **Escritorio**: sección **Facturación** (Documentos fiscales, Estado SIAT, Homologación, Libros fiscales,
+  Facturación SIAT), datos de facturación y estado fiscal en el punto de venta; guía en `docs/product/escritorio-v4.1.md`.
+- **Datos de prueba que facturan** (`LocalDataSeeder` + `SiatSeeding`/`SiatSeedSetup`, con los casos de uso y el reloj
+  simulado): la empresa MINV factura los últimos 25 días contra el simulador del SIN EN PROCESO (NIT de simulación
+  1023456028, «FERRETERÍA EL CONSTRUCTOR S.R.L.», ambiente 2, sucursales del Padrón CM = 0, EA = 1, SC = 2, 8 puntos de
+  venta, catálogos, homologación completa por categoría, token de simulación aleatorio cifrado), con comprador en cada
+  venta (clientes habituales con NIT o CI y compradores eventuales), un corte de internet de 3 horas en El Alto
+  recuperado con evento y paquete validado, una contingencia manual CAFC en Santa Cruz con 3 facturas transcritas, 3
+  anulaciones (con devolución, re-emitida y revertida), 2 devoluciones con nota crédito-débito, un NIT rechazado
+  re-emitido con excepción, pedidos web facturados y 4 facturas de proveedores; al final todo en línea con el CUFD de
+  hoy. El estado del simulador queda en `%LOCALAPPDATA%\M-INV\siat-simulador.json` y el token en
+  `claves-integracion.txt` (`MINV_SIAT_TOKEN`) para que el simulador HTTP conozca lo emitido. `SeedResult.Billing`
+  resume la facturación.
+- **Demostración**: la empresa de demostración también factura con el simulador en memoria (configuración mínima,
+  punto 0 y el de la caja 1, homologación y 4 facturas de ejemplo de hace una semana), sin escribir en disco
+  (`DemoSession.Billing`).
+- **Línea de órdenes** (`minv`): `datos-prueba` con la facturación (`--sin-facturacion`, `--dias-facturacion`,
+  `--siat-estado`, `--simulador`); nuevo `siat` con `estado`, `preparar`, `sincronizar`, `procesar [--forzar]`
+  (proceso de plataforma contra la conexión de la empresa) y `simulador-estado`, `simulador-apagar`,
+  `simulador-encender` (control HTTP del simulador); `verify` cuenta las 27 tablas de `billing` y comprueba que el
+  total de cada factura válida sea el cobrado y que ninguna venta tenga dos documentos vigentes.
+- **Scripts**: `tools\bd_local.ps1` (recrear detiene los servidores locales, carga la facturación y guarda
+  `MINV_SIAT_TOKEN`; `-SinFacturacion`), `tools\servidores_locales.ps1` (inicia, detiene y consulta también el
+  simulador del SIN, ANTES del servidor en la nube, con el estado y el token por variables de entorno;
+  `-SinSimulador`), `tools\build_v3.ps1` (140 tablas, capturas en `docs/product/capturas/v4.1`, paso que arranca el
+  simulador y prueba su WSDL y el corte simulado).
+- **Despliegue**: `deploy/Dockerfile.siatsimulator` y perfil opcional `siat-simulador` de Docker Compose (comparte la
+  red del servidor en la nube); variables `MINV_SIAT_BACKGROUND` y `MINV_SIAT_TOKEN` (solo ensayos) en
+  `deploy/.env.example`; imágenes 4.1.0-alpha.1.
+- **Documentación**: `docs/deployment/inicio-rapido-v4.1.md` (el algoritmo paso a paso con el simulador y la tabla «Si
+  algo no funciona»), `docs/billing/README.md`, `docs/billing/puesta-en-produccion-siat.md` (registro en el Portal SIAT,
+  token del piloto, WSDL, Fases I-III con el checklist II-1 … II-15, inicio de operaciones), sección de facturación en
+  `docs/architecture/arquitectura-v4.md` y `docs/deployment/despliegue-nube-v4.md` (§12: despachador fiscal y SIN real).
+
+### Cambiado
+
+- `SeedOptions`: el NIT por defecto es el de simulación (`1023456028`) y hay opciones de facturación (`Billing`,
+  `BillingDays`, `SiatToken`, `SiatSimulatorUrl`).
+- `SupplierInvoiceLine`: una línea sale de una recepción **o** tiene descripción propia (arco exclusivo
+  `ck_supplier_invoice_lines_origen`, que PostgreSQL ya exigía); la factura registrada sobre una recepción no repite la
+  descripción.
+- El simulador valida el NIT del comprador en la factura (1037 sin código de excepción) con el mismo Padrón simulado que
+  `verificarNit`.
+
+### Pendiente (V4.1)
+
+- Confirmar el contrato SOAP con el WSDL real del piloto (hueco H-01) y los demás huecos de `docs/billing/README.md`.
+- Pago combinado con varios medios en una venta (II-3 del checklist de inspección), asistente para ejecutar la Fase I en
+  lote, modalidad electrónica, emisión masiva y Registro de Compras por servicio web.
+
 ## [4.0.0-alpha.1 · base de datos en la nube] · 2026-09-25 · rama `Inventario-V4.-BaseDeDatosNube`
 
 Tema: **M-INV multi-sucursal en la nube**. Cada sucursal ve y opera solo lo suyo, la mercadería viaja entre

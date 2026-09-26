@@ -1,0 +1,355 @@
+<UserControl x:Class="MINV.DesktopClient.Views.Pages.SiatStatusView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:MINV.DesktopClient.Controls"
+             xmlns:vm="clr-namespace:MINV.DesktopClient.ViewModels">
+    <!-- V4.1 · Estado SIAT: tablero, alertas con cuenta regresiva, puntos de venta con sus acciones, eventos, paquetes, CAFC y bitácora -->
+    <Grid Margin="28,6,28,24">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="330" />
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <DockPanel Grid.ColumnSpan="2" Margin="0,0,0,10">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button Content="Registrar punto de venta" c:Ui.Icon="{x:Static c:Glyphs.Add}" Command="{Binding RegisterPoint}" Margin="0,0,8,0"
+                        Visibility="{Binding CanConfigure, Converter={StaticResource Visible}}" c:Ui.IsBusy="{Binding RegisterPoint.IsRunning}" />
+                <Button Content="Sincronizar catálogos" c:Ui.Icon="{x:Static c:Glyphs.Sync}" Command="{Binding Sync}" Margin="0,0,8,0"
+                        Visibility="{Binding CanConfigure, Converter={StaticResource Visible}}" c:Ui.IsBusy="{Binding Sync.IsRunning}" />
+                <Button Content="Procesar ahora" c:Ui.Icon="{x:Static c:Glyphs.Transfer}" Command="{Binding ProcessNow}" Margin="0,0,8,0"
+                        ToolTip="Enviar ya los documentos pendientes, recuperar los puntos fuera de línea y renovar los códigos" c:Ui.IsBusy="{Binding ProcessNow.IsRunning}" />
+                <Button Style="{StaticResource PrimaryButton}" Content="Preparar SIAT" c:Ui.Icon="{x:Static c:Glyphs.CheckCircle}" Command="{Binding Prepare}" Margin="0,0,8,0"
+                        ToolTip="Hora del SIN, CUIS y CUFD del día en cada punto de venta" Visibility="{Binding CanConfigure, Converter={StaticResource Visible}}"
+                        c:Ui.IsBusy="{Binding Prepare.IsRunning}" />
+                <Button Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Refresh}" Command="{Binding Refresh}" ToolTip="Actualizar (F5)" />
+            </StackPanel>
+            <StackPanel>
+                <TextBlock Text="{Binding Title}" Style="{StaticResource H1}" />
+                <TextBlock Text="{Binding HeaderText}" Style="{StaticResource Caption}" FontSize="13" Margin="0,4,0,0" TextWrapping="Wrap" />
+            </StackPanel>
+        </DockPanel>
+
+        <!-- Ambiente de pruebas: sin valor legal -->
+        <Border Grid.Row="1" Grid.ColumnSpan="2" Background="{DynamicResource WarningSoft}" CornerRadius="10" Padding="14,8" Margin="0,0,0,10"
+                Visibility="{Binding IsTestEnvironment, Converter={StaticResource Visible}}">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Warning}" Foreground="{DynamicResource Warning}" FontSize="15" />
+                <TextBlock Text="PRUEBAS · SIN VALOR LEGAL" FontWeight="Bold" Foreground="{DynamicResource Warning}" Margin="10,0,0,0" VerticalAlignment="Center" />
+                <TextBlock Text="Ambiente 2 (piloto del SIN): los documentos se imprimen con la marca «SIN VALOR LEGAL» y no sirven para crédito fiscal."
+                           Foreground="{DynamicResource Warning}" Margin="10,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+            </StackPanel>
+        </Border>
+
+        <UniformGrid Grid.Row="2" Grid.ColumnSpan="2" Columns="6" Margin="-6,0,-6,10">
+            <ContentControl Content="{Binding EnvironmentKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+            <ContentControl Content="{Binding ModeKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+            <ContentControl Content="{Binding TodayKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+            <ContentControl Content="{Binding PendingKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+            <ContentControl Content="{Binding OfflineKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+            <ContentControl Content="{Binding EventsKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+        </UniformGrid>
+
+        <!-- Pestañas -->
+        <Border Grid.Row="3" Background="{DynamicResource SurfaceAlt}" CornerRadius="10" Padding="3" HorizontalAlignment="Left" Margin="0,0,0,10">
+            <StackPanel Orientation="Horizontal">
+                <RadioButton Style="{StaticResource Segment}" GroupName="SiatTab" IsChecked="{Binding IsPointsTab}" Content="Puntos de venta" />
+                <RadioButton Style="{StaticResource Segment}" GroupName="SiatTab" IsChecked="{Binding IsEventsTab}" Content="Eventos" />
+                <RadioButton Style="{StaticResource Segment}" GroupName="SiatTab" IsChecked="{Binding IsPackagesTab}" Content="Paquetes" />
+                <RadioButton Style="{StaticResource Segment}" GroupName="SiatTab" IsChecked="{Binding IsCafcTab}" Content="CAFC" />
+                <RadioButton Style="{StaticResource Segment}" GroupName="SiatTab" IsChecked="{Binding IsCallsTab}" Content="Bitácora del SIN"
+                             Visibility="{Binding ShowCalls, Converter={StaticResource Visible}}" />
+            </StackPanel>
+        </Border>
+
+        <!-- Puntos de venta -->
+        <Border Grid.Row="4" Style="{StaticResource CardFlat}" Padding="4,2,4,4" Visibility="{Binding IsPointsTab, Converter={StaticResource Visible}}">
+            <DockPanel>
+                <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0" Padding="10,8,10,4">
+                    <WrapPanel>
+                        <Button Content="Solicitar CUIS" Command="{Binding RequestCuis}" Height="32" Padding="10,0" Margin="0,0,6,6"
+                                Visibility="{Binding CanConfigure, Converter={StaticResource Visible}}" />
+                        <Button Content="Solicitar CUFD" Command="{Binding RequestCufd}" Height="32" Padding="10,0" Margin="0,0,6,6"
+                                Visibility="{Binding CanConfigure, Converter={StaticResource Visible}}" />
+                        <Button Content="Verificar comunicación" c:Ui.Icon="{x:Static c:Glyphs.Pulse}" Command="{Binding CheckCommunication}" Height="32" Padding="10,0"
+                                Margin="0,0,6,6" />
+                        <Button Content="Pasar a fuera de línea" c:Ui.Icon="{x:Static c:Glyphs.Offline}" Command="{Binding GoOffline}" Height="32" Padding="10,0"
+                                Margin="0,0,6,6" Visibility="{Binding CanContingency, Converter={StaticResource Visible}}" />
+                        <Button Content="Contingencia manual" c:Ui.Icon="{x:Static c:Glyphs.Power}" Command="{Binding StartManual}" Height="32" Padding="10,0"
+                                Margin="0,0,6,6" Visibility="{Binding CanContingency, Converter={StaticResource Visible}}" />
+                        <Button Content="Fin de contingencia" c:Ui.Icon="{x:Static c:Glyphs.CheckCircle}" Command="{Binding EndContingency}" Height="32" Padding="10,0"
+                                Margin="0,0,6,6" Visibility="{Binding CanContingency, Converter={StaticResource Visible}}" />
+                        <Button Content="Recuperar ahora" c:Ui.Icon="{x:Static c:Glyphs.Sync}" Command="{Binding Recover}" Height="32" Padding="10,0" Margin="0,0,6,6"
+                                Visibility="{Binding CanContingency, Converter={StaticResource Visible}}" />
+                        <Button Content="Vincular caja" c:Ui.Icon="{x:Static c:Glyphs.Link}" Command="{Binding LinkRegister}" Height="32" Padding="10,0" Margin="0,0,6,6"
+                                Visibility="{Binding CanConfigure, Converter={StaticResource Visible}}" />
+                        <Button Style="{StaticResource DangerButton}" Content="Cerrar punto" c:Ui.Icon="{x:Static c:Glyphs.Delete}" Command="{Binding ClosePoint}" Height="32"
+                                Padding="10,0" Margin="0,0,6,6" Visibility="{Binding CanConfigure, Converter={StaticResource Visible}}" />
+                    </WrapPanel>
+                </Border>
+                <Grid>
+                    <DataGrid ItemsSource="{Binding Points}" SelectedItem="{Binding SelectedPoint}" RowHeight="58">
+                        <DataGrid.Columns>
+                            <DataGridTemplateColumn Header="SUCURSAL" Width="*" MinWidth="150">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate DataType="{x:Type vm:SiatPointItem}">
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding BranchText}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding SiatBranchText}" Style="{StaticResource Caption}" FontSize="11.5" TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="PUNTO DE VENTA" Width="150">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate DataType="{x:Type vm:SiatPointItem}">
+                                        <StackPanel VerticalAlignment="Center" ToolTip="{Binding PointText}">
+                                            <TextBlock Text="{Binding PointText}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Style="{StaticResource Caption}" FontSize="11.5" TextTrimming="CharacterEllipsis">
+                                                <Run Text="Caja:" /> <Run Text="{Binding RegisterText, Mode=OneWay}" />
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="MODO" Width="120">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate DataType="{x:Type vm:SiatPointItem}">
+                                        <StackPanel VerticalAlignment="Center" ToolTip="{Binding LastError}">
+                                            <Border Style="{StaticResource StatusPill}" c:Ui.BrushKey="{Binding ModeSoftBrush}">
+                                                <TextBlock Text="{Binding ModeText}" FontSize="11" FontWeight="SemiBold" c:Ui.BrushKey="{Binding ModeBrush}" />
+                                            </Border>
+                                            <TextBlock Text="{Binding ModeSinceText}" Style="{StaticResource Caption}" FontSize="11" TextTrimming="CharacterEllipsis"
+                                                       Visibility="{Binding ModeSinceText, Converter={StaticResource HasValue}}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="CÓDIGOS VIGENTES" Width="150">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate DataType="{x:Type vm:SiatPointItem}">
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding CuisText}" FontSize="11.5" c:Ui.BrushKey="{Binding CuisBrush}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding CufdText}" FontSize="11.5" c:Ui.BrushKey="{Binding CufdBrush}" TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="PENDIENTES" Width="110">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate DataType="{x:Type vm:SiatPointItem}">
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding PendingText}" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding OfflineText}" Style="{StaticResource Caption}" FontSize="11" Foreground="{DynamicResource Warning}"
+                                                       TextTrimming="CharacterEllipsis" Visibility="{Binding OfflineText, Converter={StaticResource HasValue}}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="EVENTO" Width="120">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate DataType="{x:Type vm:SiatPointItem}">
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding EventText}" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding EventStatusText}" Style="{StaticResource Caption}" FontSize="11" TextTrimming="CharacterEllipsis"
+                                                       Visibility="{Binding EventStatusText, Converter={StaticResource HasValue}}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <ContentControl Style="{StaticResource EmptyState}" Tag="{x:Static c:Glyphs.Pulse}" Visibility="{Binding NoPoints, Converter={StaticResource Visible}}">
+                        <StackPanel>
+                            <TextBlock Text="Todavía no hay puntos de venta del SIN" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" HorizontalAlignment="Center" />
+                            <TextBlock Text="Configure la facturación (NIT, conexión y sucursales) y pulse «Preparar SIAT»." Style="{StaticResource Caption}"
+                                       HorizontalAlignment="Center" Margin="0,4,0,8" />
+                            <Button Style="{StaticResource LinkButton}" Content="Ir a Administración › Facturación SIAT" Command="{Binding GoToSettings}" HorizontalAlignment="Center"
+                                    Visibility="{Binding CanConfigure, Converter={StaticResource Visible}}" />
+                        </StackPanel>
+                    </ContentControl>
+                </Grid>
+            </DockPanel>
+        </Border>
+
+        <!-- Eventos -->
+        <Border Grid.Row="4" Style="{StaticResource CardFlat}" Padding="4,2,4,4" Visibility="{Binding IsEventsTab, Converter={StaticResource Visible}}">
+            <DockPanel>
+                <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0" Padding="10,8"
+                        Visibility="{Binding CanContingency, Converter={StaticResource Visible}}">
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="Transcribir factura manual" c:Ui.Icon="{x:Static c:Glyphs.Report}" Command="{Binding Transcribe}" Height="32" Padding="10,0"
+                                c:Ui.IsBusy="{Binding Transcribe.IsRunning}" />
+                        <TextBlock Text="Eventos de los últimos 45 días. Los fuera de línea se registran y envían solos al volver la comunicación."
+                                   Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="12,0,0,0" />
+                    </StackPanel>
+                </Border>
+                <DataGrid ItemsSource="{Binding Events}" RowHeight="54">
+                    <DataGrid.Columns>
+                        <DataGridTemplateColumn Header="EVENTO" Width="*" MinWidth="240">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:SiatEventItem}">
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Description}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Style="{StaticResource Caption}" FontSize="11.5" TextTrimming="CharacterEllipsis">
+                                            <Run Text="{Binding KindText, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding PlaceText, Mode=OneWay}" />
+                                            <Run Text=" · " /><Run Text="{Binding DocumentsText, Mode=OneWay}" />
+                                        </TextBlock>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTextColumn Header="PERÍODO" Binding="{Binding PeriodText}" Width="250" ElementStyle="{StaticResource CellText}" />
+                        <DataGridTextColumn Header="PLAZO" Binding="{Binding DeadlineText}" Width="170" ElementStyle="{StaticResource CellText}" />
+                        <DataGridTextColumn Header="RECEPCIÓN" Binding="{Binding ReceptionText}" Width="120" ElementStyle="{StaticResource CellText}" />
+                        <DataGridTemplateColumn Header="ESTADO" Width="170">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:SiatEventItem}">
+                                    <Border Style="{StaticResource StatusPill}" c:Ui.BrushKey="{Binding StatusSoftBrush}">
+                                        <TextBlock Text="{Binding StatusText}" FontSize="11" FontWeight="SemiBold" c:Ui.BrushKey="{Binding StatusBrush}" />
+                                    </Border>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+        </Border>
+
+        <!-- Paquetes -->
+        <Border Grid.Row="4" Style="{StaticResource CardFlat}" Padding="4,2,4,4" Visibility="{Binding IsPackagesTab, Converter={StaticResource Visible}}">
+            <DataGrid ItemsSource="{Binding Packages}" RowHeight="50">
+                <DataGrid.Columns>
+                    <DataGridTemplateColumn Header="PAQUETE" Width="*" MinWidth="220">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate DataType="{x:Type vm:SiatPackageItem}">
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock FontWeight="SemiBold" TextTrimming="CharacterEllipsis">
+                                        <Run Text="{Binding PlaceText, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding SectorText, Mode=OneWay}" />
+                                    </TextBlock>
+                                    <TextBlock Text="{Binding DocumentsText}" Style="{StaticResource Caption}" FontSize="11.5" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTextColumn Header="ENVIADO" Binding="{Binding SentText}" Width="140" ElementStyle="{StaticResource CellText}" />
+                    <DataGridTextColumn Header="VALIDADO" Binding="{Binding ValidatedText}" Width="140" ElementStyle="{StaticResource CellText}" />
+                    <DataGridTextColumn Header="RECEPCIÓN" Binding="{Binding Row.ReceptionCode}" Width="150" ElementStyle="{StaticResource CellText}" />
+                    <DataGridTemplateColumn Header="ESTADO" Width="190">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate DataType="{x:Type vm:SiatPackageItem}">
+                                <Border Style="{StaticResource StatusPill}" c:Ui.BrushKey="{Binding StatusSoftBrush}" ToolTip="{Binding Row.Messages}">
+                                    <TextBlock Text="{Binding StatusText}" FontSize="11" FontWeight="SemiBold" c:Ui.BrushKey="{Binding StatusBrush}" />
+                                </Border>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                </DataGrid.Columns>
+            </DataGrid>
+        </Border>
+
+        <!-- CAFC -->
+        <Border Grid.Row="4" Style="{StaticResource CardFlat}" Padding="4,2,4,4" Visibility="{Binding IsCafcTab, Converter={StaticResource Visible}}">
+            <DockPanel>
+                <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0" Padding="10,8"
+                        Visibility="{Binding CanContingency, Converter={StaticResource Visible}}">
+                    <StackPanel Orientation="Horizontal">
+                        <Button Style="{StaticResource PrimaryButton}" Content="Registrar talonario" c:Ui.Icon="{x:Static c:Glyphs.Add}" Command="{Binding RegisterCafc}"
+                                Height="32" Padding="10,0" Margin="0,0,8,0" />
+                        <Button Content="Transcribir factura manual" c:Ui.Icon="{x:Static c:Glyphs.Report}" Command="{Binding Transcribe}" Height="32" Padding="10,0" />
+                    </StackPanel>
+                </Border>
+                <DataGrid ItemsSource="{Binding Cafcs}" RowHeight="48">
+                    <DataGrid.Columns>
+                        <DataGridTemplateColumn Header="CAFC" Width="*" MinWidth="200">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:SiatCafcItem}">
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Row.Code}" Style="{StaticResource Mono}" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" />
+                                        <TextBlock Style="{StaticResource Caption}" FontSize="11.5">
+                                            <Run Text="{Binding Row.BranchCode, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding SectorText, Mode=OneWay}" />
+                                        </TextBlock>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTextColumn Header="NÚMEROS" Binding="{Binding RangeText}" Width="170" ElementStyle="{StaticResource CellText}" />
+                        <DataGridTextColumn Header="USO" Binding="{Binding UsedText}" Width="150" ElementStyle="{StaticResource CellText}" />
+                        <DataGridTextColumn Header="VENCE" Binding="{Binding ValidText}" Width="130" ElementStyle="{StaticResource CellText}" />
+                        <DataGridTemplateColumn Header="ESTADO" Width="110">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:SiatCafcItem}">
+                                    <Border Style="{StaticResource StatusPill}" c:Ui.BrushKey="{Binding StatusSoftBrush}">
+                                        <TextBlock Text="{Binding StatusText}" FontSize="11" FontWeight="SemiBold" c:Ui.BrushKey="{Binding StatusBrush}" />
+                                    </Border>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+        </Border>
+
+        <!-- Bitácora del SIN -->
+        <Border Grid.Row="4" Style="{StaticResource CardFlat}" Padding="4,2,4,4" Visibility="{Binding IsCallsTab, Converter={StaticResource Visible}}">
+            <DataGrid ItemsSource="{Binding Calls}" RowHeight="40">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="MOMENTO" Binding="{Binding WhenText}" Width="120" ElementStyle="{StaticResource CellText}" />
+                    <DataGridTextColumn Header="SERVICIO" Binding="{Binding Row.Resource}" Width="200" ElementStyle="{StaticResource CellText}" />
+                    <DataGridTextColumn Header="OPERACIÓN" Binding="{Binding OperationText}" Width="*" ElementStyle="{StaticResource CellText}" />
+                    <DataGridTemplateColumn Header="RESULTADO" Width="220">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate DataType="{x:Type vm:SiatCallItem}">
+                                <TextBlock Text="{Binding ResultText}" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                           c:Ui.BrushKey="{Binding ResultBrush}" ToolTip="{Binding Row.Error}" />
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTextColumn Header="DURACIÓN" Binding="{Binding DurationText}" Width="90" HeaderStyle="{StaticResource HeaderRight}"
+                                        ElementStyle="{StaticResource CellRight}" />
+                </DataGrid.Columns>
+            </DataGrid>
+        </Border>
+
+        <!-- Alertas -->
+        <Border Grid.Row="3" Grid.RowSpan="2" Grid.Column="1" Style="{StaticResource EditorPanel}">
+            <DockPanel Margin="16,14,10,12">
+                <DockPanel DockPanel.Dock="Top" Margin="0,0,6,8">
+                    <TextBlock DockPanel.Dock="Right" Text="{Binding Alerts.Count}" Style="{StaticResource Caption}" VerticalAlignment="Center" />
+                    <TextBlock Text="Alertas y plazos" Style="{StaticResource H3}" />
+                </DockPanel>
+                <Grid>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
+                        <ItemsControl ItemsSource="{Binding Alerts}" Focusable="False">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:SiatAlertItem}">
+                                    <Border CornerRadius="10" Padding="12,10" Margin="0,0,0,8" c:Ui.BrushKey="{Binding SoftBrush}">
+                                        <DockPanel>
+                                            <TextBlock DockPanel.Dock="Left" Style="{StaticResource Icon}" Text="{Binding Glyph}" FontSize="15" VerticalAlignment="Top"
+                                                       Margin="0,1,10,0" c:Ui.BrushKey="{Binding Brush}" />
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" c:Ui.BrushKey="{Binding Brush}" />
+                                                <TextBlock Text="{Binding Detail}" FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondary}" Margin="0,3,0,0" />
+                                                <TextBlock Text="{Binding Countdown}" FontSize="11.5" FontWeight="SemiBold" Margin="0,4,0,0" c:Ui.BrushKey="{Binding Brush}"
+                                                           Visibility="{Binding HasCountdown, Converter={StaticResource Visible}}" />
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                    <ContentControl Style="{StaticResource EmptyState}" Tag="{x:Static c:Glyphs.CheckCircle}" Visibility="{Binding HasAlerts, Converter={StaticResource Hidden}}">
+                        <TextBlock Text="Todo en orden: sin alertas" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" />
+                    </ContentControl>
+                </Grid>
+            </DockPanel>
+        </Border>
+    </Grid>
+</UserControl>

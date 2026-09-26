@@ -40,19 +40,26 @@
         <DockPanel Grid.Row="2" Grid.ColumnSpan="2" Margin="0,0,0,12">
             <TextBlock DockPanel.Dock="Right" Text="{Binding Summary}" Style="{StaticResource Caption}" VerticalAlignment="Center" />
             <WrapPanel>
-                <TextBox Width="280" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}" c:Ui.Icon="{x:Static c:Glyphs.Search}"
+                <!-- V4.1 · Ventas y devoluciones (con su nota crédito-débito) -->
+                <Border Background="{DynamicResource SurfaceAlt}" CornerRadius="10" Padding="3" Margin="0,0,12,0" VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal">
+                        <RadioButton Style="{StaticResource Segment}" GroupName="SalesTab" IsChecked="{Binding IsSalesTab}" Content="Ventas" MinWidth="96" />
+                        <RadioButton Style="{StaticResource Segment}" GroupName="SalesTab" IsChecked="{Binding IsReturnsTab}" Content="Devoluciones" MinWidth="110" />
+                    </StackPanel>
+                </Border>
+                <TextBox Width="220" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}" c:Ui.Icon="{x:Static c:Glyphs.Search}"
                          c:Ui.Placeholder="Buscar factura o cliente" Margin="0,0,10,0" />
-                <ComboBox Width="210" ItemsSource="{Binding Methods}" SelectedItem="{Binding Method}" ToolTip="Medio de pago" Margin="0,0,10,0" />
-                <ComboBox Width="210" ItemsSource="{Binding Cashiers}" SelectedItem="{Binding Cashier}" ToolTip="Cajero" Margin="0,0,10,0" />
+                <ComboBox Width="190" ItemsSource="{Binding Methods}" SelectedItem="{Binding Method}" ToolTip="Medio de pago" Margin="0,0,10,0" />
+                <ComboBox Width="190" ItemsSource="{Binding Cashiers}" SelectedItem="{Binding Cashier}" ToolTip="Cajero" Margin="0,0,10,0" />
                 <ComboBox Width="140" ItemsSource="{Binding Statuses}" SelectedItem="{Binding Status}" ToolTip="Estado" />
             </WrapPanel>
         </DockPanel>
 
-        <Border Grid.Row="3" Style="{StaticResource CardFlat}" Padding="4,2,4,4">
+        <Border Grid.Row="3" Style="{StaticResource CardFlat}" Padding="4,2,4,4" Visibility="{Binding IsSalesTab, Converter={StaticResource Visible}}">
             <Grid>
                 <DataGrid ItemsSource="{Binding Rows}" SelectedItem="{Binding Selected}" RowHeight="56">
                     <DataGrid.Columns>
-                        <DataGridTemplateColumn Header="FACTURA" Width="112" SortMemberPath="Invoice" CanUserSort="True">
+                        <DataGridTemplateColumn Header="FACTURA" Width="124" SortMemberPath="Invoice" CanUserSort="True">
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate DataType="{x:Type vm:SaleItem}">
                                     <Border Style="{StaticResource Pill}" Background="{DynamicResource BrandSoft}">
@@ -83,12 +90,22 @@
                         </DataGridTemplateColumn>
                         <DataGridTextColumn Header="TOTAL" Binding="{Binding TotalText}" Width="120" SortMemberPath="Total" HeaderStyle="{StaticResource HeaderRight}"
                                             ElementStyle="{StaticResource CellRight}" />
-                        <DataGridTemplateColumn Header="ESTADO" Width="104" SortMemberPath="IsVoided" CanUserSort="True">
+                        <!-- ESTADO de la venta y, debajo (V4.1), su factura del SIN: número y estado ante el SIN -->
+                        <DataGridTemplateColumn Header="ESTADO" Width="128" SortMemberPath="IsVoided" CanUserSort="True">
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate DataType="{x:Type vm:SaleItem}">
-                                    <Border x:Name="P" Style="{StaticResource StatusPill}" Background="{DynamicResource SuccessSoft}">
-                                        <TextBlock x:Name="T" Text="{Binding StatusText}" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Success}" />
-                                    </Border>
+                                    <StackPanel VerticalAlignment="Center">
+                                        <Border x:Name="P" Style="{StaticResource StatusPill}" Background="{DynamicResource SuccessSoft}">
+                                            <TextBlock x:Name="T" Text="{Binding StatusText}" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Success}" />
+                                        </Border>
+                                        <StackPanel Orientation="Horizontal" Margin="2,3,0,0" Visibility="{Binding HasFiscal, Converter={StaticResource Visible}}"
+                                                    ToolTip="Factura del SIN de esta venta">
+                                            <TextBlock Text="{Binding FiscalText}" FontSize="11" FontWeight="SemiBold" c:Ui.BrushKey="{Binding FiscalBrush}"
+                                                       TextTrimming="CharacterEllipsis" MaxWidth="110" />
+                                            <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Offline}" FontSize="11" Margin="5,0,0,0" Foreground="{DynamicResource Info}"
+                                                       ToolTip="Emitida fuera de línea" Visibility="{Binding IsFiscalOffline, Converter={StaticResource Visible}}" />
+                                        </StackPanel>
+                                    </StackPanel>
                                     <DataTemplate.Triggers>
                                         <DataTrigger Binding="{Binding IsVoided}" Value="True">
                                             <Setter TargetName="P" Property="Background" Value="{DynamicResource DangerSoft}" />
@@ -106,8 +123,67 @@
             </Grid>
         </Border>
 
+        <!-- V4.1 · Devoluciones del período -->
+        <Border Grid.Row="3" Grid.ColumnSpan="2" Style="{StaticResource CardFlat}" Padding="4,2,4,4" Visibility="{Binding IsReturnsTab, Converter={StaticResource Visible}}">
+            <Grid>
+                <DataGrid ItemsSource="{Binding Returns}" RowHeight="54">
+                    <DataGrid.Columns>
+                        <DataGridTemplateColumn Header="DEVOLUCIÓN" Width="140" SortMemberPath="Row.Number" CanUserSort="True">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:SalesReturnItem}">
+                                    <Border Style="{StaticResource Pill}" Background="{DynamicResource BrandSoft}">
+                                        <TextBlock Text="{Binding Row.Number}" Style="{StaticResource Mono}" Foreground="{DynamicResource BrandText}" FontWeight="SemiBold" />
+                                    </Border>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTextColumn Header="FECHA" Binding="{Binding WhenText}" Width="140" SortMemberPath="ReturnedAt" ElementStyle="{StaticResource CellText}" />
+                        <DataGridTemplateColumn Header="VENTA · CLIENTE · MOTIVO" Width="*" MinWidth="240">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:SalesReturnItem}">
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock FontWeight="SemiBold" TextTrimming="CharacterEllipsis">
+                                            <Run Text="{Binding Row.InvoiceNumber, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding Row.Customer, Mode=OneWay}" />
+                                        </TextBlock>
+                                        <TextBlock Text="{Binding Row.Reason}" Style="{StaticResource Caption}" FontSize="11.5" TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTextColumn Header="REEMBOLSO" Binding="{Binding RefundText}" Width="120" HeaderStyle="{StaticResource HeaderRight}"
+                                            ElementStyle="{StaticResource CellRight}" />
+                        <DataGridTemplateColumn Header="NOTA CRÉDITO-DÉBITO" Width="260">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:SalesReturnItem}">
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding NoteText}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                        <Border Style="{StaticResource StatusPill}" c:Ui.BrushKey="{Binding NoteSoftBrush}" Visibility="{Binding HasNote, Converter={StaticResource Visible}}">
+                                            <TextBlock Text="{Binding NoteStatusText}" FontSize="11" FontWeight="SemiBold" c:Ui.BrushKey="{Binding NoteBrush}" />
+                                        </Border>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+                <ContentControl Style="{StaticResource EmptyState}" Tag="{x:Static c:Glyphs.Undo}" Visibility="{Binding NoReturns, Converter={StaticResource Visible}}">
+                    <StackPanel>
+                        <TextBlock Text="Sin devoluciones en el período" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" HorizontalAlignment="Center" />
+                        <TextBlock Text="Elija una venta y use «Devolución»: vuelve el stock y, si tiene factura, se emite la nota crédito-débito." Style="{StaticResource Caption}"
+                                   HorizontalAlignment="Center" Margin="0,4,0,0" />
+                    </StackPanel>
+                </ContentControl>
+            </Grid>
+        </Border>
+
         <!-- Detalle de la factura -->
-        <Border Grid.Row="3" Grid.Column="1" Style="{StaticResource EditorPanel}" Width="350" Visibility="{Binding HasSelection, Converter={StaticResource Visible}}">
+        <Border Grid.Row="3" Grid.Column="1" Style="{StaticResource EditorPanel}" Width="350">
+            <Border.Visibility>
+                <MultiBinding Converter="{StaticResource DetailVisibility}">
+                    <Binding Path="HasSelection" />
+                    <Binding Path="IsReturnsTab" />
+                </MultiBinding>
+            </Border.Visibility>
             <DockPanel Margin="20,16">
                 <StackPanel DockPanel.Dock="Top">
                     <DockPanel>
@@ -122,6 +198,14 @@
                     <TextBlock Style="{StaticResource Caption}">
                         <Run Text="Atendió:" /> <Run Text="{Binding Selected.Cashier, Mode=OneWay}" />
                     </TextBlock>
+                    <!-- V4.1 · Factura del SIN -->
+                    <DockPanel Margin="0,8,0,0" Visibility="{Binding ShowFiscal, Converter={StaticResource Visible}}">
+                        <Button DockPanel.Dock="Right" Style="{StaticResource LinkButton}" Content="Ver" Command="{Binding OpenFiscal}" VerticalAlignment="Center"
+                                Visibility="{Binding Selected.HasFiscal, Converter={StaticResource Visible}}" />
+                        <Border Style="{StaticResource StatusPill}" c:Ui.BrushKey="{Binding Selected.FiscalSoftBrush}">
+                            <TextBlock Text="{Binding Selected.FiscalText}" FontSize="11" FontWeight="SemiBold" c:Ui.BrushKey="{Binding Selected.FiscalBrush}" />
+                        </Border>
+                    </DockPanel>
                     <Border Style="{StaticResource FormError}" Visibility="{Binding Selected.IsVoided, Converter={StaticResource Visible}}">
                         <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource Danger}">
                             <Run Text="Anulada:" FontWeight="SemiBold" /> <Run Text="{Binding Selected.Row.VoidReason, Mode=OneWay}" />
@@ -134,8 +218,12 @@
                         <TextBlock DockPanel.Dock="Right" Text="{Binding Selected.TotalText}" FontSize="22" FontWeight="Bold" />
                         <TextBlock Text="TOTAL" Style="{StaticResource Overline}" VerticalAlignment="Center" />
                     </DockPanel>
-                    <Button Style="{StaticResource DangerButton}" Content="Anular esta venta" c:Ui.Icon="{x:Static c:Glyphs.Error}" Command="{Binding Void}" Margin="0,14,0,0"
-                            Visibility="{Binding CanVoid, Converter={StaticResource Visible}}" c:Ui.IsBusy="{Binding Void.IsRunning}" />
+                    <Button Content="Devolución" c:Ui.Icon="{x:Static c:Glyphs.Undo}" Command="{Binding ReturnSale}" Margin="0,14,0,0"
+                            ToolTip="Devolver todo o parte: vuelve el stock, se reembolsa y, si tiene factura, se emite la nota crédito-débito"
+                            Visibility="{Binding CanReturn, Converter={StaticResource Visible}}" c:Ui.IsBusy="{Binding ReturnSale.IsRunning}" />
+                    <Button Style="{StaticResource DangerButton}" Content="Anular esta venta" c:Ui.Icon="{x:Static c:Glyphs.Error}" Command="{Binding Void}" Margin="0,8,0,0"
+                            Visibility="{Binding CanVoid, Converter={StaticResource Visible}}" c:Ui.IsBusy="{Binding Void.IsRunning}"
+                            ToolTip="Si la venta tiene factura del SIN, la anulación se hace ante el SIN (Documentos fiscales)" />
                 </StackPanel>
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,14,0,0">
                     <ItemsControl ItemsSource="{Binding Lines}" Focusable="False">

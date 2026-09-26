@@ -1,3 +1,4 @@
+using System.IO;
 using MediatR;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -69,10 +70,52 @@ public sealed class ClientHost : IDisposable
     /// <summary>Ingreso normal (PostgreSQL). Si falla, el scope se descarta y la excepción sube al inicio de sesión.</summary>
     public async Task<SessionHandle> SignInAsync(string tenantCode, string email, string password, CancellationToken ct = default)
     {
+        if (_postgres is null)
+        {
+            // V4.1 · La clave maestra descifra el token del SIN y la contraseña del correo: se toma ANTES de armar el anfitrión
+            LoadIntegrationKeys();
+        }
         _postgres ??= Build(services => services.AddMinvInfrastructure(ConnectionString).AddScoped<IRequestTransport, LocalTransport>());
         var builder = new NpgsqlConnectionStringBuilder(ConnectionString);
         return await SignInAsync(_postgres, tenantCode, email, password,
             new ConnectionInfo(false, $"{builder.Host}:{builder.Port}", builder.Database ?? "", builder.Username ?? ""), ct);
+    }
+
+    /// <summary>Archivo con la clave maestra de integraciones de este equipo (lo escribe <c>tools\bd_local.ps1</c>).</summary>
+    public static string IntegrationKeysFile =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "M-INV", "claves-integracion.txt");
+
+    /// <summary>
+    /// V4.1 · Solo modo Base local: si la variable <c>MINV_INTEGRATION_KEYS</c> no está definida, la toma de la línea
+    /// «MINV_INTEGRATION_KEYS=…» de <c>%LOCALAPPDATA%\M-INV\claves-integracion.txt</c> (si existe) para este proceso. Así
+    /// el escritorio puede cifrar y descifrar el token delegado del SIN y la contraseña SMTP. La clave nunca se muestra ni se
+    /// registra; en modo nube el escritorio no la necesita (el token vive en el servidor).
+    /// </summary>
+    public static void LoadIntegrationKeys(string? file = null)
+    {
+        const string variable = "MINV_INTEGRATION_KEYS";
+        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(variable)))
+        {
+            return;
+        }
+        var path = file ?? IntegrationKeysFile;
+        try
+        {
+            if (!File.Exists(path))
+            {
+                return;
+            }
+            var line = File.ReadLines(path).Select(l => l.Trim()).FirstOrDefault(l => l.StartsWith(variable + "=", StringComparison.Ordinal));
+            var value = line?[(variable.Length + 1)..].Trim().Trim('"');
+            if (!string.IsNullOrEmpty(value))
+            {
+                Environment.SetEnvironmentVariable(variable, value);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            System.Diagnostics.Trace.TraceWarning("M-INV · no se pudo leer el archivo de claves de integración: {0}", ex.Message);
+        }
     }
 
     /// <summary>Prepara la demostración (la primera vez migra el libro de la V2.1 a memoria).</summary>
@@ -214,6 +257,13 @@ public static class ClientServices
         services.AddScoped<BranchesViewModel>();
         services.AddScoped<TransfersViewModel>();
         services.AddScoped<IntegrationsViewModel>();
+        // V4.1 · Facturación SIAT
+        services.AddScoped<BillingWorkService>();
+        services.AddScoped<FiscalDocumentsViewModel>();
+        services.AddScoped<SiatStatusViewModel>();
+        services.AddScoped<HomologationViewModel>();
+        services.AddScoped<FiscalBooksViewModel>();
+        services.AddScoped<BillingSettingsViewModel>();
         return services;
     }
 }

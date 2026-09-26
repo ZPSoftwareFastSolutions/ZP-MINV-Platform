@@ -188,41 +188,39 @@ un **servidor en la nube**: el equipo de la caja nunca tiene la contraseña de l
 Todo se prueba en este equipo **sin contratar nada**: el servidor en la nube, el API Gateway y un **simulador del
 SIN** corren en su PC.
 
-> **Estado de la V4.1 al publicar esta guía:**
->
-> - **Listo** (probado con más de 400 pruebas automáticas, incluidas las de PostgreSQL):
->   - la base de datos de la facturación: 27 tablas, 140 en total;
->   - el cliente de los servicios del SIN y el simulador del SIN;
->   - el XML validado contra los esquemas oficiales, el código CUF y el QR;
->   - la representación gráfica en PDF y en rollo;
->   - el registro del servidor en la nube.
-> - **En construcción** (se incorporan en los próximos commits de esta rama, y esta guía se actualizará):
->   - la emisión automática al cobrar y el envío al SIN;
->   - la contingencia fuera de línea;
->   - la anulación, la reversión y las notas crédito-débito;
->   - los libros de compras y ventas;
->   - las pantallas de facturación del escritorio.
+> **Estado de la V4.1: completa** (más de 460 pruebas automáticas, incluidas las de PostgreSQL). Emisión al cobrar y
+> envío al SIN, contingencia fuera de línea con recuperación automática, facturas manuales CAFC, anulación, reversión,
+> notas crédito-débito, libros de compras y ventas, y las cinco pantallas de facturación del escritorio. Lo único que
+> falta es propio del SIN real (token, NIT y confirmar el contrato con el WSDL del piloto): ver
+> [`docs/billing/puesta-en-produccion-siat.md`](docs/billing/puesta-en-produccion-siat.md).
 
 ### Algoritmo · todo en este equipo
 
-La guía detallada es [`docs/deployment/inicio-rapido-v4.md`](docs/deployment/inicio-rapido-v4.md).
+Guías detalladas: [`docs/deployment/inicio-rapido-v4.1.md`](docs/deployment/inicio-rapido-v4.1.md) (facturación, paso a
+paso) y [`docs/deployment/inicio-rapido-v4.md`](docs/deployment/inicio-rapido-v4.md) (sucursales, nube y API).
 
 ```text
- A. Requisitos: los de la edición 3 (PostgreSQL portátil instalado con tools\bd_local.ps1 -Accion instalar).
- B. Base local con datos de prueba de 3 sucursales, 12 usuarios, transferencias y pedidos web:
-        powershell -ExecutionPolicy Bypass -File tools\bd_local.ps1 -Accion recrear
-    Una base existente de la V4 se actualiza a la V4.1 sin perder datos:
+ A. Requisitos: los de la edición 3 (PostgreSQL portátil instalado con toolsd_local.ps1 -Accion instalar).
+ B. Base local con 3 sucursales, 12 usuarios, transferencias, pedidos web y 25 días de FACTURAS del SIN simulado:
+        powershell -ExecutionPolicy Bypass -File toolsd_local.ps1 -Accion recrear
+    (sin facturación: agregue -SinFacturacion). Una base existente de la V4 se actualiza sin perder datos:
         dotnet run --project "src/4. Tools/MINV.Cli" -- migrate --conexion "<cadena del rol minv_owner>"
  C. Publique el programa:  powershell -ExecutionPolicy Bypass -File tools\publicar_escritorio.ps1
- D. Encienda la «nube» local (servidor en la nube :5080 y API Gateway :5090):
+ D. Encienda la «nube» local: simulador del SIN :5095 + servidor en la nube :5080 + API Gateway :5090
         powershell -ExecutionPolicy Bypass -File tools\servidores_locales.ps1 -Accion iniciar
  E. Abra dist\M-INV-4.1.0-alpha.1-win-x64\M-INV.exe
       → «Nube» → servidor http://localhost:5080 → «Probar» → empresa MINV → correo y contraseña
-      («Base local» también funciona, sin servidor)
+      («Base local» también funciona, sin servidor; «Demostración» factura en memoria, sin base)
  F. Arriba elija la SUCURSAL ACTIVA: todo lo que registre queda en esa sucursal.
- G. Tienda en línea: API en http://localhost:5090 (documentación en /docs), con la API Key de claves-integracion.txt.
- H. Al terminar:  tools\servidores_locales.ps1 -Accion detener   (estado: -Accion estado)
- I. Nube real (DigitalOcean, AWS RDS o Supabase):  docs\deployment\despliegue-nube-v4.md
+ G. Facturación › Estado SIAT: 8 puntos de venta EN LÍNEA con el CUFD del día.
+ H. Punto de venta: CI o NIT del comprador → Cobrar → la factura sale VÁLIDA, con QR y «SIN VALOR LEGAL» (pruebas).
+ I. Corte de internet simulado:  dotnet run --project "src/4. Tools/MINV.Cli" -- siat simulador-apagar
+      → la caja sigue facturando FUERA DE LÍNEA →  … siat simulador-encender  → en 1 o 2 minutos todo VÁLIDO.
+ J. Tienda en línea: API en http://localhost:5090 (documentación en /docs), con la API Key de claves-integracion.txt;
+      cada pedido web también se factura.
+ K. Al terminar:  tools\servidores_locales.ps1 -Accion detener   (estado: -Accion estado)
+ L. Nube real (DigitalOcean, AWS RDS o Supabase):  docs\deployment\despliegue-nube-v4.md
+    SIN real (Fases I a III y producción):        docsilling\puesta-en-produccion-siat.md
 ```
 
 ### Funciones que se suman a la edición 3
@@ -233,7 +231,7 @@ La guía detallada es [`docs/deployment/inicio-rapido-v4.md`](docs/deployment/in
 | **Transferencias** | La sucursal de origen solicita y despacha; la de destino recibe, contando lo que llegó. Los faltantes quedan registrados como merma en tránsito, con sus asientos contables |
 | **Integraciones** | API Keys con permisos por sucursal. Webhooks firmados para avisar de ventas, anulaciones y transferencias. Historial de entregas |
 | **Modo Nube** | Sesión con token. Cada acción se verifica en el servidor con los permisos y las sucursales del usuario |
-| **Facturación SIAT (V4.1)** | Facturas Compra Venta y notas crédito-débito, con CUF, QR, leyendas de la Ley 453 y PDF o rollo. Envío al SIN al cobrar. **Contingencia automática**: sin internet la caja no se bloquea; factura fuera de línea y, al volver la conexión, registra el evento y envía los paquetes solo. Anulación hasta el día 9 del mes siguiente; reversión una sola vez. Devoluciones parciales con nota crédito-débito. Facturas manuales CAFC. Homologación de productos. Verificación de NIT. Libros de ventas y compras y resumen de IVA e IT |
+| **Facturación SIAT (V4.1)** | Pantallas **Documentos fiscales**, **Estado SIAT**, **Homologación**, **Libros fiscales** y **Facturación SIAT** (configuración). Facturas Compra Venta y notas crédito-débito, con CUF, QR, leyendas de la Ley 453 y PDF o rollo. Envío al SIN al cobrar. **Contingencia automática**: sin internet la caja no se bloquea; factura fuera de línea y, al volver la conexión, registra el evento y envía los paquetes solo. Anulación hasta el día 9 del mes siguiente; reversión una sola vez. Devoluciones parciales con nota crédito-débito. Facturas manuales CAFC. Homologación de productos. Verificación de NIT. Libros de ventas y compras y resumen de IVA e IT |
 
 ### Pasos para facturar con el SIN (V4.1)
 
@@ -300,6 +298,8 @@ En la **demostración** no hay contraseñas: se elige el rol en la pantalla de i
 | Modo Nube: «Sin conexión con el servidor» | `tools\servidores_locales.ps1 -Accion iniciar`, luego «Probar» |
 | Modo Nube: «actualice el escritorio» | El escritorio y el servidor deben ser de la misma versión mayor: vuelva a publicar con `tools\publicar_escritorio.ps1` |
 | «Su usuario no tiene sucursales asignadas» | Como Administrador: Sucursales › Asignar usuarios |
+| Facturas «fuera de línea» que no pasan a válidas | ¿Está encendido el simulador? `tools\servidores_locales.ps1 -Accion estado`; luego Estado SIAT › «Procesar ahora» |
+| La caja dice «producto sin homologar» | Facturación › Homologación: asigne su código del SIN (o «Sugerir») |
 | Olvidé la contraseña de prueba | Está en `%LOCALAPPDATA%\M-INV\usuarios-prueba.txt` |
 | Excel compartido: «su cuenta no está autorizada» | El ADMIN agrega el correo al final de `02_USUARIOS` |
 | Excel: los botones no hacen nada | En la edición Plus, habilite las macros. En la compartida, agregue el script sobre el recuadro ⚙ |
@@ -311,5 +311,5 @@ En la **demostración** no hay contraseñas: se elige el rol en la pantalla de i
 | Excel compartido (V2.1) | [`docs/deployment/inicio-rapido.md`](docs/deployment/inicio-rapido.md) · [`docs/deployment/sharepoint-rbac-policies.md`](docs/deployment/sharepoint-rbac-policies.md) |
 | Escritorio y base local (V3.1) | [`docs/deployment/inicio-rapido-v3.md`](docs/deployment/inicio-rapido-v3.md) · [`docs/product/escritorio-v3.1.md`](docs/product/escritorio-v3.1.md) |
 | Nube y sucursales (V4) | [`docs/deployment/inicio-rapido-v4.md`](docs/deployment/inicio-rapido-v4.md) · [`docs/deployment/despliegue-nube-v4.md`](docs/deployment/despliegue-nube-v4.md) · [`docs/product/escritorio-v4.md`](docs/product/escritorio-v4.md) · [`docs/integration/api-gateway-v1.md`](docs/integration/api-gateway-v1.md) |
-| Facturación SIAT (V4.1) | [`docs/architecture/facturacion-siat-v4.1.md`](docs/architecture/facturacion-siat-v4.1.md) · [`.claude/v41-billing-rules.md`](.claude/v41-billing-rules.md) · investigación de la normativa del SIN en [`docs/billing/investigacion-siat/`](docs/billing/investigacion-siat/) |
+| Facturación SIAT (V4.1) | [`docs/deployment/inicio-rapido-v4.1.md`](docs/deployment/inicio-rapido-v4.1.md) · [`docs/product/escritorio-v4.1.md`](docs/product/escritorio-v4.1.md) · [`docs/billing/puesta-en-produccion-siat.md`](docs/billing/puesta-en-produccion-siat.md) · [`docs/billing/README.md`](docs/billing/README.md) · [`docs/architecture/facturacion-siat-v4.1.md`](docs/architecture/facturacion-siat-v4.1.md) · [`.claude/v41-billing-rules.md`](.claude/v41-billing-rules.md) · investigación de la normativa del SIN en [`docs/billing/investigacion-siat/`](docs/billing/investigacion-siat/) |
 | Historial de cambios | [`CHANGELOG.md`](CHANGELOG.md) |

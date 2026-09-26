@@ -1,0 +1,414 @@
+<!-- V4.1 · Plantillas de la facturación SIAT: datos del comprador y cuerpo de los formularios modales (anular, devolución,
+     re-emitir, XML, contingencia, punto de venta, CAFC, transcripción, homologación y factura del proveedor). El marco del
+     formulario (título, error y botones) lo dibuja MainWindow. -->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:c="clr-namespace:MINV.DesktopClient.Controls"
+                    xmlns:v="clr-namespace:MINV.DesktopClient.Views"
+                    xmlns:vm="clr-namespace:MINV.DesktopClient.ViewModels"
+                    xmlns:b="clr-namespace:MINV.Application.Billing;assembly=MINV.Application">
+
+    <!-- ============================================================================ datos del comprador -->
+    <DataTemplate DataType="{x:Type vm:BuyerForm}">
+        <StackPanel>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="150" />
+                    <ColumnDefinition Width="8" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <ComboBox ItemsSource="{Binding DocumentTypes}" SelectedItem="{Binding DocumentType}" ToolTip="Tipo de documento del comprador"
+                          AutomationProperties.Name="Tipo de documento">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:DocumentTypeOption}">
+                            <TextBlock Text="{Binding Short}" ToolTip="{Binding Label}" />
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+                <TextBox Grid.Column="2" Text="{Binding DocumentNumber, UpdateSourceTrigger=PropertyChanged}" MaxLength="20" c:Ui.Icon="{x:Static c:Glyphs.Person}"
+                         c:Ui.Placeholder="Número de documento (obligatorio)" c:Ui.LostFocusCommand="{Binding Lookup}" AutomationProperties.Name="Número de documento" />
+                <TextBox Grid.Column="3" Width="76" Margin="8,0,0,0" Text="{Binding Complement, UpdateSourceTrigger=PropertyChanged}" MaxLength="5"
+                         c:Ui.Placeholder="Compl." ToolTip="Complemento del SEGIP: solo si la cédula lo tiene (p. ej. 1A)"
+                         Visibility="{Binding IsCi, Converter={StaticResource Visible}}" AutomationProperties.Name="Complemento" />
+            </Grid>
+            <TextBox Margin="0,8,0,0" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" MaxLength="500" c:Ui.Placeholder="Nombre o razón social"
+                     AutomationProperties.Name="Nombre o razón social" />
+            <!-- Correo y verificación del NIT en una sola fila: la caja conserva espacio para el carrito -->
+            <DockPanel Margin="0,8,0,0">
+                <Button DockPanel.Dock="Right" Content="Verificar NIT" c:Ui.Icon="{x:Static c:Glyphs.Shield}" Command="{Binding VerifyNit}" Height="34" Padding="12,0"
+                        Margin="8,0,0,0" c:Ui.IsBusy="{Binding VerifyNit.IsRunning}" Visibility="{Binding ShowVerify, Converter={StaticResource Visible}}" />
+                <TextBox Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}" MaxLength="254" c:Ui.Icon="{x:Static c:Glyphs.Mail}"
+                         c:Ui.Placeholder="Correo (para enviarle la factura)" AutomationProperties.Name="Correo del comprador" />
+            </DockPanel>
+            <CheckBox Margin="0,8,0,0" Content="Facturar aunque el NIT no sea válido" IsChecked="{Binding ExceptionRequested}"
+                      ToolTip="Código de excepción 1: el SIN acepta la factura aunque el NIT no figure activo en el Padrón"
+                      Visibility="{Binding IsNit, Converter={StaticResource Visible}}" />
+            <Border CornerRadius="8" Padding="10,6" Margin="0,8,0,0" c:Ui.BrushKey="{Binding NitStatusSoftBrush}"
+                    Visibility="{Binding HasNitStatus, Converter={StaticResource Visible}}">
+                <TextBlock Text="{Binding NitStatus}" TextWrapping="Wrap" FontSize="12" c:Ui.BrushKey="{Binding NitStatusBrush}" />
+            </Border>
+            <TextBlock Text="{Binding FoundText}" Style="{StaticResource Caption}" Margin="0,6,0,0" Visibility="{Binding FoundText, Converter={StaticResource HasValue}}" />
+            <DockPanel Margin="0,8,0,0">
+                <TextBlock DockPanel.Dock="Left" Text="NIT especial" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,8,4"
+                           ToolTip="Para compradores sin documento o casos especiales del SIN (pase el mouse por cada botón para ver cuándo se usa)" />
+                <ItemsControl ItemsSource="{Binding Specials}" Focusable="False" ItemsPanel="{StaticResource WrapPanelTemplate}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:SpecialNit}">
+                            <Button Content="{Binding Label}" ToolTip="{Binding Explanation}" Height="26" Padding="8,0" FontSize="11.5" Margin="0,0,6,4"
+                                    Command="{Binding DataContext.UseSpecial, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}" />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </DockPanel>
+        </StackPanel>
+    </DataTemplate>
+
+    <!-- ============================================================================ anular -->
+    <DataTemplate DataType="{x:Type vm:VoidFiscalDialog}">
+        <StackPanel>
+            <TextBlock Text="Motivo de la anulación (catálogo del SIN)" Style="{StaticResource FieldLabel}" />
+            <ComboBox ItemsSource="{Binding Reasons}" SelectedItem="{Binding Reason}" AutomationProperties.Name="Motivo" />
+            <TextBlock Text="Observación (opcional)" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
+            <TextBox Text="{Binding Note, UpdateSourceTrigger=PropertyChanged}" MaxLength="250" c:Ui.Placeholder="Qué pasó (queda en la bitácora)" />
+            <Border Style="{StaticResource Panel}" Margin="0,14,0,0" Visibility="{Binding CanReturnGoods, Converter={StaticResource Visible}}">
+                <StackPanel>
+                    <CheckBox Style="{StaticResource Switch}" Content="Devolver la mercadería" IsChecked="{Binding ReturnGoods}" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding ReturnGoodsHelp}" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,8,0,0" />
+                </StackPanel>
+            </Border>
+            <Border Background="{DynamicResource WarningSoft}" CornerRadius="8" Padding="12,8" Margin="0,14,0,0">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Left" Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Calendar}" Foreground="{DynamicResource Warning}"
+                               VerticalAlignment="Top" Margin="0,2,10,0" FontSize="14" />
+                    <TextBlock Text="{Binding DeadlineText}" TextWrapping="Wrap" Foreground="{DynamicResource Warning}" />
+                </DockPanel>
+            </Border>
+            <CheckBox Margin="0,14,0,0" IsChecked="{Binding Confirmed}">
+                <TextBlock Text="{Binding ConfirmLabel}" TextWrapping="Wrap" FontWeight="SemiBold" />
+            </CheckBox>
+        </StackPanel>
+    </DataTemplate>
+
+    <!-- ============================================================================ devolución -->
+    <DataTemplate DataType="{x:Type vm:SalesReturnDialog}">
+        <StackPanel>
+            <DockPanel Margin="0,0,0,8">
+                <Button DockPanel.Dock="Right" Style="{StaticResource GhostButton}" Content="Devolver todo" Command="{Binding ReturnAll}" Height="30" Padding="10,0" />
+                <TextBlock Text="¿Qué devuelve el cliente?" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" Margin="0" />
+            </DockPanel>
+            <ItemsControl ItemsSource="{Binding Lines}" Focusable="False">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="{x:Type vm:ReturnLineItem}">
+                        <Border Style="{StaticResource Panel}" Padding="12,10" Margin="0,0,0,8" IsEnabled="{Binding CanReturn}">
+                            <DockPanel>
+                                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <TextBox Width="90" Height="32" Text="{Binding Quantity, UpdateSourceTrigger=PropertyChanged}" TextAlignment="Right"
+                                             c:Ui.Placeholder="0" c:Ui.HasError="{Binding HasError}" c:Ui.SelectAllOnFocus="True" AutomationProperties.Name="Cantidad a devolver" />
+                                    <TextBlock Text="{Binding Line.Unit}" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="6,0,0,0" MinWidth="30" />
+                                </StackPanel>
+                                <StackPanel Margin="0,0,12,0">
+                                    <TextBlock FontWeight="SemiBold" TextTrimming="CharacterEllipsis">
+                                        <Run Text="{Binding Line.Sku, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding Line.Name, Mode=OneWay}" />
+                                    </TextBlock>
+                                    <TextBlock Text="{Binding AvailableText}" Style="{StaticResource Caption}" FontSize="11.5" />
+                                    <TextBlock Text="{Binding PriceText}" Style="{StaticResource Caption}" FontSize="11.5" />
+                                </StackPanel>
+                            </DockPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <Grid Margin="0,6,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="12" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock Text="Motivo" Style="{StaticResource FieldLabel}" />
+                    <ComboBox IsEditable="True" ItemsSource="{Binding Reasons}" Text="{Binding Reason, UpdateSourceTrigger=PropertyChanged}" c:Ui.Placeholder="Elija o escriba el motivo" />
+                </StackPanel>
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="Reembolso en" Style="{StaticResource FieldLabel}" />
+                    <ComboBox ItemsSource="{Binding Methods}" SelectedItem="{Binding Method}" DisplayMemberPath="Name" />
+                </StackPanel>
+            </Grid>
+            <TextBlock Text="{Binding RefundText}" FontWeight="SemiBold" FontSize="15" Margin="0,14,0,0" Foreground="{DynamicResource BrandText}" />
+        </StackPanel>
+    </DataTemplate>
+
+    <!-- ============================================================================ re-emitir -->
+    <DataTemplate DataType="{x:Type vm:ReissueDialog}">
+        <StackPanel>
+            <TextBlock Text="Datos del comprador" Style="{StaticResource FieldLabel}" />
+            <ContentControl Content="{Binding Buyer}" IsEnabled="{Binding CanEditBuyer}" Focusable="False" />
+        </StackPanel>
+    </DataTemplate>
+
+    <!-- ============================================================================ XML -->
+    <DataTemplate DataType="{x:Type vm:XmlDialog}">
+        <StackPanel>
+            <DockPanel Margin="0,0,0,8">
+                <Button DockPanel.Dock="Right" Style="{StaticResource SoftButton}" Content="Copiar XML" c:Ui.Icon="{x:Static c:Glyphs.Copy}" Command="{Binding Copy}" />
+                <TextBlock Text="{Binding Copied}" Foreground="{DynamicResource Success}" VerticalAlignment="Center" />
+            </DockPanel>
+            <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}" BorderThickness="1" CornerRadius="8" Padding="12" Height="480">
+                <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" Focusable="False">
+                    <TextBlock Text="{Binding Xml}" FontFamily="{StaticResource MonoFont}" FontSize="12" Foreground="{DynamicResource TextPrimary}"
+                               AutomationProperties.Name="XML del documento" />
+                </ScrollViewer>
+            </Border>
+        </StackPanel>
+    </DataTemplate>
+
+    <!-- ============================================================================ contingencia manual -->
+    <DataTemplate DataType="{x:Type vm:ManualContingencyDialog}">
+        <StackPanel>
+            <TextBlock Text="Evento significativo (catálogo del SIN)" Style="{StaticResource FieldLabel}" />
+            <ComboBox ItemsSource="{Binding Events}" SelectedItem="{Binding Event}" />
+            <TextBlock Text="Talonario CAFC de la sucursal" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
+            <ComboBox ItemsSource="{Binding Cafcs}" SelectedItem="{Binding Cafc}" />
+            <TextBlock Text="Inicio (día/mes/año hora:minuto)" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
+            <TextBox Text="{Binding Start, UpdateSourceTrigger=PropertyChanged}" c:Ui.Icon="{x:Static c:Glyphs.Clock}" MaxLength="16" />
+            <TextBlock Text="Descripción (opcional)" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
+            <TextBox Text="{Binding Description, UpdateSourceTrigger=PropertyChanged}" MaxLength="500" c:Ui.Placeholder="Qué pasó (p. ej. corte de energía en el barrio)" />
+        </StackPanel>
+    </DataTemplate>
+
+    <!-- ============================================================================ punto de venta -->
+    <DataTemplate DataType="{x:Type vm:RegisterPointDialog}">
+        <StackPanel>
+            <TextBlock Text="Sucursal" Style="{StaticResource FieldLabel}" />
+            <ComboBox ItemsSource="{Binding Branches}" SelectedItem="{Binding Branch}">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate DataType="{x:Type b:SiatBranchView}">
+                        <TextBlock>
+                            <Run Text="{Binding BranchCode, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding BranchName, Mode=OneWay}" />
+                            <Run Text="{Binding SiatCode, Mode=OneWay, StringFormat=' (Padrón {0})'}" Foreground="{DynamicResource TextMuted}" />
+                        </TextBlock>
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+            <TextBlock Text="Nombre del punto de venta" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
+            <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" MaxLength="100" />
+            <TextBlock Text="Descripción (opcional)" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
+            <TextBox Text="{Binding Description, UpdateSourceTrigger=PropertyChanged}" MaxLength="200" />
+            <TextBlock Text="Caja que factura con este punto" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
+            <ComboBox ItemsSource="{Binding Registers}" SelectedItem="{Binding Register}" />
+        </StackPanel>
+    </DataTemplate>
+
+    <!-- ============================================================================ CAFC -->
+    <DataTemplate DataType="{x:Type vm:RegisterCafcDialog}">
+        <StackPanel>
+            <TextBlock Text="Sucursal" Style="{StaticResource FieldLabel}" />
+            <ComboBox ItemsSource="{Binding Branches}" SelectedItem="{Binding Branch}">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate DataType="{x:Type b:SiatBranchView}">
+                        <TextBlock>
+                            <Run Text="{Binding BranchCode, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding BranchName, Mode=OneWay}" />
+                        </TextBlock>
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+            <TextBlock Text="Documento" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
+            <ComboBox ItemsSource="{Binding Sectors}" SelectedItem="{Binding Sector}" />
+            <TextBlock Text="CAFC (código que entregó el SIN)" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
+            <TextBox Text="{Binding Code, UpdateSourceTrigger=PropertyChanged}" MaxLength="50" FontFamily="{StaticResource MonoFont}" />
+            <Grid Margin="0,12,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="12" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="12" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock Text="Del número" Style="{StaticResource FieldLabel}" />
+                    <TextBox Text="{Binding NumberFrom, UpdateSourceTrigger=PropertyChanged}" TextAlignment="Right" />
+                </StackPanel>
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="Al número" Style="{StaticResource FieldLabel}" />
+                    <TextBox Text="{Binding NumberTo, UpdateSourceTrigger=PropertyChanged}" TextAlignment="Right" />
+                </StackPanel>
+                <StackPanel Grid.Column="4">
+                    <TextBlock Text="Vence (opcional)" Style="{StaticResource FieldLabel}" />
+                    <TextBox Text="{Binding ValidUntil, UpdateSourceTrigger=PropertyChanged}" c:Ui.Placeholder="dd/mm/aaaa" />
+                </StackPanel>
+            </Grid>
+        </StackPanel>
+    </DataTemplate>
+
+    <!-- ============================================================================ transcripción de facturas manuales -->
+    <DataTemplate DataType="{x:Type vm:TranscribeDialog}">
+        <StackPanel>
+            <TextBlock Text="Contingencia manual" Style="{StaticResource FieldLabel}" />
+            <ComboBox ItemsSource="{Binding Events}" SelectedItem="{Binding Event}" />
+            <Grid Margin="0,12,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="12" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="12" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock Text="N° de la factura manual" Style="{StaticResource FieldLabel}" />
+                    <TextBox Text="{Binding Number, UpdateSourceTrigger=PropertyChanged}" TextAlignment="Right" MaxLength="10" />
+                </StackPanel>
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="Fecha y hora escritas" Style="{StaticResource FieldLabel}" />
+                    <TextBox Text="{Binding IssuedAt, UpdateSourceTrigger=PropertyChanged}" MaxLength="16" c:Ui.Placeholder="dd/mm/aaaa hh:mm" />
+                </StackPanel>
+                <StackPanel Grid.Column="4">
+                    <TextBlock Text="Medio de pago" Style="{StaticResource FieldLabel}" />
+                    <ComboBox ItemsSource="{Binding Methods}" SelectedItem="{Binding Method}" DisplayMemberPath="Name" />
+                </StackPanel>
+            </Grid>
+            <TextBlock Text="Comprador" Style="{StaticResource FieldLabel}" Margin="0,14,0,6" />
+            <ContentControl Content="{Binding Buyer}" Focusable="False" />
+            <TextBlock Text="Productos" Style="{StaticResource FieldLabel}" Margin="0,14,0,6" />
+            <v:ProductSearchBox DataContext="{Binding Picker}" Placeholder="Buscar el producto por nombre, SKU o código de barras" />
+            <ItemsControl ItemsSource="{Binding Lines}" Margin="0,10,0,0" Focusable="False">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="{x:Type vm:TranscribeLine}">
+                        <Border Style="{StaticResource Panel}" Padding="10,8" Margin="0,0,0,6">
+                            <DockPanel>
+                                <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Width="28" Height="28" FontSize="12" Content="{x:Static c:Glyphs.Delete}"
+                                        Foreground="{DynamicResource Danger}" ToolTip="Quitar"
+                                        Command="{Binding DataContext.RemoveLine, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}" />
+                                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="8,0">
+                                    <TextBox Width="70" Height="30" Text="{Binding Quantity, UpdateSourceTrigger=PropertyChanged}" TextAlignment="Right" ToolTip="Cantidad" />
+                                    <TextBlock Text="{Binding Unit}" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="4,0,10,0" />
+                                    <TextBox Width="60" Height="30" Text="{Binding Discount, UpdateSourceTrigger=PropertyChanged}" TextAlignment="Right" ToolTip="Descuento %"
+                                             c:Ui.Placeholder="%" />
+                                </StackPanel>
+                                <TextBlock VerticalAlignment="Center" TextTrimming="CharacterEllipsis">
+                                    <Run Text="{Binding Sku, Mode=OneWay}" FontWeight="SemiBold" /><Run Text=" · " /><Run Text="{Binding Name, Mode=OneWay}" />
+                                </TextBlock>
+                            </DockPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,6,0,0"
+                       Text="El precio es el de la lista vigente (igual que en la caja). La venta se registra sin turno de caja, en el almacén del punto de venta." />
+        </StackPanel>
+    </DataTemplate>
+
+    <!-- ============================================================================ homologar un producto -->
+    <DataTemplate DataType="{x:Type vm:AssignProductDialog}">
+        <StackPanel>
+            <TextBlock Text="Actividad económica" Style="{StaticResource FieldLabel}" />
+            <ComboBox ItemsSource="{Binding Activities}" SelectedItem="{Binding Activity}">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate DataType="{x:Type b:SiatActivityView}">
+                        <TextBlock TextTrimming="CharacterEllipsis">
+                            <Run Text="{Binding Code, Mode=OneWay}" FontWeight="SemiBold" /><Run Text=" · " /><Run Text="{Binding Description, Mode=OneWay}" />
+                        </TextBlock>
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+            <TextBlock Text="Buscar en el catálogo de productos del SIN" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
+            <TextBox Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}" c:Ui.Icon="{x:Static c:Glyphs.Search}" c:Ui.Placeholder="Palabra del producto o código del SIN" />
+            <DockPanel Margin="0,8,0,4">
+                <c:ProgressRing DockPanel.Dock="Right" Width="16" Height="16" Visibility="{Binding IsSearching, Converter={StaticResource Visible}}" />
+                <TextBlock Text="{Binding ResultsText}" Style="{StaticResource Caption}" />
+            </DockPanel>
+            <ListBox ItemsSource="{Binding Results}" SelectedItem="{Binding Selected}" Height="280" BorderBrush="{DynamicResource Border}" BorderThickness="1"
+                     Background="{DynamicResource SurfaceAlt}" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                <ListBox.ItemTemplate>
+                    <DataTemplate DataType="{x:Type b:SiatProductView}">
+                        <DockPanel Margin="2,4">
+                            <Border DockPanel.Dock="Left" Style="{StaticResource Pill}" Background="{DynamicResource BrandSoft}" MinWidth="76" Margin="0,0,10,0">
+                                <TextBlock Text="{Binding ProductCode}" Style="{StaticResource Mono}" Foreground="{DynamicResource BrandText}" FontWeight="SemiBold"
+                                           HorizontalAlignment="Center" />
+                            </Border>
+                            <TextBlock Text="{Binding Description}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                        </DockPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </StackPanel>
+    </DataTemplate>
+
+    <!-- ============================================================================ sugerencias -->
+    <DataTemplate DataType="{x:Type vm:SuggestionsDialog}">
+        <StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                <Button Style="{StaticResource GhostButton}" Content="Marcar todas" Command="{Binding SelectAll}" Height="30" Padding="10,0" />
+                <Button Style="{StaticResource GhostButton}" Content="Desmarcar todas" Command="{Binding SelectNone}" Height="30" Padding="10,0" Margin="6,0,0,0" />
+            </StackPanel>
+            <ListBox ItemsSource="{Binding Items}" Height="400" Style="{StaticResource PlainList}" VirtualizingPanel.IsVirtualizing="True"
+                     VirtualizingPanel.VirtualizationMode="Recycling">
+                <ListBox.ItemTemplate>
+                    <DataTemplate DataType="{x:Type vm:SuggestionItem}">
+                        <Border Style="{StaticResource Panel}" Padding="10,8" Margin="0,0,0,6">
+                            <CheckBox IsChecked="{Binding Accepted}">
+                                <StackPanel>
+                                    <TextBlock Text="{Binding ProductName}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                    <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap">
+                                        <Run Text="→ SIN" /> <Run Text="{Binding SinText, Mode=OneWay}" />
+                                    </TextBlock>
+                                </StackPanel>
+                            </CheckBox>
+                        </Border>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </StackPanel>
+    </DataTemplate>
+
+    <!-- ============================================================================ factura del proveedor -->
+    <DataTemplate DataType="{x:Type vm:SupplierInvoiceDialog}">
+        <StackPanel>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="12" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock Text="N° de factura" Style="{StaticResource FieldLabel}" />
+                    <TextBox Text="{Binding InvoiceNumber, UpdateSourceTrigger=PropertyChanged}" MaxLength="40" />
+                </StackPanel>
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="Fecha de la factura" Style="{StaticResource FieldLabel}" />
+                    <TextBox Text="{Binding Date, UpdateSourceTrigger=PropertyChanged}" c:Ui.Placeholder="dd/mm/aaaa" c:Ui.Icon="{x:Static c:Glyphs.Calendar}" />
+                </StackPanel>
+            </Grid>
+            <TextBlock Text="CUF o código de autorización" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
+            <TextBox Text="{Binding AuthorizationCode, UpdateSourceTrigger=PropertyChanged}" MaxLength="100" FontFamily="{StaticResource MonoFont}" />
+            <Grid Margin="0,12,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="12" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="12" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock Text="Importe total" Style="{StaticResource FieldLabel}" />
+                    <TextBox Text="{Binding Total, UpdateSourceTrigger=PropertyChanged}" TextAlignment="Right" />
+                </StackPanel>
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="Descuentos" Style="{StaticResource FieldLabel}" />
+                    <TextBox Text="{Binding Discounts, UpdateSourceTrigger=PropertyChanged}" TextAlignment="Right" c:Ui.Placeholder="0" />
+                </StackPanel>
+                <StackPanel Grid.Column="4">
+                    <TextBlock Text="No sujeto a crédito" Style="{StaticResource FieldLabel}" />
+                    <TextBox Text="{Binding NotSubject, UpdateSourceTrigger=PropertyChanged}" TextAlignment="Right" c:Ui.Placeholder="0" />
+                </StackPanel>
+            </Grid>
+            <TextBlock Text="Tipo de compra" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
+            <ComboBox ItemsSource="{Binding Types}" SelectedItem="{Binding Type}" />
+            <TextBlock Text="Código de control (solo facturas antiguas, opcional)" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
+            <TextBox Text="{Binding ControlCode, UpdateSourceTrigger=PropertyChanged}" MaxLength="17" />
+            <Border Background="{DynamicResource InfoSoft}" CornerRadius="8" Padding="12,8" Margin="0,14,0,0">
+                <TextBlock Text="{Binding CreditText}" Foreground="{DynamicResource Info}" TextWrapping="Wrap" FontWeight="SemiBold" />
+            </Border>
+        </StackPanel>
+    </DataTemplate>
+</ResourceDictionary>

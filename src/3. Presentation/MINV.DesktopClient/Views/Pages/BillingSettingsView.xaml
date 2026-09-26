@@ -1,0 +1,256 @@
+<UserControl x:Class="MINV.DesktopClient.Views.Pages.BillingSettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:MINV.DesktopClient.Controls"
+             xmlns:vm="clr-namespace:MINV.DesktopClient.ViewModels">
+    <!-- V4.1 · Administración › Facturación SIAT: Padrón, ambiente, conexión (token de solo escritura), sucursales, leyendas y correo -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
+        <StackPanel Margin="28,6,28,24">
+            <DockPanel Margin="0,0,0,14">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Content="Ir a Estado SIAT" c:Ui.Icon="{x:Static c:Glyphs.Pulse}" Command="{Binding GoToStatus}" Margin="0,0,8,0" />
+                    <Button Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Refresh}" Command="{Binding Refresh}" ToolTip="Actualizar (F5)" />
+                </StackPanel>
+                <StackPanel>
+                    <TextBlock Text="{Binding Title}" Style="{StaticResource H1}" />
+                    <TextBlock Text="{Binding Subtitle}" Style="{StaticResource Caption}" FontSize="13" Margin="0,4,0,0" />
+                </StackPanel>
+            </DockPanel>
+
+            <Border Style="{StaticResource FormError}" Margin="0,0,0,12" Visibility="{Binding ModuleMissing, Converter={StaticResource Visible}}">
+                <TextBlock Foreground="{DynamicResource Danger}" TextWrapping="Wrap"
+                           Text="La empresa no tiene licenciado el módulo «Facturación SIAT (computarizada en línea)». Puede revisar la configuración, pero no activarla." />
+            </Border>
+
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="16" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <!-- ================================================================ columna izquierda -->
+                <StackPanel>
+                    <!-- Datos del Padrón -->
+                    <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                        <StackPanel>
+                            <DockPanel Margin="0,0,0,12">
+                                <Border DockPanel.Dock="Right" Style="{StaticResource StatusPill}" c:Ui.BrushKey="{Binding StateSoftBrush}" MaxWidth="330">
+                                    <TextBlock Text="{Binding StateText}" FontSize="11.5" FontWeight="SemiBold" c:Ui.BrushKey="{Binding StateBrush}" TextWrapping="Wrap" />
+                                </Border>
+                                <TextBlock Text="Datos del Padrón y del sistema" Style="{StaticResource H3}" VerticalAlignment="Center" />
+                            </DockPanel>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="180" />
+                                    <ColumnDefinition Width="12" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="NIT de la empresa" Style="{StaticResource FieldLabel}" />
+                                    <TextBox Text="{Binding Nit, UpdateSourceTrigger=PropertyChanged}" MaxLength="13" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="Razón social (tal como figura en el Padrón)" Style="{StaticResource FieldLabel}" />
+                                    <TextBox Text="{Binding BusinessName, UpdateSourceTrigger=PropertyChanged}" MaxLength="200" />
+                                </StackPanel>
+                            </Grid>
+                            <TextBlock Text="Código de sistema (lo asigna el SIN al autorizar M-INV)" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
+                            <TextBox Text="{Binding SystemCode, UpdateSourceTrigger=PropertyChanged}" MaxLength="50" FontFamily="{StaticResource MonoFont}" />
+                            <TextBlock Text="Ambiente" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
+                            <Border Background="{DynamicResource SurfaceAlt}" CornerRadius="10" Padding="3" HorizontalAlignment="Left">
+                                <StackPanel Orientation="Horizontal">
+                                    <RadioButton Style="{StaticResource Segment}" GroupName="SiatEnv" IsChecked="{Binding IsTest}" Content="Pruebas y piloto (2)" MinWidth="170" />
+                                    <RadioButton Style="{StaticResource Segment}" GroupName="SiatEnv" IsChecked="{Binding IsProduction}" Content="Producción (1)" MinWidth="150" />
+                                </StackPanel>
+                            </Border>
+                            <Border Background="{DynamicResource WarningSoft}" CornerRadius="8" Padding="12,8" Margin="0,8,0,0">
+                                <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource Warning}" FontSize="12">
+                                    <Run Text="Pruebas: los documentos no tienen valor legal y se imprimen con «SIN VALOR LEGAL»." />
+                                    <Run Text="Producción: cada factura vale ante el SIN; úselo solo después de aprobar el piloto y la inspección." FontWeight="SemiBold" />
+                                </TextBlock>
+                            </Border>
+                            <TextBlock Text="Leyenda en línea (tercera leyenda de la factura)" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
+                            <TextBox Text="{Binding OnlineLegend, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource MultilineTextBox}" MinHeight="54" MaxLength="400" />
+                            <TextBlock Text="Leyenda fuera de línea" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
+                            <TextBox Text="{Binding OfflineLegend, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource MultilineTextBox}" MinHeight="54" MaxLength="400" />
+                            <CheckBox Style="{StaticResource Switch}" Content="Facturación activa: las ventas emiten factura del SIN" IsChecked="{Binding Enabled}" Margin="0,14,0,0" />
+                            <TextBlock Text="{Binding ClockText}" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,10,0,0" />
+                            <Button Style="{StaticResource PrimaryButton}" Content="Guardar datos del Padrón" c:Ui.Icon="{x:Static c:Glyphs.Save}" Command="{Binding SaveSettings}"
+                                    HorizontalAlignment="Left" Margin="0,14,0,0" c:Ui.IsBusy="{Binding SaveSettings.IsRunning}" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Sucursales del Padrón -->
+                    <Border Style="{StaticResource Card}" Margin="0,0,0,16" Padding="20,16,20,12">
+                        <StackPanel>
+                            <TextBlock Text="Sucursales del Padrón" Style="{StaticResource H3}" />
+                            <TextBlock Text="Cada sucursal de M-INV con su código de sucursal del Padrón (0 = casa matriz), el municipio y el teléfono que van en la factura."
+                                       Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,4,0,10" />
+                            <ItemsControl ItemsSource="{Binding Branches}" Focusable="False">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:SiatBranchItem}">
+                                        <Border BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1" Padding="0,8">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="70" />
+                                                    <ColumnDefinition Width="8" />
+                                                    <ColumnDefinition Width="140" />
+                                                    <ColumnDefinition Width="8" />
+                                                    <ColumnDefinition Width="110" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel VerticalAlignment="Center" Margin="0,0,8,0">
+                                                    <TextBlock Text="{Binding BranchText}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                                    <Border Style="{StaticResource StatusPill}" c:Ui.BrushKey="{Binding StatusSoftBrush}" Margin="0,3,0,0">
+                                                        <TextBlock Text="{Binding StatusText}" FontSize="10.5" FontWeight="SemiBold" c:Ui.BrushKey="{Binding StatusBrush}" />
+                                                    </Border>
+                                                </StackPanel>
+                                                <TextBox Grid.Column="1" Text="{Binding SiatCode, UpdateSourceTrigger=PropertyChanged}" TextAlignment="Right" c:Ui.Placeholder="Cód."
+                                                         ToolTip="Código de sucursal en el Padrón (0 = casa matriz)" />
+                                                <TextBox Grid.Column="3" Text="{Binding Municipality, UpdateSourceTrigger=PropertyChanged}" MaxLength="25" c:Ui.Placeholder="Municipio" />
+                                                <TextBox Grid.Column="5" Text="{Binding Phone, UpdateSourceTrigger=PropertyChanged}" MaxLength="25" c:Ui.Placeholder="Teléfono" />
+                                                <Button Grid.Column="6" Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Save}" ToolTip="Guardar la sucursal" Margin="6,0,0,0"
+                                                        Command="{Binding DataContext.SaveBranch, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- ================================================================ columna derecha -->
+                <StackPanel Grid.Column="2">
+                    <!-- Conexión con el SIN -->
+                    <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                        <StackPanel>
+                            <DockPanel Margin="0,0,0,8">
+                                <Border DockPanel.Dock="Right" Background="{DynamicResource SurfaceAlt}" CornerRadius="10" Padding="3">
+                                    <StackPanel Orientation="Horizontal">
+                                        <RadioButton Style="{StaticResource Segment}" GroupName="SiatProfile" IsChecked="{Binding IsProfileTest}" Content="Pruebas" />
+                                        <RadioButton Style="{StaticResource Segment}" GroupName="SiatProfile" IsChecked="{Binding IsProfileProduction}" Content="Producción" />
+                                    </StackPanel>
+                                </Border>
+                                <TextBlock Text="{Binding ProfileTitle}" Style="{StaticResource H3}" VerticalAlignment="Center" />
+                            </DockPanel>
+                            <WrapPanel Margin="0,0,0,8">
+                                <Button Style="{StaticResource SoftButton}" Content="Usar el simulador local (http://localhost:5095)" c:Ui.Icon="{x:Static c:Glyphs.Monitor}"
+                                        Command="{Binding UseSimulator}" Height="34" Padding="12,0" Margin="0,0,8,6" />
+                                <Button Content="Usar el patrón del SIN" c:Ui.Icon="{x:Static c:Glyphs.Globe}" Command="{Binding UsePattern}" Height="34" Padding="12,0"
+                                        Margin="0,0,8,6" />
+                            </WrapPanel>
+                            <TextBlock Text="Servicio de Códigos (CUIS, CUFD, NIT)" Style="{StaticResource FieldLabel}" />
+                            <TextBox Text="{Binding CodesUrl, UpdateSourceTrigger=PropertyChanged}" FontFamily="{StaticResource MonoFont}" FontSize="12" />
+                            <TextBlock Text="Servicio de Sincronización (catálogos y hora)" Style="{StaticResource FieldLabel}" Margin="0,8,0,6" />
+                            <TextBox Text="{Binding SyncUrl, UpdateSourceTrigger=PropertyChanged}" FontFamily="{StaticResource MonoFont}" FontSize="12" />
+                            <TextBlock Text="Servicio de Operaciones (puntos de venta y eventos)" Style="{StaticResource FieldLabel}" Margin="0,8,0,6" />
+                            <TextBox Text="{Binding OperationsUrl, UpdateSourceTrigger=PropertyChanged}" FontFamily="{StaticResource MonoFont}" FontSize="12" />
+                            <TextBlock Text="Servicio Factura Compra Venta" Style="{StaticResource FieldLabel}" Margin="0,8,0,6" />
+                            <TextBox Text="{Binding PurchaseSaleUrl, UpdateSourceTrigger=PropertyChanged}" FontFamily="{StaticResource MonoFont}" FontSize="12" />
+                            <TextBlock Text="Servicio de Facturación Computarizada" Style="{StaticResource FieldLabel}" Margin="0,8,0,6" />
+                            <TextBox Text="{Binding ComputerizedUrl, UpdateSourceTrigger=PropertyChanged}" FontFamily="{StaticResource MonoFont}" FontSize="12" />
+                            <TextBlock Text="Servicio de Documentos de Ajuste (notas crédito-débito)" Style="{StaticResource FieldLabel}" Margin="0,8,0,6" />
+                            <TextBox Text="{Binding AdjustmentUrl, UpdateSourceTrigger=PropertyChanged}" FontFamily="{StaticResource MonoFont}" FontSize="12" />
+                            <Grid Margin="0,8,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="12" />
+                                    <ColumnDefinition Width="120" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="Namespace de los servicios" Style="{StaticResource FieldLabel}" />
+                                    <TextBox Text="{Binding Namespace, UpdateSourceTrigger=PropertyChanged}" FontFamily="{StaticResource MonoFont}" FontSize="12" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="Espera (seg.)" Style="{StaticResource FieldLabel}" />
+                                    <TextBox Text="{Binding Timeout, UpdateSourceTrigger=PropertyChanged}" TextAlignment="Right" MaxLength="3" />
+                                </StackPanel>
+                            </Grid>
+                            <TextBlock Text="URL de la consulta por QR" Style="{StaticResource FieldLabel}" Margin="0,8,0,6" />
+                            <TextBox Text="{Binding QrUrl, UpdateSourceTrigger=PropertyChanged}" FontFamily="{StaticResource MonoFont}" FontSize="12"
+                                     c:Ui.Placeholder="La de producción la comunica el SIN al terminar la autorización" />
+
+                            <TextBlock Text="Token delegado del SIN (solo escritura: nunca se muestra)" Style="{StaticResource FieldLabel}" Margin="0,14,0,6" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="12" />
+                                    <ColumnDefinition Width="140" />
+                                </Grid.ColumnDefinitions>
+                                <PasswordBox x:Name="TokenBox" c:Ui.WatchPassword="True" c:Ui.Placeholder="Pegue aquí el token nuevo (vacío = conservar el guardado)"
+                                             AutomationProperties.Name="Token delegado" />
+                                <TextBox Grid.Column="2" Text="{Binding TokenValidUntil, UpdateSourceTrigger=PropertyChanged}" c:Ui.Placeholder="Vence dd/mm/aaaa"
+                                         ToolTip="Vigencia elegida en el Portal SIAT" />
+                            </Grid>
+                            <Border CornerRadius="8" Padding="10,6" Margin="0,8,0,0" c:Ui.BrushKey="{Binding TokenSoftBrush}">
+                                <TextBlock Text="{Binding TokenStatus}" TextWrapping="Wrap" FontSize="12" c:Ui.BrushKey="{Binding TokenBrush}" />
+                            </Border>
+                            <TextBlock Text="{Binding KeysHint}" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,6,0,0" />
+                            <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                                <Button Style="{StaticResource PrimaryButton}" Content="Guardar conexión" c:Ui.Icon="{x:Static c:Glyphs.Save}" Click="OnSaveProfile"
+                                        IsEnabled="{Binding CanConfigure}" x:Name="SaveProfileButton" />
+                                <Button Content="Probar conexión" c:Ui.Icon="{x:Static c:Glyphs.Pulse}" Command="{Binding TestConnection}" Margin="8,0,0,0"
+                                        c:Ui.IsBusy="{Binding TestConnection.IsRunning}" />
+                            </StackPanel>
+                            <Border CornerRadius="8" Padding="10,6" Margin="0,10,0,0" c:Ui.BrushKey="{Binding ConnectionSoftBrush}"
+                                    Visibility="{Binding HasConnectionResult, Converter={StaticResource Visible}}">
+                                <TextBlock Text="{Binding ConnectionResult}" TextWrapping="Wrap" FontSize="12" c:Ui.BrushKey="{Binding ConnectionBrush}" />
+                            </Border>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Correo -->
+                    <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                        <StackPanel>
+                            <TextBlock Text="Correo de envío (XML y PDF al comprador)" Style="{StaticResource H3}" />
+                            <TextBlock Text="Servidor SMTP de la empresa. Cada anulación y reversión también se avisa al comprador por correo." Style="{StaticResource Caption}"
+                                       TextWrapping="Wrap" Margin="0,4,0,10" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="12" />
+                                    <ColumnDefinition Width="90" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="Servidor SMTP" Style="{StaticResource FieldLabel}" />
+                                    <TextBox Text="{Binding MailHost, UpdateSourceTrigger=PropertyChanged}" c:Ui.Placeholder="smtp.suempresa.com" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="Puerto" Style="{StaticResource FieldLabel}" />
+                                    <TextBox Text="{Binding MailPort, UpdateSourceTrigger=PropertyChanged}" TextAlignment="Right" MaxLength="5" />
+                                </StackPanel>
+                            </Grid>
+                            <CheckBox Content="Conexión segura (SSL / STARTTLS)" IsChecked="{Binding MailSsl}" Margin="0,10,0,0" />
+                            <TextBlock Text="Usuario" Style="{StaticResource FieldLabel}" Margin="0,10,0,6" />
+                            <TextBox Text="{Binding MailUser, UpdateSourceTrigger=PropertyChanged}" c:Ui.Icon="{x:Static c:Glyphs.Person}" />
+                            <TextBlock Text="Contraseña (solo escritura)" Style="{StaticResource FieldLabel}" Margin="0,10,0,6" />
+                            <PasswordBox x:Name="MailPasswordBox" c:Ui.WatchPassword="True" c:Ui.Placeholder="Vacío = conservar la guardada" AutomationProperties.Name="Contraseña del correo" />
+                            <TextBlock Text="{Binding MailPasswordStatus}" Style="{StaticResource Caption}" Margin="0,4,0,0" />
+                            <Grid Margin="0,10,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="12" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="Remitente (correo)" Style="{StaticResource FieldLabel}" />
+                                    <TextBox Text="{Binding MailFrom, UpdateSourceTrigger=PropertyChanged}" c:Ui.Placeholder="facturas@suempresa.com" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="Remitente (nombre)" Style="{StaticResource FieldLabel}" />
+                                    <TextBox Text="{Binding MailFromName, UpdateSourceTrigger=PropertyChanged}" />
+                                </StackPanel>
+                            </Grid>
+                            <CheckBox Style="{StaticResource Switch}" Content="Enviar las facturas por correo" IsChecked="{Binding MailEnabled}" Margin="0,12,0,0" />
+                            <Button Style="{StaticResource PrimaryButton}" Content="Guardar correo" c:Ui.Icon="{x:Static c:Glyphs.Save}" Click="OnSaveMail" HorizontalAlignment="Left"
+                                    Margin="0,14,0,0" IsEnabled="{Binding CanConfigure}" x:Name="SaveMailButton" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Grid>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

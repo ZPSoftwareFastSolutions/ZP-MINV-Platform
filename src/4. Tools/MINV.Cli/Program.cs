@@ -8,6 +8,8 @@ using Microsoft.Extensions.Logging;
 using MINV.Application.Abstractions;
 using MINV.Domain.Iam;
 using MINV.Infrastructure;
+using MINV.Infrastructure.Billing;
+using MINV.Infrastructure.Billing.Simulator;
 using MINV.Infrastructure.Importing.V21;
 using MINV.Infrastructure.Persistence;
 using MINV.Infrastructure.Provisioning;
@@ -22,6 +24,9 @@ using MINV.Infrastructure.Services;
 //   minv user password --codigo DEMO --correo x@y [--clave …]
 //   minv verify [--codigo DEMO]
 //   minv datos-prueba [--codigo MINV] [--dias 60] [--semilla 2026] [--credenciales archivo.txt] [--integracion archivo.txt]
+//                     [--dias-facturacion 25] [--sin-facturacion] [--siat-estado archivo.json] [--simulador http://localhost:5095]
+//   minv siat estado|preparar|sincronizar|procesar [--codigo MINV] [--forzar]                  V4.1: facturación SIAT de una empresa
+//   minv siat simulador-estado|simulador-apagar|simulador-encender [--simulador http://localhost:5095]
 // Conexión: --conexion "Host=…" o variable MINV_DB. La clave también puede venir de MINV_CLAVE o se pide sin eco.
 // =====================================================================================================================
 Console.OutputEncoding = Encoding.UTF8;
@@ -56,8 +61,15 @@ internal static class Cli
                          ?? Environment.GetEnvironmentVariable(DependencyInjection.ConnectionStringVariable)
                          ?? DependencyInjection.DefaultConnectionString;
         var command = string.Join(' ', args.TakeWhile(a => !a.StartsWith("--", StringComparison.Ordinal)));
+        if (command.StartsWith("siat simulador", StringComparison.Ordinal))
+        {
+            // V4.1 · Interruptor del simulador HTTP del SIN (no necesita la base de datos)
+            return await SiatCli.SimulatorAsync(command, options);
+        }
         var builder = Host.CreateApplicationBuilder();
         builder.Logging.AddFilter("Microsoft.EntityFrameworkCore", LogLevel.None);
+        builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);   // V4.1: sin el rastro de cada llamada al SIN
+        var billing = command == "datos-prueba" && !options.ContainsKey("sin-facturacion");
         if (command == "datos-prueba")
         {
             // Reloj simulado: la operación de los últimos N días se registra con sus fechas y horas «reales»
@@ -65,7 +77,23 @@ internal static class Cli
             builder.Services.AddSingleton<IClock>(sp => sp.GetRequiredService<DemoClock>());
             MINV.Application.DependencyInjection.AddMinvApplication(builder.Services);
         }
+        if (command.StartsWith("siat", StringComparison.Ordinal))
+        {
+            // V4.1 · El token del SIN se descifra con la clave maestra: variable MINV_INTEGRATION_KEYS o el archivo local de claves
+            SiatCli.LoadIntegrationKeys();
+            MINV.Application.DependencyInjection.AddMinvApplication(builder.Services);
+        }
         builder.Services.AddMinvInfrastructure(connection);
+        if (billing)
+        {
+            // V4.1 · La carga factura contra el simulador del SIN EN PROCESO (mismo reloj simulado) y deja su estado en un
+            // archivo que después lee el simulador HTTP (tools\servidores_locales.ps1): así conoce los CUIS, CUFD y documentos
+            builder.Services.AddMinvSiat(new SiatOptions
+            {
+                Mode = SiatGatewayMode.InProcessSimulator,
+                Simulator = new SiatSimulatorOptions { StateFile = SiatCli.FreshStateFile(options.GetValueOrDefault("siat-estado")) },
+            });
+        }
         using var host = builder.Build();
         using var scope = host.Services.CreateScope();
         var sp = scope.ServiceProvider;
@@ -75,6 +103,12 @@ internal static class Cli
         {
             case "datos-prueba":
                 return await SeedAsync(host.Services, db, options);
+
+            case "siat estado":
+            case "siat preparar":
+            case "siat sincronizar":
+            case "siat procesar":
+                return await SiatCli.RunAsync(command[5..], sp, db, options);
 
             case "migrate":
                 await db.Database.MigrateAsync();
@@ -216,6 +250,24 @@ internal static class Cli
             ok &= transferBreaches == 0;
             Console.WriteLine($"{(transferBreaches == 0 ? "✔" : "✖")} Transferencias: {transfers} en total, {transferBreaches} líneas que no cuadran " +
                               "(despachado = recibido + faltante + en tránsito)");
+            // V4.1 · Facturación: el total fiscal (derivado de las líneas) es el cobrado y cada venta tiene UN documento vigente
+            var fiscal = await Scalar($"SELECT count(*)::int AS \"Value\" FROM billing.fiscal_documents WHERE tenant_id = '{tenant.Id}'");
+            if (fiscal > 0)
+            {
+                var totals = await Scalar("SELECT count(*)::int AS \"Value\" FROM billing.v_fiscal_document_totals t " +
+                                          "JOIN billing.fiscal_documents d ON d.id = t.document_id JOIN sales.payments p ON p.invoice_id = d.invoice_id " +
+                                          $"WHERE d.tenant_id = '{tenant.Id}' AND t.kind = 'Invoice' AND t.status = 'Valid' AND t.total_amount <> p.amount");
+                var duplicated = await Scalar("SELECT count(*)::int AS \"Value\" FROM (SELECT invoice_id FROM billing.fiscal_documents " +
+                                              $"WHERE tenant_id = '{tenant.Id}' AND invoice_id IS NOT NULL AND status IN ('Valid', 'Pending', 'Offline', 'InPackage') " +
+                                              "GROUP BY invoice_id HAVING count(*) > 1) x");
+                ok &= totals == 0 && duplicated == 0;
+                Console.WriteLine($"{(totals + duplicated == 0 ? "✔" : "✖")} Facturación SIAT: {fiscal} documentos fiscales, {totals} facturas válidas con " +
+                                  $"total distinto del cobrado, {duplicated} ventas con más de un documento vigente");
+            }
+            else
+            {
+                Console.WriteLine("· Facturación SIAT: la empresa todavía no emitió documentos fiscales");
+            }
         }
         Console.WriteLine(ok ? "RESULTADO: base de datos correcta" : "RESULTADO: hay problemas");
         return ok ? 0 : 1;
@@ -235,7 +287,10 @@ internal static class Cli
         }
         var seedOptions = new SeedOptions(code,
             Days: int.Parse(options.GetValueOrDefault("dias") ?? "60", CultureInfo.InvariantCulture),
-            Seed: int.Parse(options.GetValueOrDefault("semilla") ?? "2026", CultureInfo.InvariantCulture));
+            Seed: int.Parse(options.GetValueOrDefault("semilla") ?? "2026", CultureInfo.InvariantCulture),
+            Billing: !options.ContainsKey("sin-facturacion"),
+            BillingDays: int.Parse(options.GetValueOrDefault("dias-facturacion") ?? "25", CultureInfo.InvariantCulture),
+            SiatSimulatorUrl: options.GetValueOrDefault("simulador") ?? SiatCli.DefaultSimulatorUrl);
         var watch = Stopwatch.StartNew();
         var seeder = services.GetRequiredService<LocalDataSeeder>();
         var result = await seeder.SeedAsync(seedOptions, line => Console.WriteLine("   " + line));
@@ -262,8 +317,16 @@ internal static class Cli
                 lines.Add("Secreto del webhook de prueba (https://tienda.elconstructor.example/webhooks/minv):");
                 lines.Add("MINV_WEBHOOK_SECRET=" + secret);
             }
+            if (result.Billing is { } billed)
+            {
+                // V4.1 · Token de SIMULACIÓN del SIN: el simulador HTTP de este equipo lo acepta (tools\servidores_locales.ps1)
+                lines.Add($"Facturación SIAT de PRUEBA: NIT {billed.Nit} · ambiente {billed.Environment} (pruebas) · simulador del SIN {billed.SimulatorUrl}" +
+                          (billed.SimulatorStateFile is { } state ? $" (estado: {state})" : string.Empty));
+                lines.Add("Token delegado de SIMULACIÓN (solo lo acepta el simulador de este equipo; nunca lo use con el SIN real):");
+                lines.Add("MINV_SIAT_TOKEN=" + billed.SiatToken);
+            }
             await File.AppendAllLinesAsync(keysFile, lines, new UTF8Encoding(true));
-            Console.WriteLine($"✔ API Key de prueba guardada en {keysFile}");
+            Console.WriteLine($"✔ API Key de prueba{(result.Billing is null ? string.Empty : " y token de simulación del SIN")} guardados en {keysFile}");
         }
         Console.WriteLine($"✔ Datos de prueba listos en {watch.Elapsed.TotalSeconds:N0} s");
         return 0;
@@ -278,6 +341,14 @@ internal static class Cli
         sb.AppendLine($"Datos: {r.Products} productos con imagen, {r.Suppliers} proveedores, {r.Customers} clientes, {r.Tickets} ventas en caja, " +
                       $"{r.ExternalOrders} pedidos web, {r.Transfers} transferencias, {r.PurchaseOrders} órdenes de compra, {r.Movements} movimientos y " +
                       $"{r.JournalEntries} asientos ({r.From:dd/MM/yyyy} a {r.To:dd/MM/yyyy}).");
+        if (r.Billing is { } b)
+        {
+            // V4.1 · Facturación SIAT (el token de simulación NO va aquí: está en el archivo de claves de integración)
+            sb.AppendLine($"Facturación SIAT (pruebas, simulador del SIN {b.SimulatorUrl}): NIT {b.Nit} · {b.BusinessName} · desde el {b.From:dd/MM/yyyy}: " +
+                          $"{b.Documents} documentos ({b.ValidInvoices} facturas válidas, {b.OfflineRecovered} fuera de línea recuperadas, " +
+                          $"{b.CafcInvoices} CAFC, {b.CreditNotes} notas crédito-débito, {b.Voided} anuladas, {b.Reverted} revertida) · " +
+                          $"{b.SupplierInvoices} facturas de proveedores · {b.PointsOfSale} puntos de venta.");
+        }
         sb.AppendLine();
         sb.AppendLine($"{"Rol",-15} {"Nombre",-26} {"Correo",-44} {"Contraseña",-16} Sucursales");
         sb.AppendLine(new string('-', 128));
@@ -344,6 +415,12 @@ internal static class Cli
           minv user password --codigo DEMO --correo ana.gomez@distribuidorademo.example [--clave …]
           minv verify [--codigo DEMO]
           minv datos-prueba [--codigo MINV] [--dias 60] [--semilla 2026] [--credenciales %LOCALAPPDATA%\M-INV\usuarios-prueba.txt] [--integracion %LOCALAPPDATA%\M-INV\claves-integracion.txt]
+                            [--dias-facturacion 25] [--sin-facturacion] [--siat-estado %LOCALAPPDATA%\M-INV\siat-simulador.json] [--simulador http://localhost:5095]
+          minv siat estado [--codigo MINV]                  (V4.1: modo de cada punto de venta, CUIS, CUFD, pendientes y alertas)
+          minv siat preparar [--codigo MINV]                (hora del SIN, CUIS y CUFD del día en cada punto de venta, catálogos)
+          minv siat sincronizar [--codigo MINV]             (los 18 catálogos del SIN)
+          minv siat procesar [--codigo MINV] [--forzar]     (envía pendientes, recupera fuera de línea, paquetes, notas y correos)
+          minv siat simulador-estado | simulador-apagar | simulador-encender [--simulador http://localhost:5095]   (corte de internet simulado)
         Conexión: --conexion "Host=localhost;Database=minv;Username=minv_owner;Password=…" o variable MINV_DB.
         """;
 }

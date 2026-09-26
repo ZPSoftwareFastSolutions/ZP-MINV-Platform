@@ -44,6 +44,12 @@
         <DataTemplate DataType="{x:Type vm:BranchesViewModel}"><p:BranchesView /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:TransfersViewModel}"><p:TransfersView /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:IntegrationsViewModel}"><p:IntegrationsView /></DataTemplate>
+        <!-- V4.1 · Facturación SIAT -->
+        <DataTemplate DataType="{x:Type vm:FiscalDocumentsViewModel}"><p:FiscalDocumentsView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:SiatStatusViewModel}"><p:SiatStatusView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:HomologationViewModel}"><p:HomologationView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:FiscalBooksViewModel}"><p:FiscalBooksView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:BillingSettingsViewModel}"><p:BillingSettingsView /></DataTemplate>
 
         <!-- Botón del menú lateral -->
         <Style x:Key="NavButton" TargetType="RadioButton">
@@ -72,7 +78,7 @@
             </Setter>
         </Style>
         <DataTemplate x:Key="NavItem" DataType="{x:Type vm:PageViewModel}">
-            <RadioButton Style="{StaticResource NavButton}" IsChecked="{Binding IsSelected, Mode=OneWay}"
+            <RadioButton Style="{StaticResource NavButton}" IsChecked="{Binding IsSelected, Mode=OneWay}" Checked="OnNavChecked"
                          Command="{Binding DataContext.NavigateCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
                          ToolTipService.Placement="Right"
                          ToolTipService.IsEnabled="{Binding DataContext.IsCompact, RelativeSource={RelativeSource AncestorType=Window}}">
@@ -326,6 +332,76 @@
                     <TranslateTransform x:Name="DrawerShift" />
                 </Border.RenderTransform>
                 <ContentControl Content="{Binding ProductDetail}" Focusable="False" />
+            </Border>
+        </Grid>
+
+        <!-- ============================================================================ V4.1 · formulario modal -->
+        <Grid Grid.ColumnSpan="2" Visibility="{Binding Dialogs.Form, Converter={StaticResource HasValue}}">
+            <Border Background="{DynamicResource Overlay}" />
+            <Border Style="{StaticResource Card}" Width="{Binding Width}" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="0,32" Padding="0"
+                    DataContext="{Binding Dialogs.Form}" Effect="{StaticResource PopupShadow}">
+                <DockPanel>
+                    <DockPanel DockPanel.Dock="Top" Margin="26,22,16,12">
+                        <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Close}" Command="{Binding Cancel}"
+                                VerticalAlignment="Top" ToolTip="Cerrar (Esc)" />
+                        <Border DockPanel.Dock="Left" VerticalAlignment="Top">
+                            <Border.Style>
+                                <Style TargetType="Border" BasedOn="{StaticResource IconBubble}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsDanger}" Value="True">
+                                            <Setter Property="Background" Value="{DynamicResource DangerSoft}" />
+                                            <Setter Property="TextElement.Foreground" Value="{DynamicResource Danger}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <TextBlock Style="{StaticResource Icon}" Text="{Binding Glyph}" FontSize="18" />
+                        </Border>
+                        <StackPanel Margin="14,0,8,0" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding Title}" Style="{StaticResource H2}" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding Subtitle}" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,4,0,0"
+                                       Visibility="{Binding Subtitle, Converter={StaticResource HasValue}}" />
+                        </StackPanel>
+                    </DockPanel>
+                    <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0" Padding="26,14">
+                        <StackPanel>
+                            <Border Style="{StaticResource FormError}" Margin="0,0,0,12" Visibility="{Binding Error, Converter={StaticResource HasValue}}">
+                                <TextBlock Text="{Binding Error}" Foreground="{DynamicResource Danger}" TextWrapping="Wrap" />
+                            </Border>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                <Button Command="{Binding Cancel}" MinWidth="110">
+                                    <Button.Style>
+                                        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                            <Setter Property="Content" Value="Cancelar" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding ShowConfirm}" Value="False">
+                                                    <Setter Property="Content" Value="Cerrar" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
+                                <Button Content="{Binding ConfirmText}" Command="{Binding Confirm}" Margin="10,0,0,0" MinWidth="150" c:Ui.IsBusy="{Binding Confirm.IsRunning}"
+                                        Visibility="{Binding ShowConfirm, Converter={StaticResource Visible}}">
+                                    <Button.Style>
+                                        <Style TargetType="Button" BasedOn="{StaticResource PrimaryButton}">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsDanger}" Value="True">
+                                                    <Setter Property="Background" Value="{DynamicResource Danger}" />
+                                                    <Setter Property="BorderBrush" Value="{DynamicResource Danger}" />
+                                                    <Setter Property="Tag" Value="{DynamicResource DangerHover}" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="26,2,26,16" Focusable="False">
+                        <ContentControl Content="{Binding}" Focusable="False" />
+                    </ScrollViewer>
+                </DockPanel>
             </Border>
         </Grid>
 

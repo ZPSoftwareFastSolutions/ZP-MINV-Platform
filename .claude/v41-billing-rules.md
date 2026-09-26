@@ -30,7 +30,7 @@
 
 ### F-04 · CUF, hora fiscal y numeración
 - El CUF DEBE generarse con `Cuf.Generate` y la MISMA marca de tiempo que `fechaEmision` (con milisegundos).
-- La hora fiscal DEBE salir del reloj corregido con `sincronizarFechaHora` en la zona de la empresa, sin sufijo de zona.
+- La hora fiscal DEBE salir del reloj corregido con `sincronizarFechaHora` en la hora de Bolivia (UTC−4, la del SIN; `BillingLookups.FiscalZone`), sin sufijo de zona, sea cual sea la zona configurada para la empresa.
 - La numeración DEBE ser correlativa por (ambiente, punto de venta, documento sector) con índice único y reintento.
 
 ### F-05 · XML exacto y validado

@@ -112,7 +112,12 @@ internal sealed class FiscalDocumentConfiguration : IEntityTypeConfiguration<Fis
             .OnDelete(DeleteBehavior.Restrict);
         builder.Navigation(x => x.Lines).UsePropertyAccessMode(PropertyAccessMode.Field);
         builder.Ignore(x => x.DomainEvents);
-        builder.HasIndex(x => new { x.TenantId, x.Environment, x.PointOfSaleId, x.DocumentSector, x.Number }).IsUnique();
+        // Numeración electrónica correlativa por (ambiente, punto de venta, sector); las facturas manuales transcritas de un
+        // talonario CAFC llevan la numeración de SU talonario (no la cortan ni chocan con ella).
+        builder.HasIndex(x => new { x.TenantId, x.Environment, x.PointOfSaleId, x.DocumentSector, x.Number }).IsUnique()
+            .HasFilter("cafc IS NULL");
+        builder.HasIndex(x => new { x.TenantId, x.Environment, x.PointOfSaleId, x.DocumentSector, x.Cafc, x.Number }).IsUnique()
+            .HasFilter("cafc IS NOT NULL");
         builder.HasIndex(x => new { x.TenantId, x.Cuf }).IsUnique();
         builder.HasIndex(x => new { x.TenantId, x.InvoiceId }).IsUnique().HasFilter(ActiveStatusFilter);
         builder.HasIndex(x => new { x.TenantId, x.Status });

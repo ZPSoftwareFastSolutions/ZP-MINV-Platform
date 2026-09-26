@@ -1,6 +1,8 @@
 using FluentValidation;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using MINV.Application.Behaviors;
+using MINV.Application.Billing;
 
 namespace MINV.Application;
 
@@ -25,6 +27,9 @@ public static class DependencyInjection
                 services.AddTransient(contract, type);
             }
         }
+        // V4.1 · Trabajo de la facturación SIAT (envío, recuperación fuera de línea, paquetes, notas y correos): uno por scope
+        services.TryAddScoped<SiatWorker>();
+        services.TryAddScoped<ISiatWorker>(sp => sp.GetRequiredService<SiatWorker>());
         return services;
     }
 }

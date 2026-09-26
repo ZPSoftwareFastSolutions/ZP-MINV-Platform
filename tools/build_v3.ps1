@@ -1,17 +1,21 @@
 <#
 .SYNOPSIS
-    M-INV V3/V4 - Ciclo completo (definicion de terminado, reglas A-11 y B-14).
+    M-INV V3/V4/V4.1 - Ciclo completo (definicion de terminado, reglas A-11, B-17 y de la facturacion SIAT).
 
 .DESCRIPTION
     1. dotnet tool restore                      Herramienta local dotnet-ef (dotnet-tools.json).
     2. dotnet build MINV.sln -c Release         Advertencias como errores (Directory.Build.props).
     3. dotnet test  MINV.sln -c Release         Dominio, aplicacion, hardware, infraestructura (paridad con la V2.1),
                                                 escritorio e integracion V4 (servidor en la nube y API Gateway en Kestrel).
-                                                Con MINV_TEST_PG definida, tambien las pruebas contra PostgreSQL real.
+                                                V4.1: facturacion SIAT (XML/XSD, simulador del SIN, cliente SOAP, datos de
+                                                prueba que facturan). Con MINV_TEST_PG, tambien contra PostgreSQL real.
+    3b. Simulador del SIN                       V4.1: arranca MINV.SiatSimulator en un puerto de prueba con un estado
+                                                temporal y verifica /health, el WSDL y el corte simulado (/control).
     4. dotnet ef migrations has-pending-model-changes   El modelo no puede tener cambios sin migracion.
-    5. scripts\db_init.sql                      Se regenera: cabecera + "dotnet ef migrations script --idempotent".
+    5. scripts\db_init.sql                      Se regenera: cabecera + "dotnet ef migrations script --idempotent"
+                                                (V4.1: 140 tablas en 9 esquemas + historial de migraciones).
     6. -Capturas                                Cliente de escritorio: M-INV.exe --capturas con la demostracion (V2.1)
-                                                -> docs\product\capturas\v4 (claro, oscuro y por rol; regla A-11).
+                                                -> docs\product\capturas\v4.1 (claro, oscuro y por rol; regla A-11).
                                                 Si existe la base local de prueba (tools\bd_local.ps1), las pantallas de
                                                 negocio (POS, ventas, compras, reportes, contabilidad) se capturan con ella.
     7. -Publicar                                tools\publicar_escritorio.ps1 -> dist\M-INV-<version>-win-x64\M-INV.exe
@@ -44,8 +48,38 @@ Paso ('Compilar MINV.sln (' + $Configuration + ', advertencias como errores)') {
 if ($script:fallas.Count -gt 0) { Write-Output 'RESULTADO: la compilacion fallo; no se continua.'; exit 1 }
 
 if (-not $env:MINV_TEST_PG) { Write-Output '[aviso]   MINV_TEST_PG no definida: se omiten las pruebas contra PostgreSQL real.' }
-Paso 'Pruebas (dominio, aplicacion, hardware, infraestructura, escritorio, integracion V4 y paridad V2.1)' {
+Paso 'Pruebas (dominio, aplicacion, hardware, infraestructura, escritorio, integracion V4, facturacion SIAT y paridad V2.1)' {
     dotnet test MINV.sln -c $Configuration --no-build -nologo -v q
+}
+
+# V4.1 - El simulador HTTP del SIN arranca, responde y simula el corte de internet (lo usan servidores_locales.ps1 y
+# docker compose --profile siat-simulador). Puerto de prueba y estado temporal: no toca el de %LOCALAPPDATA%\M-INV.
+Paso 'Simulador del SIN (arranque, WSDL y corte simulado)' {
+    $dll = Get-ChildItem ('src\4. Tools\MINV.SiatSimulator\bin\' + $Configuration) -Filter 'MINV.SiatSimulator.dll' -Recurse | Select-Object -First 1
+    $estado = Join-Path ([IO.Path]::GetTempPath()) ('minv_siat_' + [Guid]::NewGuid().ToString('N') + '.json')
+    $url = 'http://localhost:5195'
+    $env:Siat__StateFile = $estado
+    $p = Start-Process -FilePath 'dotnet' -ArgumentList ('"' + $dll.FullName + '"'), '--urls', $url -WindowStyle Hidden -PassThru
+    Remove-Item Env:\Siat__StateFile -ErrorAction SilentlyContinue
+    $ok = $false
+    try {
+        for ($i = 0; $i -lt 30 -and -not $ok; $i++) {
+            Start-Sleep -Seconds 1
+            try { $ok = ((Invoke-RestMethod -Uri ($url + '/health') -TimeoutSec 2).status -eq 'ok') } catch { $ok = $false }
+        }
+        if ($ok) {
+            $apagado = Invoke-RestMethod -Method Post -Uri ($url + '/control/offline?on=true') -TimeoutSec 5
+            $encendido = Invoke-RestMethod -Method Post -Uri ($url + '/control/offline?on=false') -TimeoutSec 5
+            $wsdl = Invoke-WebRequest -UseBasicParsing -Uri ($url + '/v2/FacturacionCodigos?wsdl') -TimeoutSec 5
+            $ok = (-not $apagado.available) -and $encendido.available -and ($wsdl.StatusCode -eq 200)
+        }
+    }
+    finally {
+        if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
+        Remove-Item $estado, ($estado + '.tmp') -Force -ErrorAction SilentlyContinue
+    }
+    if ($ok) { Write-Output ('Simulador del SIN: responde, publica su WSDL, se apaga y se enciende (' + $url + ')'); $global:LASTEXITCODE = 0 }
+    else { Write-Output 'El simulador del SIN no respondio como se esperaba.'; $global:LASTEXITCODE = 1 }
 }
 
 Paso 'Migraciones al dia con el modelo' {
@@ -62,14 +96,14 @@ Paso 'Regenerar scripts\db_init.sql' {
         [IO.File]::WriteAllText((Join-Path $root 'scripts\db_init.sql'), $header + $body.Replace("`r`n", "`n"), $utf8)
         Remove-Item $tmp -Force
         $tablas = (Select-String -Path (Join-Path $root 'scripts\db_init.sql') -Pattern 'CREATE TABLE' | Measure-Object).Count
-        Write-Output ('scripts\db_init.sql regenerado: ' + $tablas + ' sentencias CREATE TABLE (110 tablas + historial de migraciones)')
+        Write-Output ('scripts\db_init.sql regenerado: ' + $tablas + ' sentencias CREATE TABLE (V4.1: 140 tablas en 9 esquemas + historial de migraciones)')
     }
 }
 
 if ($Capturas) {
-    Paso 'Capturas del cliente de escritorio (docs\product\capturas\v4)' {
+    Paso 'Capturas del cliente de escritorio (docs\product\capturas\v4.1)' {
         $exe = Get-ChildItem ('src\3. Presentation\MINV.DesktopClient\bin\' + $Configuration) -Filter 'M-INV.exe' -Recurse | Select-Object -First 1
-        $dir = Join-Path $root 'docs\product\capturas\v4'
+        $dir = Join-Path $root 'docs\product\capturas\v4.1'
         if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
         $usuarios = Join-Path $env:LOCALAPPDATA 'M-INV\usuarios-prueba.txt'
         if (Test-Path $usuarios) { $env:MINV_CAPTURAS_USUARIOS = $usuarios; Write-Output 'Pantallas de negocio con la base LOCAL de prueba.' }

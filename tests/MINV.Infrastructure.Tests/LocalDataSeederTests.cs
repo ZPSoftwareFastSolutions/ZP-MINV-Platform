@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.Extensions.DependencyInjection;
 using MINV.Application;
 using MINV.Application.Accounting;
+using MINV.Application.Billing;
 using MINV.Application.Catalog;
 using MINV.Application.Common;
 using MINV.Application.Corporate;
@@ -13,6 +14,7 @@ using MINV.Application.Partners;
 using MINV.Application.Purchasing;
 using MINV.Application.Reports;
 using MINV.Application.Sales;
+using MINV.Domain.Billing;
 using MINV.Domain.Common;
 using MINV.Domain.Iam;
 using MINV.Domain.Inventory;
@@ -34,15 +36,17 @@ public sealed class LocalDataSeederTests
         services.AddMinvApplication();
         services.AddMinvDemoInfrastructure();
         var sp = services.BuildServiceProvider();
-        var result = await sp.GetRequiredService<LocalDataSeeder>().SeedAsync(new SeedOptions("PRUEBA", Days: days, Seed: 7), _ => { });
+        var logFile = Environment.GetEnvironmentVariable("MINV_SEED_LOG");
+        var result = await sp.GetRequiredService<LocalDataSeeder>().SeedAsync(new SeedOptions("PRUEBA", Days: days, Seed: 7),
+            line => { if (logFile is { Length: > 0 }) { File.AppendAllText(logFile, line + Environment.NewLine); } });
         return (sp, result);
     }
 
-    private static async Task<(IServiceScope Scope, IMediator Mediator)> SignInAsync(ServiceProvider sp, SeedUser user)
+    private static async Task<(IServiceScope Scope, IMediator Mediator)> SignInAsync(ServiceProvider sp, SeedUser user, string tenant = "PRUEBA")
     {
         var scope = sp.CreateScope();
         var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
-        await mediator.Send(new LoginCommand("PRUEBA", user.Email, user.Password, "PRUEBAS", "test"));
+        await mediator.Send(new LoginCommand(tenant, user.Email, user.Password, "PRUEBAS", "test"));
         return (scope, mediator);
     }
 
@@ -91,7 +95,7 @@ public sealed class LocalDataSeederTests
             Assert.Contains(orders, o => o.Status == PurchaseOrderStatus.Received);
             Assert.Contains(orders, o => o.Status == PurchaseOrderStatus.Draft);
             Assert.Equal(8, (await m.Send(new GetSuppliersQuery())).Count);
-            Assert.Equal(29, (await m.Send(new GetCustomersQuery())).Customers.Count);
+            Assert.True((await m.Send(new GetCustomersQuery())).Customers.Count >= 29);   // V4.1: más los compradores eventuales facturados
             Assert.Equal(12, (await m.Send(new GetUsersQuery())).Count);
         }
 
@@ -211,6 +215,114 @@ public sealed class LocalDataSeederTests
         await Assert.ThrowsAsync<AccessDeniedException>(() => apiMediator.Send(new GetUsersQuery()));
         Assert.Null(await sp.CreateScope().ServiceProvider.GetRequiredService<Integration.ApiKeyAuthenticator>()
             .AuthenticateAsync(result.ApiKeyToken[..^2] + "xx", default));
+    }
+
+    /// <summary>
+    /// V4.1 · La empresa de prueba FACTURA desde la mitad del período con el simulador del SIN en proceso: cada venta de caja
+    /// tiene su documento fiscal válido cuyo total es el cobrado, hubo un corte de internet en El Alto (facturas fuera de
+    /// línea recuperadas en un paquete validado), una contingencia manual con facturas CAFC, anulaciones (una revertida),
+    /// notas crédito-débito, un rechazo por NIT re-emitido con excepción y facturas de proveedores; al final todo está en
+    /// línea con CUFD vigente y los libros cuadran con los documentos.
+    /// </summary>
+    [Fact]
+    public async Task V41_la_empresa_de_prueba_factura_y_los_totales_fiscales_cuadran_con_las_ventas()
+    {
+        var (sp, result) = await SeedAsync(days: 16);
+        var billing = Assert.IsType<SeedBilling>(result.Billing);
+        Assert.Equal(1023456028L, billing.Nit);
+        Assert.Equal(2, billing.Environment);
+        Assert.StartsWith("SIM-", billing.SiatToken, StringComparison.Ordinal);
+        Assert.Equal(8, billing.PointsOfSale);   // 5 cajas + el punto 0 de cada sucursal
+        Assert.True(billing.ValidInvoices > 30, $"Solo {billing.ValidInvoices} facturas válidas");
+        Assert.True(billing.OfflineRecovered >= 3, $"Solo {billing.OfflineRecovered} facturas fuera de línea recuperadas");
+        Assert.Equal(3, billing.CafcInvoices);
+        Assert.Equal(2, billing.CreditNotes);
+        Assert.Equal(2, billing.Voided);   // una con devolución de mercadería y otra re-emitida; la tercera se revirtió
+        Assert.Equal(1, billing.Reverted);
+        Assert.True(billing.WebInvoices > 0 && billing.SupplierInvoices > 0, $"{billing.WebInvoices} web · {billing.SupplierInvoices} proveedores");
+
+        var admin = result.Users.First(u => u.RoleCode == RoleCodes.Admin);
+        var (scope, m) = await SignInAsync(sp, admin);
+        using (scope)
+        {
+            var documents = await m.Send(new GetFiscalDocumentsQuery(billing.From, result.To));
+            // Nada quedó pendiente, fuera de línea o en paquete: el trabajo automático lo resolvió todo
+            Assert.DoesNotContain(documents, d => d.Status is FiscalDocumentStatus.Pending or FiscalDocumentStatus.Offline
+                or FiscalDocumentStatus.InPackage or FiscalDocumentStatus.NoResponse or FiscalDocumentStatus.DuplicateToVoid);
+            Assert.Contains(documents, d => d.Status == FiscalDocumentStatus.Rejected && d.LastSiatCode is not null);   // el NIT inválido
+            Assert.Contains(documents, d => d.Status == FiscalDocumentStatus.Discarded);   // el que se envió sin respuesta durante el corte
+
+            // Cada venta del período facturado tiene UN documento vigente y su total fiscal es el total cobrado
+            var sales = (await m.Send(new GetSalesQuery(billing.From, result.To))).Where(s => s.IssuedAt >= new DateTimeOffset(
+                billing.From.ToDateTime(new TimeOnly(9, 0)), TimeSpan.FromHours(-4))).ToList();
+            var active = documents.Where(d => d.Kind == FiscalDocumentKind.Invoice && d.Status == FiscalDocumentStatus.Valid && d.SaleNumber is not null)
+                .GroupBy(d => d.SaleNumber!).ToDictionary(g => g.Key, g => g.ToList());
+            foreach (var sale in sales.Where(s => s.Status == MINV.Domain.Sales.InvoiceStatus.Issued))
+            {
+                Assert.True(active.TryGetValue(sale.InvoiceNumber, out var docs), $"La venta {sale.InvoiceNumber} ({sale.IssuedAt:dd/MM HH:mm}, " +
+                    $"{sale.PaymentMethod}) no tiene factura válida: " + string.Join(", ", documents.Where(d => d.SaleNumber == sale.InvoiceNumber)
+                        .Select(d => $"N° {d.Number} {d.Status} {d.LastSiatCode} PV {d.PointOfSaleCode}")));
+                Assert.Equal(sale.Total, Assert.Single(docs!).Total);
+            }
+
+            // Eventos: el corte de internet de El Alto (conciliado) y la contingencia manual CAFC de Santa Cruz
+            var events = await m.Send(new GetSignificantEventsQuery(billing.From, result.To));
+            Assert.Contains(events, e => e is { BranchCode: "EA", Kind: SignificantEventKind.Offline, Status: SignificantEventStatus.Reconciled });
+            var cafc = Assert.Single(events, e => e.Kind == SignificantEventKind.ManualCafc);
+            Assert.Equal("SC", cafc.BranchCode);
+            Assert.Equal(3, cafc.Documents);
+            Assert.All(await m.Send(new GetFiscalPackagesQuery()), p => Assert.Equal(FiscalPackageStatus.Validated, p.Status));
+
+            // Estado SIAT: todos los puntos en línea con CUFD vigente; homologación completa
+            var status = await m.Send(new GetSiatStatusQuery());
+            Assert.True(status.Enabled && status.HasToken);
+            Assert.All(status.Points, p =>
+            {
+                Assert.Equal(SiatConnectionMode.Online, p.Mode);
+                Assert.True(p.CufdValidUntil > DateTimeOffset.UtcNow, $"CUFD vencido en {p.BranchCode} · {p.Code}");
+            });
+            Assert.Equal(0, (await m.Send(new GetHomologationQuery())).PendingProducts);
+
+            // Libros del mes de hoy: el total del libro de ventas es la suma de las facturas válidas del mes
+            var month = result.To;
+            var book = await m.Send(new GetSalesBookQuery(month.Year, month.Month));
+            var validThisMonth = documents.Where(d => d.Kind == FiscalDocumentKind.Invoice && d.Status == FiscalDocumentStatus.Valid
+                                                                                        && d.IssuedAt.Year == month.Year && d.IssuedAt.Month == month.Month).ToList();
+            Assert.Equal(validThisMonth.Count, book.Valid);
+            Assert.Equal(validThisMonth.Sum(d => d.Total), book.Total);
+            Assert.NotEmpty(await m.Send(new GetSupplierInvoicesQuery(billing.From.AddDays(-30), result.To)));
+        }
+
+        // El cajero de El Alto emite en línea (su punto volvió a estar en línea) y el comprobante es válido al enviarlo
+        var cashierEa = result.Users.First(u => u.RoleCode == RoleCodes.Cashier && u.Branches == "EA");
+        var (cs, cm) = await SignInAsync(sp, cashierEa);
+        using (cs)
+        {
+            var fiscal = await cm.Send(new GetPosFiscalStateQuery());
+            Assert.True(fiscal.BillingEnabled && fiscal.Ready, fiscal.Message);
+            var product = (await cm.Send(new GetSellableProductsQuery())).First(p => p.Available >= 2);
+            var sale = await cm.Send(new CheckoutCommand("CF", "EFECTIVO", [new SaleLineInput(product.Sku, 1)], 1000m, null,
+                new FiscalBuyerInput(SiatCodes.DocumentCi, "4455667", null, "Comprador de prueba", null)));
+            var sent = await cm.Send(new DispatchFiscalDocumentsCommand(sale.FiscalDocumentId));
+            Assert.Equal(FiscalDocumentStatus.Valid, Assert.Single(sent.Documents).Status);
+        }
+    }
+
+    [Fact]
+    public async Task V41_sin_facturacion_la_carga_es_la_de_la_V4()
+    {
+        var services = new ServiceCollection();
+        services.AddMinvApplication();
+        services.AddMinvDemoInfrastructure();
+        var sp = services.BuildServiceProvider();
+        var result = await sp.GetRequiredService<LocalDataSeeder>().SeedAsync(new SeedOptions("SINFACT", Days: 4, Seed: 3, Billing: false), _ => { });
+        Assert.Null(result.Billing);
+        var (scope, m) = await SignInAsync(sp, result.Users.First(u => u.RoleCode == RoleCodes.Admin), "SINFACT");
+        using (scope)
+        {
+            Assert.False((await m.Send(new GetSiatStatusQuery())).Configured);
+            Assert.Empty(await m.Send(new GetFiscalDocumentsQuery(result.From, result.To)));
+        }
     }
 
     [Fact]

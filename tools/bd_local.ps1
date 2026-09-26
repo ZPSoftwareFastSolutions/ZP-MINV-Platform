@@ -1,28 +1,36 @@
 <#
 .SYNOPSIS
-    M-INV V3/V4 - Base de datos PostgreSQL LOCAL (portable, sin instalador ni permisos de administrador).
+    M-INV V3/V4/V4.1 - Base de datos PostgreSQL LOCAL (portable, sin instalador ni permisos de administrador).
 
 .DESCRIPTION
     Acciones (-Accion):
       instalar   (por defecto) Extrae PostgreSQL 16 portable en %LOCALAPPDATA%\M-INV\postgresql-16, crea el cluster,
                  lo inicia en localhost:5432, crea los roles minv_owner, minv_app y (V4) minv_server y la base "minv",
-                 aplica las migraciones (110 tablas, 5FN, RLS por empresa y por sucursal, triggers, modelo de lectura) y
-                 carga los datos de prueba multi-sucursal (minv datos-prueba).
+                 aplica las migraciones (V4.1: 140 tablas en 9 esquemas, 5FN, RLS por empresa y por sucursal, triggers,
+                 modelo de lectura y facturacion SIAT) y carga los datos de prueba multi-sucursal CON FACTURACION
+                 (minv datos-prueba).
                  Es idempotente: si algo ya existe, lo reutiliza.
       iniciar    Inicia el servidor.            detener   Lo detiene.            estado   Muestra si responde.
-      recrear    Borra la base "minv", la vuelve a crear, migra y carga datos de prueba nuevos.
+      recrear    Detiene los servidores locales (si estan corriendo), borra la base "minv", la vuelve a crear, migra y
+                 carga datos de prueba nuevos (y un estado nuevo del simulador del SIN).
     Las contrasenas (superusuario postgres, minv_owner, minv_server y los usuarios de la aplicacion) se generan al azar y
     se guardan SOLO en %LOCALAPPDATA%\M-INV\credenciales-bd-local.txt (fuera del repositorio). minv_app usa la clave de
     desarrollo "minv-dev" de appsettings.json (solo escucha en localhost).
     V4: minv_server (sin BYPASSRLS, no es dueno de las tablas) lo usan el servidor en la nube y el API Gateway
     (tools\servidores_locales.ps1). Las claves maestras de integracion (MINV_INTEGRATION_KEYS), la API Key de la tienda
     de prueba y el secreto del webhook quedan en %LOCALAPPDATA%\M-INV\claves-integracion.txt.
+    V4.1: la empresa de prueba FACTURA (ambiente 2 de pruebas, NIT de simulacion) desde los ultimos 25 dias contra el
+    simulador del SIN EN PROCESO; su estado (CUIS, CUFD, documentos, eventos y paquetes) queda en
+    %LOCALAPPDATA%\M-INV\siat-simulador.json y el token delegado de SIMULACION (aleatorio) en claves-integracion.txt como
+    MINV_SIAT_TOKEN: tools\servidores_locales.ps1 arranca el simulador HTTP (http://localhost:5095) con ambos.
+    -SinFacturacion  carga los datos de prueba de la V4 (sin facturacion SIAT).
     -Autoiniciar  deja un acceso en la carpeta Inicio de Windows para que PostgreSQL arranque al iniciar sesion.
     Script ASCII a proposito (PowerShell 5.1).
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File tools\bd_local.ps1
     powershell -ExecutionPolicy Bypass -File tools\bd_local.ps1 -Accion recrear
+    powershell -ExecutionPolicy Bypass -File tools\bd_local.ps1 -Accion recrear -SinFacturacion
     powershell -ExecutionPolicy Bypass -File tools\bd_local.ps1 -Accion iniciar -Autoiniciar
 #>
 param(
@@ -30,6 +38,7 @@ param(
     [string]$Zip = '',
     [int]$Puerto = 5432,
     [switch]$SinDatos,
+    [switch]$SinFacturacion,
     [switch]$Autoiniciar
 )
 $ErrorActionPreference = 'Stop'
@@ -42,6 +51,7 @@ $log = Join-Path $base 'postgresql.log'
 $cred = Join-Path $base 'credenciales-bd-local.txt'
 $usuarios = Join-Path $base 'usuarios-prueba.txt'
 $claves = Join-Path $base 'claves-integracion.txt'
+$estadoSimulador = Join-Path $base 'siat-simulador.json'
 $env:DOTNET_ROLL_FORWARD = 'Major'
 $env:DOTNET_CLI_TELEMETRY_OPTOUT = '1'
 New-Item -ItemType Directory -Force -Path $base | Out-Null
@@ -180,20 +190,40 @@ function Crear-Base([switch]$Borrar) {
         Write-Output 'Base "minv" creada.'
     }
     $cadena = 'Host=localhost;Port=' + $Puerto + ';Database=minv;Username=minv_owner;Password=' + $claveOwner
-    Write-Output 'Aplicando las migraciones (110 tablas, 5FN, triggers, RLS por empresa y sucursal, vistas, modelo de lectura) ...'
+    Write-Output 'Aplicando las migraciones (140 tablas en 9 esquemas, 5FN, triggers, RLS por empresa y sucursal, vistas, modelo de lectura y facturacion SIAT) ...'
     dotnet run --project (Join-Path $root 'src/4. Tools/MINV.Cli') -c Release -- migrate --conexion $cadena
     if ($LASTEXITCODE -ne 0) { throw 'minv migrate fallo.' }
-    $tablas = Psql 'minv_owner' $claveOwner 'minv' "SELECT count(*) FROM information_schema.tables WHERE table_schema IN ('iam','catalog','warehouse','inventory','purchasing','sales','accounting','integration') AND table_type = 'BASE TABLE' AND table_name <> '__ef_migrations_history'"
-    Write-Output ('Tablas de M-INV en la base: ' + $tablas)
+    $tablas = Psql 'minv_owner' $claveOwner 'minv' "SELECT count(*) FROM information_schema.tables WHERE table_schema IN ('iam','catalog','warehouse','inventory','purchasing','sales','accounting','integration','billing') AND table_type = 'BASE TABLE' AND table_name <> '__ef_migrations_history'"
+    Write-Output ('Tablas de M-INV en la base: ' + $tablas + ' (V4.1: 140)')
     if (-not $SinDatos) {
-        # Con las claves maestras, los datos de prueba incluyen un webhook con su secreto cifrado
+        # Con las claves maestras, los datos de prueba incluyen un webhook con su secreto cifrado y (V4.1) el token de
+        # simulacion del SIN cifrado; el token en claro queda en claves-integracion.txt como MINV_SIAT_TOKEN
         $env:MINV_INTEGRATION_KEYS = Claves-Integracion
-        Write-Output 'Cargando datos de prueba (3 sucursales, usuarios por sucursal, catalogo con imagenes, 60 dias de operacion, transferencias y pedidos web) ...'
-        dotnet run --project (Join-Path $root 'src/4. Tools/MINV.Cli') -c Release -- datos-prueba --conexion $cadena --credenciales $usuarios --integracion $claves
+        $argsDatos = @('datos-prueba', '--conexion', $cadena, '--credenciales', $usuarios, '--integracion', $claves)
+        if ($SinFacturacion) {
+            $argsDatos += '--sin-facturacion'
+            Write-Output 'Cargando datos de prueba SIN facturacion (3 sucursales, usuarios por sucursal, catalogo con imagenes, 60 dias de operacion, transferencias y pedidos web) ...'
+        }
+        else {
+            $argsDatos += @('--siat-estado', $estadoSimulador)
+            Write-Output 'Cargando datos de prueba (3 sucursales, 60 dias de operacion, transferencias, pedidos web y FACTURACION SIAT de los ultimos 25 dias con el simulador del SIN) ...'
+        }
+        dotnet run --project (Join-Path $root 'src/4. Tools/MINV.Cli') -c Release -- @argsDatos
         $codigo = $LASTEXITCODE
         Remove-Item Env:\MINV_INTEGRATION_KEYS -ErrorAction SilentlyContinue
         if ($codigo -ne 0) { throw 'minv datos-prueba fallo.' }
         dotnet run --project (Join-Path $root 'src/4. Tools/MINV.Cli') -c Release -- verify --codigo MINV --conexion $cadena
+    }
+}
+
+# V4.1 - Antes de recrear: los servidores locales (servidor en la nube, API Gateway y simulador del SIN) se detienen,
+# asi nadie queda conectado a la base vieja y el simulador no pisa su archivo de estado con el de la carga nueva
+function Detener-Servidores {
+    $script = Join-Path $PSScriptRoot 'servidores_locales.ps1'
+    $pidsServidores = Join-Path $base 'servidores.pid'
+    if ((Test-Path $script) -and (Test-Path $pidsServidores)) {
+        Write-Output 'Deteniendo los servidores locales (servidor en la nube, API Gateway y simulador del SIN) ...'
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $script -Accion detener
     }
 }
 
@@ -210,7 +240,7 @@ switch ($Accion) {
     'estado' { if (Responde) { Write-Output ('PostgreSQL responde en localhost:' + $Puerto) } else { Write-Output 'PostgreSQL no responde.'; exit 1 } }
     'detener' { & (Join-Path $pgBin 'pg_ctl.exe') stop -D $data -m fast; exit $LASTEXITCODE }
     'iniciar' { Iniciar }
-    'recrear' { Iniciar; Crear-Base -Borrar }
+    'recrear' { Detener-Servidores; Iniciar; Crear-Base -Borrar }
     default { Instalar-Binarios; Crear-Cluster; Iniciar; Crear-Base }
 }
 if ($Autoiniciar) { Autoinicio }
@@ -218,7 +248,11 @@ if ($Accion -in @('instalar', 'recrear')) {
     Write-Output ''
     Write-Output ('Claves de PostgreSQL (solo en este equipo): ' + $cred)
     Write-Output ('Usuarios de prueba de M-INV (empresa, correos, contrasenas y sucursales): ' + $usuarios)
-    Write-Output ('API Key de la tienda de prueba y claves de integracion: ' + $claves)
+    Write-Output ('API Key de la tienda de prueba, claves de integracion y token de SIMULACION del SIN (MINV_SIAT_TOKEN): ' + $claves)
+    if (-not $SinFacturacion -and -not $SinDatos) {
+        Write-Output ('Estado del simulador del SIN (CUIS, CUFD y facturas emitidas en la carga): ' + $estadoSimulador)
+    }
     Write-Output 'Abra M-INV.exe e ingrese con la empresa y un usuario de ese archivo (modo "Base local").'
-    Write-Output 'Para simular la nube en este equipo: powershell -ExecutionPolicy Bypass -File tools\servidores_locales.ps1 -Accion iniciar'
+    Write-Output 'Para simular la nube y el SIN en este equipo: powershell -ExecutionPolicy Bypass -File tools\servidores_locales.ps1 -Accion iniciar'
+    Write-Output '(inicia el simulador del SIN en http://localhost:5095, el servidor en la nube y el API Gateway)'
 }

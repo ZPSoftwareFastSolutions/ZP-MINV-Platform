@@ -16,8 +16,18 @@ namespace MINV.ApiGateway.Endpoints;
 /// <param name="Lines">SKU (o código de barras), cantidad y descuento %.</param>
 /// <param name="PaymentReference">Número de operación del pago (obligatorio en QR, tarjeta y transferencia).</param>
 /// <param name="WarehouseCode">Almacén que despacha (por defecto, el de la sucursal de la llave).</param>
+/// <param name="Buyer">V4.1 · Datos de facturación del comprador (opcional; si la empresa factura en el SIAT y el cliente no
+/// tiene datos de facturación, es obligatorio).</param>
 public sealed record OrderRequest(string? ExternalId, string CustomerCode, string PaymentMethodCode, IReadOnlyList<SaleLineInput> Lines,
-    string? PaymentReference = null, string? WarehouseCode = null);
+    string? PaymentReference = null, string? WarehouseCode = null, OrderBuyer? Buyer = null);
+
+/// <summary>V4.1 · Comprador del pedido para la factura del SIAT (nominatividad: el número de documento es obligatorio).</summary>
+/// <param name="DocumentType">1 CI, 2 CEX, 3 pasaporte, 4 otro documento, 5 NIT.</param>
+/// <param name="DocumentNumber">Número de documento (CI y NIT solo dígitos; 99001/99002/99003 = NIT especiales).</param>
+/// <param name="Complement">Complemento del CI (solo con CI).</param>
+/// <param name="Name">Nombre o razón social que va en la factura.</param>
+/// <param name="Email">Correo al que se entrega la factura (XML y PDF).</param>
+public sealed record OrderBuyer(int DocumentType, string DocumentNumber, string? Complement = null, string? Name = null, string? Email = null);
 
 public sealed record CreateTransferRequest(string ToWarehouseCode, IReadOnlyList<TransferLineInput> Lines, string? Notes = null,
     string? FromWarehouseCode = null);
@@ -59,8 +69,11 @@ public static class V1Endpoints
         v1.MapPost("/orders", async Task<IResult> (ISender s, HttpContext http, OrderRequest body, CancellationToken ct) =>
             {
                 var externalId = body.ExternalId ?? http.Request.Headers["Idempotency-Key"].ToString();
+                var buyer = body.Buyer is { } b
+                    ? new MINV.Application.Billing.FiscalBuyerInput(b.DocumentType, b.DocumentNumber, b.Complement, b.Name, b.Email)
+                    : null;
                 var result = await s.Send(new CreateExternalOrderCommand(externalId, body.CustomerCode, body.PaymentMethodCode, body.Lines,
-                    body.PaymentReference, body.WarehouseCode), ct);
+                    body.PaymentReference, body.WarehouseCode, buyer), ct);
                 if (result.Replayed)
                 {
                     http.Response.Headers["Idempotent-Replayed"] = "true";

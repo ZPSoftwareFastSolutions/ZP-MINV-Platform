@@ -40,6 +40,16 @@ public partial class MainWindow : Window
 
     public ShellViewModel ViewModel { get; }
 
+    /// <summary>V4.1 · La página activa siempre queda a la vista en el menú lateral (también al llegar desde otra pantalla,
+    /// p. ej. de Ventas a Documentos fiscales, con el menú desplazado).</summary>
+    private void OnNavChecked(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement item)
+        {
+            Dispatcher.BeginInvoke(() => item.BringIntoView(), System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+    }
+
     // ------------------------------------------------------------------------------------------------ teclado
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
@@ -79,6 +89,10 @@ public partial class MainWindow : Window
                 break;
             case Key.Escape when ViewModel.Dialogs.Current is { } dialog:
                 dialog.Cancel.Execute(null);
+                e.Handled = true;
+                break;
+            case Key.Escape when ViewModel.Dialogs.Form is { } form:
+                form.Cancel.Execute(null);
                 e.Handled = true;
                 break;
             case Key.Escape when ViewModel.IsProductOpen:

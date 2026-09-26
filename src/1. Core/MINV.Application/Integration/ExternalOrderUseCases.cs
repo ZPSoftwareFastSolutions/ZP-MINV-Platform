@@ -17,22 +17,31 @@ using MINV.Domain.Warehousing;
 namespace MINV.Application.Integration;
 
 // ================================================================================================ pedidos externos
+/// <summary>Resultado del pedido. V4.1: si la empresa factura en el SIAT, <see cref="Cuf"/> y <see cref="FiscalNumber"/> son
+/// los del documento fiscal de la venta (emitido en línea o fuera de línea; el envío al SIN es posterior).</summary>
 public sealed record ExternalOrderResult(string ExternalId, string OrderNumber, string InvoiceNumber, string BranchCode, decimal Total, decimal Tax,
-    DateTimeOffset IssuedAt, bool Replayed);
+    DateTimeOffset IssuedAt, bool Replayed, string? Cuf = null, long? FiscalNumber = null);
 
 /// <summary>
 /// V4 · Pedido del e-commerce (o de un ERP) registrado como venta cobrada en el almacén de una sucursal: mismo flujo que la
 /// caja (poka-yoke, factura con IVA, pago, asiento y evento <c>sale.completed</c>) pero sin turno de caja. IDEMPOTENTE:
 /// el par (canal = API Key, id externo) es único; repetir el mismo pedido devuelve la venta original (<c>Replayed</c>) y
-/// el mismo id con otro contenido se rechaza (422) en lugar de vender dos veces.
+/// el mismo id con otro contenido se rechaza (422) en lugar de vender dos veces. V4.1: <see cref="Buyer"/> (opcional)
+/// son los datos de facturación del comprador; si la empresa factura, la venta lleva su documento fiscal (punto de venta
+/// 0 de la sucursal).
 /// </summary>
 [RequiresModule(LicenseModuleCodes.ApiIntegrations)]
 [RequiresPermission(PermissionCodes.PosOperate)]
 [RequiresPermission(PermissionCodes.MovementsRegisterSales)]
 public sealed record CreateExternalOrderCommand(string ExternalId, string CustomerCode, string PaymentMethodCode, IReadOnlyList<SaleLineInput> Lines,
-    string? PaymentReference = null, string? WarehouseCode = null) : IRequest<ExternalOrderResult>, IAuditableRequest
+    string? PaymentReference = null, string? WarehouseCode = null, Billing.FiscalBuyerInput? Buyer = null)
+    : IRequest<ExternalOrderResult>, IAuditableRequest
 {
-    public object AuditDetails => new { ExternalId, CustomerCode, PaymentMethodCode, Lines, PaymentReference, WarehouseCode };
+    public object AuditDetails => new
+    {
+        ExternalId, CustomerCode, PaymentMethodCode, Lines, PaymentReference, WarehouseCode,
+        Buyer = Buyer is null ? null : new { Buyer.DocumentType, Buyer.DocumentNumber, Buyer.Complement, Buyer.Name },
+    };
 }
 
 public sealed class CreateExternalOrderValidator : AbstractValidator<CreateExternalOrderCommand>
@@ -52,7 +61,8 @@ public sealed class CreateExternalOrderValidator : AbstractValidator<CreateExter
     }
 }
 
-public sealed class CreateExternalOrderHandler(IMinvDbContext db, ICurrentUser user, IRequestOrigin origin, IClock clock)
+public sealed class CreateExternalOrderHandler(IMinvDbContext db, ICurrentUser user, IRequestOrigin origin, IClock clock,
+    IFiscalDocumentSerializer? serializer = null)
     : IRequestHandler<CreateExternalOrderCommand, ExternalOrderResult>
 {
     public async Task<ExternalOrderResult> Handle(CreateExternalOrderCommand r, CancellationToken ct)
@@ -82,14 +92,17 @@ public sealed class CreateExternalOrderHandler(IMinvDbContext db, ICurrentUser u
                 {
                     throw new AccessDeniedException($"El almacén {warehouse.Code} no es de las sucursales de esta llave.");
                 }
-                var (result, order) = await SaleWriter.SellAsync(db, clock, userId, new SaleOrigin(warehouse.BranchId, warehouse.Id, null, SaleChannels.Api),
-                    r.CustomerCode, r.PaymentMethodCode, r.Lines, null, r.PaymentReference, ct);
+                // V4.1 · Si la empresa factura, el documento fiscal (punto de venta 0 de la sucursal) nace en esta transacción
+                var sale = await SaleWriter.SellAsync(db, clock, userId, new SaleOrigin(warehouse.BranchId, warehouse.Id, null, SaleChannels.Api),
+                    r.CustomerCode, r.PaymentMethodCode, r.Lines, null, r.PaymentReference,
+                    new SaleFiscal(serializer, Billing.BillingLookups.UserCode(user), r.Buyer, null), ct);
+                var (result, order) = (sale.Result, sale.Order);
                 db.Set<ExternalOrder>().Add(new ExternalOrder(order.TenantId, warehouse.BranchId, channel, externalId, hash, order.Id, result.InvoiceNumber,
                     clock.UtcNow));
                 await db.SaveChangesAsync(ct);
                 var branchCode = await db.Set<Branch>().Where(b => b.Id == warehouse.BranchId).Select(b => b.Code).FirstAsync(ct);
                 return new ExternalOrderResult(externalId, result.OrderNumber, result.InvoiceNumber, branchCode, result.Total, result.Tax, result.IssuedAt,
-                    false);
+                    false, result.Cuf, result.FiscalNumber);
             }
             catch (ConcurrencyConflictException) when (attempt < 3)
             {
@@ -104,11 +117,26 @@ public sealed class CreateExternalOrderHandler(IMinvDbContext db, ICurrentUser u
         var order = await db.Set<SalesOrder>().Include(o => o.Lines).FirstAsync(o => o.Id == existing.SalesOrderId, ct);
         var invoice = await db.Set<Invoice>().Include(i => i.Lines).FirstAsync(i => i.Number == existing.InvoiceNumber, ct);
         var branchCode = await db.Set<Branch>().Where(b => b.Id == existing.BranchId).Select(b => b.Code).FirstAsync(ct);
+        var fiscal = await FiscalOfSaleAsync(db, invoice.Id, ct);
         return new ExternalOrderResult(existing.ExternalId, order.Number, invoice.Number, branchCode, order.Total,
-            JournalPoster.Money(invoice.Lines.Sum(l => l.TaxAmount)), invoice.IssuedAt ?? existing.ReceivedAt, true);
+            JournalPoster.Money(invoice.Lines.Sum(l => l.TaxAmount)), invoice.IssuedAt ?? existing.ReceivedAt, true, fiscal?.Cuf, fiscal?.Number);
     }
 
-    /// <summary>SHA-256 del contenido normalizado (orden de líneas y formato numérico invariables).</summary>
+    /// <summary>V4.1 · Documento fiscal VIGENTE de una venta (el último que no fue rechazado, descartado ni reemplazado).</summary>
+    internal static async Task<(string Cuf, long Number)?> FiscalOfSaleAsync(IMinvDbContext db, Guid invoiceId, CancellationToken ct)
+    {
+        var document = await db.Set<Domain.Billing.FiscalDocument>()
+            .Where(d => d.InvoiceId == invoiceId && d.Status != Domain.Billing.FiscalDocumentStatus.Rejected
+                                                 && d.Status != Domain.Billing.FiscalDocumentStatus.Discarded
+                                                 && d.Status != Domain.Billing.FiscalDocumentStatus.PackageRejected
+                                                 && d.Status != Domain.Billing.FiscalDocumentStatus.NoResponse
+                                                 && d.Status != Domain.Billing.FiscalDocumentStatus.DuplicateToVoid)
+            .OrderByDescending(d => d.CreatedAt).Select(d => new { d.Cuf, d.Number }).FirstOrDefaultAsync(ct);
+        return document is null ? null : (document.Cuf, document.Number);
+    }
+
+    /// <summary>SHA-256 del contenido normalizado (orden de líneas y formato numérico invariables). V4.1: los datos del
+    /// comprador entran al hash SOLO si vienen (un pedido sin comprador conserva el hash de la V4).</summary>
     public static string RequestHash(CreateExternalOrderCommand r)
     {
         var text = new StringBuilder()
@@ -121,6 +149,13 @@ public sealed class CreateExternalOrderHandler(IMinvDbContext db, ICurrentUser u
             text.Append(line.Sku.Trim().ToUpperInvariant()).Append(':')
                 .Append(Quantities.Round6(line.Quantity).ToString("0.######", CultureInfo.InvariantCulture)).Append(':')
                 .Append(line.DiscountPercent.ToString("0.######", CultureInfo.InvariantCulture)).Append(';');
+        }
+        if (r.Buyer is { } buyer)
+        {
+            text.Append("|buyer:").Append(buyer.DocumentType.ToString(CultureInfo.InvariantCulture)).Append(':')
+                .Append(buyer.DocumentNumber?.Trim()).Append(':').Append(buyer.Complement?.Trim().ToUpperInvariant()).Append(':')
+                .Append(buyer.Name?.Trim()).Append(':').Append(buyer.Email?.Trim().ToLowerInvariant()).Append(':')
+                .Append(buyer.ExceptionRequested ? '1' : '0');
         }
         return ApiKeyTokens.Hash(text.ToString());
     }
@@ -142,8 +177,9 @@ public sealed class GetExternalOrderHandler(IMinvDbContext db, IRequestOrigin or
         var sales = await db.Set<SalesOrder>().Include(o => o.Lines).FirstAsync(o => o.Id == order.SalesOrderId, ct);
         var invoice = await db.Set<Invoice>().Include(i => i.Lines).FirstAsync(i => i.Number == order.InvoiceNumber, ct);
         var branchCode = await db.Set<Branch>().Where(b => b.Id == order.BranchId).Select(b => b.Code).FirstAsync(ct);
+        var fiscal = await CreateExternalOrderHandler.FiscalOfSaleAsync(db, invoice.Id, ct);
         return new ExternalOrderResult(order.ExternalId, sales.Number, invoice.Number, branchCode, sales.Total,
-            JournalPoster.Money(invoice.Lines.Sum(l => l.TaxAmount)), invoice.IssuedAt ?? order.ReceivedAt, true);
+            JournalPoster.Money(invoice.Lines.Sum(l => l.TaxAmount)), invoice.IssuedAt ?? order.ReceivedAt, true, fiscal?.Cuf, fiscal?.Number);
     }
 }
 

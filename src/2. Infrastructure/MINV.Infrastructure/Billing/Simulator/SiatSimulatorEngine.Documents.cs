@@ -413,6 +413,14 @@ public sealed partial class SiatSimulatorEngine
             }
         }
 
+        // R4 (05 §11): en la factura, un comprador con NIT que el Padrón no reconoce solo se acepta con codigoExcepcion = 1
+        if (call.DocumentSector == SiatCodes.SectorPurchaseSale && Int(header, "codigoTipoDocumentoIdentidad") == SiatCodes.DocumentNit
+                                                              && Int(header, "codigoExcepcion") != 1)
+        {
+            Add(errors, BuyerNitCode(Value(header, "numeroDocumento")) != SiatCodes.NitActive, 1037, fileNumber,
+                "el NIT del comprador no está activo en el Padrón (envíe codigoExcepcion = 1 si el comprador lo confirma)");
+        }
+
         // Fórmulas (05 §3 y §4)
         CheckFormulas(root, header, call.DocumentSector, fileNumber, errors);
 

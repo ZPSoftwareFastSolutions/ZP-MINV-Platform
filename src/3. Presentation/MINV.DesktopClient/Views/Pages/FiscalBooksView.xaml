@@ -1,0 +1,219 @@
+<UserControl x:Class="MINV.DesktopClient.Views.Pages.FiscalBooksView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:MINV.DesktopClient.Controls"
+             xmlns:vm="clr-namespace:MINV.DesktopClient.ViewModels">
+    <!-- V4.1 · Libros fiscales: ventas IVA, compras (con las recepciones sin factura) y resumen IVA / IT; CSV y Excel -->
+    <Grid Margin="28,6,28,24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <DockPanel Margin="0,0,0,14">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <ComboBox Width="190" ItemsSource="{Binding Months}" SelectedItem="{Binding Month}" ToolTip="Mes del libro" Margin="0,0,8,0" />
+                <Button Content="CSV" c:Ui.Icon="{x:Static c:Glyphs.Download}" Command="{Binding ExportCsv}" Margin="0,0,8,0"
+                        ToolTip="Exportar el libro con el orden de columnas de las plantillas del SIN" Visibility="{Binding CanExport, Converter={StaticResource Visible}}"
+                        c:Ui.IsBusy="{Binding ExportCsv.IsRunning}" />
+                <Button Content="Excel" c:Ui.Icon="{x:Static c:Glyphs.Report}" Command="{Binding ExportExcel}" Margin="0,0,8,0"
+                        Visibility="{Binding CanExport, Converter={StaticResource Visible}}" c:Ui.IsBusy="{Binding ExportExcel.IsRunning}" />
+                <Button Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Refresh}" Command="{Binding Refresh}" ToolTip="Actualizar (F5)" />
+            </StackPanel>
+            <StackPanel>
+                <TextBlock Text="{Binding Title}" Style="{StaticResource H1}" />
+                <TextBlock Text="{Binding Subtitle}" Style="{StaticResource Caption}" FontSize="13" Margin="0,4,0,0" />
+            </StackPanel>
+        </DockPanel>
+
+        <UniformGrid Grid.Row="1" Columns="4" Margin="-6,0,-6,10">
+            <ContentControl Content="{Binding SalesKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+            <ContentControl Content="{Binding DebitKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+            <ContentControl Content="{Binding CreditKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+            <ContentControl Content="{Binding PayableKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+        </UniformGrid>
+
+        <Border Grid.Row="2" Background="{DynamicResource SurfaceAlt}" CornerRadius="10" Padding="3" HorizontalAlignment="Left" Margin="0,0,0,12">
+            <StackPanel Orientation="Horizontal">
+                <RadioButton Style="{StaticResource Segment}" GroupName="BooksTab" IsChecked="{Binding IsSalesTab}" Content="Ventas" MinWidth="110" />
+                <RadioButton Style="{StaticResource Segment}" GroupName="BooksTab" IsChecked="{Binding IsPurchasesTab}" Content="Compras" MinWidth="110" />
+                <RadioButton Style="{StaticResource Segment}" GroupName="BooksTab" IsChecked="{Binding IsSummaryTab}" Content="Resumen IVA / IT" MinWidth="130" />
+            </StackPanel>
+        </Border>
+
+        <!-- Libro de ventas -->
+        <Border Grid.Row="3" Style="{StaticResource CardFlat}" Padding="4,2,4,4" Visibility="{Binding IsSalesTab, Converter={StaticResource Visible}}">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Bottom" Text="{Binding SalesTotals}" Style="{StaticResource Caption}" Margin="12,8" TextWrapping="Wrap" />
+                <Grid>
+                    <DataGrid ItemsSource="{Binding SalesRows}" RowHeight="44">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="N°" Binding="{Binding Row.Row}" Width="50" ElementStyle="{StaticResource CellText}" />
+                            <DataGridTextColumn Header="FECHA" Binding="{Binding DateText}" Width="96" ElementStyle="{StaticResource CellText}" />
+                            <DataGridTemplateColumn Header="DOCUMENTO" Width="150">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate DataType="{x:Type vm:SalesBookItem}">
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock>
+                                                <Run Text="{Binding KindText, Mode=OneWay}" /> <Run Text="{Binding Row.Number, Mode=OneWay}" FontWeight="SemiBold" />
+                                            </TextBlock>
+                                            <TextBlock Text="{Binding CufText}" Style="{StaticResource Mono}" FontSize="11" ToolTip="{Binding Row.Cuf}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="COMPRADOR" Width="*" MinWidth="200">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate DataType="{x:Type vm:SalesBookItem}">
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Row.BuyerName}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Style="{StaticResource Caption}" FontSize="11.5">
+                                                <Run Text="NIT/CI" /> <Run Text="{Binding DocumentText, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding Row.BranchCode, Mode=OneWay}" />
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="TOTAL" Binding="{Binding Row.Total, StringFormat=N2}" Width="110" HeaderStyle="{StaticResource HeaderRight}"
+                                                ElementStyle="{StaticResource CellRight}" />
+                            <DataGridTextColumn Header="DESCUENTOS" Binding="{Binding Row.Discounts, StringFormat=N2}" Width="100" HeaderStyle="{StaticResource HeaderRight}"
+                                                ElementStyle="{StaticResource CellRight}" />
+                            <DataGridTextColumn Header="BASE IVA" Binding="{Binding Row.TaxBase, StringFormat=N2}" Width="110" HeaderStyle="{StaticResource HeaderRight}"
+                                                ElementStyle="{StaticResource CellRight}" />
+                            <DataGridTextColumn Header="DÉBITO FISCAL" Binding="{Binding Row.TaxDebit, StringFormat=N2}" Width="110" HeaderStyle="{StaticResource HeaderRight}"
+                                                ElementStyle="{StaticResource CellRight}" />
+                            <DataGridTemplateColumn Header="ESTADO" Width="110">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate DataType="{x:Type vm:SalesBookItem}">
+                                        <Border Style="{StaticResource StatusPill}" c:Ui.BrushKey="{Binding StatusSoftBrush}">
+                                            <TextBlock Text="{Binding StatusText}" FontSize="11" FontWeight="SemiBold" c:Ui.BrushKey="{Binding StatusBrush}" />
+                                        </Border>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <ContentControl Style="{StaticResource EmptyState}" Tag="{x:Static c:Glyphs.Library}" Visibility="{Binding NoSales, Converter={StaticResource Visible}}">
+                        <TextBlock Text="Sin facturas en el libro de ventas de este mes" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" />
+                    </ContentControl>
+                </Grid>
+            </DockPanel>
+        </Border>
+
+        <!-- Libro de compras -->
+        <Grid Grid.Row="3" Visibility="{Binding IsPurchasesTab, Converter={StaticResource Visible}}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Border Style="{StaticResource CardFlat}" Padding="4,2,4,4">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Bottom" Text="{Binding PurchasesTotals}" Style="{StaticResource Caption}" Margin="12,8" TextWrapping="Wrap" />
+                    <Grid>
+                        <DataGrid ItemsSource="{Binding PurchaseRows}" RowHeight="44">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="N°" Binding="{Binding Row.Row}" Width="50" ElementStyle="{StaticResource CellText}" />
+                                <DataGridTextColumn Header="FECHA" Binding="{Binding DateText}" Width="96" ElementStyle="{StaticResource CellText}" />
+                                <DataGridTemplateColumn Header="PROVEEDOR" Width="*" MinWidth="200">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate DataType="{x:Type vm:PurchasesBookItem}">
+                                            <StackPanel VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Row.SupplierName}" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Style="{StaticResource Caption}" FontSize="11.5">
+                                                    <Run Text="NIT" /> <Run Text="{Binding Row.SupplierNit, Mode=OneWay}" /><Run Text=" · factura " />
+                                                    <Run Text="{Binding Row.InvoiceNumber, Mode=OneWay}" />
+                                                </TextBlock>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTextColumn Header="AUTORIZACIÓN / CUF" Binding="{Binding AuthorizationText}" Width="150" ElementStyle="{StaticResource CellText}" />
+                                <DataGridTextColumn Header="TOTAL" Binding="{Binding Row.Total, StringFormat=N2}" Width="110" HeaderStyle="{StaticResource HeaderRight}"
+                                                    ElementStyle="{StaticResource CellRight}" />
+                                <DataGridTextColumn Header="BASE" Binding="{Binding Row.TaxBase, StringFormat=N2}" Width="110" HeaderStyle="{StaticResource HeaderRight}"
+                                                    ElementStyle="{StaticResource CellRight}" />
+                                <DataGridTextColumn Header="CRÉDITO FISCAL" Binding="{Binding Row.TaxCredit, StringFormat=N2}" Width="110" HeaderStyle="{StaticResource HeaderRight}"
+                                                    ElementStyle="{StaticResource CellRight}" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <ContentControl Style="{StaticResource EmptyState}" Tag="{x:Static c:Glyphs.Library}" Visibility="{Binding NoPurchases, Converter={StaticResource Visible}}">
+                            <StackPanel>
+                                <TextBlock Text="Sin facturas de proveedores en este mes" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" HorizontalAlignment="Center" />
+                                <TextBlock Text="Registre la factura de cada recepción de mercadería (panel de la derecha)." Style="{StaticResource Caption}"
+                                           HorizontalAlignment="Center" Margin="0,4,0,0" />
+                            </StackPanel>
+                        </ContentControl>
+                    </Grid>
+                </DockPanel>
+            </Border>
+            <Border Grid.Column="1" Style="{StaticResource EditorPanel}" Width="340" Visibility="{Binding CanPurchases, Converter={StaticResource Visible}}">
+                <DockPanel Margin="16,14,10,12">
+                    <StackPanel DockPanel.Dock="Top" Margin="0,0,6,8">
+                        <TextBlock Text="Recepciones sin factura" Style="{StaticResource H3}" />
+                        <TextBlock Text="Registre la factura del proveedor: entra al libro de compras con su crédito fiscal." Style="{StaticResource Caption}"
+                                   TextWrapping="Wrap" Margin="0,4,0,0" />
+                    </StackPanel>
+                    <Grid>
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
+                            <ItemsControl ItemsSource="{Binding PendingInvoices}" Focusable="False">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:PendingSupplierInvoiceItem}">
+                                        <Border Style="{StaticResource Panel}" Padding="12,10" Margin="0,0,0,8">
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Text}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                                <TextBlock Text="{Binding Detail}" Style="{StaticResource Caption}" />
+                                                <Button Style="{StaticResource SoftButton}" Content="Registrar factura del proveedor" c:Ui.Icon="{x:Static c:Glyphs.Invoice}"
+                                                        Height="32" Padding="10,0" Margin="0,8,0,0" HorizontalAlignment="Left"
+                                                        Command="{Binding DataContext.RegisterInvoice, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                        <ContentControl Style="{StaticResource EmptyState}" Tag="{x:Static c:Glyphs.CheckCircle}" Visibility="{Binding HasPending, Converter={StaticResource Hidden}}">
+                            <TextBlock Text="Todas las recepciones tienen su factura" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" TextWrapping="Wrap"
+                                       TextAlignment="Center" />
+                        </ContentControl>
+                    </Grid>
+                </DockPanel>
+            </Border>
+        </Grid>
+
+        <!-- Resumen IVA / IT -->
+        <Border Grid.Row="3" Style="{StaticResource CardFlat}" Padding="24,16" Visibility="{Binding IsSummaryTab, Converter={StaticResource Visible}}">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel MaxWidth="920" HorizontalAlignment="Left">
+                    <TextBlock Text="Resumen para el contador (formularios 200 IVA y 400 IT)" Style="{StaticResource H3}" Margin="0,0,0,4" />
+                    <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,0,0,12"
+                               Text="Cifras del mes según los libros de M-INV. El traslado a las casillas de los formularios lo hace el contador." />
+                    <ItemsControl ItemsSource="{Binding TaxLines}" Focusable="False">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:TaxLine}">
+                                <Border x:Name="Row" BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1" Padding="0,10">
+                                    <DockPanel>
+                                        <TextBlock x:Name="Amount" DockPanel.Dock="Right" Text="{Binding Amount}" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Top"
+                                                   Margin="16,0,0,0" c:Ui.BrushKey="{Binding Brush}" />
+                                        <StackPanel>
+                                            <TextBlock x:Name="Label" Text="{Binding Label}" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" />
+                                            <TextBlock Text="{Binding Explanation}" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,2,0,0" />
+                                        </StackPanel>
+                                    </DockPanel>
+                                </Border>
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding IsTotal}" Value="True">
+                                        <Setter TargetName="Amount" Property="FontSize" Value="20" />
+                                        <Setter TargetName="Label" Property="FontSize" Value="15" />
+                                        <Setter TargetName="Row" Property="BorderThickness" Value="0,0,0,2" />
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
+    </Grid>
+</UserControl>

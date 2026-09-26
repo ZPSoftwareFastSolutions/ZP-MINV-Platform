@@ -44,6 +44,9 @@ public sealed class AppServices(SerialMediator mediator, NotificationService not
 
     public Task<T> SendAsync<T>(IRequest<T> request, CancellationToken ct = default) => mediator.SendAsync(request, ct);
 
+    /// <summary>V4.1 · Vuelve a leer el estado de la facturación (menú, caja y trabajo automático).</summary>
+    public Task RefreshBillingAsync() => Session.RefreshBillingAsync(mediator);
+
     /// <summary>V4 · Cambia la sucursal activa de la sesión y avisa a todas las pantallas que recarguen.</summary>
     public async Task SelectBranchAsync(Guid? branchId)
     {

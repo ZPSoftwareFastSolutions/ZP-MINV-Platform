@@ -1269,7 +1269,13 @@ namespace MINV.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("TenantId", "Environment", "PointOfSaleId", "DocumentSector", "Number")
                         .IsUnique()
-                        .HasDatabaseName("ux_fiscal_documents_tenant_id_environment_point_of_sal_c1b923c7");
+                        .HasDatabaseName("ux_fiscal_documents_tenant_id_environment_point_of_sal_c1b923c7")
+                        .HasFilter("cafc IS NULL");
+
+                    b.HasIndex("TenantId", "Environment", "PointOfSaleId", "DocumentSector", "Cafc", "Number")
+                        .IsUnique()
+                        .HasDatabaseName("ux_fiscal_documents_tenant_id_environment_point_of_sal_c5eda27d")
+                        .HasFilter("cafc IS NOT NULL");
 
                     b.ToTable("fiscal_documents", "billing", t =>
                         {

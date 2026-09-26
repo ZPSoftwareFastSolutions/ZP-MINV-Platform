@@ -133,11 +133,38 @@ public sealed class DialogRequest : ObservableObject
 public sealed class DialogService : ObservableObject
 {
     private DialogRequest? _current;
+    private FormDialog? _form;
 
     public DialogRequest? Current
     {
         get => _current;
         private set => Set(ref _current, value);
+    }
+
+    /// <summary>V4.1 · Formulario modal en curso (anular, devolución, re-emitir, contingencia…). La ventana lo muestra con
+    /// la plantilla de su tipo; una confirmación (<see cref="Current"/>) puede aparecer encima.</summary>
+    public FormDialog? Form
+    {
+        get => _form;
+        private set => Set(ref _form, value);
+    }
+
+    /// <summary>Muestra un formulario modal y espera a que se complete (true) o se cancele (false).</summary>
+    public async Task<bool> ShowAsync(FormDialog form)
+    {
+        ArgumentNullException.ThrowIfNull(form);
+        Form = form;
+        try
+        {
+            return await form.Completion;
+        }
+        finally
+        {
+            if (ReferenceEquals(Form, form))
+            {
+                Form = null;
+            }
+        }
     }
 
     /// <summary>Pide un dato con un combo editable (sugerencias + texto libre). Null si el usuario cancela.</summary>
@@ -198,6 +225,77 @@ public sealed class DialogService : ObservableObject
             {
                 Current = null;
             }
+        }
+    }
+}
+
+/// <summary>
+/// V4.1 · Formulario modal dentro de la ventana (fondo atenuado): título, ícono, cuerpo (plantilla por tipo en
+/// <c>Views/BillingForms.xaml</c>), error del formulario y botones. «Confirmar» ejecuta <see cref="SubmitAsync"/>: si
+/// devuelve true el formulario se cierra; si lanza un error esperado, se muestra en el propio formulario.
+/// </summary>
+public abstract class FormDialog : ObservableObject
+{
+    private readonly TaskCompletionSource<bool> _result = new();
+    private string? _error;
+
+    protected FormDialog(string title, string confirmText, string glyph, bool isDanger = false, double width = 560)
+    {
+        Title = title;
+        ConfirmText = confirmText;
+        Glyph = glyph;
+        IsDanger = isDanger;
+        Width = width;
+        Confirm = new AsyncRelayCommand(ConfirmAsync, CanConfirm);
+        Cancel = new RelayCommand(() => _result.TrySetResult(false));
+    }
+
+    public string Title { get; }
+
+    public virtual string? Subtitle => null;
+
+    public string ConfirmText { get; }
+
+    public string Glyph { get; }
+
+    public bool IsDanger { get; }
+
+    public double Width { get; }
+
+    /// <summary>Formularios de solo lectura (p. ej. el XML): un solo botón «Cerrar».</summary>
+    public virtual bool ShowConfirm => true;
+
+    public string? Error
+    {
+        get => _error;
+        protected set => Set(ref _error, value);
+    }
+
+    public AsyncRelayCommand Confirm { get; }
+
+    public RelayCommand Cancel { get; }
+
+    /// <summary>Se completa con true (confirmado) o false (cancelado).</summary>
+    public Task<bool> Completion => _result.Task;
+
+    protected virtual bool CanConfirm() => true;
+
+    /// <summary>Valida y ejecuta. true = listo (se cierra); false = queda abierto (con <see cref="Error"/>).</summary>
+    protected abstract Task<bool> SubmitAsync();
+
+    private async Task ConfirmAsync()
+    {
+        Error = null;
+        try
+        {
+            if (await SubmitAsync())
+            {
+                _result.TrySetResult(true);
+            }
+        }
+        catch (Exception ex) when (MINV.DesktopClient.ViewModels.AppServices.IsExpected(ex))
+        {
+            Error = MINV.DesktopClient.ViewModels.AppServices.Describe(ex);
         }
     }
 }

@@ -2,10 +2,12 @@ using FluentValidation;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using MINV.Application.Abstractions;
+using MINV.Application.Billing;
 using MINV.Application.Catalog;
 using MINV.Application.Common;
 using MINV.Application.Inventory;
 using MINV.Domain.Accounting;
+using MINV.Domain.Billing;
 using MINV.Domain.Catalog;
 using MINV.Domain.Common;
 using MINV.Domain.Events;
@@ -136,7 +138,8 @@ public sealed class CheckoutValidator : AbstractValidator<CheckoutCommand>
     }
 }
 
-public sealed class CheckoutHandler(IMinvDbContext db, ICurrentUser user, IClock clock) : IRequestHandler<CheckoutCommand, CheckoutResult>
+public sealed class CheckoutHandler(IMinvDbContext db, ICurrentUser user, IClock clock, IFiscalDocumentSerializer? serializer = null)
+    : IRequestHandler<CheckoutCommand, CheckoutResult>
 {
     public async Task<CheckoutResult> Handle(CheckoutCommand request, CancellationToken ct)
     {
@@ -149,10 +152,13 @@ public sealed class CheckoutHandler(IMinvDbContext db, ICurrentUser user, IClock
                                   .OrderByDescending(s => s.OpenedAt).FirstOrDefaultAsync(ct)
                               ?? throw new DomainException("pos.closed", "Abra un turno de caja antes de cobrar.");
                 var register = await db.Set<PosRegister>().FirstAsync(x => x.Id == session.PosRegisterId, ct);
-                var (result, _) = await SaleWriter.SellAsync(db, clock, userId, new SaleOrigin(session.BranchId, register.WarehouseId, session.Id, SaleChannels.Pos),
-                    request.CustomerCode, request.PaymentMethodCode, request.Lines, request.CashReceived, request.PaymentReference, ct);
+                // V4.1 · Si la empresa factura, el documento fiscal nace en ESTA transacción (sin llamar al SIN: regla F-03)
+                var sale = await SaleWriter.SellAsync(db, clock, userId,
+                    new SaleOrigin(session.BranchId, register.WarehouseId, session.Id, SaleChannels.Pos, register.Id),
+                    request.CustomerCode, request.PaymentMethodCode, request.Lines, request.CashReceived, request.PaymentReference,
+                    new SaleFiscal(serializer, BillingLookups.UserCode(user), request.Buyer, request.CardNumber), ct);
                 await db.SaveChangesAsync(ct);
-                return result;
+                return sale.Result;
             }
             catch (ConcurrencyConflictException) when (attempt < 3)
             {
@@ -167,23 +173,35 @@ public static class SaleChannels
 {
     public const string Pos = "pos";
     public const string Api = "api";
+
+    /// <summary>V4.1 · Transcripción de una factura manual del talonario CAFC (contingencia manual).</summary>
+    public const string Cafc = "cafc";
 }
 
 /// <summary>V4 · Origen de una venta: caja (turno abierto, arco a la sesión) o canal externo (arco al almacén de la
-/// sucursal, sin turno).</summary>
-internal sealed record SaleOrigin(Guid BranchId, Guid WarehouseId, Guid? PosSessionId, string Channel);
+/// sucursal, sin turno). V4.1: la caja (si hay) decide el punto de venta del SIN con el que se factura.</summary>
+internal sealed record SaleOrigin(Guid BranchId, Guid WarehouseId, Guid? PosSessionId, string Channel, Guid? PosRegisterId = null);
+
+/// <summary>V4.1 · Datos fiscales de la venta: serializador del XML (null si el anfitrión no lo tiene), usuario emisor del
+/// XML, comprador y tarjeta capturados, y la factura manual CAFC que se transcribe (si es el caso).</summary>
+internal sealed record SaleFiscal(IFiscalDocumentSerializer? Serializer, string UserCode, FiscalBuyerInput? Buyer, string? CardNumber,
+    FiscalManualEmission? Manual = null);
+
+/// <summary>V4.1 · Venta registrada: resultado para la caja, pedido, factura interna y documento fiscal (si la empresa factura).</summary>
+internal sealed record SaleWriteResult(CheckoutResult Result, SalesOrder Order, Invoice Invoice, FiscalDocument? Document);
 
 /// <summary>
 /// Registro de una venta cobrada (lo comparten la caja y los pedidos del e-commerce por la API): pedido confirmado,
 /// salida de stock con el poka-yoke del dominio, factura con el IVA incluido, pago y asiento (ventas, IVA débito y costo
-/// de ventas al costo promedio). Publica <c>sale.completed</c> en el outbox. NO guarda: el caso de uso guarda (y
+/// de ventas al costo promedio). Publica <c>sale.completed</c> en el outbox. V4.1: si la empresa factura, emite el documento
+/// fiscal con <see cref="FiscalIssuer"/> en la MISMA transacción (sin llamar al SIN). NO guarda: el caso de uso guarda (y
 /// reintenta ante un conflicto de concurrencia).
 /// </summary>
 internal static class SaleWriter
 {
-    public static async Task<(CheckoutResult Result, SalesOrder Order)> SellAsync(IMinvDbContext db, IClock clock, Guid userId, SaleOrigin origin,
+    public static async Task<SaleWriteResult> SellAsync(IMinvDbContext db, IClock clock, Guid userId, SaleOrigin origin,
         string customerCodeInput, string paymentMethodCode, IReadOnlyList<SaleLineInput> lines, decimal? cashReceived, string? paymentReference,
-        CancellationToken ct)
+        SaleFiscal? fiscal, CancellationToken ct)
     {
         var customerCode = customerCodeInput.Trim().ToUpperInvariant();
         var customer = await db.Set<Customer>().FirstOrDefaultAsync(c => c.Code == customerCode && c.IsActive, ct)
@@ -278,9 +296,22 @@ internal static class SaleWriter
         ], now, order.Id, ct);
         db.Publish(new SaleCompletedEvent(invoiceNumber, orderNumber, origin.BranchId, customer.Code, total, JournalPoster.Money(tax), origin.Channel,
             items.Select(x => new SaleEventLine(x.Item.Variant.Sku, x.Line.Quantity, x.Line.UnitPrice, x.Line.DiscountPercent)).ToList(), now));
+
+        // V4.1 · Documento fiscal (CUF, XML validado y líneas congeladas) en la misma transacción; el envío al SIN es después
+        FiscalDocument? document = null;
+        if (fiscal is not null && await new BillingLookups(db, null, clock).IsBillingEnabledAsync(ct))
+        {
+            var serializer = fiscal.Serializer ?? throw new DomainException("fiscal.no_serializer",
+                "Este equipo no tiene el generador del XML del SIN: no puede facturar (use el servidor en la nube o la instalación completa).");
+            document = await FiscalIssuer.IssueForSaleAsync(new FiscalIssueServices(db, clock, serializer, userId, fiscal.UserCode),
+                new FiscalSale(origin.BranchId, origin.PosRegisterId, invoice, customer, method,
+                    items.Select(x => new FiscalSaleLine(x.Line, x.Item.Variant, x.Item.Product)).ToList(), fiscal.Buyer, fiscal.CardNumber),
+                fiscal.Manual, ct);
+        }
         var result = new CheckoutResult(invoiceNumber, orderNumber, now, total, JournalPoster.Money(tax), change, customer.Name, method.Name,
-            items.Select(x => new ReceiptLine(x.Item.Product.Name, x.Line.Quantity, x.Line.Amount / x.Line.Quantity)).ToList());
-        return (result, order);
+            items.Select(x => new ReceiptLine(x.Item.Product.Name, x.Line.Quantity, x.Line.Amount / x.Line.Quantity)).ToList(),
+            document?.Id, document?.Number, document?.Cuf, document?.Status);
+        return new SaleWriteResult(result, order, invoice, document);
     }
 }
 
@@ -362,6 +393,34 @@ public sealed class VoidSaleHandler(IMinvDbContext db, ICurrentUser user, IClock
         var number = request.InvoiceNumber.Trim().ToUpperInvariant();
         var invoice = await db.Set<Invoice>().Include(i => i.Lines).FirstOrDefaultAsync(i => i.Number == number, ct)
                       ?? throw new NotFoundException($"La factura {number} no existe.");
+        // V4.1 · Una venta con documento fiscal ACTIVO se anula en el SIN (anulación fiscal con devolución de mercadería)
+        var hasFiscalDocument = await db.Set<FiscalDocument>().AnyAsync(d => d.InvoiceId == invoice.Id
+                                                                             && d.Status != FiscalDocumentStatus.Voided
+                                                                             && d.Status != FiscalDocumentStatus.Rejected
+                                                                             && d.Status != FiscalDocumentStatus.Discarded
+                                                                             && d.Status != FiscalDocumentStatus.PackageRejected, ct);
+        Guard.That(!hasFiscalDocument, "sale.has_fiscal_document",
+            "Esta venta tiene factura del SIN: anúlela desde Facturación › Documentos fiscales (con devolución de mercadería)");
+        await SaleReverser.ReverseAsync(db, clock, userId, invoice, request.Reason.Trim(), ct);
+        await db.SaveChangesAsync(ct);
+        return $"✔ Factura {invoice.Number} anulada: el stock volvió y se registró el asiento inverso.";
+    }
+}
+
+/// <summary>
+/// V4.1 · Reversión completa de una venta (la comparten la anulación de la venta y la anulación fiscal «con devolución
+/// de mercadería»): la factura interna queda anulada con el motivo, el stock vuelve con DEVOLUCIÓN DE CLIENTE a la misma
+/// posición de la salida (movimientos compensatorios; nunca se borra nada), asiento inverso y evento <c>sale.voided</c>.
+/// NO guarda. Una venta con devoluciones parciales no se revierte entera (se contaría dos veces lo devuelto).
+/// </summary>
+internal static class SaleReverser
+{
+    public static async Task ReverseAsync(IMinvDbContext db, IClock clock, Guid userId, Invoice invoice, string reason, CancellationToken ct)
+    {
+        Guard.That(invoice.Status == InvoiceStatus.Issued, "invoice.not_issued", $"La venta {invoice.Number} ya está anulada.");
+        var returns = await db.Set<SalesReturn>().Where(r => r.InvoiceId == invoice.Id).Select(r => r.Number).ToListAsync(ct);
+        Guard.That(returns.Count == 0, "sale.has_returns",
+            $"La venta {invoice.Number} tiene devoluciones registradas ({string.Join(", ", returns)}): no se puede revertir entera.");
         var order = await db.Set<SalesOrder>().Include(o => o.Lines).FirstAsync(o => o.Id == invoice.SalesOrderId, ct);
         var payment = await db.Set<Payment>().FirstAsync(p => p.InvoiceId == invoice.Id, ct);
         var method = await db.Set<PaymentMethod>().FirstAsync(m => m.Id == payment.PaymentMethodId, ct);
@@ -369,11 +428,8 @@ public sealed class VoidSaleHandler(IMinvDbContext db, ICurrentUser user, IClock
         var config = await lookups.ConfigAsync(ct);
         var today = clock.TodayIn(config.TimeZoneId);
         var now = clock.UtcNow;
-        var warehouseId = order.WarehouseId ?? await (from s in db.Set<PosSession>()
-                                                      join reg in db.Set<PosRegister>() on s.PosRegisterId equals reg.Id
-                                                      where s.Id == order.PosSessionId
-                                                      select reg.WarehouseId).FirstAsync(ct);
-        invoice.Void(request.Reason.Trim(), now);
+        var warehouseId = await WarehouseOfAsync(db, order, ct);
+        invoice.Void(reason, now);
         var returnType = await lookups.MovementTypeAsync(MovementTypeCodes.SaleReturn, ct);
         var cost = 0m;
         foreach (var line in order.Lines.Where(l => l.StockMovementId is not null))
@@ -383,12 +439,12 @@ public sealed class VoidSaleHandler(IMinvDbContext db, ICurrentUser user, IClock
             var variant = await db.Set<ProductVariant>().FirstAsync(v => v.Id == line.VariantId, ct);
             var product = await db.Set<Product>().FirstAsync(p => p.Id == variant.ProductId, ct);
             var unit = await db.Set<UnitOfMeasure>().FirstAsync(u => u.Id == product.BaseUnitId, ct);
-            var context = new MovementContext(userId, today, now, invoice.Number, $"Anulación de {invoice.Number}: {request.Reason.Trim()}");
+            var context = new MovementContext(userId, today, now, invoice.Number, $"Anulación de {invoice.Number}: {reason}");
             db.Set<StockMovement>().Add(level.Register(returnType, line.Quantity, new UnitRule(unit.Code, unit.AllowsDecimals), context));
             cost += line.Quantity * await AverageCosts.CurrentAsync(db, variant.Id, warehouseId, ct);
         }
         var tax = invoice.Lines.Sum(l => l.TaxAmount);
-        await JournalPoster.PostAsync(db, invoice.TenantId, invoice.BranchId, userId, today, $"Anulación de la venta {invoice.Number}: {request.Reason.Trim()}",
+        await JournalPoster.PostAsync(db, invoice.TenantId, invoice.BranchId, userId, today, $"Anulación de la venta {invoice.Number}: {reason}",
         [
             new JournalLineSpec(AccountCodes.Sales, payment.Amount - tax, 0),
             new JournalLineSpec(AccountCodes.VatDebit, tax, 0),
@@ -396,10 +452,15 @@ public sealed class VoidSaleHandler(IMinvDbContext db, ICurrentUser user, IClock
             new JournalLineSpec(AccountCodes.Inventory, JournalPoster.Money(cost), 0),
             new JournalLineSpec(AccountCodes.CostOfSales, 0, JournalPoster.Money(cost)),
         ], now, invoice.Id, ct);
-        db.Publish(new SaleVoidedEvent(invoice.Number, invoice.BranchId, payment.Amount, request.Reason.Trim(), now));
-        await db.SaveChangesAsync(ct);
-        return $"✔ Factura {invoice.Number} anulada: el stock volvió y se registró el asiento inverso.";
+        db.Publish(new SaleVoidedEvent(invoice.Number, invoice.BranchId, payment.Amount, reason, now));
     }
+
+    /// <summary>Almacén de la venta: el del pedido (canal externo) o el de la caja del turno.</summary>
+    public static async Task<Guid> WarehouseOfAsync(IMinvDbContext db, SalesOrder order, CancellationToken ct) =>
+        order.WarehouseId ?? await (from s in db.Set<PosSession>()
+                                    join reg in db.Set<PosRegister>() on s.PosRegisterId equals reg.Id
+                                    where s.Id == order.PosSessionId
+                                    select reg.WarehouseId).FirstAsync(ct);
 }
 
 internal static class Cash

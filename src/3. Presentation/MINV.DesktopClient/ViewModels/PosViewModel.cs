@@ -6,10 +6,12 @@ using System.Windows.Data;
 using System.Windows.Media;
 using System.Windows.Threading;
 using MINV.Application.Abstractions;
+using MINV.Application.Billing;
 using MINV.Application.Sales;
 using MINV.DesktopClient.Controls;
 using MINV.DesktopClient.Mvvm;
 using MINV.DesktopClient.Services;
+using MINV.Domain.Billing;
 using MINV.Hardware;
 using MINV.Hardware.EscPos;
 
@@ -148,9 +150,34 @@ public sealed class PosViewModel : PageViewModel, IScannerTarget
     private string _openingCash = "500";
     private CheckoutResult? _last;
     private string? _receiptText;
+    private PosFiscalState? _fiscal;
+    private BuyerForm? _buyer;
+    private string _cardNumber = string.Empty;
+    private PosFiscalResult? _fiscalResult;
+    private bool _buyerExpanded = true;
 
-    public PosViewModel(AppServices app) : base(app, "pos", "Punto de venta", "Vender, cobrar y emitir la factura", Glyphs.Cart)
+    public PosViewModel(AppServices app, BillingWorkService billingWork)
+        : base(app, "pos", "Punto de venta", "Vender, cobrar y emitir la factura", Glyphs.Cart)
     {
+        // V4.1 · Cada ronda del trabajo automático puede cambiar el modo (en línea / fuera de línea): se actualiza la banda
+        billingWork.Completed += async (_, _) =>
+        {
+            if (HasLoaded && IsBilling)
+            {
+                await RefreshFiscalQuietlyAsync();
+            }
+        };
+        // Se activó, desactivó o configuró la facturación (en esta sesión o detectado por el trabajo automático): la caja
+        // pasa a facturar (o deja de hacerlo) sin volver a iniciar sesión
+        app.Session.BillingChanged += async (_, _) =>
+        {
+            if (HasLoaded)
+            {
+                await RefreshFiscalQuietlyAsync();
+            }
+        };
+        ToggleBuyer = new RelayCommand(() => IsBuyerExpanded = !IsBuyerExpanded);
+        CloseFiscalResult = new RelayCommand(() => FiscalResult = null);
         Products = CollectionViewSource.GetDefaultView(_products);
         Cart.CollectionChanged += (_, _) => Recalculate();
         _debounce.Tick += (_, _) =>
@@ -261,7 +288,11 @@ public sealed class PosViewModel : PageViewModel, IScannerTarget
         {
             if (Set(ref _method, value))
             {
-                OnPropertiesChanged(nameof(IsCash), nameof(NeedsReference), nameof(ChangeText), nameof(CheckoutText));
+                OnPropertiesChanged(nameof(IsCash), nameof(NeedsReference), nameof(ChangeText), nameof(CheckoutText), nameof(IsCard));
+                if (!IsCard)
+                {
+                    CardNumber = string.Empty;
+                }
             }
         }
     }
@@ -360,6 +391,75 @@ public sealed class PosViewModel : PageViewModel, IScannerTarget
 
     public bool IsReceiptOpen => _receiptText is not null;
 
+    // ------------------------------------------------------------------------------------------------ V4.1 · facturación
+    /// <summary>¿La empresa factura desde esta caja? (si no, la caja funciona como en la V4).</summary>
+    public bool IsBilling => _fiscal?.BillingEnabled == true;
+
+    public PosFiscalState? FiscalState => _fiscal;
+
+    /// <summary>Banda de estado fiscal: «Facturación en línea · PV 1», «FUERA DE LÍNEA…», «Contingencia manual» o qué falta.</summary>
+    public string FiscalTitle => _fiscal switch
+    {
+        null => string.Empty,
+        { Ready: false, Mode: SiatConnectionMode.ManualContingency } => "Contingencia manual: use el talonario CAFC",
+        { Ready: false } => "La caja todavía no puede facturar",
+        { Mode: SiatConnectionMode.Offline } => "FUERA DE LÍNEA · las facturas se envían solas al volver la conexión",
+        { Mode: SiatConnectionMode.Recovering } => "Recuperando la conexión con el SIN",
+        { PointOfSaleCode: { } code } => $"Facturación en línea · PV {code}",
+        _ => "Facturación en línea",
+    };
+
+    public string FiscalDetail => _fiscal is { } f ? FiscalText.Plain(f.Message) : string.Empty;
+
+    public string FiscalBrush => _fiscal switch
+    {
+        { Ready: false, Mode: SiatConnectionMode.ManualContingency } => "Danger",
+        { Ready: false } => "Danger",
+        { Mode: SiatConnectionMode.Online } when !(_fiscal.Message.StartsWith('⚠')) => "Success",
+        _ => "Warning",
+    };
+
+    public string FiscalSoftBrush => FiscalBrush + "Soft";
+
+    public string FiscalGlyph => _fiscal switch
+    {
+        { Ready: false } => Glyphs.Warning,
+        { Mode: SiatConnectionMode.Online } => Glyphs.CheckCircle,
+        _ => Glyphs.Offline,
+    };
+
+    /// <summary>Datos de facturación del comprador (nominatividad).</summary>
+    public BuyerForm? Buyer { get => _buyer; private set => Set(ref _buyer, value); }
+
+    public bool IsBuyerExpanded { get => _buyerExpanded; set => Set(ref _buyerExpanded, value); }
+
+    public RelayCommand ToggleBuyer { get; }
+
+    /// <summary>El medio de pago es tarjeta: se pide el número (viaja al caso de uso, que lo guarda solo enmascarado).</summary>
+    public bool IsCard => IsBilling && _method is { } m && (m.Code.Contains("TARJ", StringComparison.OrdinalIgnoreCase)
+                                                            || m.Name.Contains("tarjeta", StringComparison.OrdinalIgnoreCase)
+                                                            || m.Code.Contains("CARD", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Número de la tarjeta: se envía al cobrar y se borra de la pantalla en ese momento (nunca se guarda completo).</summary>
+    public string CardNumber { get => _cardNumber; set => Set(ref _cardNumber, value ?? string.Empty); }
+
+    /// <summary>Resultado fiscal del último cobro (panel sobre la caja).</summary>
+    public PosFiscalResult? FiscalResult
+    {
+        get => _fiscalResult;
+        private set
+        {
+            if (Set(ref _fiscalResult, value))
+            {
+                OnPropertyChanged(nameof(IsFiscalResultOpen));
+            }
+        }
+    }
+
+    public bool IsFiscalResultOpen => _fiscalResult is not null;
+
+    public RelayCommand CloseFiscalResult { get; }
+
     public RelayCommand<FilterChip> SelectFilter { get; }
 
     public RelayCommand<PosProduct> Add { get; }
@@ -388,6 +488,7 @@ public sealed class PosViewModel : PageViewModel, IScannerTarget
     {
         var state = await App.SendAsync(new GetPosStateQuery());
         ApplyState(state);
+        await RefreshFiscalAsync();
         var sellable = await App.SendAsync(new GetSellableProductsQuery());
         var images = await App.Images.AllAsync(force);
         var inCart = Cart.ToDictionary(l => l.Sku, l => l);
@@ -437,6 +538,54 @@ public sealed class PosViewModel : PageViewModel, IScannerTarget
         Register ??= Registers.FirstOrDefault();
         OnPropertiesChanged(nameof(IsOpen), nameof(IsClosed), nameof(Session), nameof(SessionTitle), nameof(SessionText), nameof(TaxText));
         System.Windows.Input.CommandManager.InvalidateRequerySuggested();
+    }
+
+    /// <summary>V4.1 · Actualización en segundo plano de la banda fiscal: nunca interrumpe al cajero (fallas al registro).</summary>
+    private async Task RefreshFiscalQuietlyAsync()
+    {
+        try
+        {
+            await RefreshFiscalAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceWarning("M-INV · banda fiscal de la caja: {0}", ex.Message);
+        }
+    }
+
+    /// <summary>V4.1 · Estado fiscal de la caja (si la empresa tiene el módulo; sin él la caja sigue como en la V4).</summary>
+    private async Task RefreshFiscalAsync()
+    {
+        if (!App.Session.HasBillingModule)
+        {
+            _fiscal = null;
+        }
+        else
+        {
+            try
+            {
+                _fiscal = await App.SendAsync(new GetPosFiscalStateQuery());
+            }
+            catch (Exception ex) when (AppServices.IsExpected(ex))
+            {
+                _fiscal = null;
+                System.Diagnostics.Trace.TraceWarning("M-INV · estado fiscal de la caja: {0}", ex.Message);
+            }
+        }
+        if (IsBilling && _buyer is null)
+        {
+            var buyer = new BuyerForm(App, _fiscal!.DocumentTypes);
+            buyer.CustomerFound += (_, code) =>
+            {
+                if (Customers.FirstOrDefault(c => c.Code == code) is { } customer)
+                {
+                    Customer = customer;
+                }
+            };
+            Buyer = buyer;
+        }
+        OnPropertiesChanged(nameof(IsBilling), nameof(FiscalState), nameof(FiscalTitle), nameof(FiscalDetail), nameof(FiscalBrush), nameof(FiscalSoftBrush),
+            nameof(FiscalGlyph), nameof(IsCard));
     }
 
     private bool Matches(object o)
@@ -507,6 +656,7 @@ public sealed class PosViewModel : PageViewModel, IScannerTarget
         {
             App.Notify.Success("Caja abierta", $"{_register!.Name} con fondo de {Fmt.Money(opening)}.");
             ApplyState(await App.SendAsync(new GetPosStateQuery()));
+            await RefreshFiscalAsync();
         }
     }
 
@@ -534,6 +684,7 @@ public sealed class PosViewModel : PageViewModel, IScannerTarget
             Cart.Clear();
             LastSale = null;
             ApplyState(await App.SendAsync(new GetPosStateQuery()));
+            await RefreshFiscalAsync();
         }
         catch (Exception ex)
         {
@@ -563,10 +714,40 @@ public sealed class PosViewModel : PageViewModel, IScannerTarget
             App.Notify.Warning("Falta la referencia", $"El pago con {_method.Name} exige el número de operación o voucher.");
             return;
         }
+        // V4.1 · Datos de facturación (nominatividad) y tarjeta (se envía; el caso de uso la guarda solo enmascarada)
+        FiscalBuyerInput? buyer = null;
+        string? card = null;
+        if (IsBilling && _buyer is { } form)
+        {
+            if (form.Check() is { } problem)
+            {
+                App.Notify.Warning("Datos de facturación", problem);
+                return;
+            }
+            buyer = form.ToInput();
+            if (buyer is null && _customer.Code == "CF")
+            {
+                App.Notify.Warning("Falta el documento del comprador",
+                    "Toda venta facturada lleva el número de documento del comprador (CI, NIT, pasaporte…). Si corresponde, use un NIT especial.");
+                IsBuyerExpanded = true;
+                return;
+            }
+            if (IsCard)
+            {
+                var digits = new string(_cardNumber.Where(char.IsAsciiDigit).ToArray());
+                if (digits.Length is < 8 or > 19)
+                {
+                    App.Notify.Warning("Número de tarjeta", "Escriba el número de la tarjeta (se envía enmascarado: 4 primeros y 4 últimos dígitos).");
+                    return;
+                }
+                card = digits;
+            }
+        }
         try
         {
             var lines = Cart.Select(l => new SaleLineInput(l.Sku, l.Quantity, l.Discount)).ToList();
-            var result = await App.SendAsync(new CheckoutCommand(_customer.Code, _method.Code, lines, cash, NeedsReference ? _reference.Trim() : null));
+            var result = await App.SendAsync(new CheckoutCommand(_customer.Code, _method.Code, lines, cash, NeedsReference ? _reference.Trim() : null, buyer, card));
+            CardNumber = string.Empty;
             LastSale = result;
             App.Notify.Success($"Venta {result.InvoiceNumber} cobrada",
                 result.Change > 0 ? $"Total {Fmt.Money(result.Total)} · entregue vuelto de {Fmt.Money(result.Change)}" : $"Total {Fmt.Money(result.Total)}");
@@ -575,7 +756,12 @@ public sealed class PosViewModel : PageViewModel, IScannerTarget
             Reference = string.Empty;
             Customer = Customers.FirstOrDefault(c => c.Code == "CF") ?? Customer;
             App.Data.Invalidate();
-            if (App.Settings.PrinterTarget is { Length: > 0 })
+            if (result.FiscalDocumentId is { } documentId)
+            {
+                // V4.1 · Se envía ya al SIN y se imprime el documento DEFINITIVO (validado o re-emitido fuera de línea)
+                await CompleteFiscalAsync(result, documentId);
+            }
+            else if (App.Settings.PrinterTarget is { Length: > 0 })
             {
                 await PrintAsync();
             }
@@ -590,6 +776,72 @@ public sealed class PosViewModel : PageViewModel, IScannerTarget
             App.Notify.Error("No se pudo cobrar", AppServices.Describe(ex));
             await LoadAsync(force: true);
         }
+    }
+
+    /// <summary>
+    /// V4.1 · Después de cobrar: envía el documento al SIN (DispatchFiscalDocumentsCommand), sigue sus reemplazos hasta el
+    /// documento FINAL, imprime su rollo fiscal (si la caja tiene impresora) y muestra el resultado (número, CUF, estado y,
+    /// si el SIN lo rechazó, sus mensajes con la opción de corregir el comprador y re-emitir).
+    /// </summary>
+    private async Task CompleteFiscalAsync(CheckoutResult sale, Guid documentId)
+    {
+        string? notice = null;
+        try
+        {
+            var dispatch = await App.SendAsync(new DispatchFiscalDocumentsCommand(documentId));
+            if (dispatch.WentOffline > 0)
+            {
+                notice = "Sin comunicación con el SIN: la caja pasó a fuera de línea y la factura se envía sola al volver la conexión.";
+            }
+        }
+        catch (Exception ex) when (AppServices.IsExpected(ex))
+        {
+            notice = "La factura quedó pendiente de envío (se envía sola): " + AppServices.Describe(ex);
+        }
+        try
+        {
+            var detail = await App.SendAsync(new GetFiscalDocumentQuery(documentId));
+            for (var hops = 0; hops < 5 && detail.ReplacedByDocumentId is { } next; hops++)
+            {
+                detail = await App.SendAsync(new GetFiscalDocumentQuery(next));
+            }
+            FiscalPrintModel? model = null;
+            try
+            {
+                model = await App.SendAsync(new GetFiscalPrintModelQuery(detail.Row.Id));
+            }
+            catch (Exception ex) when (AppServices.IsExpected(ex))
+            {
+                System.Diagnostics.Trace.TraceWarning("M-INV · ticket fiscal: {0}", ex.Message);
+            }
+            var printed = false;
+            if (FiscalOutput.HasPrinter(App.Settings))
+            {
+                try
+                {
+                    printed = await FiscalOutput.PrintRollAsync(App, detail.Row.Id, openDrawer: IsCash);
+                }
+                catch (Exception ex) when (AppServices.IsExpected(ex) || ex is System.IO.IOException or UnauthorizedAccessException or TimeoutException
+                                               or OperationCanceledException or System.Net.Sockets.SocketException or ArgumentException)
+                {
+                    App.Notify.Error("No se pudo imprimir la factura", AppServices.IsExpected(ex) ? AppServices.Describe(ex) : ex.Message);
+                }
+            }
+            var result = new PosFiscalResult(App, sale, detail, model, printed, notice, IsCash);
+            result.Closed += (_, _) => FiscalResult = null;
+            FiscalResult = result;
+            _buyer?.Clear();
+            if (detail.Row.Status is FiscalDocumentStatus.Rejected or FiscalDocumentStatus.PackageRejected)
+            {
+                App.Notify.Error($"El SIN rechazó la factura N° {detail.Row.Number}", "Revise los mensajes y re-emita con los datos corregidos.");
+            }
+        }
+        catch (Exception ex) when (AppServices.IsExpected(ex))
+        {
+            App.Notify.Warning("Venta cobrada; la factura se verá en Documentos fiscales", AppServices.Describe(ex));
+            ReceiptText = RenderText(sale);
+        }
+        await RefreshFiscalAsync();
     }
 
     private Receipt ToReceipt(CheckoutResult r) => new(_state?.CompanyName ?? App.Session.Workspace.CompanyName, _state?.TaxId,

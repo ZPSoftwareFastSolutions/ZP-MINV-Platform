@@ -174,13 +174,17 @@ public sealed class ModelTests
         }, branch);
         var documents = Model.FindEntityType(typeof(FiscalDocument))!;
         Assert.Equal("timestamp without time zone", documents.FindProperty(nameof(FiscalDocument.IssuedAt))!.GetColumnType());
-        var active = Assert.Single(documents.GetIndexes(), i => i.GetFilter() is not null);
+        var active = Assert.Single(documents.GetIndexes(), i => i.GetFilter()?.Contains("'Pending'", StringComparison.Ordinal) == true);
         Assert.True(active.IsUnique);
         Assert.Equal(new[] { nameof(FiscalDocument.TenantId), nameof(FiscalDocument.InvoiceId) }, active.Properties.Select(p => p.Name));
         Assert.Contains("'Pending', 'Valid', 'Offline', 'InPackage'", active.GetFilter(), StringComparison.Ordinal);
-        Assert.Contains(documents.GetIndexes(), i => i.IsUnique && i.Properties.Select(p => p.Name).SequenceEqual(
+        // Numeración electrónica correlativa (sin CAFC) y numeración de cada talonario CAFC por separado
+        Assert.Contains(documents.GetIndexes(), i => i.IsUnique && i.GetFilter() == "cafc IS NULL" && i.Properties.Select(p => p.Name).SequenceEqual(
             [nameof(FiscalDocument.TenantId), nameof(FiscalDocument.Environment), nameof(FiscalDocument.PointOfSaleId),
              nameof(FiscalDocument.DocumentSector), nameof(FiscalDocument.Number)]));
+        Assert.Contains(documents.GetIndexes(), i => i.IsUnique && i.GetFilter() == "cafc IS NOT NULL" && i.Properties.Select(p => p.Name).SequenceEqual(
+            [nameof(FiscalDocument.TenantId), nameof(FiscalDocument.Environment), nameof(FiscalDocument.PointOfSaleId),
+             nameof(FiscalDocument.DocumentSector), nameof(FiscalDocument.Cafc), nameof(FiscalDocument.Number)]));
         Assert.Contains(documents.GetIndexes(), i => i.IsUnique && i.Properties.Select(p => p.Name).SequenceEqual(
             [nameof(FiscalDocument.TenantId), nameof(FiscalDocument.Cuf)]));
         var line = Model.FindEntityType(typeof(FiscalDocumentLine))!;

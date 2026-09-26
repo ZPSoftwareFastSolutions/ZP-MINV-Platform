@@ -3,18 +3,31 @@
 M-INV es el sistema de inventarios B2B de Z&P Software Fast Solutions: libros de Excel arquitectados como aplicación
 transaccional inmutable (CQRS, append-only), preparados para migrar a SQL/.NET.
 
-Versión en desarrollo: **4.0.0-alpha.1** en la rama `Inventario-V4.-BaseDeDatosNube` (sobre
+Versión en desarrollo: **4.1.0-alpha.1** en la rama `Inventario-V4.1` (sobre `Inventario-V4.-BaseDeDatosNube`):
+**facturación SIAT** de Bolivia, modalidad **Facturación Computarizada en Línea**: factura Compra Venta (sector 1) al
+vender (caja, API y transcripción CAFC) y nota Crédito-Débito (sector 24) en las devoluciones, dentro de la misma
+transacción que la venta; envío al SIN después del COMMIT (`DispatchFiscalDocumentsCommand`, despachador en
+`MINV.CloudServer`), fuera de línea automático con recuperación (CUFD → evento significativo → paquetes → validación),
+contingencia manual CAFC, anulación (día 9) y reversión, homologación, libros de ventas y compras. Esquema `billing`
+(27 tablas): PostgreSQL de **140 tablas en 9 esquemas**. Cliente SOAP con el contrato en `SiatSoapContract` (confirmar
+con el WSDL del piloto) y **simulador del SIN** (en proceso y HTTP `src/4. Tools/MINV.SiatSimulator`, puerto 5095). Los
+datos de prueba facturan los últimos 25 días contra el simulador en proceso (estado en
+`%LOCALAPPDATA%\M-INV\siat-simulador.json`, token de simulación `MINV_SIAT_TOKEN` en `claves-integracion.txt`); la
+demostración factura en memoria. Reglas: `.claude/v41-billing-rules.md`; diseño: `docs/architecture/facturacion-siat-v4.1.md`;
+qué falta confirmar con el SIN: `docs/billing/README.md`.
+
+Versión anterior: **4.0.0-alpha.1** en la rama `Inventario-V4.-BaseDeDatosNube` (sobre
 `Inventario-V3.-BaseDeDatosLocal`): M-INV **multi-sucursal en la nube**. Sucursales aisladas (`IBranchScoped` /
 `IInterBranch`, filtros de EF Core, guardas, FK compuestas con la sucursal y RLS RESTRICTIVA con `minv.branch_ids`),
 transferencias con mercadería en tránsito (manifiesto por lote, faltantes, asientos 1.1.06 / 2.1.04), servidor en la
 nube `src/3. Presentation/MINV.CloudServer` (el escritorio envía sus comandos de MediatR por HTTPS: login, RPC
 idempotente), API Gateway B2B `src/3. Presentation/MINV.ApiGateway` (API Keys con alcances, pedidos idempotentes,
 webhooks firmados desde un outbox transaccional, OpenAPI), modelo de lectura (`MinvReadDbContext`, esquema
-`reporting`), PostgreSQL de **110 tablas en 8 esquemas** con los roles `minv_owner`, `minv_server` (NOBYPASSRLS) y
+`reporting`), PostgreSQL de **110 tablas en 8 esquemas** (V4.1: 140 en 9) con los roles `minv_owner`, `minv_server` (NOBYPASSRLS) y
 `minv_app`. `MINVDbContext` se llama ahora `MinvWriteDbContext` (hay dos contextos: `dotnet ef … --context
 MinvWriteDbContext`). Reglas: `.claude/v4-architecture-rules.md`; arquitectura: `docs/architecture/arquitectura-v4.md`.
 
-Versión anterior: **3.1.0-alpha.1** en la rama `Inventario-V3.-BaseDeDatosLocal` (sobre `Inventario-V3.1`): solución
+Versión previa: **3.1.0-alpha.1** en la rama `Inventario-V3.-BaseDeDatosLocal` (sobre `Inventario-V3.1`): solución
 .NET 8 (`MINV.sln`, Clean Architecture) con PostgreSQL (97 tablas, 5FN, multi-tenant; local con `tools\bd_local.ps1` y
 datos de prueba `minv datos-prueba`), hardware ESC/POS y el cliente de escritorio completo `M-INV.exe` (WPF/MVVM:
 pantalla de carga, login con demostración en memoria, tablero, stock y catálogo en galería con imágenes, punto de venta,
@@ -34,10 +47,17 @@ rama `Inventario-V1.2`). Idioma del producto y la documentación: español.
 @.claude/v2-concurrency-rules.md
 @.claude/v3-architecture-rules.md
 @.claude/v4-architecture-rules.md
+@.claude/v41-billing-rules.md
 
 ## Comandos
 
 ```powershell
+powershell -ExecutionPolicy Bypass -File tools\bd_local.ps1 -Accion recrear     # V4.1: base local + datos de prueba QUE FACTURAN (-SinFacturacion) + claves y token de simulación
+powershell -ExecutionPolicy Bypass -File tools\servidores_locales.ps1 -Accion iniciar   # V4.1: simulador del SIN :5095 + CloudServer :5080 + ApiGateway :5090 (detener, estado; -SinSimulador)
+dotnet run --project "src/4. Tools/MINV.Cli" -- siat estado|preparar|sincronizar|procesar [--codigo MINV] [--conexion …]   # V4.1: facturación de una empresa
+dotnet run --project "src/4. Tools/MINV.Cli" -- siat simulador-estado|simulador-apagar|simulador-encender   # V4.1: corte de internet simulado
+dotnet run --project "src/4. Tools/MINV.SiatSimulator" -- --urls http://localhost:5095 --Siat:StateFile <archivo.json>   # V4.1: simulador HTTP del SIN
+docker compose -f deploy/docker-compose.yml --profile siat-simulador up -d --build   # V4.1: servidores + simulador del SIN (solo ensayos)
 powershell -ExecutionPolicy Bypass -File tools\bd_local.ps1 -Accion recrear     # V4: base local con 3 sucursales + datos de prueba + claves
 powershell -ExecutionPolicy Bypass -File tools\servidores_locales.ps1 -Accion iniciar   # V4: CloudServer :5080 y ApiGateway :5090 (también detener, estado)
 powershell -ExecutionPolicy Bypass -File tools\bd_nube.ps1 -Accion preparar -Conexion "<cadena del rol dueño>" [-DatosPrueba]   # V4: PostgreSQL gestionado (también estado)
@@ -50,7 +70,7 @@ powershell -ExecutionPolicy Bypass -File tools\build_v3.ps1                  # V
 powershell -ExecutionPolicy Bypass -File tools\build_v3.ps1 -Capturas -Publicar # V3.1: + capturas del cliente + M-INV.exe (dist)
 powershell -ExecutionPolicy Bypass -File tools\publicar_escritorio.ps1         # V3.1: solo publicar M-INV.exe
 powershell -ExecutionPolicy Bypass -File tools\bd_local.ps1 -Accion recrear     # PostgreSQL local + datos de prueba
-dotnet run --project "src/4. Tools/MINV.Cli" -- datos-prueba --conexion "…"      # empresa de prueba en otra base
+dotnet run --project "src/4. Tools/MINV.Cli" -- datos-prueba --conexion "…"      # empresa de prueba en otra base (V4.1: --sin-facturacion, --dias-facturacion, --siat-estado, --simulador)
 $env:MINV_TEST_PG = '<cadena postgres>'                                        # V3: activa las pruebas contra PostgreSQL
 dotnet run --project "src/4. Tools/MINV.Cli" -- import-v21 --archivo …          # V3: migrar un libro de la V2.1
 powershell -ExecutionPolicy Bypass -File tools\build_v2.ps1 -Capturas        # V2: ciclo completo (DoD, regla C-12)
@@ -68,6 +88,12 @@ variables); los Office Scripts, TypeScript sin `any` ni sintaxis no borrable.
 
 ## Documentación
 
+- V4.1: facturación SIAT: el algoritmo paso a paso `docs/deployment/inicio-rapido-v4.1.md` · qué es, investigación del
+  SIN y huecos por confirmar `docs/billing/README.md` · del simulador al SIN real (autorización, Fases I-III, producción)
+  `docs/billing/puesta-en-produccion-siat.md` · diseño `docs/architecture/facturacion-siat-v4.1.md` · reglas F-01 a
+  F-17 `.claude/v41-billing-rules.md` · normativa citada `docs/billing/investigacion-siat/` (00 a 08) · interfaz
+  `docs/product/escritorio-v4.1.md` (capturas en `docs/product/capturas/v4.1`) · despachador fiscal en la nube
+  `docs/deployment/despliegue-nube-v4.md` §12
 - V4: arquitectura `docs/architecture/arquitectura-v4.md` · reglas `.claude/v4-architecture-rules.md` · paso a paso
   `docs/deployment/inicio-rapido-v4.md` · despliegue en la nube (DigitalOcean, AWS RDS, Supabase)
   `docs/deployment/despliegue-nube-v4.md` · guía del integrador B2B `docs/integration/api-gateway-v1.md` · ERD V3 y V4

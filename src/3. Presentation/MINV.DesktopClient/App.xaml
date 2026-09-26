@@ -9,6 +9,8 @@
                 <ResourceDictionary Source="Theme/Palette.Light.xaml" />
                 <ResourceDictionary Source="Theme/Controls.xaml" />
                 <ResourceDictionary Source="Views/Shared.xaml" />
+                <!-- V4.1 · Facturación SIAT: datos del comprador y formularios modales -->
+                <ResourceDictionary Source="Views/BillingForms.xaml" />
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
     </Application.Resources>

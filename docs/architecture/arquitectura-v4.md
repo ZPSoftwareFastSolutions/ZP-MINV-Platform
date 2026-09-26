@@ -6,6 +6,9 @@ escritorio puede trabajar **contra un servidor en internet** sin tener credencia
 ERP) se integran por un **API Gateway B2B** con API Keys y **webhooks firmados**. Rama `Inventario-V4.-BaseDeDatosNube`,
 construida sobre `Inventario-V3.-BaseDeDatosLocal`.
 
+> **V4.1**: la facturación SIAT se monta sobre esta arquitectura: ver el §8 y
+> [`facturacion-siat-v4.1.md`](facturacion-siat-v4.1.md).
+
 Documentos relacionados: reglas normativas [`.claude/v4-architecture-rules.md`](../../.claude/v4-architecture-rules.md) ·
 despliegue [`docs/deployment/despliegue-nube-v4.md`](../deployment/despliegue-nube-v4.md) · guía del integrador
 [`docs/integration/api-gateway-v1.md`](../integration/api-gateway-v1.md) · modelo de datos
@@ -557,3 +560,26 @@ vencer el arriendo. El receptor deduplica por `id` del sobre.
   depuración automática (planifique un archivo periódico con el rol dueño).
 - Los límites por IP ven la IP del proxy si los servidores están detrás de uno: habilite los encabezados reenviados
   (`ASPNETCORE_FORWARDEDHEADERS_ENABLED=true`, ver la guía de despliegue).
+
+## 8. V4.1 · Facturación SIAT sobre esta arquitectura
+
+La **V4.1** (4.1.0-alpha.1, rama `Inventario-V4.1`) agrega la **facturación SIAT** de Bolivia (Facturación Computarizada
+en Línea: factura Compra Venta y nota Crédito-Débito) SIN cambiar las piezas de la V4: el diseño completo (modelo de
+datos del esquema `billing`, estados del documento y del punto de venta, CUF, puertos y adaptadores, dónde corre el
+envío al SIN) está en [`facturacion-siat-v4.1.md`](facturacion-siat-v4.1.md) y sus reglas en
+[`.claude/v41-billing-rules.md`](../../.claude/v41-billing-rules.md). Cómo encaja en lo de este documento:
+
+| Pieza de la V4 | Qué hace en la facturación |
+|---|---|
+| Sucursales (`IBranchScoped`, RLS `branch_isolation`) | Puntos de venta del SIN, CUIS, CUFD, documentos fiscales, eventos, paquetes y CAFC son de sucursal (regla F-14): 55 tablas con política por sucursal |
+| Append-only (`IAppendOnly`, `trg_append_only`) | 9 libros más (líneas, archivos, bitácora y entregas del documento, CUIS, CUFD, sincronizaciones, verificaciones de NIT, llamadas al SIN): 24 en total |
+| `MINV.CloudServer` | Único que habla con el SIN en modo nube: los casos de uso llegan por RPC y el **despachador fiscal** en segundo plano (`SiatBackgroundService`) envía lo pendiente, recupera los cortes y mantiene CUIS/CUFD/catálogos (despliegue: [`despliegue-nube-v4.md`](../deployment/despliegue-nube-v4.md) §12) |
+| `MINV.ApiGateway` | Los pedidos externos llevan los datos de facturación del comprador y se facturan como una venta de caja |
+| Secretos (`ISecretProtector`, `MINV_INTEGRATION_KEYS`) | Cifran el token delegado del SIN y la contraseña SMTP de la empresa |
+| Transacción de la venta | La venta y su documento fiscal (CUF, XML validado) se guardan juntos; el SIN se llama DESPUÉS del COMMIT (regla F-03), como el outbox de los webhooks (B-08) |
+| Modelo de datos | 140 tablas en 9 esquemas (esquema `billing`, 27 tablas); totales fiscales derivados en la vista `billing.v_fiscal_document_totals` |
+
+Pruebas propias: CUF con los vectores oficiales, XML contra los XSD, cliente SOAP contra el simulador HTTP, flujo completo
+(en línea, fuera de línea con recuperación, CAFC, anulación, reversión, nota) en memoria y con PostgreSQL, y los datos de
+prueba que facturan (`LocalDataSeederTests`, `H_SeedBillingPostgresTests`). Paso a paso:
+[`docs/deployment/inicio-rapido-v4.1.md`](../deployment/inicio-rapido-v4.1.md).

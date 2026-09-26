@@ -76,6 +76,16 @@ public static class Glyphs
     public const string Branch = "";
     public const string Transfer = "";
     public const string Link = "";
+
+    // V4.1 · Facturación SIAT (documento fiscal, QR, fuera de línea, sincronizar, XML, deshacer, encendido, calculadora)
+    public const string Invoice = "";
+    public const string Qr = "";
+    public const string Offline = "";
+    public const string Sync = "";
+    public const string Code = "";
+    public const string Undo = "";
+    public const string Power = "";
+    public const string Calculator = "";
 }
 
 /// <summary>
@@ -109,6 +119,35 @@ public static class Ui
     /// Foreground de un texto). Usa una referencia dinámica: cambia con el tema.</summary>
     public static readonly DependencyProperty BrushKeyProperty = DependencyProperty.RegisterAttached("BrushKey", typeof(string),
         typeof(Ui), new PropertyMetadata(null, OnBrushKeyChanged));
+
+    /// <summary>V4.1 · Comando que se ejecuta cuando el campo pierde el foco (p. ej. buscar al comprador al salir del número).</summary>
+    public static readonly DependencyProperty LostFocusCommandProperty = DependencyProperty.RegisterAttached("LostFocusCommand",
+        typeof(ICommand), typeof(Ui), new PropertyMetadata(null, OnLostFocusCommandChanged));
+
+    public static ICommand? GetLostFocusCommand(DependencyObject d) => (ICommand?)d.GetValue(LostFocusCommandProperty);
+
+    public static void SetLostFocusCommand(DependencyObject d, ICommand? value) => d.SetValue(LostFocusCommandProperty, value);
+
+    private static void OnLostFocusCommandChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        if (d is not UIElement element)
+        {
+            return;
+        }
+        element.LostKeyboardFocus -= RunLostFocusCommand;
+        if (e.NewValue is not null)
+        {
+            element.LostKeyboardFocus += RunLostFocusCommand;
+        }
+    }
+
+    private static void RunLostFocusCommand(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        if (sender is DependencyObject d && GetLostFocusCommand(d) is { } command && command.CanExecute(null))
+        {
+            command.Execute(null);
+        }
+    }
 
     public static string? GetBrushKey(DependencyObject d) => (string?)d.GetValue(BrushKeyProperty);
 
@@ -369,6 +408,70 @@ public sealed class ProductThumb : Border
         {
             _glyph.Text = Glyph;
             Child = _glyph;
+        }
+    }
+}
+
+/// <summary>
+/// V4.1 · Código QR de la representación gráfica (consulta del SIN). Se dibuja con módulos negros sobre blanco con su
+/// zona de silencio: un QR necesita ese contraste para leerse con cualquier teléfono, en tema claro u oscuro (excepción
+/// documentada a la regla de colores de la paleta, como el degradado de marca).
+/// </summary>
+public sealed class QrCode : FrameworkElement
+{
+    public static readonly DependencyProperty TextProperty = DependencyProperty.Register(nameof(Text), typeof(string), typeof(QrCode),
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender, (d, _) => ((QrCode)d).Rebuild()));
+
+    private static readonly System.Windows.Media.Brush Dark = Frozen(System.Windows.Media.Colors.Black);
+    private static readonly System.Windows.Media.Brush Light = Frozen(System.Windows.Media.Colors.White);
+    private bool[,]? _matrix;
+
+    public string? Text
+    {
+        get => (string?)GetValue(TextProperty);
+        set => SetValue(TextProperty, value);
+    }
+
+    private static System.Windows.Media.SolidColorBrush Frozen(System.Windows.Media.Color color)
+    {
+        var brush = new System.Windows.Media.SolidColorBrush(color);
+        brush.Freeze();
+        return brush;
+    }
+
+    private void Rebuild()
+    {
+        try
+        {
+            _matrix = string.IsNullOrWhiteSpace(Text) ? null : MINV.Infrastructure.Billing.Rendering.QrMatrix.Create(Text);
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            _matrix = null;
+        }
+    }
+
+    protected override void OnRender(System.Windows.Media.DrawingContext drawingContext)
+    {
+        base.OnRender(drawingContext);
+        if (_matrix is not { } matrix || ActualWidth <= 0 || ActualHeight <= 0)
+        {
+            return;
+        }
+        var size = matrix.GetLength(0);
+        var side = Math.Min(ActualWidth, ActualHeight);
+        var module = side / (size + 4);   // 2 módulos de silencio por lado
+        var origin = (side - (module * size)) / 2;
+        drawingContext.DrawRectangle(Light, null, new Rect(0, 0, side, side));
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                if (matrix[y, x])
+                {
+                    drawingContext.DrawRectangle(Dark, null, new Rect(origin + (x * module), origin + (y * module), module + 0.3, module + 0.3));
+                }
+            }
         }
     }
 }

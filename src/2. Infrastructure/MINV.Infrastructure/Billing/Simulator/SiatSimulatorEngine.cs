@@ -195,12 +195,20 @@ public sealed partial class SiatSimulatorEngine
                 return new SiatNitReply(false, false, error.Code, error.Description, [error]);
             }
         }
-        var digits = nitToVerify.ToString(CultureInfo.InvariantCulture);
-        var code = nitToVerify <= 0 || digits.Length is < 5 or > 13 ? SiatCodes.NitNotFound
-            : digits.EndsWith("999", StringComparison.Ordinal) ? SiatCodes.NitInactive
-            : SiatCodes.NitActive;
+        var code = nitToVerify <= 0 ? SiatCodes.NitNotFound : BuyerNitCode(nitToVerify.ToString(CultureInfo.InvariantCulture));
         var message = Message(code);
         return new SiatNitReply(code != SiatCodes.NitNotFound, code == SiatCodes.NitActive, code, message.Description, [message]);
+    }
+
+    /// <summary>Padrón SIMULADO: 986 activo si tiene de 5 a 13 dígitos y no termina en 999; 987 inactivo si termina en 999;
+    /// 994 inexistente si no son solo dígitos o tiene menos de 5 (o más de 13). Lo usan <c>verificarNit</c> y la recepción
+    /// de facturas (1037: NIT del comprador no válido sin código de excepción).</summary>
+    public static int BuyerNitCode(string? nit)
+    {
+        var digits = (nit ?? string.Empty).Trim();
+        return digits.Length is < 5 or > 13 || !digits.All(char.IsAsciiDigit) ? SiatCodes.NitNotFound
+            : digits.EndsWith("999", StringComparison.Ordinal) ? SiatCodes.NitInactive
+            : SiatCodes.NitActive;
     }
 
     // ================================================================================================ sincronización

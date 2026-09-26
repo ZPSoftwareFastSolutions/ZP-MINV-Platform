@@ -1,5 +1,5 @@
-# M-INV V4 · Servidor en la nube del escritorio (MINV.CloudServer)
-# Construcción: docker build -f deploy/Dockerfile.cloudserver -t minv-cloudserver:4.0.0-alpha.1 .
+# M-INV V4/V4.1 · Servidor en la nube del escritorio (MINV.CloudServer)
+# Construcción: docker build -f deploy/Dockerfile.cloudserver -t minv-cloudserver:4.1.0-alpha.1 .
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 COPY . .

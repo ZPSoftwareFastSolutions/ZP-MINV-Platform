@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using MINV.Application.Abstractions;
 using MINV.Domain.Catalog;
 using MINV.Domain.Iam;
@@ -19,7 +20,10 @@ public sealed record DemoUser(string Email, string DisplayName, string RoleCode,
 /// en disco ni en el repositorio) y la comparten todos los usuarios de la demostración.
 /// </summary>
 public sealed record DemoSession(string TenantCode, string CompanyName, DateOnly Today, string Password,
-    IReadOnlyList<DemoUser> Users, V21ImportResult Import);
+    IReadOnlyList<DemoUser> Users, V21ImportResult Import, DemoBilling? Billing = null)
+{
+    public override string ToString() => $"DemoSession {TenantCode} · {CompanyName} · {Today:dd/MM/yyyy}";
+}
 
 /// <summary>Estado de la demostración (uno por proceso): se prepara una vez y se reutiliza al volver a ingresar.</summary>
 public sealed class DemoState
@@ -32,8 +36,10 @@ public sealed class DemoState
 /// <summary>
 /// Prepara el modo demostración: migra el libro colaborativo de la V2.1 a la base en memoria con el mismo importador
 /// que <c>minv import-v21</c> (reglas del dominio, poka-yoke y paridad incluidos) y habilita el ingreso de sus usuarios.
+/// V4.1: la empresa también factura con el simulador del SIN en memoria (<see cref="DemoBillingSetup"/>), sin escribir en disco.
 /// </summary>
-public sealed class DemoWorkspace(MinvWriteDbContext db, V21Importer importer, DemoClock clock, IPasswordHasher hasher, DemoState state)
+public sealed class DemoWorkspace(MinvWriteDbContext db, V21Importer importer, DemoClock clock, IPasswordHasher hasher, DemoState state,
+    IServiceScopeFactory scopes)
 {
     public const string TenantCode = "DEMO";
     public const string AdminEmail = "admin@distribuidorademo.example";
@@ -115,6 +121,8 @@ public sealed class DemoWorkspace(MinvWriteDbContext db, V21Importer importer, D
                             select new DemoUser(u.Email, u.DisplayName, r.Code, r.Name)).ToListAsync(ct))
             .OrderBy(u => order.GetValueOrDefault(u.RoleCode, 99)).ThenBy(u => u.DisplayName, StringComparer.CurrentCulture).ToList();
         var company = await db.Tenants.Where(t => t.Code == TenantCode).Select(t => t.LegalName).FirstAsync(ct);
-        return new DemoSession(TenantCode, company, clock.TodayIn(TimeZoneId), password, users, result);
+        // V4.1 · La demostración también factura (simulador del SIN en memoria) y trae algunas facturas de ejemplo
+        var billing = await DemoBillingSetup.PrepareAsync(scopes, clock, TenantCode, company, password, users, ct);
+        return new DemoSession(TenantCode, company, clock.TodayIn(TimeZoneId), password, users, result, billing);
     }
 }

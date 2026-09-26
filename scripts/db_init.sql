@@ -9990,3 +9990,36 @@ BEGIN
 END $EF$;
 COMMIT;
 
+START TRANSACTION;
+
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926033017_V41CafcNumbering') THEN
+    DROP INDEX billing.ux_fiscal_documents_tenant_id_environment_point_of_sal_c1b923c7;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926033017_V41CafcNumbering') THEN
+    CREATE UNIQUE INDEX ux_fiscal_documents_tenant_id_environment_point_of_sal_c1b923c7 ON billing.fiscal_documents (tenant_id, environment, point_of_sale_id, document_sector, number) WHERE cafc IS NULL;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926033017_V41CafcNumbering') THEN
+    CREATE UNIQUE INDEX ux_fiscal_documents_tenant_id_environment_point_of_sal_c5eda27d ON billing.fiscal_documents (tenant_id, environment, point_of_sale_id, document_sector, cafc, number) WHERE cafc IS NOT NULL;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926033017_V41CafcNumbering') THEN
+    INSERT INTO iam.__ef_migrations_history ("MigrationId", "ProductVersion")
+    VALUES ('20260926033017_V41CafcNumbering', '8.0.31');
+    END IF;
+END $EF$;
+COMMIT;
+

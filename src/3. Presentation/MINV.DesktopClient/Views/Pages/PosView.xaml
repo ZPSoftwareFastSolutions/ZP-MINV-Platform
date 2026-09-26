@@ -79,8 +79,21 @@
         </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
+
+        <!-- V4.1 · Banda de estado fiscal (solo si la empresa factura) -->
+        <Border Grid.Row="1" Grid.ColumnSpan="2" CornerRadius="10" Padding="14,8" Margin="0,0,0,12" c:Ui.BrushKey="{Binding FiscalSoftBrush}"
+                Visibility="{Binding IsBilling, Converter={StaticResource Visible}}">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Left" Style="{StaticResource Icon}" Text="{Binding FiscalGlyph}" FontSize="16" Margin="0,0,10,0" c:Ui.BrushKey="{Binding FiscalBrush}" />
+                <TextBlock DockPanel.Dock="Left" Text="{Binding FiscalTitle}" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,12,0"
+                           c:Ui.BrushKey="{Binding FiscalBrush}" />
+                <TextBlock Text="{Binding FiscalDetail}" Foreground="{DynamicResource TextSecondary}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                           ToolTip="{Binding FiscalDetail}" />
+            </DockPanel>
+        </Border>
 
         <!-- Encabezado y estado de la caja -->
         <DockPanel Grid.ColumnSpan="2" Margin="0,0,0,14">
@@ -119,7 +132,7 @@
         </DockPanel>
 
         <!-- Productos -->
-        <DockPanel Grid.Row="1">
+        <DockPanel Grid.Row="2">
             <StackPanel DockPanel.Dock="Top" Margin="0,0,16,8">
                 <TextBox Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}" c:Ui.Icon="{x:Static c:Glyphs.Search}" MinHeight="44" FontSize="14"
                          c:Ui.Placeholder="Buscar producto por nombre, SKU o código de barras (o léalo con el escáner)" />
@@ -138,7 +151,7 @@
         </DockPanel>
 
         <!-- Carrito y cobro -->
-        <Border Grid.Row="1" Grid.Column="1" Style="{StaticResource Card}" Padding="0">
+        <Border Grid.Row="2" Grid.Column="1" Style="{StaticResource Card}" Padding="0">
             <DockPanel>
                 <DockPanel DockPanel.Dock="Top" Margin="18,14,12,6">
                     <Button DockPanel.Dock="Right" Style="{StaticResource GhostButton}" Content="Vaciar" c:Ui.Icon="{x:Static c:Glyphs.Delete}" Command="{Binding ClearCart}"
@@ -148,6 +161,24 @@
                         <TextBlock Text="{Binding ItemsText}" Style="{StaticResource Caption}" />
                     </StackPanel>
                 </DockPanel>
+
+                <!-- V4.1 · Datos de facturación del comprador (nominatividad) -->
+                <Border DockPanel.Dock="Top" Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,1" Padding="18,8,18,10"
+                        Visibility="{Binding IsBilling, Converter={StaticResource Visible}}">
+                    <StackPanel>
+                        <Button Style="{StaticResource GhostButton}" Command="{Binding ToggleBuyer}" Height="28" Padding="0" HorizontalContentAlignment="Stretch"
+                                HorizontalAlignment="Stretch" ToolTip="Mostrar u ocultar los datos de facturación">
+                            <DockPanel>
+                                <TextBlock DockPanel.Dock="Right" Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.ChevronDown}" FontSize="10" />
+                                <TextBlock DockPanel.Dock="Left" Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Invoice}" FontSize="13" Margin="0,0,8,0"
+                                           Foreground="{DynamicResource BrandText}" />
+                                <TextBlock Text="Datos de facturación" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            </DockPanel>
+                        </Button>
+                        <ContentControl Content="{Binding Buyer}" Focusable="False" Margin="0,6,0,0"
+                                        Visibility="{Binding IsBuyerExpanded, Converter={StaticResource Visible}}" />
+                    </StackPanel>
+                </Border>
 
                 <!-- Cobro -->
                 <Border DockPanel.Dock="Bottom" Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0"
@@ -185,6 +216,10 @@
                         <!-- Otros medios -->
                         <TextBox Margin="0,10,0,0" Text="{Binding Reference, UpdateSourceTrigger=PropertyChanged}" c:Ui.Placeholder="N.º de operación, voucher o referencia"
                                  c:Ui.Icon="{x:Static c:Glyphs.Report}" Visibility="{Binding NeedsReference, Converter={StaticResource Visible}}" />
+                        <!-- V4.1 · Tarjeta: se envía al cobrar y se borra; la factura la lleva enmascarada -->
+                        <TextBox Margin="0,8,0,0" Text="{Binding CardNumber, UpdateSourceTrigger=PropertyChanged}" MaxLength="23" c:Ui.Icon="{x:Static c:Glyphs.Money}"
+                                 c:Ui.Placeholder="N.º de tarjeta (va enmascarado en la factura)" Visibility="{Binding IsCard, Converter={StaticResource Visible}}"
+                                 AutomationProperties.Name="Número de tarjeta" />
 
                         <Border Height="1" Background="{DynamicResource Border}" Margin="0,12" />
                         <TextBlock Text="{Binding DiscountText}" Style="{StaticResource Caption}" HorizontalAlignment="Right"
@@ -224,8 +259,81 @@
             </DockPanel>
         </Border>
 
+        <!-- V4.1 · Resultado fiscal del cobro: documento definitivo, ticket con QR y entregas -->
+        <Grid Grid.RowSpan="3" Grid.ColumnSpan="2" Visibility="{Binding IsFiscalResultOpen, Converter={StaticResource Visible}}" Margin="-24,-6,-24,-18">
+            <Border Background="{DynamicResource Overlay}" />
+            <Border Style="{StaticResource Card}" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="24,20" Margin="0,24" Effect="{StaticResource PopupShadow}"
+                    DataContext="{Binding FiscalResult}" MaxWidth="1000">
+                <DockPanel>
+                    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,14">
+                        <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Close}" VerticalAlignment="Top"
+                                Command="{Binding DataContext.CloseFiscalResult, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                        <Border DockPanel.Dock="Left" Width="44" Height="44" CornerRadius="12" c:Ui.BrushKey="{Binding StatusSoftBrush}" VerticalAlignment="Top">
+                            <TextBlock Style="{StaticResource Icon}" Text="{Binding Glyph}" FontSize="20" c:Ui.BrushKey="{Binding StatusBrush}" />
+                        </Border>
+                        <StackPanel Margin="14,0,0,0">
+                            <TextBlock Text="{Binding Title}" Style="{StaticResource H2}" />
+                            <TextBlock Text="{Binding Explanation}" Style="{StaticResource Caption}" TextWrapping="Wrap" MaxWidth="560" HorizontalAlignment="Left" />
+                        </StackPanel>
+                    </DockPanel>
+                    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+                        <Button Content="Imprimir otra vez" c:Ui.Icon="{x:Static c:Glyphs.Printer}" Command="{Binding PrintAgain}" c:Ui.IsBusy="{Binding PrintAgain.IsRunning}" />
+                        <Button Content="Ver PDF" c:Ui.Icon="{x:Static c:Glyphs.Invoice}" Command="{Binding ViewPdf}" Margin="8,0,0,0" c:Ui.IsBusy="{Binding ViewPdf.IsRunning}" />
+                        <Button Content="Enviar por correo" c:Ui.Icon="{x:Static c:Glyphs.Mail}" Command="{Binding SendEmail}" Margin="8,0,0,0" />
+                        <Button Content="Ver el documento" c:Ui.Icon="{x:Static c:Glyphs.Search}" Command="{Binding OpenDocument}" Margin="8,0,0,0" />
+                        <Button Style="{StaticResource DangerButton}" Content="Corregir y re-emitir" c:Ui.Icon="{x:Static c:Glyphs.Refresh}" Command="{Binding Reissue}"
+                                Margin="8,0,0,0" Visibility="{Binding IsRejected, Converter={StaticResource Visible}}" c:Ui.IsBusy="{Binding Reissue.IsRunning}" />
+                        <Button Style="{StaticResource PrimaryButton}" Content="Siguiente venta" Margin="8,0,0,0" IsDefault="True"
+                                Command="{Binding DataContext.CloseFiscalResult, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                    </StackPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="20" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <!-- Ticket fiscal (vista previa del rollo) -->
+                        <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource BorderStrong}" BorderThickness="1" CornerRadius="6" Padding="14,12"
+                                MaxHeight="560">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
+                                <StackPanel>
+                                    <TextBlock Text="{Binding TicketText}" FontFamily="{StaticResource MonoFont}" FontSize="11.5" Foreground="{DynamicResource TextPrimary}" />
+                                    <Border Width="132" Height="132" Margin="0,10,0,0" HorizontalAlignment="Center"
+                                            Visibility="{Binding QrUrl, Converter={StaticResource HasValue}}">
+                                        <c:QrCode Text="{Binding QrUrl}" />
+                                    </Border>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </Border>
+                        <StackPanel Grid.Column="2" MinWidth="320" MaxWidth="420">
+                            <Border Style="{StaticResource StatusPill}" c:Ui.BrushKey="{Binding StatusSoftBrush}">
+                                <TextBlock Text="{Binding StatusText}" FontSize="12" FontWeight="SemiBold" c:Ui.BrushKey="{Binding StatusBrush}" />
+                            </Border>
+                            <TextBlock Text="CUF" Style="{StaticResource Overline}" Margin="0,12,0,2" />
+                            <TextBlock Text="{Binding Cuf}" Style="{StaticResource Mono}" TextWrapping="Wrap" Foreground="{DynamicResource TextPrimary}" />
+                            <TextBlock Text="COMPRADOR" Style="{StaticResource Overline}" Margin="0,12,0,2" />
+                            <TextBlock Text="{Binding BuyerText}" TextWrapping="Wrap" />
+                            <TextBlock Text="VENTA" Style="{StaticResource Overline}" Margin="0,12,0,2" />
+                            <TextBlock Text="{Binding SaleText}" TextWrapping="Wrap" />
+                            <Border Style="{StaticResource FormError}" Visibility="{Binding HasMessages, Converter={StaticResource Visible}}">
+                                <StackPanel>
+                                    <TextBlock Text="MENSAJES DEL SIN" Style="{StaticResource Overline}" Foreground="{DynamicResource Danger}" />
+                                    <TextBlock Text="{Binding Messages}" Foreground="{DynamicResource Danger}" TextWrapping="Wrap" Margin="0,2,0,0" />
+                                </StackPanel>
+                            </Border>
+                            <Border Background="{DynamicResource InfoSoft}" CornerRadius="8" Padding="12,8" Margin="0,12,0,0"
+                                    Visibility="{Binding Notice, Converter={StaticResource HasValue}}">
+                                <TextBlock Text="{Binding Notice}" Foreground="{DynamicResource Info}" TextWrapping="Wrap" />
+                            </Border>
+                            <TextBlock Text="{Binding PrintText}" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,12,0,0" />
+                        </StackPanel>
+                    </Grid>
+                </DockPanel>
+            </Border>
+        </Grid>
+
         <!-- Ticket en pantalla -->
-        <Grid Grid.RowSpan="2" Grid.ColumnSpan="2" Visibility="{Binding IsReceiptOpen, Converter={StaticResource Visible}}" Margin="-24,-6,-24,-18">
+        <Grid Grid.RowSpan="3" Grid.ColumnSpan="2" Visibility="{Binding IsReceiptOpen, Converter={StaticResource Visible}}" Margin="-24,-6,-24,-18">
             <Border Background="{DynamicResource Overlay}" />
             <Border Style="{StaticResource Card}" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="24,20" Effect="{StaticResource PopupShadow}">
                 <StackPanel>

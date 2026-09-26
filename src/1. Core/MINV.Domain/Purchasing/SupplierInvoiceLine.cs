@@ -19,6 +19,9 @@ public sealed class SupplierInvoiceLine : Entity, IBranchScoped
         SupplierInvoiceId = Guard.NotEmpty(supplierInvoiceId, nameof(supplierInvoiceId));
         GoodsReceiptLineId = Guard.NotEmptyIfPresent(goodsReceiptLineId, nameof(goodsReceiptLineId));
         Description = Guard.OptionalText(description, "La descripción", 200);
+        // Arco exclusivo (ck_supplier_invoice_lines_origen): la línea sale de una recepción O tiene su propia descripción
+        Guard.That(GoodsReceiptLineId is null != Description is null, "supplier_invoice.line_origin",
+            "Cada línea de la factura del proveedor sale de una recepción de mercadería o lleva su descripción (una de las dos).");
         Quantity = Quantities.Round6(Guard.Positive(quantity, "La cantidad"));
         UnitCost = Guard.NonNegative(unitCost, "El costo unitario");
         TaxRateId = Guard.NotEmptyIfPresent(taxRateId, nameof(taxRateId));

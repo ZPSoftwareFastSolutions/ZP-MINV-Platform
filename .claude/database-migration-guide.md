@@ -271,3 +271,17 @@ Solo tiene sentido antes de emitir documentos fiscales: con documentos reales, r
    Para habilitarlo, el mismo `INSERT INTO iam.tenant_modules …` del §5 con `m.code = 'FISCAL_SIAT'`. Después se
    configura la facturación desde el escritorio (Configuración › Facturación SIAT): NIT, código de sistema, ambiente,
    token, sucursales del Padrón y puntos de venta.
+
+**Notas de la V4.1 (fase 3):**
+
+- `20260926033017_V41CafcNumbering` (sin SQL propio): las facturas manuales de contingencia transcritas llevan la
+  numeración de SU talonario. El índice único de la numeración se divide en dos parciales: `(tenant_id, environment,
+  point_of_sale_id, document_sector, number) WHERE cafc IS NULL` para la serie del punto de venta y el mismo más `cafc`
+  `WHERE cafc IS NOT NULL` para cada talonario (así el N° 1001 del CAFC no choca con el N° 1001 de la serie normal).
+- Datos de prueba: después de migrar una base de PRUEBAS, `tools\bd_local.ps1 -Accion recrear` carga la empresa MINV
+  con la facturación de los últimos 25 días contra el simulador del SIN en proceso (o `-SinFacturacion`). El estado
+  del simulador queda en `%LOCALAPPDATA%\M-INV\siat-simulador.json`: si se restaura o se copia una base de pruebas,
+  copie también ese archivo (y el `MINV_SIAT_TOKEN` de `claves-integracion.txt`), o el simulador HTTP no reconocerá los
+  CUIS, CUFD y documentos de esa base (bastará con «Preparar» para pedir códigos nuevos).
+- `minv verify --codigo <EMPRESA>` comprueba además que el total de cada factura válida (derivado en
+  `billing.v_fiscal_document_totals`) sea el cobrado y que ninguna venta tenga dos documentos fiscales vigentes.

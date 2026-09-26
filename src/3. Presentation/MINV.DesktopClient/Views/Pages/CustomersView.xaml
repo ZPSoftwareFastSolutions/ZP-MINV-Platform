@@ -112,6 +112,33 @@
                         <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" MaxLength="150" c:Ui.Icon="{x:Static c:Glyphs.Person}" />
                         <TextBlock Text="NIT / CI" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
                         <TextBox Text="{Binding TaxId, UpdateSourceTrigger=PropertyChanged}" MaxLength="30" c:Ui.Placeholder="Para la factura (opcional)" />
+                        <!-- V4.1 · Datos de facturación del SIN: tipo de documento, complemento y verificación del NIT -->
+                        <StackPanel Visibility="{Binding ShowFiscal, Converter={StaticResource Visible}}">
+                            <Grid Margin="0,8,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <ComboBox ItemsSource="{Binding DocumentTypes}" SelectedItem="{Binding DocumentType}" DisplayMemberPath="Label"
+                                          ToolTip="Tipo de documento con el que se le factura" AutomationProperties.Name="Tipo de documento" />
+                                <TextBox Grid.Column="1" Width="86" Margin="8,0,0,0" Text="{Binding Complement, UpdateSourceTrigger=PropertyChanged}" MaxLength="5"
+                                         c:Ui.Placeholder="Compl." ToolTip="Complemento del SEGIP (solo si la cédula lo tiene)"
+                                         Visibility="{Binding IsCi, Converter={StaticResource Visible}}" />
+                            </Grid>
+                            <Button Content="Verificar NIT en el Padrón" c:Ui.Icon="{x:Static c:Glyphs.Shield}" Command="{Binding VerifyNit}" HorizontalAlignment="Left"
+                                    Margin="0,8,0,0" Height="34" Padding="12,0" c:Ui.IsBusy="{Binding VerifyNit.IsRunning}">
+                                <Button.Visibility>
+                                    <MultiBinding Converter="{StaticResource DetailVisibility}">
+                                        <Binding Path="IsNit" />
+                                        <Binding Path="CanVerify" Converter="{StaticResource Not}" />
+                                    </MultiBinding>
+                                </Button.Visibility>
+                            </Button>
+                            <Border CornerRadius="8" Padding="10,6" Margin="0,8,0,0" c:Ui.BrushKey="{Binding NitStatusSoftBrush}"
+                                    Visibility="{Binding HasNitStatus, Converter={StaticResource Visible}}">
+                                <TextBlock Text="{Binding NitStatus}" TextWrapping="Wrap" FontSize="12" c:Ui.BrushKey="{Binding NitStatusBrush}" />
+                            </Border>
+                        </StackPanel>
                         <TextBlock Text="Categoría" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />
                         <ComboBox ItemsSource="{Binding Categories}" SelectedItem="{Binding Category}" DisplayMemberPath="Name" />
                         <TextBlock Text="Correo" Style="{StaticResource FieldLabel}" Margin="0,12,0,6" />

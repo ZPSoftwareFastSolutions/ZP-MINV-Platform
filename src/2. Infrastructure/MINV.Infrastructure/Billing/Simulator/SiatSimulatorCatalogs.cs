@@ -95,6 +95,7 @@ public static class SiatSimulatorCatalogs
         [1029] = "El Monto Total Devuelto Enviado Es Erróneo",
         [1030] = "El Monto Total Original Enviado Es Erróneo",
         [1031] = "El Monto Efectivo De Crédito O Débito Devuelto Enviado Es Erróneo",
+        [1037] = "El Numero Documento De Tipo NIT No Es Valido",
         [1040] = "Fecha De Emisión No Se Encuentra En El Rango De Contingencia",
         [1045] = "Valor De Cafc No Valido Para La Factura",
         [1058] = "El Monto Total Sujeto Iva Es Erróneo",

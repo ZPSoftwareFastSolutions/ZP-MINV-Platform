@@ -40,8 +40,10 @@ public static class DependencyInjection
         services.AddDbContextFactory<MinvReadDbContext>((sp, options) => Configure(options, readConnection)
             .AddInterceptors(sp.GetRequiredService<TenantSessionInterceptor>()), ServiceLifetime.Scoped);
         services.AddScoped(sp => sp.GetRequiredService<IDbContextFactory<MinvReadDbContext>>().CreateDbContext());
-        // V4.1 · Facturación SIAT: servicios SOAP del SIN (o el simulador HTTP) según las URL de cada ambiente
+        // V4.1 · Facturación SIAT: servicios SOAP del SIN (o el simulador HTTP) según las URL de cada ambiente, y correo
+        // SMTP de la empresa para entregar el XML y el PDF al comprador (la demostración no envía correos reales)
         services.AddMinvSiat();
+        services.TryAddSingleton<IMailSender, Billing.Mail.SmtpMailSender>();
         return services.AddMinvPersistence((sp, options) => Configure(options, connectionString)
             .AddInterceptors(sp.GetRequiredService<TenantSessionInterceptor>()));
     }

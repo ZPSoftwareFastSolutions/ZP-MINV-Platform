@@ -20,9 +20,11 @@ public sealed class ScreenTests
         var demo = await host.PrepareDemoAsync();
         using var admin = await host.SignInDemoAsync(demo, DemoWorkspace.AdminEmail);
         var shell = admin.Services.GetRequiredService<ShellViewModel>();
-        Assert.Equal(["General", "Ventas", "Inventario", "Compras y reposición", "Sucursales", "Análisis", "Administración"], shell.Sections.Select(s => s.Title));
+        Assert.Equal(["General", "Ventas", "Inventario", "Compras y reposición", "Sucursales", "Facturación", "Análisis", "Administración"],
+            shell.Sections.Select(s => s.Title));
         Assert.Equal(["inicio", "pos", "ventas", "clientes", "stock", "catalogo", "registro", "conteo", "alertas", "pedido", "compras", "proveedores",
-                "sucursales", "transferencias", "reportes", "contabilidad", "usuarios", "integraciones", "actividad", "configuracion", "ayuda"],
+                "sucursales", "transferencias", "documentos-fiscales", "estado-siat", "homologacion", "libros-fiscales", "reportes", "contabilidad", "usuarios",
+                "integraciones", "facturacion-siat", "actividad", "configuracion", "ayuda"],
             shell.AllPages.Select(p => p.Key));
         Assert.Equal("Ctrl+1", shell.AllPages[0].Shortcut);
 
@@ -64,6 +66,42 @@ public sealed class ScreenTests
         Assert.NotEmpty(branches.Stock);
         var transfers = (TransfersViewModel)shell.AllPages.First(p => p.Key == "transferencias");
         Assert.True(transfers.IsEmpty);
+    });
+
+    [Fact]
+    public void V41_las_pantallas_de_facturacion_se_construyen_y_cargan_con_la_demostracion() => Wpf.Run(async () =>
+    {
+        using var host = Wpf.NewHost();
+        var demo = await host.PrepareDemoAsync();
+        using var admin = await host.SignInDemoAsync(demo, DemoWorkspace.AdminEmail);
+        var shell = admin.Services.GetRequiredService<ShellViewModel>();
+        await shell.StartAsync();
+        Assert.True(shell.Session.HasBillingModule);
+        Assert.True(shell.Session.IsBillingEnabled);   // la demostración factura con el simulador del SIN en memoria
+        foreach (var key in new[] { "documentos-fiscales", "estado-siat", "homologacion", "libros-fiscales", "facturacion-siat" })
+        {
+            shell.Navigate(key);
+            await shell.Current.LoadAsync(force: true);
+            Assert.True(shell.Current.HasLoaded, key);
+            Assert.False(shell.Current.HasError, $"{key}: {shell.Current.ErrorMessage}");
+        }
+        var status = (SiatStatusViewModel)shell.AllPages.First(p => p.Key == "estado-siat");
+        Assert.False(status.NoPoints);
+        var documents = (FiscalDocumentsViewModel)shell.AllPages.First(p => p.Key == "documentos-fiscales");
+        Assert.False(documents.IsEmpty);   // facturas de ejemplo de la demostración
+        var homologation = (HomologationViewModel)shell.AllPages.First(p => p.Key == "homologacion");
+        Assert.NotEmpty(homologation.Products.Cast<ProductHomologationItem>());
+        var books = (FiscalBooksViewModel)shell.AllPages.First(p => p.Key == "libros-fiscales");
+        Assert.Equal(9, books.TaxLines.Count);
+        var settings = (BillingSettingsViewModel)shell.AllPages.First(p => p.Key == "facturacion-siat");
+        Assert.True(settings.ModuleActive);
+        Assert.NotEmpty(settings.Branches);
+
+        shell.Navigate("pos");
+        var pos = (PosViewModel)shell.Current;
+        await pos.EnsureLoadedAsync();
+        Assert.True(pos.IsBilling);
+        Assert.NotNull(pos.Buyer);
     });
 
     [Fact]

@@ -1,23 +1,27 @@
 # Despliegue en la nube · M-INV V4 (PostgreSQL gestionado + servidores) · paso a paso
 
-Cómo llevar M-INV 4.0.0-alpha.1 a una base PostgreSQL **gestionada** (DigitalOcean, AWS RDS o Supabase) con el
+Cómo llevar M-INV 4.1.0-alpha.1 (V4 multi-sucursal + V4.1 facturación SIAT) a una base PostgreSQL **gestionada** (DigitalOcean, AWS RDS o Supabase) con el
 **servidor en la nube** (`MINV.CloudServer`, para los escritorios) y el **API Gateway** (`MINV.ApiGateway`, para
 integraciones B2B). Arquitectura: [`docs/architecture/arquitectura-v4.md`](../architecture/arquitectura-v4.md) ·
 integradores: [`docs/integration/api-gateway-v1.md`](../integration/api-gateway-v1.md) · probar todo primero en un solo
-equipo: [`docs/deployment/inicio-rapido-v4.md`](inicio-rapido-v4.md).
+equipo: [`docs/deployment/inicio-rapido-v4.md`](inicio-rapido-v4.md) y, con la facturación,
+[`docs/deployment/inicio-rapido-v4.1.md`](inicio-rapido-v4.1.md). La facturación SIAT en la nube (el despachador fiscal
+del servidor y cómo apuntar al SIN real) está en el §12.
 
 ```text
 ALGORITMO DE DESPLIEGUE EN LA NUBE
  1. Crear el PostgreSQL gestionado (15 o superior; 16 recomendado), con TLS y acceso solo desde sus servidores.
  2. Como administrador del proveedor: rol dueño «minv_owner» (con CREATEROLE) y base «minv» a su nombre.
  3. Preparar la base:   tools\bd_nube.ps1 -Accion preparar -Conexion "<cadena del rol dueño>" [-DatosPrueba]
-       → crea minv_server y minv_app (claves al azar), aplica scripts\db_init.sql (110 tablas, RLS, funciones),
+       → crea minv_server y minv_app (claves al azar), aplica scripts\db_init.sql (140 tablas, RLS, funciones),
          guarda %LOCALAPPDATA%\M-INV\credenciales-nube.txt.        Comprobar:  tools\bd_nube.ps1 -Accion estado
  4. Generar la clave maestra de integraciones (MINV_INTEGRATION_KEYS) y guardarla en una bóveda.
  5. Levantar los dos servidores con el rol minv_server (dotnet, ejecutable publicado o docker compose) detrás de https.
  6. Comprobar:  GET https://minv.suempresa.com/api/v1/health   y   GET https://api.suempresa.com/health
  7. Escritorio: «Nube» → https://minv.suempresa.com → empresa, correo y contraseña.
  8. Respaldos (PITR), réplica de lectura opcional (MINV_DB_READ) y lista de verificación (§11).
+ 9. V4.1 · Facturación: en el escritorio (Administrador) › Facturación SIAT: NIT, token delegado, URL del SIN (piloto o
+       producción), sucursales y puntos de venta → Preparar → Homologación → activar. El servidor en la nube hace el resto (§12).
 ```
 
 ## 0. Qué se despliega
@@ -33,7 +37,7 @@ ALGORITMO DE DESPLIEGUE EN LA NUBE
                               │   rol minv_server · SSL Mode=VerifyFull  │
                               ▼                                          ▼
               ┌─────────────────────────────────────────────────────────────────────┐   ┌──────────────────┐
-              │ PostgreSQL gestionado: base «minv» · 110 tablas · RLS · PITR         │──►│ réplica (opcional)│
+              │ PostgreSQL gestionado: base «minv» · 140 tablas · RLS · PITR         │──►│ réplica (opcional)│
               └─────────────────────────────────────────────────────────────────────┘   │ MINV_DB_READ      │
                                                                                           └──────────────────┘
 ```
@@ -43,6 +47,8 @@ ALGORITMO DE DESPLIEGUE EN LA NUBE
 - Ambos servidores son **sin estado** (la sesión y la idempotencia viven en la base): puede correr varias réplicas de
   cada uno detrás del balanceador. El despachador de webhooks y el refresco de reportes son seguros con varias réplicas.
 - Los escritorios en modo nube **no tienen credenciales de la base**: solo necesitan llegar por https al servidor.
+- V4.1 · El **servidor en la nube** es el único que habla con el SIN (servicios SOAP del SIAT, por https): envía las
+  facturas, recupera los cortes y mantiene CUIS, CUFD y catálogos. Los escritorios en modo nube nunca ven el token.
 
 ## 1. Requisitos
 
@@ -188,7 +194,7 @@ Réplica de lectura: **Actions › Create read replica** (misma región o entre 
 Respaldos: diarios según el plan; la restauración a un punto en el tiempo (PITR) es un complemento del plan Pro o
 superior: actívelo si contrató CLOUD_HA. Réplicas de lectura: disponibles en planes pagos → `MINV_DB_READ`.
 
-## 4. Preparar la base (roles, 110 tablas, seguridad)
+## 4. Preparar la base (roles, 140 tablas, seguridad)
 
 ### 4.1 Con la herramienta (recomendado)
 
@@ -198,12 +204,14 @@ powershell -ExecutionPolicy Bypass -File tools\bd_nube.ps1 -Accion preparar `
 ```
 
 - Crea los roles `minv_server` y `minv_app` con contraseñas **aleatorias**, aplica `scripts\db_init.sql` (idempotente:
-  110 tablas en 8 esquemas, triggers append-only, Row Level Security por empresa y por sucursal, funciones SECURITY
-  DEFINER, modelo de lectura `reporting` y permisos) y escribe las cadenas de conexión en
+  140 tablas en 9 esquemas —V4.1: 27 de facturación en `billing`—, triggers append-only, Row Level Security por
+  empresa y por sucursal, funciones SECURITY DEFINER, modelo de lectura `reporting` y permisos) y escribe las cadenas de conexión en
   `%LOCALAPPDATA%\M-INV\credenciales-nube.txt` (solo en ese equipo: cópielas a su bóveda y **borre el archivo** cuando
   termine).
 - `-DatosPrueba` carga además la empresa de prueba multi-sucursal (MINV, sucursales CM, EA y SC, 12 usuarios): útil
-  para una demostración o un entorno de pruebas; **no** en la base de producción de un cliente.
+  para una demostración o un entorno de pruebas; **no** en la base de producción de un cliente. (La facturación de la
+  empresa de prueba apunta al simulador del SIN en `http://localhost:5095`: en la nube, levántelo con el perfil
+  `siat-simulador` de Docker Compose, §6.3, o desactívela en Facturación SIAT.)
 - `tools\bd_nube.ps1 -Accion estado -Conexion "<…>"` muestra si la base responde y en qué estado está.
 
 ### 4.2 A mano (sin PowerShell)
@@ -232,12 +240,18 @@ la migración `V4MultiBranchCloud` rellena la sucursal de los datos existentes (
 Como `minv_owner`:
 
 ```sql
-GRANT USAGE ON SCHEMA iam, catalog, warehouse, inventory, purchasing, sales, accounting, integration, reporting TO minv_server;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA iam, catalog, warehouse, inventory, purchasing, sales, accounting, integration TO minv_server;
+GRANT USAGE ON SCHEMA iam, catalog, warehouse, inventory, purchasing, sales, accounting, integration, billing, reporting TO minv_server;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA iam, catalog, warehouse, inventory, purchasing, sales, accounting, integration, billing TO minv_server;
 REVOKE UPDATE, DELETE, TRUNCATE ON inventory.stock_movements, iam.audit_logs, iam.access_logs, sales.cash_movements, sales.payments,
     accounting.exchange_rates, accounting.average_cost_history, inventory.stock_transfer_movements, inventory.stock_transfer_discrepancies,
     inventory.stock_transfer_events, inventory.stock_transfer_line_batches, integration.outbox_events, integration.webhook_deliveries,
     sales.external_orders, iam.processed_requests FROM minv_server;
+-- V4.1 · libros append-only de la facturación y vista de totales fiscales
+REVOKE UPDATE, DELETE, TRUNCATE ON billing.siat_cuis, billing.siat_cufds, billing.siat_sync_runs, billing.customer_nit_checks,
+    billing.siat_service_calls, billing.fiscal_document_lines, billing.fiscal_document_files, billing.fiscal_document_events,
+    billing.fiscal_deliveries FROM minv_server;
+GRANT SELECT ON billing.v_fiscal_document_totals TO minv_server;
+GRANT EXECUTE ON FUNCTION billing.siat_active_tenants() TO minv_server;
 REVOKE INSERT, UPDATE, DELETE ON iam.modules, iam.__ef_migrations_history FROM minv_server;
 GRANT SELECT ON reporting.v_branch_stock, reporting.v_branch_daily_sales TO minv_server;
 GRANT EXECUTE ON FUNCTION iam.current_tenant_id(), iam.branch_visible(uuid) TO minv_server;
@@ -250,12 +264,16 @@ GRANT EXECUTE ON FUNCTION integration.resolve_api_key(text), iam.resolve_session
 ```sql
 SELECT count(*) FROM information_schema.tables
  WHERE table_type = 'BASE TABLE' AND table_name <> '__ef_migrations_history'
-   AND table_schema IN ('iam','catalog','warehouse','inventory','purchasing','sales','accounting','integration');   -- 110
-SELECT count(*) FROM pg_policies WHERE policyname = 'tenant_isolation';                                           -- 108
-SELECT count(*) FROM pg_policies WHERE policyname = 'branch_isolation';                                           -- 40
-SELECT count(*) FROM pg_trigger  WHERE tgname = 'trg_append_only';                                                -- 15
+   AND table_schema IN ('iam','catalog','warehouse','inventory','purchasing','sales','accounting','integration','billing');   -- 140
+SELECT count(*) FROM pg_policies WHERE policyname = 'tenant_isolation';                                           -- 138
+SELECT count(*) FROM pg_policies WHERE policyname = 'branch_isolation';                                           -- 55
+SELECT count(*) FROM pg_trigger  WHERE tgname = 'trg_append_only';                                                -- 24
 SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname LIKE 'minv_%';     -- minv_server y minv_app: f, f
 ```
+
+O, con la herramienta: `dotnet run --project "src/4. Tools/MINV.Cli" -c Release -- verify [--codigo <empresa>] --conexion "<cadena del dueño>"`
+(con `--codigo`, además, conservación del stock, transferencias y, V4.1, que el total de cada factura válida sea el
+cobrado y que ninguna venta tenga dos documentos fiscales vigentes).
 
 ## 5. Variables de entorno
 
@@ -263,13 +281,14 @@ SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname LIKE 'minv_%'
 |---|---|---|---|
 | `MINV_DB` | ambos | sí | cadena con el rol **`minv_server`** y `SSL Mode=VerifyFull;Root Certificate=<ruta>` |
 | `MINV_DB_READ` | ambos | no | cadena a la réplica de lectura (rol `minv_server`); si falta, los reportes leen de `MINV_DB` |
-| `MINV_INTEGRATION_KEYS` | ambos | **sí** (el gateway firma con ella; ambos cifran al registrar webhooks) | `id:base64(32 bytes)` o, al rotar, `id-nueva:base64;id-anterior:base64` (la primera cifra, todas descifran) |
+| `MINV_INTEGRATION_KEYS` | ambos | **sí** (el gateway firma con ella; ambos cifran al registrar webhooks; V4.1: el servidor en la nube descifra con ella el token delegado del SIN y la contraseña SMTP) | `id:base64(32 bytes)` o, al rotar, `id-nueva:base64;id-anterior:base64` (la primera cifra, todas descifran) |
 | `ASPNETCORE_URLS` | ambos | sí | `http://0.0.0.0:8080` detrás de un proxy TLS, o `https://+:443` si Kestrel sirve el certificado |
 | `ASPNETCORE_Kestrel__Certificates__Default__Path` / `__Password` | ambos | si Kestrel sirve https | ruta del `.pfx` y su contraseña |
 | `ASPNETCORE_FORWARDEDHEADERS_ENABLED` | ambos | detrás de un proxy | `true`: los límites por IP ven la IP real del cliente (`X-Forwarded-For`). Exponga los servidores **solo** a través del proxy |
 | `MINV_ALLOW_PRIVILEGED_ROLE` | ambos | **nunca en la nube** | `1` permite arrancar con un rol dueño o con BYPASSRLS (solo desarrollo) |
 | `Minv__Storage` | ambos | no | `postgres` (por defecto) o `memoria` (pruebas automáticas: arranca vacío) |
 | `Minv__LoginsPerMinute` | servidor en la nube | no | inicios de sesión por minuto por IP (10) |
+| `Minv__Siat__Background` | servidor en la nube | no | V4.1: `true` (por defecto) corre el **despachador fiscal** (§12); `false` lo apaga en réplicas que no deben hablar con el SIN (en Docker Compose: `MINV_SIAT_BACKGROUND`) |
 | `Minv__Webhooks__Enabled` | gateway | no | `true` (por defecto) · `false` en réplicas que no deben entregar webhooks |
 | `Minv__Webhooks__IntervalSeconds` | gateway | no | espera cuando la cola está vacía (5) |
 | `Minv__Webhooks__AllowPrivateTargets` | gateway | no | `false`; `true` solo para pruebas locales (webhooks en `localhost`) |
@@ -291,7 +310,8 @@ echo "k$(date +%Y%m):$(openssl rand -base64 32)"
 
 Guárdela en la bóveda del proveedor (DigitalOcean App Platform *encrypted env vars*, AWS Secrets Manager / SSM
 Parameter Store, secretos del orquestador). **Si la pierde, los secretos de los webhooks no se pueden descifrar**:
-habría que desactivar y volver a registrar cada webhook (y entregar los secretos nuevos a los integradores).
+habría que desactivar y volver a registrar cada webhook (y entregar los secretos nuevos a los integradores) y, V4.1,
+volver a cargar el token delegado del SIN y la contraseña del correo en Facturación SIAT.
 
 ## 6. Ejecutar los servidores
 
@@ -343,13 +363,16 @@ journalctl -u minv-cloudserver -f
 
 ### 6.3 Con Docker Compose
 
-La carpeta `deploy/` trae `docker-compose.yml`, `Dockerfile.cloudserver`, `Dockerfile.apigateway` y `.env.example`
-(con un servicio PostgreSQL local opcional para pruebas; en producción use el gestionado).
+La carpeta `deploy/` trae `docker-compose.yml`, `Dockerfile.cloudserver`, `Dockerfile.apigateway`,
+`Dockerfile.siatsimulator` y `.env.example`, con dos servicios opcionales SOLO para ensayos: el perfil `local-db`
+(PostgreSQL local; en producción use el gestionado) y, V4.1, el perfil `siat-simulador` (simulador del SIN, comparte la
+red del servidor en la nube y responde en `http://localhost:5095`, como en un equipo local).
 
 ```bash
 cd deploy
 cp .env.example .env            # complete MINV_DB, MINV_DB_READ (opcional) y MINV_INTEGRATION_KEYS; nunca lo versione
 docker compose up -d --build
+docker compose --profile siat-simulador up -d --build   # SOLO ensayos: simulador del SIN (MINV_SIAT_TOKEN en .env)
 docker compose ps
 docker compose logs -f
 ```
@@ -379,14 +402,14 @@ defina `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` y no publique los puertos 5080
 3. El rol puede ejecutar `iam.resolve_session` (si no: es otro rol o se creó después de migrar, §4.3).
 
 Luego: `GET /api/v1/health` (servidor en la nube) y `GET /health` (gateway) responden
-`{"status":"ok",…,"version":"4.0.0-alpha.1"}`.
+`{"status":"ok",…,"version":"4.1.0-alpha.1"}`.
 
 ## 7. Conectar los escritorios
 
 1. Publique el escritorio (`tools\publicar_escritorio.ps1`) y distribúyalo: **no** necesita `ConnectionStrings` ni
    `MINV_DB` en modo nube.
 2. En el inicio de sesión elija **Nube**, escriba `https://minv.suempresa.com` en **Servidor** y pulse
-   **Probar**: debe decir «Servidor M-INV 4.0.0-alpha.1 disponible».
+   **Probar**: debe decir «Servidor M-INV 4.1.0-alpha.1 disponible».
 3. Empresa, correo y contraseña. El escritorio recuerda el modo y la dirección en `%LOCALAPPDATA%\M-INV\cliente.json`;
    el token de sesión vive solo en memoria y vence tras 12 horas sin actividad.
 4. La barra superior muestra la sucursal activa; la gerencia global puede elegir «Todas las sucursales».
@@ -430,13 +453,16 @@ la misma versión mayor (4), si no: «Este servidor es M-INV 4.x: actualice el e
 | Rotar el secreto de un webhook | Integraciones › Webhooks › Rotar secreto, o `POST /v1/webhooks/{id}/rotate-secret` (doble firma 24 h) |
 | Rotar la clave maestra | 1) genere una nueva y póngala PRIMERA: `MINV_INTEGRATION_KEYS=<nueva>:<…>;<anterior>:<…>`; 2) reinicie ambos servidores; 3) rote el secreto de cada webhook (queda cifrado con la nueva); 4) pasadas 24 h de la última rotación, quite la anterior y reinicie |
 | Actualizar M-INV | respaldo → migraciones con `minv_owner` → nuevos servidores → escritorios de la misma versión mayor |
+| Facturación SIAT (V4.1) | escritorio › Facturación › **Estado SIAT** (modo de cada punto de venta, CUFD, pendientes, eventos, paquetes y plazos); desde un equipo con acceso a la base: `minv siat estado --codigo <empresa> --conexion "<cadena>"` |
+| Renovar el token delegado del SIN | genérelo en el Portal SIAT antes de que venza (Estado SIAT avisa) y cárguelo en Facturación SIAT › Conexión (se guarda cifrado) |
 
 ## 11. Lista de verificación
 
 - [ ] PostgreSQL 15+ gestionado, TLS obligatorio, acceso de red solo desde los servidores (y temporalmente desde el
       equipo de preparación).
 - [ ] Rol `minv_owner` dueño de la base `minv`; `minv_server` y `minv_app` creados **antes** de migrar.
-- [ ] 110 tablas, 108 políticas `tenant_isolation`, 40 `branch_isolation`, 15 triggers append-only (§4.4).
+- [ ] 140 tablas en 9 esquemas, 138 políticas `tenant_isolation`, 55 `branch_isolation`, 24 triggers append-only (§4.4 o
+      `minv verify`).
 - [ ] `minv_server`: `rolsuper = f`, `rolbypassrls = f`, sin tablas propias.
 - [ ] Conexión directa o pool en **modo sesión** (nunca transacción, nunca RDS Proxy).
 - [ ] Todas las cadenas con `SSL Mode=VerifyFull;Root Certificate=<ruta>` y el nombre de host del proveedor.
@@ -448,9 +474,49 @@ la misma versión mayor (4), si no: «Este servidor es M-INV 4.x: actualice el e
 - [ ] Respaldos automáticos y PITR activos; restauración probada; réplica de lectura en `MINV_DB_READ` (si contrató
       GLOBAL_AUDIT).
 - [ ] `credenciales-nube.txt` copiado a la bóveda y borrado del equipo de preparación.
-- [ ] Módulos licenciados correctos en `iam.tenant_modules` (CLOUD_HA, MULTI_BRANCH, API_INTEGRATIONS, GLOBAL_AUDIT).
+- [ ] Módulos licenciados correctos en `iam.tenant_modules` (CLOUD_HA, MULTI_BRANCH, API_INTEGRATIONS, GLOBAL_AUDIT y,
+      V4.1, FISCAL_SIAT).
+- [ ] V4.1: el servidor en la nube llega por https a los servicios del SIN (salida a internet permitida) y su reloj está
+      sincronizado (NTP); `Minv__Siat__Background` no está en `false` en todas las réplicas.
+- [ ] V4.1: el simulador del SIN (perfil `siat-simulador`) **no** está levantado junto a empresas que facturan de verdad.
 
-## 12. Si algo no funciona
+## 12. Facturación SIAT en la nube (V4.1)
+
+**Quién habla con el SIN.** En modo nube, SOLO `MINV.CloudServer`: el escritorio envía el caso de uso (cobrar, anular,
+preparar…) y el servidor llama a los servicios SOAP del SIN con el token delegado de la empresa, que descifra con
+`MINV_INTEGRATION_KEYS`. El token nunca sale del servidor ni aparece en registros ni en la bitácora de llamadas.
+
+**El despachador fiscal** (trabajo automático, `Minv__Siat__Background=true` por defecto) corre dentro del servidor en la
+nube para cada empresa con la facturación **activa**:
+
+| Cada | Qué hace |
+|---|---|
+| 10 segundos | envía los documentos pendientes (la caja ya envía el suyo al cobrar; esto cubre los que quedaron sin respuesta, los pedidos del API y las notas en cola) |
+| 60 segundos | mantenimiento: verifica la comunicación, recupera los puntos de venta fuera de línea (CUFD nuevo → evento significativo → paquetes → validación), pide el CUFD del día y el CUIS por vencer, sincroniza la hora y los 18 catálogos, reintenta los correos al comprador |
+
+Con varias réplicas del servidor en la nube el trabajo es seguro (concurrencia optimista), pero puede dejarlo en una
+sola con `Minv__Siat__Background=false` en las demás. Sin ninguna réplica con el despachador, las cajas siguen enviando
+su factura al cobrar, pero nadie recupera los cortes ni pide el CUFD de cada día.
+
+**Apuntar al SIN real** (detalle completo en
+[`docs/billing/puesta-en-produccion-siat.md`](../billing/puesta-en-produccion-siat.md)): no hay variables de entorno
+para el SIN; todo se configura por empresa, en el escritorio, como Administrador › **Facturación › Facturación SIAT**:
+
+1. Datos del Padrón: NIT, razón social y el **código de sistema** que entregó el SIN al registrar M-INV.
+2. **Conexión** del ambiente (2 = piloto para las pruebas; 1 = producción después del inicio de operaciones): las URL
+   de cada servicio que figuran en el reporte de registro (piloto) o en el inicio de operaciones (producción), el
+   namespace, la URL base del QR y el **token delegado** (solo escritura) con su vencimiento.
+3. Sucursales del Padrón (0 = casa matriz) y puntos de venta por caja; **Preparar** (CUIS, CUFD, hora y catálogos);
+   **Homologación**; y activar.
+
+El servidor en la nube necesita **salida https** hacia los servicios del SIN y el **reloj sincronizado** (la hora fiscal
+es la del servidor corregida con la hora del SIN).
+
+**Simulador para ensayos**: `docker compose --profile siat-simulador up -d` levanta `MINV.SiatSimulator` en la misma red
+del servidor en la nube; una empresa de prueba con la conexión `http://localhost:5095` factura contra él (datos de
+simulación, sin valor legal). Su estado (CUIS, CUFD, documentos) vive en el volumen `minv-siat`.
+
+## 13. Si algo no funciona
 
 | Síntoma | Causa y solución |
 |---|---|
@@ -468,3 +534,7 @@ la misma versión mayor (4), si no: «Este servidor es M-INV 4.x: actualice el e
 | Escritorio: «El servidor en la nube debe usar https» | escriba la dirección con `https://` (http solo para `localhost`) |
 | Escritorio: «Este servidor es M-INV 4.x: actualice el escritorio» | versión mayor distinta entre escritorio y servidor |
 | «Su usuario no tiene sucursales asignadas» | asígnele sucursales en Sucursales › usuarios (o dele el rol GERENCIA para ver todas) |
+| V4.1 · Todas las facturas quedan «fuera de línea» | el servidor no llega al SIN: salida https bloqueada, URL mal cargadas en Facturación SIAT › Conexión o el SIN caído. Estado SIAT muestra los errores de las llamadas al SIN |
+| V4.1 · El SIN responde «token inválido» (989) | el token venció o es del otro ambiente (el de piloto no sirve en producción): cargue uno nuevo en Facturación SIAT |
+| V4.1 · «Este equipo no tiene la clave maestra de integraciones» al guardar el token | falta `MINV_INTEGRATION_KEYS` en el servidor en la nube |
+| V4.1 · Nadie pide el CUFD del día ni recupera los cortes | `Minv__Siat__Background=false` en todas las réplicas: déjelo en `true` en al menos una |

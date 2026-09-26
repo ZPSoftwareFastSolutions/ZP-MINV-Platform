@@ -184,8 +184,9 @@ public sealed class SiatCuis : Entity, IBranchScoped, IAppendOnly
         PointOfSaleId = Guard.NotEmpty(pointOfSaleId, nameof(pointOfSaleId));
         Code = Guard.Text(code, "El CUIS", 100);
         Guard.That(validUntil > obtainedAt, "siat.cuis_validity", "La vigencia del CUIS debe ser posterior a su obtención.");
-        ValidUntil = validUntil;
-        ObtainedAt = obtainedAt;
+        // En UTC: el SIN informa la vigencia en hora de Bolivia (-04:00) y timestamptz de PostgreSQL solo admite desfase 0
+        ValidUntil = validUntil.ToUniversalTime();
+        ObtainedAt = obtainedAt.ToUniversalTime();
     }
 
     public Guid BranchId { get; private set; }
@@ -225,8 +226,8 @@ public sealed class SiatCufd : Entity, IBranchScoped, IAppendOnly
         ControlCode = Guard.Text(controlCode, "El código de control del CUFD", 50);
         Address = Guard.Text(address, "La dirección del CUFD", 500);
         Guard.That(validUntil > obtainedAt, "siat.cufd_validity", "La vigencia del CUFD debe ser posterior a su obtención.");
-        ValidUntil = validUntil;
-        ObtainedAt = obtainedAt;
+        ValidUntil = validUntil.ToUniversalTime();   // en UTC (ver SiatCuis)
+        ObtainedAt = obtainedAt.ToUniversalTime();
     }
 
     public Guid BranchId { get; private set; }

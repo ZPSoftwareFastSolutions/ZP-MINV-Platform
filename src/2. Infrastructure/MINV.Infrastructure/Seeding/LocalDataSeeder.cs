@@ -34,14 +34,23 @@ using MINV.Infrastructure.Services;
 
 namespace MINV.Infrastructure.Seeding;
 
-public sealed record SeedOptions(string TenantCode = "MINV", string CompanyName = "Ferretería El Constructor S.R.L.", string TaxId = "1029384756",
-    string Domain = "elconstructor.example", int Days = 60, int Seed = 2026, string TimeZoneId = "America/La_Paz");
+/// <summary>Opciones de la empresa de prueba. V4.1: <paramref name="TaxId"/> es también el NIT de simulación del SIAT;
+/// <paramref name="Billing"/> = false la carga sin facturación; <paramref name="BillingDays"/> son los últimos días del
+/// período que se facturan; <paramref name="SiatToken"/> (opcional) fija el token de simulación (si no, uno aleatorio) y
+/// <paramref name="SiatSimulatorUrl"/> es la URL del simulador HTTP que queda en la configuración.</summary>
+public sealed record SeedOptions(string TenantCode = "MINV", string CompanyName = "Ferretería El Constructor S.R.L.", string TaxId = "1023456028",
+    string Domain = "elconstructor.example", int Days = 60, int Seed = 2026, string TimeZoneId = "America/La_Paz", bool Billing = true,
+    int BillingDays = 25, string? SiatToken = null, string SiatSimulatorUrl = SiatSeedSetup.LocalSimulatorUrl)
+{
+    public override string ToString() => $"SeedOptions {TenantCode} · {Days} días · semilla {Seed} · facturación {(Billing ? "sí" : "no")}";
+}
 
 public sealed record SeedUser(string RoleCode, string RoleName, string Name, string Email, string Password, string Branches = "");
 
+/// <summary>Resultado de la carga. V4.1: <paramref name="Billing"/> resume la facturación (null si se cargó sin ella).</summary>
 public sealed record SeedResult(string TenantCode, string CompanyName, IReadOnlyList<SeedUser> Users, int Products, int Suppliers, int Customers,
     int Tickets, int PurchaseOrders, int Movements, int JournalEntries, DateOnly From, DateOnly To, IReadOnlyList<string> Branches, int Transfers,
-    int ExternalOrders, string ApiKeyName, string ApiKeyToken, string? WebhookSecret);
+    int ExternalOrders, string ApiKeyName, string ApiKeyToken, string? WebhookSecret, SeedBilling? Billing = null);
 
 /// <summary>
 /// Datos de prueba aleatorios (reproducibles con la semilla) para la base LOCAL o la de la NUBE: empresa, usuarios de cada
@@ -49,10 +58,11 @@ public sealed record SeedResult(string TenantCode, string CompanyName, IReadOnly
 /// precios, y N días de operación simulada. V4: tres sucursales (casa matriz, El Alto y Santa Cruz) con su caja; la casa
 /// matriz compra y repone a las otras con transferencias semanales (despacho → mercadería en tránsito → recepción, con
 /// faltantes ocasionales), cada sucursal vende en su caja, el e-commerce registra pedidos por la API (API Key) y quedan
-/// transferencias pendientes y en tránsito para explorar. TODO pasa por los mismos casos de uso de la aplicación
+/// transferencias pendientes y en tránsito para explorar. V4.1: desde la mitad del período la empresa FACTURA con el
+/// simulador del SIN en proceso (<see cref="BillingScenario"/>). TODO pasa por los mismos casos de uso de la aplicación
 /// (validación, permisos, alcance por sucursal, poka-yoke, auditoría y contabilidad): coherente por construcción.
 /// </summary>
-public sealed class LocalDataSeeder(IServiceProvider services, DemoClock clock)
+public sealed partial class LocalDataSeeder(IServiceProvider services, DemoClock clock)
 {
     private static readonly string[] FirstNames =
     [
@@ -237,6 +247,7 @@ public sealed class LocalDataSeeder(IServiceProvider services, DemoClock clock)
             }
         }
         var customers = new List<string> { "CF" };
+        var habitual = new List<SeedCustomer>();
         for (var i = 0; i < 28; i++)
         {
             var company = i % 3 == 0;
@@ -245,8 +256,11 @@ public sealed class LocalDataSeeder(IServiceProvider services, DemoClock clock)
                 : $"{Pick(FirstNames)} {Pick(LastNames)} {Pick(LastNames)}";
             var category = company ? (i % 2 == 0 ? "EMPRESA" : "MAYORISTA") : "GENERAL";
             var email = company ? $"compras@{Slug(name.Split(' ')[1])}{i}.example" : $"{Slug(name.Split(' ')[0] + " " + name.Split(' ')[1])}{i}@correo.example";
-            customers.Add(await admin.Send(new SaveCustomerCommand(null, name, company ? $"{_rng.Next(1000000, 9999999)}01{i}" : $"{_rng.Next(3000000, 9999999)}",
-                email, $"6{_rng.Next(1000000, 9999999)}", category, true), ct));
+            // V4.1 · Las empresas facturan con NIT y las personas con CI (su identidad fiscal se completa en la primera factura)
+            var taxId = company ? $"{_rng.Next(1000000, 9999999)}01{i}" : $"{_rng.Next(3000000, 9999999)}";
+            var code = await admin.Send(new SaveCustomerCommand(null, name, taxId, email, $"6{_rng.Next(1000000, 9999999)}", category, true), ct);
+            customers.Add(code);
+            habitual.Add(new SeedCustomer(code, name, taxId, email, company));
         }
         log($"{Categories.Length} categorías, {Suppliers.Length} proveedores, {customers.Count} clientes y {binsByCategory.Values.Sum(b => b.Count)} posiciones.");
 
@@ -320,6 +334,11 @@ public sealed class LocalDataSeeder(IServiceProvider services, DemoClock clock)
         var webOrders = 0;
         var lastInvoice = (string?)null;
 
+        // V4.1 · Facturación SIAT en los últimos días del período (con el simulador del SIN en proceso y el mismo reloj)
+        var billingFrom = today.AddDays(-Math.Clamp(o.BillingDays, 1, Math.Max(1, o.Days - 1)));
+        var billing = BillingScenario.TryCreate(services, o, billingFrom, today, At, log, admin, gerencia, bodega, db, habitual,
+            weighted.Select(w => (w.Sku, w.Unit, w.Pop)).ToList(), ct);
+
         // Reposición de una sucursal: la casa matriz arma la transferencia con lo que tiene disponible y la despacha;
         // la sucursal la recibe (a veces con un faltante que se registra como merma en tránsito)
         async Task<TransferRef?> ShipAsync(string warehouseCode, int items, double share)
@@ -380,6 +399,13 @@ public sealed class LocalDataSeeder(IServiceProvider services, DemoClock clock)
             var isToday = day == today;
             var lastHour = isToday ? Math.Clamp(realNow.Hour, 9, 19) : 19;
 
+            // V4.1 · Facturación: el primer día facturado se configura (07:45) y cada día el trabajo automático pide el CUFD
+            // del día, sincroniza la hora y los catálogos (08:15), como lo hace el servidor en la nube
+            if (billing is not null)
+            {
+                await billing.StartDayAsync(day);
+            }
+
             // Recepciones pendientes (llegan en su fecha estimada)
             At(day, 8, 40);
             foreach (var order in await bodega.Send(new GetPurchaseOrdersQuery(PurchaseOrderStatus.Approved), ct))
@@ -411,20 +437,30 @@ public sealed class LocalDataSeeder(IServiceProvider services, DemoClock clock)
             // V4 · Pedidos del e-commerce por la API (martes y viernes), despachados desde la casa matriz
             if (day.DayOfWeek is DayOfWeek.Tuesday or DayOfWeek.Friday)
             {
-                for (var n = _rng.Next(1, 4); n > 0; n--)
+                // En orden cronológico: cada pedido se factura y se envía al SIN al registrarse (la hora fiscal no retrocede)
+                var webCount = _rng.Next(1, 4);
+                var webTimes = Enumerable.Range(0, webCount).Select(_ => _rng.Next(10 * 60, 18 * 60)).Order().ToList();
+                for (var n = webCount; n > 0; n--)
                 {
-                    At(day, _rng.Next(10, 18), _rng.Next(0, 59));
+                    At(day, webTimes[webCount - n] / 60, webTimes[webCount - n] % 60);
                     var lines = Enumerable.Range(0, _rng.Next(1, 4)).Select(_ => weighted[_rng.Next(weighted.Count)]).DistinctBy(x => x.Sku)
                         .Select(x => new SaleLineInput(x.Sku, SaleQty(x.Unit, x.Pop))).ToList();
+                    var webCustomer = customers[_rng.Next(1, customers.Count)];
                     try
                     {
-                        await tienda.Send(new CreateExternalOrderCommand($"WEB-{day:yyyyMMdd}-{n}", customers[_rng.Next(1, customers.Count)], "QR", lines,
-                            $"QR-{_rng.Next(100000, 999999)}"), ct);
+                        // V4.1 · Si la empresa factura, el pedido lleva los datos de facturación del cliente de la tienda
+                        var order = await tienda.Send(new CreateExternalOrderCommand($"WEB-{day:yyyyMMdd}-{n}", webCustomer, "QR", lines,
+                            $"QR-{_rng.Next(100000, 999999)}", Buyer: billing?.ForWebOrder(webCustomer)), ct);
+                        billing?.NoteWebOrder(order);
                         webOrders++;
                     }
                     catch (DomainException)
                     {
                         // sin stock: la tienda recibe el rechazo (poka-yoke) y el pedido no se registra
+                    }
+                    if (billing is not null)
+                    {
+                        await billing.DispatchPendingAsync();   // el trabajo automático del servidor lo envía en segundos
                     }
                 }
             }
@@ -450,7 +486,7 @@ public sealed class LocalDataSeeder(IServiceProvider services, DemoClock clock)
 
             // Ventas en dos cajas, en orden cronológico (la numeración de facturas sigue la hora real de cada venta)
             At(day, 8, 30);
-            var schedule = new List<(int Minute, SignedIn Session)>();
+            var schedule = new List<(int Minute, SignedIn Session, string Branch, string? Tag)>();
             foreach (var (session, register, branch) in registers)
             {
                 await session.Send(new OpenPosSessionCommand(register, 500m), ct);
@@ -459,27 +495,59 @@ public sealed class LocalDataSeeder(IServiceProvider services, DemoClock clock)
                 {
                     count = Math.Max(2, count * (lastHour - 8) / 11);
                 }
-                schedule.AddRange(Enumerable.Range(0, count).Select(_ => (_rng.Next(9 * 60, lastHour * 60 + 30), session)));
+                schedule.AddRange(Enumerable.Range(0, count).Select(_ => (_rng.Next(9 * 60, lastHour * 60 + 30), session, branch, (string?)null)));
             }
-            foreach (var (minuteOfDay, session) in schedule.OrderBy(x => x.Minute))
+            // V4.1 · Ventas de los escenarios de facturación (venta menor, NIT rechazado, facturas durante el corte de internet)
+            foreach (var slot in billing?.ExtraSales(day, lastHour * 60 + 30) ?? [])
             {
+                schedule.Add((slot.Minute, registers.First(r => r.Branch == slot.Branch).Session, slot.Branch, slot.Tag));
+            }
+            foreach (var (minuteOfDay, session, branch, tag) in schedule.OrderBy(x => x.Minute))
+            {
+                if (billing is not null)
+                {
+                    await billing.AdvanceAsync(day, minuteOfDay);
+                    if (billing.Skips(branch))
+                    {
+                        continue;   // corte de energía: esa caja factura a mano con el talonario CAFC (se transcribe después)
+                    }
+                }
                 At(day, minuteOfDay / 60, minuteOfDay % 60);
                 var lines = Enumerable.Range(0, _rng.Next(1, 5)).Select(_ => weighted[_rng.Next(weighted.Count)]).DistinctBy(x => x.Sku)
                     .Select(x => new SaleLineInput(x.Sku, SaleQty(x.Unit, x.Pop), _rng.NextDouble() < 0.08 ? 5 : 0)).ToList();
-                var customer = _rng.NextDouble() < 0.62 ? "CF" : customers[_rng.Next(customers.Count)];
+                var customer = _rng.NextDouble() < 0.62 || tag is not null ? "CF" : customers[_rng.Next(customers.Count)];
                 var pay = _rng.NextDouble();
                 var method = pay < 0.55 ? "EFECTIVO" : pay < 0.8 ? "QR" : pay < 0.95 ? "TARJETA" : "TRANSFERENCIA";
                 var reference = method == "EFECTIVO" ? null : $"{method[..2]}-{_rng.Next(100000, 999999)}";
+                var (buyer, card) = billing?.ForSale(customer, method, tag) ?? (null, null);
+                if (tag is not null)
+                {
+                    // Las ventas de un escenario de facturación deben concretarse: solo productos con existencia en esa sucursal
+                    lines = await InStockAsync(db, lines, weighted.Select(w => (w.Sku, w.Unit)).Distinct().ToList(),
+                        branch == BranchElAlto ? "ALMEA" : branch == BranchSantaCruz ? "ALMSC" : warehouse.Code, ct);
+                }
                 try
                 {
-                    var result = await session.Send(new CheckoutCommand(customer, method, lines, null, reference), ct);
+                    var result = await session.Send(new CheckoutCommand(customer, method, lines, null, reference, buyer, card), ct);
                     tickets++;
                     lastInvoice = result.InvoiceNumber;
+                    if (billing is not null)
+                    {
+                        await billing.AfterSaleAsync(session, branch, result, lines, day, buyer, tag);
+                    }
                 }
-                catch (DomainException)
+                catch (DomainException ex)
                 {
                     // Sin stock suficiente: el poka-yoke rechaza la venta (queda en la auditoría como rechazada)
+                    if (tag is not null)
+                    {
+                        log($"… {day:dd/MM/yyyy}: la venta del escenario «{tag}» no se registró: {ex.Message}");
+                    }
                 }
+            }
+            if (billing is not null)
+            {
+                await billing.AdvanceAsync(day, (isToday ? lastHour : 19) * 60 + 40);
             }
             if (!isToday)
             {
@@ -491,14 +559,19 @@ public sealed class LocalDataSeeder(IServiceProvider services, DemoClock clock)
                     await session.Send(new ClosePosSessionCommand(state.Session.Id, counted), ct);
                 }
             }
+            // V4.1 · Después del cierre de caja: anulaciones, reversión y devoluciones con nota crédito-débito del día
+            if (billing is not null)
+            {
+                await billing.EndOfDayAsync(day, (isToday ? lastHour : 19) * 60 + 50);
+            }
 
             if (day.DayOfWeek == DayOfWeek.Saturday)
             {
                 log($"… {day:dd/MM/yyyy}: {tickets} ventas acumuladas.");
             }
 
-            // Anulaciones ocasionales, mermas y ajustes
-            if (!isToday && lastInvoice is not null && _rng.NextDouble() < 0.07)
+            // Anulaciones ocasionales, mermas y ajustes (V4.1: una venta facturada se anula en el SIN, ver los escenarios)
+            if (!isToday && lastInvoice is not null && _rng.NextDouble() < 0.07 && billing is not { Active: true })
             {
                 At(day, 19, 20);
                 await s1.Send(new VoidSaleCommand(lastInvoice, "Error de cobro: el cliente cambió de producto"), ct);
@@ -597,6 +670,10 @@ public sealed class LocalDataSeeder(IServiceProvider services, DemoClock clock)
             log("Webhook de prueba omitido: falta la clave maestra de integraciones (MINV_INTEGRATION_KEYS) en este equipo.");
         }
 
+        // V4.1 · Facturas de proveedores, puntos de venta en línea, CUFD vigentes para hoy y resumen de la facturación
+        var billed = billing is null ? null : await billing.FinishAsync();
+        tickets += billing?.ManualSales ?? 0;   // las facturas manuales CAFC transcritas también son ventas de caja
+
         if (db.Database.IsRelational())
         {
             // Carga masiva recién hecha: estadísticas para el planificador (si no, las consultas de las pantallas son lentas
@@ -608,16 +685,23 @@ public sealed class LocalDataSeeder(IServiceProvider services, DemoClock clock)
             Movements = await db.StockMovements.CountAsync(ct),
             Journal = await db.JournalEntries.CountAsync(ct),
             Orders = await db.PurchaseOrders.CountAsync(ct),
+            Customers = await db.Set<Customer>().CountAsync(ct),   // V4.1: más los compradores eventuales facturados
         };
         log($"Listo: {stats.Movements} movimientos, {stats.Orders} órdenes de compra, {transfers} transferencias, {webOrders} pedidos web y " +
             $"{stats.Journal} asientos contables.");
-        return new SeedResult(o.TenantCode, o.CompanyName, users, catalog.Count, Suppliers.Length, customers.Count, tickets, stats.Orders,
+        // El día simulado de «hoy» empieza a las 9:00 aunque la carga corra de madrugada: si el reloj simulado quedó adelante
+        // de la hora real, vuelve a la hora real (lo que se registre después en este proceso no queda «en el futuro»)
+        if (clock.UtcNow > DateTimeOffset.UtcNow)
+        {
+            clock.StartAt(DateTimeOffset.UtcNow);
+        }
+        return new SeedResult(o.TenantCode, o.CompanyName, users, catalog.Count, Suppliers.Length, stats.Customers, tickets, stats.Orders,
             stats.Movements, stats.Journal, start, today, [BranchMain, BranchElAlto, BranchSantaCruz], transfers, webOrders, apiKey.Name, apiKey.Token,
-            webhookSecret);
+            webhookSecret, billed);
     }
 
     // ---------------------------------------------------------------------------------------------- utilidades
-    private sealed class SignedIn(IServiceScope scope) : IDisposable
+    private sealed class SignedIn(IServiceScope scope) : ISeedSession, IDisposable
     {
         public IServiceScope Scope { get; } = scope;
 
@@ -659,6 +743,34 @@ public sealed class LocalDataSeeder(IServiceProvider services, DemoClock clock)
                       join v in db.ProductVariants on b.VariantId equals v.Id
                       where v.Sku == sku && bins.Contains(l.BinId)
                       select (decimal?)(l.QuantityOnHand - l.QuantityReserved)).SumAsync(ct) ?? 0m;
+    }
+
+    /// <summary>V4.1 · Líneas con existencia suficiente en el almacén (las ventas de los escenarios de facturación no pueden
+    /// fallar por stock); si no queda ninguna, una unidad del primer producto con existencia.</summary>
+    private static async Task<List<SaleLineInput>> InStockAsync(MinvWriteDbContext db, IReadOnlyList<SaleLineInput> lines,
+        IReadOnlyList<(string Sku, string Unit)> catalog, string warehouseCode, CancellationToken ct)
+    {
+        var warehouseId = await db.Warehouses.AsNoTracking().Where(w => w.Code == warehouseCode).Select(w => w.Id).FirstAsync(ct);
+        var kept = new List<SaleLineInput>();
+        foreach (var line in lines)
+        {
+            if (await AvailableAsync(db, line.Sku, warehouseId, ct) >= line.Quantity + 1)
+            {
+                kept.Add(line);
+            }
+        }
+        foreach (var (sku, unit) in catalog)
+        {
+            if (kept.Count > 0)
+            {
+                break;
+            }
+            if (await AvailableAsync(db, sku, warehouseId, ct) >= 3)
+            {
+                kept.Add(new SaleLineInput(sku, Qty(unit, 1)));
+            }
+        }
+        return kept;
     }
 
     private static async Task<string> BinOfAsync(MinvWriteDbContext db, string sku, CancellationToken ct) =>

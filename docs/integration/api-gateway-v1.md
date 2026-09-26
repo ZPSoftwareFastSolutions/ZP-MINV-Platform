@@ -288,6 +288,21 @@ IVA incluido, pago, asiento contable y evento `sale.completed`), sin turno de ca
 | `paymentReference` | con QR, tarjeta y transferencia | número de operación o voucher |
 | `lines[]` | sí (1 a 200) | `sku` (o código de barras), `quantity` > 0, `discountPercent` 0 a 100 (opcional) |
 | `warehouseCode` | no | almacén que despacha (por defecto, el de la sucursal de la llave); debe ser de una sucursal de la llave |
+| `buyer` | no (V4.1) | datos de facturación del comprador para la factura del SIAT (ver abajo). Si la empresa factura en el SIAT y el cliente no tiene datos de facturación, es obligatorio |
+| `buyer.documentType` | sí, si hay `buyer` | tipo de documento del SIN: `1` CI, `2` CEX, `3` pasaporte, `4` otro documento, `5` NIT |
+| `buyer.documentNumber` | sí, si hay `buyer` | número de documento (CI y NIT solo dígitos, hasta 20). NIT especiales: `99001` consulados, `99002` control tributario, `99003` ventas menores del día |
+| `buyer.complement` | no | complemento del CI (hasta 5 caracteres; solo con CI) |
+| `buyer.name` | no | nombre o razón social que va en la factura (si falta, el del cliente) |
+| `buyer.email` | no | correo al que se entrega la factura (XML y PDF) |
+
+**Facturación SIAT (V4.1).** Si la empresa emite documentos fiscales del SIAT (Bolivia), la venta del pedido lleva su
+factura Compra Venta en la MISMA transacción (punto de venta 0 de la sucursal): en línea queda pendiente de envío y el
+trabajo automático del servidor la envía al SIN en segundos; sin comunicación con el SIN se emite fuera de línea y se
+envía en un paquete al recuperarla. Si el documento del comprador no es de un cliente existente, M-INV crea el cliente (código `CI-…`, `NIT-…`).
+Un pedido sin `buyer` conserva el mismo hash de idempotencia que en la V4 (el campo solo se agregó). Errores posibles
+(`422`, `code`): `fiscal.buyer_required` (falta el documento del comprador), `fiscal.not_homologated` (producto, unidad o
+medio de pago sin homologar con el SIN), `fiscal.quantity_decimals` / `fiscal.price_decimals` (la factura admite 2
+decimales), `siat.no_cufd`.
 
 ```bash
 curl -s -i -X POST "$MINV_API/v1/orders" \
@@ -300,7 +315,8 @@ curl -s -i -X POST "$MINV_API/v1/orders" \
         "lines": [
           { "sku": "FER-004", "quantity": 1 },
           { "sku": "ELE-003", "quantity": 4, "discountPercent": 5 }
-        ]
+        ],
+        "buyer": { "documentType": 5, "documentNumber": "1003579028", "name": "CONSTRUCTORA ANDINA S.R.L.", "email": "compras@andina.example" }
       }'
 ```
 
@@ -315,9 +331,15 @@ curl -s -i -X POST "$MINV_API/v1/orders" \
   "total": 145.70,
   "tax": 16.76,
   "issuedAt": "2026-09-25T15:04:05.1234567+00:00",
-  "replayed": false
+  "replayed": false,
+  "cuf": "4128CF31A2C8606A3A19E23EF34124CD…",
+  "fiscalNumber": 215
 }
 ```
+
+V4.1: `cuf` y `fiscalNumber` son el CUF y el número del documento fiscal del SIAT de la venta (`null` si la empresa no
+factura en el SIAT). Si el documento se re-emitió (rechazo o sin respuesta del SIN), `GET /v1/orders/{externalId}`
+devuelve el vigente.
 
 `200 OK` con `Idempotent-Replayed: true` y `"replayed": true` si repite el mismo pedido; `422` con
 `"title": "idempotency"` si repite el `externalId` con otro contenido:

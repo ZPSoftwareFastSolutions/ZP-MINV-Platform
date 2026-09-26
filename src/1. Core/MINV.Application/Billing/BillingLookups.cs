@@ -37,18 +37,12 @@ public sealed class BillingLookups(IMinvDbContext db, ISecretProtector? protecto
     /// <summary>¿Esta empresa emite documentos fiscales al vender? (configurada y activada).</summary>
     public async Task<bool> IsBillingEnabledAsync(CancellationToken ct) => (await SettingsAsync(ct))?.IsEnabled == true;
 
-    public async Task<TimeZoneInfo> ZoneAsync(CancellationToken ct)
-    {
-        var zoneId = await db.Set<TenantConfig>().Select(c => c.TimeZoneId).FirstOrDefaultAsync(ct) ?? "America/La_Paz";
-        try
-        {
-            return TimeZoneInfo.FindSystemTimeZoneById(zoneId);
-        }
-        catch (TimeZoneNotFoundException)
-        {
-            return TimeZoneInfo.CreateCustomTimeZone("BOT", TimeSpan.FromHours(-4), "Bolivia", "Bolivia");
-        }
-    }
+    /// <summary>Zona de la hora fiscal: SIEMPRE la de Bolivia (UTC−4, sin horario de verano), que es la del SIN, sea cual sea
+    /// la zona configurada para la empresa (la demostración, por ejemplo, usa otra).</summary>
+    public static readonly TimeZoneInfo FiscalZone = TimeZoneInfo.CreateCustomTimeZone("SIN-BOT", TimeSpan.FromHours(-4), "Bolivia (SIN)",
+        "Bolivia (SIN)");
+
+    public Task<TimeZoneInfo> ZoneAsync(CancellationToken ct) => Task.FromResult(FiscalZone);
 
     public async Task<SiatEnvironmentProfile> ProfileAsync(int environment, CancellationToken ct) =>
         await db.Set<SiatEnvironmentProfile>().FirstOrDefaultAsync(p => p.Environment == environment, ct)
@@ -103,17 +97,26 @@ public sealed class BillingLookups(IMinvDbContext db, ISecretProtector? protecto
                    "La sucursal no tiene punto de venta del SIN: regístrelo en Facturación › Estado SIAT.");
     }
 
-    public Task<SiatCuis?> CurrentCuisAsync(Guid pointOfSaleId, DateTimeOffset now, CancellationToken ct) =>
-        db.Set<SiatCuis>().Where(c => c.PointOfSaleId == pointOfSaleId && c.ValidUntil > now)
-            .OrderByDescending(c => c.ObtainedAt).FirstOrDefaultAsync(ct);
+    // Los códigos recién pedidos en ESTE caso de uso (todavía sin guardar) también cuentan: SiatCodeManager no guarda y,
+    // p. ej., el CUFD de un punto de venta nuevo se pide con el CUIS que se acaba de obtener (como AverageCosts).
+    public async Task<SiatCuis?> CurrentCuisAsync(Guid pointOfSaleId, DateTimeOffset now, CancellationToken ct) =>
+        Newest(db.Set<SiatCuis>().Local.Where(c => c.PointOfSaleId == pointOfSaleId && c.ValidUntil > now).MaxBy(c => c.ObtainedAt),
+            await db.Set<SiatCuis>().Where(c => c.PointOfSaleId == pointOfSaleId && c.ValidUntil > now)
+                .OrderByDescending(c => c.ObtainedAt).FirstOrDefaultAsync(ct), c => c.ObtainedAt);
 
-    public Task<SiatCufd?> CurrentCufdAsync(Guid pointOfSaleId, DateTimeOffset now, CancellationToken ct) =>
-        db.Set<SiatCufd>().Where(c => c.PointOfSaleId == pointOfSaleId && c.ValidUntil > now)
-            .OrderByDescending(c => c.ObtainedAt).FirstOrDefaultAsync(ct);
+    public async Task<SiatCufd?> CurrentCufdAsync(Guid pointOfSaleId, DateTimeOffset now, CancellationToken ct) =>
+        Newest(db.Set<SiatCufd>().Local.Where(c => c.PointOfSaleId == pointOfSaleId && c.ValidUntil > now).MaxBy(c => c.ObtainedAt),
+            await db.Set<SiatCufd>().Where(c => c.PointOfSaleId == pointOfSaleId && c.ValidUntil > now)
+                .OrderByDescending(c => c.ObtainedAt).FirstOrDefaultAsync(ct), c => c.ObtainedAt);
 
     /// <summary>Último CUFD obtenido (vigente o no): el que se usa fuera de línea hasta 72 h.</summary>
-    public Task<SiatCufd?> LatestCufdAsync(Guid pointOfSaleId, CancellationToken ct) =>
-        db.Set<SiatCufd>().Where(c => c.PointOfSaleId == pointOfSaleId).OrderByDescending(c => c.ObtainedAt).FirstOrDefaultAsync(ct);
+    public async Task<SiatCufd?> LatestCufdAsync(Guid pointOfSaleId, CancellationToken ct) =>
+        Newest(db.Set<SiatCufd>().Local.Where(c => c.PointOfSaleId == pointOfSaleId).MaxBy(c => c.ObtainedAt),
+            await db.Set<SiatCufd>().Where(c => c.PointOfSaleId == pointOfSaleId).OrderByDescending(c => c.ObtainedAt).FirstOrDefaultAsync(ct),
+            c => c.ObtainedAt);
+
+    private static T? Newest<T>(T? local, T? stored, Func<T, DateTimeOffset> obtainedAt) where T : class =>
+        local is null ? stored : stored is null || obtainedAt(local) >= obtainedAt(stored) ? local : stored;
 
     public async Task<SiatCuis> RequireCuisAsync(Guid pointOfSaleId, DateTimeOffset now, CancellationToken ct) =>
         await CurrentCuisAsync(pointOfSaleId, now, ct) ?? throw new DomainException("siat.no_cuis",
@@ -149,14 +152,15 @@ public sealed class BillingLookups(IMinvDbContext db, ISecretProtector? protecto
 
     // ------------------------------------------------------------------------------------------------ numeración y leyenda
     /// <summary>Número siguiente por (ambiente, punto de venta, documento sector). Si dos cajas numeran a la vez, el índice
-    /// único rechaza el duplicado y el caso de uso reintenta (regla B-07).</summary>
+    /// único rechaza el duplicado y el caso de uso reintenta (regla B-07). Las facturas manuales transcritas de un talonario
+    /// CAFC no cuentan: llevan la numeración de su talonario.</summary>
     public async Task<long> NextNumberAsync(int environment, Guid pointOfSaleId, int documentSector, CancellationToken ct)
     {
         var fromDb = await db.Set<FiscalDocument>()
-            .Where(d => d.Environment == environment && d.PointOfSaleId == pointOfSaleId && d.DocumentSector == documentSector)
+            .Where(d => d.Environment == environment && d.PointOfSaleId == pointOfSaleId && d.DocumentSector == documentSector && d.Cafc == null)
             .MaxAsync(d => (long?)d.Number, ct) ?? 0;
         var fromLocal = db.Set<FiscalDocument>().Local
-            .Where(d => d.Environment == environment && d.PointOfSaleId == pointOfSaleId && d.DocumentSector == documentSector)
+            .Where(d => d.Environment == environment && d.PointOfSaleId == pointOfSaleId && d.DocumentSector == documentSector && d.Cafc == null)
             .Select(d => d.Number).DefaultIfEmpty(0).Max();
         return Math.Max(fromDb, fromLocal) + 1;
     }

@@ -1,5 +1,5 @@
-# M-INV V4 · API Gateway B2B (MINV.ApiGateway)
-# Construcción: docker build -f deploy/Dockerfile.apigateway -t minv-apigateway:4.0.0-alpha.1 .
+# M-INV V4/V4.1 · API Gateway B2B (MINV.ApiGateway)
+# Construcción: docker build -f deploy/Dockerfile.apigateway -t minv-apigateway:4.1.0-alpha.1 .
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 COPY . .
