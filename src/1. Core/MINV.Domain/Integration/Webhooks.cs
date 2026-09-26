@@ -292,6 +292,9 @@ public static class IntegrationEvents
     public const string TransferDispatched = "transfer.dispatched";
     public const string TransferReceived = "transfer.received";
     public const string TransferDiscrepancy = "transfer.discrepancy";
+    public const string SaleReturned = "sale.returned";
+    public const string FiscalDocumentValidated = "fiscal.document.validated";
+    public const string FiscalDocumentVoided = "fiscal.document.voided";
 
     public static readonly IReadOnlyList<(string Code, string Description)> All =
     [
@@ -301,5 +304,8 @@ public static class IntegrationEvents
         (TransferDispatched, "Transferencia despachada: la mercadería sale del origen y queda en tránsito"),
         (TransferReceived, "Transferencia recibida en la sucursal destino"),
         (TransferDiscrepancy, "Faltante registrado al recibir una transferencia"),
+        (SaleReturned, "Devolución de mercadería de un cliente (con nota crédito-débito si estaba facturada)"),
+        (FiscalDocumentValidated, "Factura o nota crédito-débito válida en el SIN (SIAT)"),
+        (FiscalDocumentVoided, "Factura o nota crédito-débito anulada en el SIN (SIAT)"),
     ];
 }

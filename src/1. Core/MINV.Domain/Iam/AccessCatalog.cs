@@ -41,6 +41,13 @@ public static class PermissionCodes
     public const string TransfersManage = "inventory.transfers.manage";
     public const string IntegrationManage = "integration.manage";
 
+    // V4.1 · facturación SIAT
+    public const string BillingView = "billing.view";
+    public const string BillingIssue = "billing.issue";
+    public const string BillingVoid = "billing.void";
+    public const string BillingContingency = "billing.contingency";
+    public const string BillingConfigure = "billing.configure";
+
     public static readonly IReadOnlyList<(string Code, string Description)> All =
     [
         (CatalogManage, "Crear y modificar productos, categorías, unidades y proveedores"),
@@ -61,6 +68,11 @@ public static class PermissionCodes
         (BranchesManage, "Crear y modificar sucursales y asignar usuarios a sucursales"),
         (TransfersManage, "Crear, despachar y recibir transferencias entre sucursales"),
         (IntegrationManage, "Administrar API Keys y webhooks de integración B2B"),
+        (BillingView, "Consultar documentos fiscales, estado del SIAT y libros de ventas y compras"),
+        (BillingIssue, "Emitir facturas (al vender) y reenviar documentos fiscales"),
+        (BillingVoid, "Anular y revertir documentos fiscales y emitir notas crédito-débito"),
+        (BillingContingency, "Gestionar eventos significativos, paquetes de contingencia y CAFC"),
+        (BillingConfigure, "Configurar la facturación SIAT: NIT, token, sucursales, puntos de venta, CUIS, CUFD, catálogos y homologación"),
     ];
 
     /// <summary>Matriz rol → permisos (RBAC por defecto de un tenant nuevo). V3.1: cada rol suma las funciones de su
@@ -70,11 +82,11 @@ public static class PermissionCodes
         RoleCodes.Admin => All.Select(p => p.Code).ToList(),
         RoleCodes.Warehouse => [MovementsRegisterWarehouse, StockView, PhysicalCountRecord, PhysicalCountPost, PurchasingManage, ReportsView,
             TransfersManage],
-        RoleCodes.Sales => [MovementsRegisterSales, StockView, PosOperate, CustomersManage, SalesView, ReportsView],
-        RoleCodes.Cashier => [PosOperate, MovementsRegisterSales, StockView, CustomersManage, SalesView],
+        RoleCodes.Sales => [MovementsRegisterSales, StockView, PosOperate, CustomersManage, SalesView, ReportsView, BillingView, BillingIssue],
+        RoleCodes.Cashier => [PosOperate, MovementsRegisterSales, StockView, CustomersManage, SalesView, BillingView, BillingIssue],
         RoleCodes.Management => [StockView, AuditView, AccountingManage, ReportsView, SalesView, PurchasingManage, BranchesAll,
-            TransfersManage],
-        RoleCodes.ReadOnly => [StockView, ReportsView],
+            TransfersManage, BillingView, BillingVoid, BillingContingency],
+        RoleCodes.ReadOnly => [StockView, ReportsView, BillingView],
         _ => [],
     };
 }

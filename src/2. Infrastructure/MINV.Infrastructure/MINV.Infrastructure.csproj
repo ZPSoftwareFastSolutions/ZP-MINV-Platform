@@ -19,6 +19,8 @@
   <ItemGroup>
     <!-- Ilustraciones de productos para los datos de prueba y la demostración (tools/generar_imagenes_productos.py). -->
     <EmbeddedResource Include="Seeding\Imagenes\*.png" />
+    <!-- V4.1 · XSD oficiales del SIN (modalidad computarizada): validación antes de guardar y en el simulador -->
+    <EmbeddedResource Include="Billing\Xsd\*.xsd" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="MINV.Infrastructure.Tests" />

@@ -60,3 +60,27 @@ public sealed record PurchaseReceivedEvent(string OrderNumber, string ReceiptNum
 {
     public override string EventType => IntegrationEvents.PurchaseReceived;
 }
+
+/// <summary>V4.1 · Documento fiscal válido en el SIN (908 en línea o validado en un paquete).</summary>
+public sealed record FiscalDocumentValidatedEvent(Guid DocumentId, string Kind, long Number, string Cuf, Guid BranchIdOfDocument, decimal Total,
+    DateTimeOffset OccurredAt)
+    : DomainEvent(OccurredAt, BranchIdOfDocument)
+{
+    public override string EventType => IntegrationEvents.FiscalDocumentValidated;
+}
+
+/// <summary>V4.1 · Documento fiscal anulado en el SIN.</summary>
+public sealed record FiscalDocumentVoidedEvent(Guid DocumentId, string Kind, long Number, string Cuf, Guid BranchIdOfDocument, int ReasonCode,
+    DateTimeOffset OccurredAt)
+    : DomainEvent(OccurredAt, BranchIdOfDocument)
+{
+    public override string EventType => IntegrationEvents.FiscalDocumentVoided;
+}
+
+/// <summary>V4.1 · Devolución de mercadería de un cliente (con nota crédito-débito si la venta estaba facturada).</summary>
+public sealed record SaleReturnedEvent(string ReturnNumber, string InvoiceNumber, Guid BranchIdOfReturn, decimal Refund,
+    IReadOnlyList<SaleEventLine> Lines, DateTimeOffset OccurredAt)
+    : DomainEvent(OccurredAt, BranchIdOfReturn)
+{
+    public override string EventType => IntegrationEvents.SaleReturned;
+}

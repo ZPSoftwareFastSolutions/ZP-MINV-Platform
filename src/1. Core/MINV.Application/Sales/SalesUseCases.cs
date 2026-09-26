@@ -102,13 +102,24 @@ public sealed record SaleLineInput(string Sku, decimal Quantity, decimal Discoun
 [RequiresPermission(PermissionCodes.PosOperate)]
 [RequiresPermission(PermissionCodes.MovementsRegisterSales)]
 public sealed record CheckoutCommand(string CustomerCode, string PaymentMethodCode, IReadOnlyList<SaleLineInput> Lines, decimal? CashReceived = null,
-    string? PaymentReference = null) : IRequest<CheckoutResult>, IAuditableRequest
+    string? PaymentReference = null, Billing.FiscalBuyerInput? Buyer = null, string? CardNumber = null) : IRequest<CheckoutResult>, IAuditableRequest
 {
-    public object AuditDetails => new { CustomerCode, PaymentMethodCode, Lines = Lines.Select(l => new { l.Sku, l.Quantity, l.DiscountPercent }), CashReceived };
+    // V4.1 · La tarjeta se audita SOLO enmascarada (nunca el número completo).
+    public object AuditDetails => new
+    {
+        CustomerCode, PaymentMethodCode, Lines = Lines.Select(l => new { l.Sku, l.Quantity, l.DiscountPercent }), CashReceived,
+        Buyer = Buyer is null ? null : new { Buyer.DocumentType, Buyer.DocumentNumber, Buyer.Complement, Buyer.Name },
+        Card = CardNumber is null ? null : (CardNumber.Length >= 8 ? CardNumber[..4] + "…" + CardNumber[^4..] : "…"),
+    };
+
+    public override string ToString() => $"CheckoutCommand {CustomerCode} {PaymentMethodCode} ({Lines.Count} líneas)";
 }
 
+/// <summary>Resultado del cobro. V4.1: si la empresa factura, el documento fiscal queda PENDIENTE (en línea) o FUERA DE
+/// LÍNEA; la caja envía <c>DispatchFiscalDocumentsCommand</c> con <see cref="FiscalDocumentId"/> y recién imprime.</summary>
 public sealed record CheckoutResult(string InvoiceNumber, string OrderNumber, DateTimeOffset IssuedAt, decimal Total, decimal Tax, decimal Change,
-    string Customer, string PaymentMethod, IReadOnlyList<ReceiptLine> Lines);
+    string Customer, string PaymentMethod, IReadOnlyList<ReceiptLine> Lines, Guid? FiscalDocumentId = null, long? FiscalNumber = null,
+    string? Cuf = null, Domain.Billing.FiscalDocumentStatus? FiscalStatus = null);
 
 public sealed class CheckoutValidator : AbstractValidator<CheckoutCommand>
 {

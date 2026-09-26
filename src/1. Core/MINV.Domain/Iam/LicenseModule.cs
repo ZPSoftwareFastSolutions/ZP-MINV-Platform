@@ -54,6 +54,9 @@ public sealed class LicenseModule : PlatformEntity
             "API Gateway con API Keys y webhooks para e-commerce (Shopify) y ERP contable.", 6000m, 400m),
         new(LicenseModuleCodes.GlobalAuditId, LicenseModuleCodes.GlobalAudit, "Auditoría global (réplicas de lectura)",
             "Modelo de lectura desnormalizado para gerencia sin cargar las cajas POS.", 5000m, 300m),
+        // V4.1 · Facturación SIAT (precio propuesto: se ajusta en la migración o en la administración de la plataforma)
+        new(LicenseModuleCodes.FiscalSiatId, LicenseModuleCodes.FiscalSiat, "Facturación SIAT (computarizada en línea)",
+            "Facturas y notas crédito-débito del SIN con CUF, contingencia automática, anulación, libros de ventas y compras.", 7000m, 450m),
     ];
 }
 
@@ -69,6 +72,7 @@ public static class LicenseModuleCodes
     public const string MultiBranch = "MULTI_BRANCH";
     public const string ApiIntegrations = "API_INTEGRATIONS";
     public const string GlobalAudit = "GLOBAL_AUDIT";
+    public const string FiscalSiat = "FISCAL_SIAT";
 
     public static readonly Guid DataEngineId = new("01920000-0000-7000-8000-000000000001");
     public static readonly Guid DesktopClientId = new("01920000-0000-7000-8000-000000000002");
@@ -79,4 +83,5 @@ public static class LicenseModuleCodes
     public static readonly Guid MultiBranchId = new("01920000-0000-7000-8000-000000000007");
     public static readonly Guid ApiIntegrationsId = new("01920000-0000-7000-8000-000000000008");
     public static readonly Guid GlobalAuditId = new("01920000-0000-7000-8000-000000000009");
+    public static readonly Guid FiscalSiatId = new("01920000-0000-7000-8000-00000000000a");
 }
