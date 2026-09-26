@@ -5,12 +5,15 @@ using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using MINV.Application.Abstractions;
+using MINV.Infrastructure.Billing;
+using MINV.Infrastructure.Billing.Rendering;
 using MINV.Infrastructure.Demo;
 using MINV.Infrastructure.Importing.V21;
 using MINV.Infrastructure.Persistence;
 using MINV.Infrastructure.Persistence.Interceptors;
 using MINV.Infrastructure.Provisioning;
 using MINV.Infrastructure.Services;
+
 
 namespace MINV.Infrastructure;
 
@@ -37,6 +40,8 @@ public static class DependencyInjection
         services.AddDbContextFactory<MinvReadDbContext>((sp, options) => Configure(options, readConnection)
             .AddInterceptors(sp.GetRequiredService<TenantSessionInterceptor>()), ServiceLifetime.Scoped);
         services.AddScoped(sp => sp.GetRequiredService<IDbContextFactory<MinvReadDbContext>>().CreateDbContext());
+        // V4.1 · Facturación SIAT: servicios SOAP del SIN (o el simulador HTTP) según las URL de cada ambiente
+        services.AddMinvSiat();
         return services.AddMinvPersistence((sp, options) => Configure(options, connectionString)
             .AddInterceptors(sp.GetRequiredService<TenantSessionInterceptor>()));
     }
@@ -55,6 +60,8 @@ public static class DependencyInjection
         services.AddSingleton<IClock>(sp => sp.GetRequiredService<DemoClock>());
         services.AddScoped<DemoWorkspace>();
         services.TryAddSingleton<ISecretProtector>(AesGcmSecretProtector.Ephemeral());
+        // V4.1 · En la demostración el SIN es el simulador en memoria (sin red ni token real)
+        services.AddMinvSiat(new SiatOptions { Mode = SiatGatewayMode.InProcessSimulator });
         return services.AddMinvPersistence((_, options) => ConfigureInMemory(options, name, root));
     }
 
@@ -81,6 +88,8 @@ public static class DependencyInjection
         services.AddScoped<TenantProvisioner>();
         services.AddScoped<V21Importer>();
         services.AddTransient<Seeding.LocalDataSeeder>();
+        // V4.1 · XML del SIN (validado contra los XSD oficiales) y representación gráfica en PDF
+        services.AddMinvFiscalDocuments();
         return services;
     }
 

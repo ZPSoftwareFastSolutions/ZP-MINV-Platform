@@ -93,7 +93,8 @@ public sealed class AuthorizationTests
         Assert.Contains(PermissionCodes.MovementsRegisterWarehouse, PermissionCodes.ForRole(RoleCodes.Warehouse));
         Assert.DoesNotContain(PermissionCodes.MovementsRegisterSales, PermissionCodes.ForRole(RoleCodes.Warehouse));
         Assert.DoesNotContain(PermissionCodes.MovementsRegisterWarehouse, PermissionCodes.ForRole(RoleCodes.Sales));
-        Assert.Equal([PermissionCodes.StockView, PermissionCodes.ReportsView], PermissionCodes.ForRole(RoleCodes.ReadOnly));
+        // V4.1 · Consulta también ve los documentos fiscales y los libros (sin emitir ni anular)
+        Assert.Equal([PermissionCodes.StockView, PermissionCodes.ReportsView, PermissionCodes.BillingView], PermissionCodes.ForRole(RoleCodes.ReadOnly));
         // Funciones por rol (V3.1 con base local): contabilidad solo gerencia y administración; usuarios solo administración
         Assert.Contains(PermissionCodes.AccountingManage, PermissionCodes.ForRole(RoleCodes.Management));
         Assert.DoesNotContain(PermissionCodes.AccountingManage, PermissionCodes.ForRole(RoleCodes.Cashier));

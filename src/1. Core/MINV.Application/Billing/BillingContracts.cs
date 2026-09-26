@@ -135,12 +135,18 @@ public sealed record SiatMaintenanceResult(int CuisRequested, int CufdRequested,
 
 [RequiresPermission(PermissionCodes.BillingView)]
 [RequiresModule(LicenseModuleCodes.FiscalSiat)]
-public sealed record CheckSiatCommunicationCommand(Guid? PointOfSaleId = null) : IRequest<string>;
+public sealed record CheckSiatCommunicationCommand(Guid? PointOfSaleId = null) : IRequest<string>, IAuditableRequest
+{
+    public object AuditDetails => new { PointOfSaleId };
+}
 
 /// <summary>Verifica un NIT contra el Padrón (verificarNit) y guarda el resultado.</summary>
 [RequiresPermission(PermissionCodes.BillingIssue)]
 [RequiresModule(LicenseModuleCodes.FiscalSiat)]
-public sealed record VerifyNitCommand(long Nit, string? CustomerCode = null) : IRequest<NitCheckResult>;
+public sealed record VerifyNitCommand(long Nit, string? CustomerCode = null) : IRequest<NitCheckResult>, IAuditableRequest
+{
+    public object AuditDetails => new { Nit, CustomerCode };
+}
 
 public sealed record NitCheckResult(long Nit, bool IsValid, int? SiatCode, string Description, bool Checked);
 
@@ -260,7 +266,10 @@ public sealed record RenderFiscalDocumentQuery(Guid DocumentId, FiscalDeliveryCh
 
 /// <summary>Registra que el documento se imprimió o se entregó en PDF (evidencia de la entrega al comprador).</summary>
 [RequiresPermission(PermissionCodes.BillingView)]
-public sealed record RecordFiscalDeliveryCommand(Guid DocumentId, FiscalDeliveryChannel Channel, string? Recipient = null) : IRequest<string>;
+public sealed record RecordFiscalDeliveryCommand(Guid DocumentId, FiscalDeliveryChannel Channel, string? Recipient = null) : IRequest<string>, IAuditableRequest
+{
+    public object AuditDetails => new { DocumentId, Channel, Recipient };
+}
 
 /// <summary>Envía el XML y el PDF al correo del comprador (o al indicado).</summary>
 [RequiresPermission(PermissionCodes.BillingIssue)]
@@ -277,14 +286,20 @@ public sealed record SendFiscalDocumentEmailCommand(Guid DocumentId, string? Ema
 /// </summary>
 [RequiresPermission(PermissionCodes.BillingIssue)]
 [RequiresModule(LicenseModuleCodes.FiscalSiat)]
-public sealed record DispatchFiscalDocumentsCommand(Guid? DocumentId = null, int Max = 50) : IRequest<DispatchResult>;
+public sealed record DispatchFiscalDocumentsCommand(Guid? DocumentId = null, int Max = 50) : IRequest<DispatchResult>, IAuditableRequest
+{
+    public object AuditDetails => new { DocumentId, Max };
+}
 
 public sealed record DispatchResult(int Sent, int Valid, int Rejected, int WentOffline, IReadOnlyList<FiscalDocumentRow> Documents,
     IReadOnlyList<string> Messages);
 
 [RequiresPermission(PermissionCodes.BillingView)]
 [RequiresModule(LicenseModuleCodes.FiscalSiat)]
-public sealed record CheckFiscalDocumentStatusCommand(Guid DocumentId) : IRequest<string>;
+public sealed record CheckFiscalDocumentStatusCommand(Guid DocumentId) : IRequest<string>, IAuditableRequest
+{
+    public object AuditDetails => new { DocumentId };
+}
 
 /// <summary>Anula en el SIN (motivo del catálogo; hasta el día 9 del mes siguiente). Con <see cref="ReturnGoods"/> además
 /// devuelve TODA la mercadería (stock, reembolso y asiento inverso); sin ella la venta sigue y se puede re-facturar.</summary>
@@ -510,6 +525,9 @@ public sealed record GetReceiptsWithoutInvoiceQuery : IRequest<IReadOnlyList<Pen
 /// </summary>
 [RequiresPermission(PermissionCodes.BillingIssue)]
 [RequiresModule(LicenseModuleCodes.FiscalSiat)]
-public sealed record RunSiatWorkCommand(bool Maintain = true) : IRequest<SiatWorkResult>;
+public sealed record RunSiatWorkCommand(bool Maintain = true) : IRequest<SiatWorkResult>, IAuditableRequest
+{
+    public object AuditDetails => new { Maintain };
+}
 
 public sealed record SiatWorkResult(DispatchResult Dispatch, SiatMaintenanceResult? Maintenance);

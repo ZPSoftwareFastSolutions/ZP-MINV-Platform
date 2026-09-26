@@ -1,5 +1,6 @@
 using System.Threading.RateLimiting;
 using MINV.Application;
+using MINV.Infrastructure.Billing;
 using MINV.Infrastructure.Hosting;
 
 namespace MINV.CloudServer;
@@ -19,6 +20,12 @@ public static class CloudServerApp
             builder.Configuration[Infrastructure.DependencyInjection.ConnectionStringVariable]
             ?? Environment.GetEnvironmentVariable(Infrastructure.DependencyInjection.ConnectionStringVariable));
         builder.Services.AddSingleton(new StorageInfo(storage));
+        // V4.1 · El servidor en la nube es el único que habla con el SIN en modo nube: envía los documentos pendientes y
+        // mantiene CUIS, CUFD, reloj y catálogos de cada empresa con facturación activa (Minv:Siat:Background=false lo apaga).
+        if (builder.Configuration.GetValue("Minv:Siat:Background", true))
+        {
+            builder.Services.AddMinvSiatBackground();
+        }
         builder.Services.AddRateLimiter(options =>
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;

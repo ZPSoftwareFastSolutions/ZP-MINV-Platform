@@ -28,7 +28,7 @@ public abstract class SeededServer : IAsyncLifetime
     public async Task InitializeAsync()
     {
         App = Build(["--urls", "http://127.0.0.1:0", "--Minv:Storage", "memoria", "--Minv:Webhooks:Enabled", "false",
-            "--Minv:Webhooks:AllowPrivateTargets", "true", "--Minv:LoginsPerMinute", "1000", "--Logging:LogLevel:Default", "Warning"]);
+            "--Minv:Webhooks:AllowPrivateTargets", "true", "--Minv:LoginsPerMinute", "1000", "--Minv:Siat:Background", "false", "--Logging:LogLevel:Default", "Warning"]);
         await App.StartAsync();
         BaseAddress = new Uri(App.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.First());
         Seed = await App.Services.GetRequiredService<LocalDataSeeder>().SeedAsync(new SeedOptions("NUBE", Days: 4, Seed: 11), _ => { });
