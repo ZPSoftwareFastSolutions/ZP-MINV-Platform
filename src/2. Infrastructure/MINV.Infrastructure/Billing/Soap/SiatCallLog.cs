@@ -58,6 +58,10 @@ public static class SiatGatewayErrors
         new("siat.token_rejected",
             $"El SIN rechazó el token delegado ({reason}): genere uno nuevo en el Portal SIAT (Token Delegado) y cárguelo en Configuración › Facturación SIAT.");
 
+    /// <summary>Sin token no se llama al SIN (regla P1-02: nunca llamar con el token vacío).</summary>
+    public static DomainException MissingToken() =>
+        new("siat.no_token", "Falta el token delegado del SIN para este ambiente (Portal SIAT › Token Delegado).");
+
     /// <summary>Las notas crédito-débito (Documentos de Ajuste) no tienen servicio de paquetes (investigación 02 §8.6).</summary>
     public static DomainException PackagesNotSupported() =>
         new("siat.package_unsupported", "El servicio de Documentos de Ajuste no recibe paquetes: las notas crédito-débito se envían solo en línea.");

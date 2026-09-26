@@ -170,6 +170,28 @@ public sealed class SiatSoapReader
     /// <summary>Elementos de una lista (p. ej. <c>listaCodigos</c>) en cualquier nivel.</summary>
     public IEnumerable<XElement> Items(string name) => _root.DescendantsAndSelf().Where(e => e.Name.LocalName == name);
 
+    /// <summary>
+    /// Filas de una lista, con cualquiera de las dos formas habituales: el elemento de la lista repetido por fila
+    /// (<c>&lt;listaCodigos&gt;&lt;codigoClasificador/&gt;…&lt;/listaCodigos&gt;</c> ×n, estilo JAX-WS) o un contenedor con una fila
+    /// por hijo. Una fila es la que tiene el campo <paramref name="keyField"/>.
+    /// </summary>
+    public IReadOnlyList<XElement> ListItems(string listName, string keyField)
+    {
+        var rows = new List<XElement>();
+        foreach (var list in Items(listName))
+        {
+            if (list.Elements().Any(e => e.Name.LocalName == keyField))
+            {
+                rows.Add(list);
+            }
+            else
+            {
+                rows.AddRange(list.Elements().Where(e => e.Elements().Any(c => c.Name.LocalName == keyField)));
+            }
+        }
+        return rows;
+    }
+
     /// <summary>Mensajes (código, descripción, número de archivo y de detalle) con cualquiera de los nombres de lista.</summary>
     public IReadOnlyList<SiatMessage> Messages
     {
