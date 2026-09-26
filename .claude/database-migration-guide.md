@@ -1,14 +1,14 @@
-# Guía de migraciones de la base de datos · M-INV V3 y V4
+# Guía de migraciones de la base de datos · M-INV V3, V4 y V4.1
 
 Dos tipos de migración: **esquema** (EF Core Code-First, cambios del modelo) y **datos** (llevar un libro de la V2.1 a
-la V3, o una base V3 a la V4). Reglas: `.claude/v3-architecture-rules.md` (A-06, A-07, A-08) y
-`.claude/v4-architecture-rules.md` (B-12, B-13, B-15).
+la V3, una base V3 a la V4 o una V4 a la V4.1). Reglas: `.claude/v3-architecture-rules.md` (A-06, A-07, A-08),
+`.claude/v4-architecture-rules.md` (B-12, B-13, B-15) y `.claude/v41-billing-rules.md` (F-11, F-14).
 
 ## 0. Dos contextos desde la V4
 
 | Contexto | Archivo | Migraciones | Para qué |
 |---|---|---|---|
-| **`MinvWriteDbContext`** (antes `MINVDbContext`) | `Persistence/MinvWriteDbContext.cs` | **sí**: todas las de `Persistence/Migrations` | modelo transaccional (OLTP): las 110 tablas, outbox, guardas |
+| **`MinvWriteDbContext`** (antes `MINVDbContext`) | `Persistence/MinvWriteDbContext.cs` | **sí**: todas las de `Persistence/Migrations` | modelo transaccional (OLTP): las 140 tablas de la V4.1 (110 de la V4), outbox, guardas |
 | `MinvReadDbContext` | `Persistence/MinvReadDbContext.cs` | **no** | modelo de lectura (OLAP): lee las vistas `reporting.v_*`; sus vistas las crea una migración del contexto de escritura |
 
 - `MINVDbContext` se renombró a `MinvWriteDbContext` en la V4 (clase, archivo, `IDesignTimeDbContextFactory` →
@@ -198,13 +198,18 @@ base V3.1 (97 tablas, una sucursal por empresa) a la V4 (110 tablas, 8 esquemas)
 | `BranchTables` (35) | entidades `IBranchScoped` | política RESTRICTIVA `branch_isolation` sobre `branch_id`; verificación del relleno |
 | `InterBranchTables` (5) | entidades `IInterBranch` | `branch_isolation` sobre `from_branch_id OR to_branch_id` |
 | `AppendOnlyTablesV4` (8) | entidades `IAppendOnly` nuevas de la V4 (las 7 de la V3 están en `GuardsRlsAndViews.AppendOnlyTables`) | `trg_append_only`, `REVOKE UPDATE, DELETE, TRUNCATE` |
+| `V41SiatBilling.BranchTablesV41` (15) | entidades `IBranchScoped` nuevas de la V4.1 (junto con `BranchTables`: 50) | `branch_isolation` RESTRICTIVA sobre `branch_id` |
+| `V41SiatBilling.AppendOnlyTablesV41` (9) | entidades `IAppendOnly` nuevas de la V4.1 (24 libros en total) | `trg_append_only`, `REVOKE UPDATE, DELETE, TRUNCATE` |
+| `V41SiatBilling.NewTablesV41` (30) | tablas creadas por la V4.1 | `GRANT` a `minv_app` y `minv_server` |
 
 - Son listas **explícitas** a propósito: una migración publicada es inmutable y su resultado no debe cambiar si mañana
   aparece otra tabla con esas columnas. La política de empresa sí se genera por descubrimiento (`tenant_id`), porque
   toda tabla la necesita.
 - Una tabla nueva de sucursal, entre sucursales o append-only DEBE agregarse en una lista de la **migración nueva** que
   la crea (con su política, trigger y `REVOKE`), y la prueba de modelo DEBE comparar la unión de todas las listas con
-  las entidades del modelo (regla B-15). `ModelTests.Los_libros_mayores_son_append_only` ya fija los 15 libros.
+  las entidades del modelo (regla B-15). `ModelTests.Los_libros_mayores_son_append_only` fija los 24 libros y
+  `ModelTests.Las_listas_de_las_migraciones_coinciden_con_el_modelo` compara la unión de las listas V4 + V4.1 con el
+  modelo.
 
 ## 7. Revertir
 
@@ -215,3 +220,54 @@ base V3.1 (97 tablas, una sucursal por empresa) a la V4 (110 tablas, 8 esquemas)
 - V4 → V3: el `Down` de `V4MultiBranchCloud` borra las tablas nuevas (transferencias, integraciones, idempotencia) y las
   columnas de sucursal: solo tiene sentido antes de operar con varias sucursales. Con datos V4 reales, restaure el
   respaldo previo a la migración.
+
+## 8. Migrar una base V4 a la V4.1 (`V41SiatBilling`)
+
+La migración `20260926003559_V41SiatBilling` (archivo generado + parcial `…V41SiatBilling.Sql.cs`) agrega la facturación
+SIAT: 110 → **140 tablas en 9 esquemas**. No tiene relleno: todas las tablas son nuevas y las columnas nuevas de
+`sales.customers` (`document_type`, `complement`) son opcionales, así que los datos V4 no cambian.
+
+**Qué hace, en orden** (`Up`):
+
+1. Generado por EF: esquema `billing` y sus 27 tablas (configuración, conexión por ambiente, sucursales del Padrón,
+   puntos de venta, CUIS, CUFD, catálogos sincronizados, homologación, verificaciones de NIT, documentos fiscales con su
+   subtipo de nota, líneas, XML, bitácora y entregas, eventos significativos, paquetes, CAFC, bitácora SOAP y correo);
+   `sales.sales_returns` y `sales.sales_return_lines`; `purchasing.supplier_invoice_fiscal`; las columnas del cliente
+   con sus CHECK; claves alternas y FK compuestas con empresa y sucursal; el módulo `FISCAL_SIAT` en `iam.modules`
+   (`HasData`).
+2. **Defensas** (`V41Guards`): `trg_append_only` y `trg_append_only_truncate` en `AppendOnlyTablesV41` (9);
+   `tenant_isolation` por descubrimiento en toda tabla con `tenant_id` que aún no la tenga (las 30 nuevas: 138 en
+   total); `branch_isolation` RESTRICTIVA con `iam.branch_visible(branch_id)` en `BranchTablesV41` (15: 55 en total);
+   función SECURITY DEFINER `billing.siat_active_tenants()` (`SETOF uuid`, `search_path` fijo, sin EXECUTE para
+   PUBLIC); vista `billing.v_fiscal_document_totals` (`security_barrier` + `security_invoker`: totales derivados de las
+   líneas); permisos `billing.*` y matriz rol-permiso de las empresas existentes; privilegios de `minv_app` y
+   `minv_server` (solo si existen: SELECT/INSERT/UPDATE/DELETE en las 30 tablas nuevas salvo UPDATE/DELETE/TRUNCATE en
+   los libros, SELECT en la vista y EXECUTE de la función solo para `minv_server`).
+
+`Down` (`V41DropGuards` + lo generado + `V41DropSchema`) borra la vista, la función y los permisos `billing.*` (con sus
+filas de `role_permissions`), las tablas nuevas, las columnas del cliente y el módulo, y por último el esquema vacío.
+Solo tiene sentido antes de emitir documentos fiscales: con documentos reales, restaure el respaldo.
+
+**Paso a paso**:
+
+1. **Respaldo** (`pg_dump -Fc`) y, si es posible, pruebe primero sobre una copia (`CREATE DATABASE minv_v41_prueba
+   TEMPLATE minv`, sin conexiones abiertas a `minv`; o `pg_dump`/`pg_restore`).
+2. Los roles `minv_server` y `minv_app` ya existen desde la V4 (si no, créelos con `minv roles` antes de migrar).
+3. Aplique con el dueño: `minv migrate --conexion "<cadena de minv_owner>"` (o `scripts/db_init.sql`).
+4. Verifique (como dueño) o con `minv verify --codigo <EMPRESA>`:
+
+   ```sql
+   SELECT count(*) FROM information_schema.tables WHERE table_type = 'BASE TABLE'
+     AND table_schema IN ('iam','catalog','warehouse','inventory','purchasing','sales','accounting','integration','billing')
+     AND table_name <> '__ef_migrations_history';                            -- 140
+   SELECT count(*) FROM pg_policies WHERE policyname = 'tenant_isolation';   -- 138
+   SELECT count(*) FROM pg_policies WHERE policyname = 'branch_isolation';   -- 55
+   SELECT count(*) FROM pg_trigger  WHERE tgname = 'trg_append_only';        -- 24
+   SELECT count(*) FROM inventory.v_conservation_breaches;                   -- 0
+   SELECT count(*) FROM inventory.v_transfer_breaches;                       -- 0
+   ```
+
+5. Las empresas existentes reciben los permisos `billing.*`, pero **no** el módulo `FISCAL_SIAT` (se vende aparte).
+   Para habilitarlo, el mismo `INSERT INTO iam.tenant_modules …` del §5 con `m.code = 'FISCAL_SIAT'`. Después se
+   configura la facturación desde el escritorio (Configuración › Facturación SIAT): NIT, código de sistema, ambiente,
+   token, sucursales del Padrón y puntos de venta.

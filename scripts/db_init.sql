@@ -1,5 +1,5 @@
 -- =====================================================================================================================
--- M-INV V4 · Inicialización de la base de datos PostgreSQL (110 tablas, 8 esquemas + modelo de lectura, 5FN)
+-- M-INV V4.1 · Inicialización de la base de datos PostgreSQL (140 tablas, 9 esquemas + modelo de lectura, 5FN)
 -- Z&P Software Fast Solutions
 --
 -- ARCHIVO GENERADO por tools/build_v3.ps1 (cabecera + «dotnet ef migrations script --idempotent»). No lo edite a mano:
@@ -20,12 +20,13 @@
 --      servidores: MINV_DB = "Host=…;Database=minv;Username=minv_server;Password=…;SSL Mode=VerifyFull"
 --      escritorio directo (base local): MINV_DB = "Host=localhost;Port=5432;Database=minv;Username=minv_app;Password=…"
 --
--- Contenido: esquemas iam, catalog, warehouse, inventory, purchasing, sales, accounting e integration; tablas con PK, FK
--- compuestas (tenant_id, id) y (tenant_id, branch_id, id); restricciones CHECK e índices únicos; catálogo de módulos
--- comerciales; triggers append-only, un valor por atributo y asientos cuadrados; Row Level Security por empresa y
--- política restrictiva por sucursal; funciones SECURITY DEFINER para el servidor; esquema reporting (vistas
--- materializadas + vistas filtradas); vistas v_stock_by_variant, v_conservation_breaches, v_transfer_breaches y
--- v_activity; privilegios de minv_app y minv_server.
+-- Contenido: esquemas iam, catalog, warehouse, inventory, purchasing, sales, accounting, integration y billing (V4.1:
+-- facturación SIAT computarizada en línea); tablas con PK, FK compuestas (tenant_id, id) y (tenant_id, branch_id, id);
+-- restricciones CHECK e índices únicos; catálogo de módulos comerciales; triggers append-only, un valor por atributo y
+-- asientos cuadrados; Row Level Security por empresa y política restrictiva por sucursal; funciones SECURITY DEFINER
+-- para el servidor (V4.1: billing.siat_active_tenants); esquema reporting (vistas materializadas + vistas filtradas);
+-- vistas v_stock_by_variant, v_conservation_breaches, v_transfer_breaches, v_activity y (V4.1)
+-- billing.v_fiscal_document_totals (totales fiscales derivados); privilegios de minv_app y minv_server.
 -- =====================================================================================================================
 
 DO $$
@@ -8191,6 +8192,1800 @@ BEGIN
     IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260925225352_V4BranchHeaderKeys') THEN
     INSERT INTO iam.__ef_migrations_history ("MigrationId", "ProductVersion")
     VALUES ('20260925225352_V4BranchHeaderKeys', '8.0.31');
+    END IF;
+END $EF$;
+COMMIT;
+
+START TRANSACTION;
+
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+        IF NOT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = 'billing') THEN
+            CREATE SCHEMA billing;
+        END IF;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    ALTER TABLE sales.customers ADD complement character varying(5);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    ALTER TABLE sales.customers ADD document_type smallint;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TABLE billing.contingency_codes (
+        id uuid NOT NULL,
+        branch_id uuid NOT NULL,
+        document_sector integer NOT NULL,
+        code character varying(50) NOT NULL,
+        number_from bigint NOT NULL,
+        number_to bigint NOT NULL,
+        valid_until date,
+        is_active boolean NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        updated_at timestamp with time zone,
+        updated_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_contingency_codes PRIMARY KEY (id),
+        CONSTRAINT ak_contingency_codes_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id),
+        CONSTRAINT ak_contingency_codes_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_contingency_codes_rango CHECK (number_from > 0 AND number_to >= number_from),
+        CONSTRAINT ck_contingency_codes_sector CHECK (document_sector BETWEEN 1 AND 99),
+        CONSTRAINT fk_contingency_codes_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_contingency_codes_tenant_id_branch_id FOREIGN KEY (tenant_id, branch_id) REFERENCES warehouse.branches (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TABLE billing.customer_nit_checks (
+        id uuid NOT NULL,
+        customer_id uuid,
+        nit bigint NOT NULL,
+        siat_code integer NOT NULL,
+        is_valid boolean NOT NULL,
+        description character varying(300),
+        checked_at timestamp with time zone NOT NULL,
+        user_id uuid,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_customer_nit_checks PRIMARY KEY (id),
+        CONSTRAINT ak_customer_nit_checks_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_customer_nit_checks_nit CHECK (nit > 0),
+        CONSTRAINT fk_customer_nit_checks_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_customer_nit_checks_tenant_id_customer_id FOREIGN KEY (tenant_id, customer_id) REFERENCES sales.customers (tenant_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_customer_nit_checks_tenant_id_user_id FOREIGN KEY (tenant_id, user_id) REFERENCES iam.users (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TABLE billing.mail_settings (
+        tenant_id uuid NOT NULL,
+        host character varying(200) NOT NULL,
+        port integer NOT NULL,
+        use_ssl boolean NOT NULL,
+        user_name character varying(200),
+        password_ciphertext character varying(4000),
+        password_key_id character varying(40),
+        from_address character varying(254) NOT NULL,
+        from_name character varying(100) NOT NULL,
+        is_enabled boolean NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        updated_at timestamp with time zone,
+        updated_by uuid,
+        CONSTRAINT pk_mail_settings PRIMARY KEY (tenant_id),
+        CONSTRAINT ck_mail_settings_clave CHECK ((password_ciphertext IS NULL) = (password_key_id IS NULL)),
+        CONSTRAINT ck_mail_settings_puerto CHECK (port BETWEEN 1 AND 65535),
+        CONSTRAINT fk_mail_settings_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TABLE billing.payment_method_siat_codes (
+        id uuid NOT NULL,
+        payment_method_id uuid NOT NULL,
+        sin_payment_method_code integer NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        updated_at timestamp with time zone,
+        updated_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_payment_method_siat_codes PRIMARY KEY (id),
+        CONSTRAINT ak_payment_method_siat_codes_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_payment_method_siat_codes_codigo CHECK (sin_payment_method_code BETWEEN 1 AND 999),
+        CONSTRAINT fk_payment_method_siat_codes_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_payment_method_siat_codes_tenant_id_payment_method_id FOREIGN KEY (tenant_id, payment_method_id) REFERENCES sales.payment_methods (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TABLE sales.sales_returns (
+        id uuid NOT NULL,
+        branch_id uuid NOT NULL,
+        number character varying(40) NOT NULL,
+        invoice_id uuid NOT NULL,
+        customer_id uuid NOT NULL,
+        reason character varying(200) NOT NULL,
+        refund_payment_method_id uuid NOT NULL,
+        pos_session_id uuid,
+        user_id uuid NOT NULL,
+        returned_at timestamp with time zone NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        updated_at timestamp with time zone,
+        updated_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_sales_returns PRIMARY KEY (id),
+        CONSTRAINT ak_sales_returns_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id),
+        CONSTRAINT ak_sales_returns_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT fk_sales_returns_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_sales_returns_tenant_id_branch_id_invoice_id FOREIGN KEY (tenant_id, branch_id, invoice_id) REFERENCES sales.invoices (tenant_id, branch_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_sales_returns_tenant_id_branch_id_pos_session_id FOREIGN KEY (tenant_id, branch_id, pos_session_id) REFERENCES sales.pos_sessions (tenant_id, branch_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_sales_returns_tenant_id_customer_id FOREIGN KEY (tenant_id, customer_id) REFERENCES sales.customers (tenant_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_sales_returns_tenant_id_refund_payment_method_id FOREIGN KEY (tenant_id, refund_payment_method_id) REFERENCES sales.payment_methods (tenant_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_sales_returns_tenant_id_user_id FOREIGN KEY (tenant_id, user_id) REFERENCES iam.users (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TABLE billing.siat_activities (
+        id uuid NOT NULL,
+        code character varying(10) NOT NULL,
+        description character varying(500) NOT NULL,
+        activity_type character varying(10),
+        is_current boolean NOT NULL,
+        synced_at timestamp with time zone NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        updated_at timestamp with time zone,
+        updated_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_siat_activities PRIMARY KEY (id),
+        CONSTRAINT ak_siat_activities_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT fk_siat_activities_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TABLE billing.siat_activity_sectors (
+        id uuid NOT NULL,
+        activity_code character varying(10) NOT NULL,
+        document_sector integer NOT NULL,
+        sector_type character varying(20),
+        is_current boolean NOT NULL,
+        synced_at timestamp with time zone NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        updated_at timestamp with time zone,
+        updated_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_siat_activity_sectors PRIMARY KEY (id),
+        CONSTRAINT ak_siat_activity_sectors_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_siat_activity_sectors_sector CHECK (document_sector BETWEEN 1 AND 99),
+        CONSTRAINT fk_siat_activity_sectors_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TABLE billing.siat_branches (
+        id uuid NOT NULL,
+        branch_id uuid NOT NULL,
+        siat_code integer NOT NULL,
+        municipality character varying(25) NOT NULL,
+        phone character varying(25),
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        updated_at timestamp with time zone,
+        updated_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_siat_branches PRIMARY KEY (id),
+        CONSTRAINT ak_siat_branches_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_siat_branches_codigo CHECK (siat_code BETWEEN 0 AND 9999),
+        CONSTRAINT fk_siat_branches_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_siat_branches_tenant_id_branch_id FOREIGN KEY (tenant_id, branch_id) REFERENCES warehouse.branches (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TABLE billing.siat_catalog_items (
+        id uuid NOT NULL,
+        catalog character varying(40) NOT NULL,
+        code integer NOT NULL,
+        description character varying(500) NOT NULL,
+        is_current boolean NOT NULL,
+        synced_at timestamp with time zone NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        updated_at timestamp with time zone,
+        updated_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_siat_catalog_items PRIMARY KEY (id),
+        CONSTRAINT ak_siat_catalog_items_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_siat_catalog_items_codigo CHECK (code >= 0),
+        CONSTRAINT fk_siat_catalog_items_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TABLE billing.siat_environment_profiles (
+        id uuid NOT NULL,
+        environment integer NOT NULL,
+        codes_url character varying(400) NOT NULL,
+        sync_url character varying(400) NOT NULL,
+        operations_url character varying(400) NOT NULL,
+        purchase_sale_url character varying(400) NOT NULL,
+        computerized_url character varying(400) NOT NULL,
+        adjustment_url character varying(400) NOT NULL,
+        namespace character varying(200) NOT NULL,
+        qr_base_url character varying(400) NOT NULL,
+        timeout_seconds integer NOT NULL,
+        token_ciphertext character varying(8000),
+        token_key_id character varying(40),
+        token_valid_until date,
+        token_updated_at timestamp with time zone,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        updated_at timestamp with time zone,
+        updated_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_siat_environment_profiles PRIMARY KEY (id),
+        CONSTRAINT ak_siat_environment_profiles_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_siat_environment_profiles_ambiente CHECK (environment IN (1, 2)),
+        CONSTRAINT ck_siat_environment_profiles_espera CHECK (timeout_seconds BETWEEN 3 AND 120),
+        CONSTRAINT ck_siat_environment_profiles_token CHECK ((token_ciphertext IS NULL) = (token_key_id IS NULL)),
+        CONSTRAINT fk_siat_environment_profiles_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TABLE billing.siat_legends (
+        id uuid NOT NULL,
+        activity_code character varying(10) NOT NULL,
+        text character varying(200) NOT NULL,
+        is_current boolean NOT NULL,
+        synced_at timestamp with time zone NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        updated_at timestamp with time zone,
+        updated_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_siat_legends PRIMARY KEY (id),
+        CONSTRAINT ak_siat_legends_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT fk_siat_legends_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TABLE billing.siat_points_of_sale (
+        id uuid NOT NULL,
+        branch_id uuid NOT NULL,
+        environment integer NOT NULL,
+        code integer NOT NULL,
+        type_code integer NOT NULL,
+        name character varying(100) NOT NULL,
+        description character varying(200),
+        pos_register_id uuid,
+        mode character varying(20) NOT NULL,
+        mode_since timestamp with time zone NOT NULL,
+        last_contact_at timestamp with time zone,
+        consecutive_failures integer NOT NULL,
+        last_error character varying(500),
+        retry_at timestamp with time zone,
+        closed_at timestamp with time zone,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        updated_at timestamp with time zone,
+        updated_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_siat_points_of_sale PRIMARY KEY (id),
+        CONSTRAINT ak_siat_points_of_sale_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id),
+        CONSTRAINT ak_siat_points_of_sale_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_siat_points_of_sale_ambiente CHECK (environment IN (1, 2)),
+        CONSTRAINT ck_siat_points_of_sale_cierre CHECK (closed_at IS NULL OR code > 0),
+        CONSTRAINT ck_siat_points_of_sale_codigo CHECK (code BETWEEN 0 AND 9999),
+        CONSTRAINT ck_siat_points_of_sale_fallos CHECK (consecutive_failures >= 0),
+        CONSTRAINT ck_siat_points_of_sale_modo CHECK (mode IN ('Online', 'Offline', 'ManualContingency', 'Recovering')),
+        CONSTRAINT ck_siat_points_of_sale_tipo CHECK (type_code BETWEEN 0 AND 99),
+        CONSTRAINT fk_siat_points_of_sale_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_siat_points_of_sale_tenant_id_branch_id FOREIGN KEY (tenant_id, branch_id) REFERENCES warehouse.branches (tenant_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_siat_points_of_sale_tenant_id_branch_id_pos_register_id FOREIGN KEY (tenant_id, branch_id, pos_register_id) REFERENCES sales.pos_registers (tenant_id, branch_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TABLE billing.siat_products (
+        id uuid NOT NULL,
+        activity_code character varying(10) NOT NULL,
+        product_code integer NOT NULL,
+        description character varying(1000) NOT NULL,
+        is_current boolean NOT NULL,
+        synced_at timestamp with time zone NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        updated_at timestamp with time zone,
+        updated_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_siat_products PRIMARY KEY (id),
+        CONSTRAINT ak_siat_products_tenant_id_activity_code_product_code UNIQUE (tenant_id, activity_code, product_code),
+        CONSTRAINT ak_siat_products_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_siat_products_codigo CHECK (product_code BETWEEN 1 AND 99999999),
+        CONSTRAINT fk_siat_products_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TABLE billing.siat_service_calls (
+        id uuid NOT NULL,
+        environment integer NOT NULL,
+        resource character varying(60) NOT NULL,
+        operation character varying(80) NOT NULL,
+        branch_id uuid,
+        point_of_sale_code integer,
+        occurred_at timestamp with time zone NOT NULL,
+        duration_ms integer NOT NULL,
+        http_status integer,
+        siat_code integer,
+        succeeded boolean NOT NULL,
+        request_body character varying(20000),
+        response_body character varying(20000),
+        error character varying(1000),
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_siat_service_calls PRIMARY KEY (id),
+        CONSTRAINT ak_siat_service_calls_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_siat_service_calls_duracion CHECK (duration_ms >= 0),
+        CONSTRAINT fk_siat_service_calls_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_siat_service_calls_tenant_id_branch_id FOREIGN KEY (tenant_id, branch_id) REFERENCES warehouse.branches (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TABLE billing.siat_settings (
+        tenant_id uuid NOT NULL,
+        nit bigint NOT NULL,
+        business_name character varying(200) NOT NULL,
+        system_code character varying(50) NOT NULL,
+        environment integer NOT NULL,
+        modality integer NOT NULL,
+        is_enabled boolean NOT NULL,
+        online_legend character varying(250) NOT NULL,
+        offline_legend character varying(250) NOT NULL,
+        clock_offset_ms bigint NOT NULL,
+        clock_synced_at timestamp with time zone,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        updated_at timestamp with time zone,
+        updated_by uuid,
+        CONSTRAINT pk_siat_settings PRIMARY KEY (tenant_id),
+        CONSTRAINT ck_siat_settings_ambiente CHECK (environment IN (1, 2)),
+        CONSTRAINT ck_siat_settings_modalidad CHECK (modality = 2),
+        CONSTRAINT ck_siat_settings_nit CHECK (nit BETWEEN 1 AND 9999999999999),
+        CONSTRAINT fk_siat_settings_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TABLE billing.siat_sync_runs (
+        id uuid NOT NULL,
+        environment integer NOT NULL,
+        catalog character varying(40) NOT NULL,
+        items integer NOT NULL,
+        error character varying(1000),
+        occurred_at timestamp with time zone NOT NULL,
+        user_id uuid,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_siat_sync_runs PRIMARY KEY (id),
+        CONSTRAINT ak_siat_sync_runs_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_siat_sync_runs_filas CHECK (items >= 0),
+        CONSTRAINT fk_siat_sync_runs_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_siat_sync_runs_tenant_id_user_id FOREIGN KEY (tenant_id, user_id) REFERENCES iam.users (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TABLE purchasing.supplier_invoice_fiscal (
+        supplier_invoice_id uuid NOT NULL,
+        branch_id uuid NOT NULL,
+        authorization_code character varying(100) NOT NULL,
+        control_code character varying(17),
+        total_amount numeric(18,2) NOT NULL,
+        discounts numeric(18,2) NOT NULL,
+        not_subject_to_vat numeric(18,2) NOT NULL,
+        purchase_type integer NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        updated_at timestamp with time zone,
+        updated_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_supplier_invoice_fiscal PRIMARY KEY (supplier_invoice_id),
+        CONSTRAINT ck_supplier_invoice_fiscal_deducciones CHECK (discounts >= 0 AND not_subject_to_vat >= 0 AND total_amount - not_subject_to_vat - discounts >= 0),
+        CONSTRAINT ck_supplier_invoice_fiscal_importe CHECK (total_amount > 0),
+        CONSTRAINT ck_supplier_invoice_fiscal_tipo CHECK (purchase_type BETWEEN 1 AND 5),
+        CONSTRAINT fk_supplier_invoice_fiscal_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_supplier_invoice_fiscal_tenant_id_branch_id_supplie_d42241a5 FOREIGN KEY (tenant_id, branch_id, supplier_invoice_id) REFERENCES purchasing.supplier_invoices (tenant_id, branch_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TABLE billing.unit_siat_codes (
+        id uuid NOT NULL,
+        unit_id uuid NOT NULL,
+        sin_unit_code integer NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        updated_at timestamp with time zone,
+        updated_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_unit_siat_codes PRIMARY KEY (id),
+        CONSTRAINT ak_unit_siat_codes_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_unit_siat_codes_codigo CHECK (sin_unit_code BETWEEN 1 AND 999),
+        CONSTRAINT fk_unit_siat_codes_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_unit_siat_codes_tenant_id_unit_id FOREIGN KEY (tenant_id, unit_id) REFERENCES catalog.units_of_measure (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TABLE sales.sales_return_lines (
+        id uuid NOT NULL,
+        branch_id uuid NOT NULL,
+        sales_return_id uuid NOT NULL,
+        sales_order_line_id uuid NOT NULL,
+        variant_id uuid NOT NULL,
+        quantity numeric(18,6) NOT NULL,
+        stock_movement_id uuid,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        updated_at timestamp with time zone,
+        updated_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_sales_return_lines PRIMARY KEY (id),
+        CONSTRAINT ak_sales_return_lines_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id),
+        CONSTRAINT ak_sales_return_lines_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_sales_return_lines_cantidad CHECK (quantity > 0),
+        CONSTRAINT fk_sales_return_lines_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_sales_return_lines_tenant_id_branch_id_sales_order_line_id FOREIGN KEY (tenant_id, branch_id, sales_order_line_id) REFERENCES sales.sales_order_lines (tenant_id, branch_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_sales_return_lines_tenant_id_branch_id_sales_return_id FOREIGN KEY (tenant_id, branch_id, sales_return_id) REFERENCES sales.sales_returns (tenant_id, branch_id, id) ON DELETE CASCADE,
+        CONSTRAINT fk_sales_return_lines_tenant_id_branch_id_stock_movement_id FOREIGN KEY (tenant_id, branch_id, stock_movement_id) REFERENCES inventory.stock_movements (tenant_id, branch_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_sales_return_lines_tenant_id_variant_id FOREIGN KEY (tenant_id, variant_id) REFERENCES catalog.product_variants (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TABLE billing.siat_cuis (
+        id uuid NOT NULL,
+        branch_id uuid NOT NULL,
+        point_of_sale_id uuid NOT NULL,
+        code character varying(100) NOT NULL,
+        valid_until timestamp with time zone NOT NULL,
+        obtained_at timestamp with time zone NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_siat_cuis PRIMARY KEY (id),
+        CONSTRAINT ak_siat_cuis_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id),
+        CONSTRAINT ak_siat_cuis_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_siat_cuis_vigencia CHECK (valid_until > obtained_at),
+        CONSTRAINT fk_siat_cuis_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_siat_cuis_tenant_id_branch_id_point_of_sale_id FOREIGN KEY (tenant_id, branch_id, point_of_sale_id) REFERENCES billing.siat_points_of_sale (tenant_id, branch_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TABLE billing.product_siat_codes (
+        id uuid NOT NULL,
+        product_id uuid NOT NULL,
+        activity_code character varying(10) NOT NULL,
+        sin_product_code integer NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        updated_at timestamp with time zone,
+        updated_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_product_siat_codes PRIMARY KEY (id),
+        CONSTRAINT ak_product_siat_codes_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT fk_product_siat_codes_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_product_siat_codes_tenant_id_activity_code_sin_product_code FOREIGN KEY (tenant_id, activity_code, sin_product_code) REFERENCES billing.siat_products (tenant_id, activity_code, product_code) ON DELETE RESTRICT,
+        CONSTRAINT fk_product_siat_codes_tenant_id_product_id FOREIGN KEY (tenant_id, product_id) REFERENCES catalog.products (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TABLE billing.siat_cufds (
+        id uuid NOT NULL,
+        branch_id uuid NOT NULL,
+        point_of_sale_id uuid NOT NULL,
+        cuis_id uuid NOT NULL,
+        code character varying(100) NOT NULL,
+        control_code character varying(50) NOT NULL,
+        address character varying(500) NOT NULL,
+        valid_until timestamp with time zone NOT NULL,
+        obtained_at timestamp with time zone NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_siat_cufds PRIMARY KEY (id),
+        CONSTRAINT ak_siat_cufds_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id),
+        CONSTRAINT ak_siat_cufds_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_siat_cufds_vigencia CHECK (valid_until > obtained_at),
+        CONSTRAINT fk_siat_cufds_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_siat_cufds_tenant_id_branch_id_cuis_id FOREIGN KEY (tenant_id, branch_id, cuis_id) REFERENCES billing.siat_cuis (tenant_id, branch_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_siat_cufds_tenant_id_branch_id_point_of_sale_id FOREIGN KEY (tenant_id, branch_id, point_of_sale_id) REFERENCES billing.siat_points_of_sale (tenant_id, branch_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TABLE billing.significant_events (
+        id uuid NOT NULL,
+        branch_id uuid NOT NULL,
+        point_of_sale_id uuid NOT NULL,
+        environment integer NOT NULL,
+        kind character varying(20) NOT NULL,
+        event_code integer NOT NULL,
+        description character varying(500) NOT NULL,
+        started_at timestamp without time zone NOT NULL,
+        ended_at timestamp without time zone,
+        event_cufd_id uuid NOT NULL,
+        send_cufd_id uuid,
+        contingency_code_id uuid,
+        reception_code character varying(100),
+        status character varying(20) NOT NULL,
+        registered_at timestamp with time zone,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by_user_id uuid,
+        created_by uuid,
+        updated_at timestamp with time zone,
+        updated_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_significant_events PRIMARY KEY (id),
+        CONSTRAINT ak_significant_events_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id),
+        CONSTRAINT ak_significant_events_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_significant_events_ambiente CHECK (environment IN (1, 2)),
+        CONSTRAINT ck_significant_events_cafc CHECK (kind = 'ManualCafc' OR contingency_code_id IS NULL),
+        CONSTRAINT ck_significant_events_clase CHECK (kind IN ('Offline', 'ManualCafc')),
+        CONSTRAINT ck_significant_events_codigo CHECK (event_code BETWEEN 1 AND 99),
+        CONSTRAINT ck_significant_events_estado CHECK (status IN ('Open', 'Closed', 'Registered', 'PackagesSent', 'Reconciled', 'WithObservations')),
+        CONSTRAINT ck_significant_events_fin CHECK ((status = 'Open') = (ended_at IS NULL)),
+        CONSTRAINT ck_significant_events_rango CHECK (ended_at IS NULL OR ended_at > started_at),
+        CONSTRAINT ck_significant_events_registro CHECK ((status IN ('Open', 'Closed')) = (registered_at IS NULL) AND (registered_at IS NULL) = (reception_code IS NULL) AND (registered_at IS NULL) = (send_cufd_id IS NULL)),
+        CONSTRAINT fk_significant_events_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_significant_events_tenant_id_branch_id_contingency_code_id FOREIGN KEY (tenant_id, branch_id, contingency_code_id) REFERENCES billing.contingency_codes (tenant_id, branch_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_significant_events_tenant_id_branch_id_event_cufd_id FOREIGN KEY (tenant_id, branch_id, event_cufd_id) REFERENCES billing.siat_cufds (tenant_id, branch_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_significant_events_tenant_id_branch_id_point_of_sale_id FOREIGN KEY (tenant_id, branch_id, point_of_sale_id) REFERENCES billing.siat_points_of_sale (tenant_id, branch_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_significant_events_tenant_id_branch_id_send_cufd_id FOREIGN KEY (tenant_id, branch_id, send_cufd_id) REFERENCES billing.siat_cufds (tenant_id, branch_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_significant_events_tenant_id_created_by_user_id FOREIGN KEY (tenant_id, created_by_user_id) REFERENCES iam.users (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TABLE billing.fiscal_packages (
+        id uuid NOT NULL,
+        branch_id uuid NOT NULL,
+        significant_event_id uuid NOT NULL,
+        point_of_sale_id uuid NOT NULL,
+        send_cufd_id uuid NOT NULL,
+        document_sector integer NOT NULL,
+        document_type integer NOT NULL,
+        cafc character varying(50),
+        sha256 character varying(64) NOT NULL,
+        reception_code character varying(100),
+        status character varying(20) NOT NULL,
+        sent_at timestamp with time zone NOT NULL,
+        validated_at timestamp with time zone,
+        last_siat_code integer,
+        messages text,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        updated_at timestamp with time zone,
+        updated_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_fiscal_packages PRIMARY KEY (id),
+        CONSTRAINT ak_fiscal_packages_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id),
+        CONSTRAINT ak_fiscal_packages_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_fiscal_packages_estado CHECK (status IN ('Sent', 'Validated', 'Observed', 'Rejected')),
+        CONSTRAINT ck_fiscal_packages_huella CHECK (sha256 ~ '^[0-9a-f]{64}$'),
+        CONSTRAINT ck_fiscal_packages_sector CHECK (document_sector BETWEEN 1 AND 99),
+        CONSTRAINT ck_fiscal_packages_validacion CHECK ((status = 'Sent') = (validated_at IS NULL)),
+        CONSTRAINT fk_fiscal_packages_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_fiscal_packages_tenant_id_branch_id_point_of_sale_id FOREIGN KEY (tenant_id, branch_id, point_of_sale_id) REFERENCES billing.siat_points_of_sale (tenant_id, branch_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_fiscal_packages_tenant_id_branch_id_send_cufd_id FOREIGN KEY (tenant_id, branch_id, send_cufd_id) REFERENCES billing.siat_cufds (tenant_id, branch_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_fiscal_packages_tenant_id_branch_id_significant_event_id FOREIGN KEY (tenant_id, branch_id, significant_event_id) REFERENCES billing.significant_events (tenant_id, branch_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TABLE billing.fiscal_documents (
+        id uuid NOT NULL,
+        branch_id uuid NOT NULL,
+        environment integer NOT NULL,
+        kind character varying(20) NOT NULL,
+        point_of_sale_id uuid NOT NULL,
+        cuis_id uuid NOT NULL,
+        cufd_id uuid NOT NULL,
+        document_sector integer NOT NULL,
+        document_type integer NOT NULL,
+        emission_type integer NOT NULL,
+        number bigint NOT NULL,
+        cuf character varying(100) NOT NULL,
+        issued_at timestamp without time zone NOT NULL,
+        invoice_id uuid,
+        sales_return_id uuid,
+        replaces_document_id uuid,
+        customer_id uuid,
+        customer_code character varying(100) NOT NULL,
+        buyer_document_type integer NOT NULL,
+        buyer_document_number character varying(20) NOT NULL,
+        buyer_complement character varying(5),
+        buyer_name character varying(500),
+        buyer_email character varying(254),
+        payment_method_code integer,
+        card_number_masked character varying(16),
+        currency_code integer NOT NULL,
+        exchange_rate numeric(18,8) NOT NULL,
+        additional_discount numeric(18,2) NOT NULL,
+        gift_card_amount numeric(18,2) NOT NULL,
+        exception_code integer NOT NULL,
+        cafc character varying(50),
+        legend character varying(200) NOT NULL,
+        user_code character varying(100) NOT NULL,
+        status character varying(20) NOT NULL,
+        is_reverted boolean NOT NULL,
+        reception_code character varying(100),
+        last_siat_code integer,
+        significant_event_id uuid,
+        package_id uuid,
+        package_position integer,
+        void_reason_code integer,
+        voided_at timestamp with time zone,
+        reverted_at timestamp with time zone,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        updated_at timestamp with time zone,
+        updated_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_fiscal_documents PRIMARY KEY (id),
+        CONSTRAINT ak_fiscal_documents_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id),
+        CONSTRAINT ak_fiscal_documents_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_fiscal_documents_ambiente CHECK (environment IN (1, 2)),
+        CONSTRAINT ck_fiscal_documents_anulacion CHECK (status <> 'Voided' OR voided_at IS NOT NULL),
+        CONSTRAINT ck_fiscal_documents_cafc CHECK (cafc IS NULL OR emission_type = 2),
+        CONSTRAINT ck_fiscal_documents_clase CHECK ((kind = 'Invoice' AND document_sector = 1 AND document_type = 1) OR (kind = 'CreditDebitNote' AND document_sector = 24 AND document_type = 3)),
+        CONSTRAINT ck_fiscal_documents_comprador CHECK (buyer_document_type BETWEEN 1 AND 5 AND (buyer_complement IS NULL OR buyer_document_type = 1)),
+        CONSTRAINT ck_fiscal_documents_emision CHECK (emission_type IN (1, 2)),
+        CONSTRAINT ck_fiscal_documents_estado CHECK (status IN ('Pending', 'Valid', 'Rejected', 'NoResponse', 'Offline', 'InPackage', 'PackageRejected', 'DuplicateToVoid', 'Voided', 'Discarded')),
+        CONSTRAINT ck_fiscal_documents_excepcion CHECK (exception_code IN (0, 1)),
+        CONSTRAINT ck_fiscal_documents_montos CHECK (additional_discount >= 0 AND gift_card_amount >= 0 AND exchange_rate > 0),
+        CONSTRAINT ck_fiscal_documents_notas_en_linea CHECK (kind = 'Invoice' OR emission_type = 1),
+        CONSTRAINT ck_fiscal_documents_numero CHECK (number > 0 AND number <= 9999999999),
+        CONSTRAINT ck_fiscal_documents_origen CHECK ((invoice_id IS NULL OR kind = 'Invoice') AND (sales_return_id IS NULL OR kind = 'CreditDebitNote')),
+        CONSTRAINT ck_fiscal_documents_pago CHECK ((kind = 'Invoice') = (payment_method_code IS NOT NULL) AND (payment_method_code IS NULL OR payment_method_code BETWEEN 1 AND 999)),
+        CONSTRAINT ck_fiscal_documents_paquete CHECK ((package_id IS NULL) = (package_position IS NULL) AND (package_position IS NULL OR package_position BETWEEN 1 AND 500) AND (status <> 'InPackage' OR package_id IS NOT NULL)),
+        CONSTRAINT ck_fiscal_documents_reversion CHECK (is_reverted = (reverted_at IS NOT NULL)),
+        CONSTRAINT ck_fiscal_documents_sector CHECK (document_sector IN (1, 24)),
+        CONSTRAINT ck_fiscal_documents_tipo CHECK (document_type IN (1, 3)),
+        CONSTRAINT fk_fiscal_documents_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_fiscal_documents_tenant_id_branch_id_cufd_id FOREIGN KEY (tenant_id, branch_id, cufd_id) REFERENCES billing.siat_cufds (tenant_id, branch_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_fiscal_documents_tenant_id_branch_id_cuis_id FOREIGN KEY (tenant_id, branch_id, cuis_id) REFERENCES billing.siat_cuis (tenant_id, branch_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_fiscal_documents_tenant_id_branch_id_invoice_id FOREIGN KEY (tenant_id, branch_id, invoice_id) REFERENCES sales.invoices (tenant_id, branch_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_fiscal_documents_tenant_id_branch_id_package_id FOREIGN KEY (tenant_id, branch_id, package_id) REFERENCES billing.fiscal_packages (tenant_id, branch_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_fiscal_documents_tenant_id_branch_id_point_of_sale_id FOREIGN KEY (tenant_id, branch_id, point_of_sale_id) REFERENCES billing.siat_points_of_sale (tenant_id, branch_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_fiscal_documents_tenant_id_branch_id_replaces_document_id FOREIGN KEY (tenant_id, branch_id, replaces_document_id) REFERENCES billing.fiscal_documents (tenant_id, branch_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_fiscal_documents_tenant_id_branch_id_sales_return_id FOREIGN KEY (tenant_id, branch_id, sales_return_id) REFERENCES sales.sales_returns (tenant_id, branch_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_fiscal_documents_tenant_id_branch_id_significant_event_id FOREIGN KEY (tenant_id, branch_id, significant_event_id) REFERENCES billing.significant_events (tenant_id, branch_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_fiscal_documents_tenant_id_customer_id FOREIGN KEY (tenant_id, customer_id) REFERENCES sales.customers (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TABLE billing.fiscal_deliveries (
+        id uuid NOT NULL,
+        branch_id uuid NOT NULL,
+        document_id uuid NOT NULL,
+        channel character varying(20) NOT NULL,
+        recipient character varying(254),
+        succeeded boolean NOT NULL,
+        error character varying(500),
+        occurred_at timestamp with time zone NOT NULL,
+        user_id uuid,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_fiscal_deliveries PRIMARY KEY (id),
+        CONSTRAINT ak_fiscal_deliveries_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id),
+        CONSTRAINT ak_fiscal_deliveries_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_fiscal_deliveries_canal CHECK (channel IN ('Email', 'Print', 'Pdf')),
+        CONSTRAINT fk_fiscal_deliveries_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_fiscal_deliveries_tenant_id_branch_id_document_id FOREIGN KEY (tenant_id, branch_id, document_id) REFERENCES billing.fiscal_documents (tenant_id, branch_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_fiscal_deliveries_tenant_id_user_id FOREIGN KEY (tenant_id, user_id) REFERENCES iam.users (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TABLE billing.fiscal_document_events (
+        id uuid NOT NULL,
+        branch_id uuid NOT NULL,
+        document_id uuid NOT NULL,
+        action character varying(20) NOT NULL,
+        occurred_at timestamp with time zone NOT NULL,
+        siat_code integer,
+        description character varying(500),
+        reception_code character varying(100),
+        messages character varying(8000),
+        user_id uuid,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_fiscal_document_events PRIMARY KEY (id),
+        CONSTRAINT ak_fiscal_document_events_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id),
+        CONSTRAINT ak_fiscal_document_events_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_fiscal_document_events_accion CHECK (action IN ('Issued', 'Sent', 'Accepted', 'Rejected', 'NoResponse', 'Reissued', 'Packaged', 'PackageValidated', 'PackageRejected', 'StatusChecked', 'VoidRequested', 'Voided', 'VoidFailed', 'Reverted', 'RevertFailed', 'Discarded', 'Delivered', 'Printed')),
+        CONSTRAINT fk_fiscal_document_events_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_fiscal_document_events_tenant_id_branch_id_document_id FOREIGN KEY (tenant_id, branch_id, document_id) REFERENCES billing.fiscal_documents (tenant_id, branch_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_fiscal_document_events_tenant_id_user_id FOREIGN KEY (tenant_id, user_id) REFERENCES iam.users (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TABLE billing.fiscal_document_files (
+        id uuid NOT NULL,
+        branch_id uuid NOT NULL,
+        document_id uuid NOT NULL,
+        xml text NOT NULL,
+        gzip_sha256 character varying(64) NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_fiscal_document_files PRIMARY KEY (id),
+        CONSTRAINT ak_fiscal_document_files_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id),
+        CONSTRAINT ak_fiscal_document_files_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_fiscal_document_files_huella CHECK (gzip_sha256 ~ '^[0-9a-f]{64}$'),
+        CONSTRAINT fk_fiscal_document_files_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_fiscal_document_files_tenant_id_branch_id_document_id FOREIGN KEY (tenant_id, branch_id, document_id) REFERENCES billing.fiscal_documents (tenant_id, branch_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TABLE billing.fiscal_document_lines (
+        id uuid NOT NULL,
+        branch_id uuid NOT NULL,
+        document_id uuid NOT NULL,
+        line_number integer NOT NULL,
+        variant_id uuid,
+        activity_code character varying(10) NOT NULL,
+        sin_product_code integer NOT NULL,
+        product_code character varying(50) NOT NULL,
+        description character varying(500) NOT NULL,
+        quantity numeric(20,10) NOT NULL,
+        sin_unit_code integer NOT NULL,
+        unit_price numeric(20,10) NOT NULL,
+        discount numeric(20,10),
+        transaction_code integer,
+        serial_number character varying(1500),
+        imei character varying(1500),
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_fiscal_document_lines PRIMARY KEY (id),
+        CONSTRAINT ak_fiscal_document_lines_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id),
+        CONSTRAINT ak_fiscal_document_lines_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_fiscal_document_lines_cantidad CHECK (quantity > 0),
+        CONSTRAINT ck_fiscal_document_lines_descuento CHECK (discount IS NULL OR discount >= 0),
+        CONSTRAINT ck_fiscal_document_lines_numero CHECK (line_number BETWEEN 1 AND 500),
+        CONSTRAINT ck_fiscal_document_lines_precio CHECK (unit_price > 0),
+        CONSTRAINT ck_fiscal_document_lines_producto_sin CHECK (sin_product_code BETWEEN 1 AND 99999999),
+        CONSTRAINT ck_fiscal_document_lines_transaccion CHECK (transaction_code IS NULL OR transaction_code IN (1, 2)),
+        CONSTRAINT ck_fiscal_document_lines_unidad_sin CHECK (sin_unit_code BETWEEN 1 AND 999),
+        CONSTRAINT fk_fiscal_document_lines_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_fiscal_document_lines_tenant_id_branch_id_document_id FOREIGN KEY (tenant_id, branch_id, document_id) REFERENCES billing.fiscal_documents (tenant_id, branch_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_fiscal_document_lines_tenant_id_variant_id FOREIGN KEY (tenant_id, variant_id) REFERENCES catalog.product_variants (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TABLE billing.fiscal_note_references (
+        document_id uuid NOT NULL,
+        branch_id uuid NOT NULL,
+        original_document_id uuid,
+        original_number bigint NOT NULL,
+        original_cuf character varying(100) NOT NULL,
+        original_issued_at timestamp without time zone NOT NULL,
+        discount_share numeric(18,2),
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        updated_at timestamp with time zone,
+        updated_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_fiscal_note_references PRIMARY KEY (document_id),
+        CONSTRAINT ck_fiscal_note_references_descuento CHECK (discount_share IS NULL OR discount_share >= 0),
+        CONSTRAINT ck_fiscal_note_references_numero CHECK (original_number > 0 AND original_number <= 9999999999),
+        CONSTRAINT fk_fiscal_note_references_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_fiscal_note_references_tenant_id_branch_id_document_id FOREIGN KEY (tenant_id, branch_id, document_id) REFERENCES billing.fiscal_documents (tenant_id, branch_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_fiscal_note_references_tenant_id_branch_id_original_14003d04 FOREIGN KEY (tenant_id, branch_id, original_document_id) REFERENCES billing.fiscal_documents (tenant_id, branch_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    INSERT INTO iam.modules (id, code, created_at, created_by, description, monthly_fee_bs, name, setup_price_bs, updated_at, updated_by)
+    VALUES ('01920000-0000-7000-8000-00000000000a', 'FISCAL_SIAT', TIMESTAMPTZ '2026-09-25T00:00:00+00:00', NULL, 'Facturas y notas crédito-débito del SIN con CUF, contingencia automática, anulación, libros de ventas y compras.', 450.0, 'Facturación SIAT (computarizada en línea)', 7000.0, NULL, NULL);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    ALTER TABLE sales.customers ADD CONSTRAINT ck_customers_complemento CHECK (complement IS NULL OR document_type = 1);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    ALTER TABLE sales.customers ADD CONSTRAINT ck_customers_tipo_documento CHECK (document_type IS NULL OR document_type BETWEEN 1 AND 5);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE UNIQUE INDEX ux_contingency_codes_tenant_id_branch_id_document_sector_code ON billing.contingency_codes (tenant_id, branch_id, document_sector, code);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_customer_nit_checks_tenant_id_customer_id ON billing.customer_nit_checks (tenant_id, customer_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_customer_nit_checks_tenant_id_nit_checked_at ON billing.customer_nit_checks (tenant_id, nit, checked_at);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_customer_nit_checks_tenant_id_user_id ON billing.customer_nit_checks (tenant_id, user_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_fiscal_deliveries_document_id_occurred_at ON billing.fiscal_deliveries (document_id, occurred_at);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_fiscal_deliveries_tenant_id_branch_id_document_id ON billing.fiscal_deliveries (tenant_id, branch_id, document_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_fiscal_deliveries_tenant_id_user_id ON billing.fiscal_deliveries (tenant_id, user_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_fiscal_document_events_document_id_occurred_at ON billing.fiscal_document_events (document_id, occurred_at);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_fiscal_document_events_tenant_id_branch_id_document_id ON billing.fiscal_document_events (tenant_id, branch_id, document_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_fiscal_document_events_tenant_id_user_id ON billing.fiscal_document_events (tenant_id, user_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_fiscal_document_files_tenant_id_branch_id_document_id ON billing.fiscal_document_files (tenant_id, branch_id, document_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE UNIQUE INDEX ux_fiscal_document_files_document_id ON billing.fiscal_document_files (document_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_fiscal_document_lines_tenant_id_branch_id_document_id ON billing.fiscal_document_lines (tenant_id, branch_id, document_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_fiscal_document_lines_tenant_id_variant_id ON billing.fiscal_document_lines (tenant_id, variant_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE UNIQUE INDEX ux_fiscal_document_lines_document_id_line_number ON billing.fiscal_document_lines (document_id, line_number);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_fiscal_documents_tenant_id_branch_id_cufd_id ON billing.fiscal_documents (tenant_id, branch_id, cufd_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_fiscal_documents_tenant_id_branch_id_cuis_id ON billing.fiscal_documents (tenant_id, branch_id, cuis_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_fiscal_documents_tenant_id_branch_id_invoice_id ON billing.fiscal_documents (tenant_id, branch_id, invoice_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_fiscal_documents_tenant_id_branch_id_package_id ON billing.fiscal_documents (tenant_id, branch_id, package_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_fiscal_documents_tenant_id_branch_id_point_of_sale_id ON billing.fiscal_documents (tenant_id, branch_id, point_of_sale_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_fiscal_documents_tenant_id_branch_id_replaces_document_id ON billing.fiscal_documents (tenant_id, branch_id, replaces_document_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_fiscal_documents_tenant_id_branch_id_sales_return_id ON billing.fiscal_documents (tenant_id, branch_id, sales_return_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_fiscal_documents_tenant_id_branch_id_significant_event_id ON billing.fiscal_documents (tenant_id, branch_id, significant_event_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_fiscal_documents_tenant_id_customer_id ON billing.fiscal_documents (tenant_id, customer_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_fiscal_documents_tenant_id_issued_at ON billing.fiscal_documents (tenant_id, issued_at);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_fiscal_documents_tenant_id_status ON billing.fiscal_documents (tenant_id, status);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE UNIQUE INDEX ux_fiscal_documents_tenant_id_cuf ON billing.fiscal_documents (tenant_id, cuf);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE UNIQUE INDEX ux_fiscal_documents_tenant_id_environment_point_of_sal_c1b923c7 ON billing.fiscal_documents (tenant_id, environment, point_of_sale_id, document_sector, number);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE UNIQUE INDEX ux_fiscal_documents_tenant_id_invoice_id ON billing.fiscal_documents (tenant_id, invoice_id) WHERE invoice_id IS NOT NULL AND status IN ('Pending', 'Valid', 'Offline', 'InPackage');
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_fiscal_note_references_tenant_id_branch_id_original_149ead42 ON billing.fiscal_note_references (tenant_id, branch_id, original_document_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE UNIQUE INDEX ux_fiscal_note_references_tenant_id_branch_id_document_id ON billing.fiscal_note_references (tenant_id, branch_id, document_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_fiscal_packages_tenant_id_branch_id_point_of_sale_id ON billing.fiscal_packages (tenant_id, branch_id, point_of_sale_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_fiscal_packages_tenant_id_branch_id_send_cufd_id ON billing.fiscal_packages (tenant_id, branch_id, send_cufd_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_fiscal_packages_tenant_id_branch_id_significant_event_id ON billing.fiscal_packages (tenant_id, branch_id, significant_event_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE UNIQUE INDEX ux_payment_method_siat_codes_tenant_id_payment_method_id ON billing.payment_method_siat_codes (tenant_id, payment_method_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_product_siat_codes_tenant_id_activity_code_sin_product_code ON billing.product_siat_codes (tenant_id, activity_code, sin_product_code);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE UNIQUE INDEX ux_product_siat_codes_tenant_id_product_id ON billing.product_siat_codes (tenant_id, product_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_sales_return_lines_tenant_id_branch_id_sales_order_line_id ON sales.sales_return_lines (tenant_id, branch_id, sales_order_line_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_sales_return_lines_tenant_id_branch_id_sales_return_id ON sales.sales_return_lines (tenant_id, branch_id, sales_return_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_sales_return_lines_tenant_id_branch_id_stock_movement_id ON sales.sales_return_lines (tenant_id, branch_id, stock_movement_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_sales_return_lines_tenant_id_variant_id ON sales.sales_return_lines (tenant_id, variant_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE UNIQUE INDEX ux_sales_return_lines_sales_return_id_sales_order_line_id ON sales.sales_return_lines (sales_return_id, sales_order_line_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE UNIQUE INDEX ux_sales_return_lines_stock_movement_id ON sales.sales_return_lines (stock_movement_id) WHERE stock_movement_id IS NOT NULL;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_sales_returns_tenant_id_branch_id_invoice_id ON sales.sales_returns (tenant_id, branch_id, invoice_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_sales_returns_tenant_id_branch_id_pos_session_id ON sales.sales_returns (tenant_id, branch_id, pos_session_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_sales_returns_tenant_id_customer_id ON sales.sales_returns (tenant_id, customer_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_sales_returns_tenant_id_refund_payment_method_id ON sales.sales_returns (tenant_id, refund_payment_method_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_sales_returns_tenant_id_returned_at ON sales.sales_returns (tenant_id, returned_at);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_sales_returns_tenant_id_user_id ON sales.sales_returns (tenant_id, user_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE UNIQUE INDEX ux_sales_returns_tenant_id_number ON sales.sales_returns (tenant_id, number);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE UNIQUE INDEX ux_siat_activities_tenant_id_code ON billing.siat_activities (tenant_id, code);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE UNIQUE INDEX ux_siat_activity_sectors_tenant_id_activity_code_docum_52e808dc ON billing.siat_activity_sectors (tenant_id, activity_code, document_sector);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE UNIQUE INDEX ux_siat_branches_tenant_id_branch_id ON billing.siat_branches (tenant_id, branch_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE UNIQUE INDEX ux_siat_branches_tenant_id_siat_code ON billing.siat_branches (tenant_id, siat_code);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE UNIQUE INDEX ux_siat_catalog_items_tenant_id_catalog_code ON billing.siat_catalog_items (tenant_id, catalog, code);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_siat_cufds_point_of_sale_id_obtained_at ON billing.siat_cufds (point_of_sale_id, obtained_at);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_siat_cufds_tenant_id_branch_id_cuis_id ON billing.siat_cufds (tenant_id, branch_id, cuis_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_siat_cufds_tenant_id_branch_id_point_of_sale_id ON billing.siat_cufds (tenant_id, branch_id, point_of_sale_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_siat_cuis_point_of_sale_id_valid_until ON billing.siat_cuis (point_of_sale_id, valid_until);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_siat_cuis_tenant_id_branch_id_point_of_sale_id ON billing.siat_cuis (tenant_id, branch_id, point_of_sale_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE UNIQUE INDEX ux_siat_environment_profiles_tenant_id_environment ON billing.siat_environment_profiles (tenant_id, environment);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE UNIQUE INDEX ux_siat_legends_tenant_id_activity_code_text ON billing.siat_legends (tenant_id, activity_code, text);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_siat_points_of_sale_tenant_id_branch_id_pos_register_id ON billing.siat_points_of_sale (tenant_id, branch_id, pos_register_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE UNIQUE INDEX ux_siat_points_of_sale_tenant_id_environment_branch_id_code ON billing.siat_points_of_sale (tenant_id, environment, branch_id, code);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE UNIQUE INDEX ux_siat_points_of_sale_tenant_id_environment_pos_register_id ON billing.siat_points_of_sale (tenant_id, environment, pos_register_id) WHERE pos_register_id IS NOT NULL;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_siat_service_calls_tenant_id_branch_id ON billing.siat_service_calls (tenant_id, branch_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_siat_service_calls_tenant_id_occurred_at ON billing.siat_service_calls (tenant_id, occurred_at);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_siat_sync_runs_tenant_id_catalog_occurred_at ON billing.siat_sync_runs (tenant_id, catalog, occurred_at);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_siat_sync_runs_tenant_id_user_id ON billing.siat_sync_runs (tenant_id, user_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_significant_events_tenant_id_branch_id_contingency_code_id ON billing.significant_events (tenant_id, branch_id, contingency_code_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_significant_events_tenant_id_branch_id_event_cufd_id ON billing.significant_events (tenant_id, branch_id, event_cufd_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_significant_events_tenant_id_branch_id_point_of_sale_id ON billing.significant_events (tenant_id, branch_id, point_of_sale_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_significant_events_tenant_id_branch_id_send_cufd_id ON billing.significant_events (tenant_id, branch_id, send_cufd_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_significant_events_tenant_id_created_by_user_id ON billing.significant_events (tenant_id, created_by_user_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE INDEX ix_significant_events_tenant_id_point_of_sale_id_status ON billing.significant_events (tenant_id, point_of_sale_id, status);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE UNIQUE INDEX ux_supplier_invoice_fiscal_tenant_id_branch_id_supplie_88deba65 ON purchasing.supplier_invoice_fiscal (tenant_id, branch_id, supplier_invoice_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE UNIQUE INDEX ux_unit_siat_codes_tenant_id_unit_id ON billing.unit_siat_codes (tenant_id, unit_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TRIGGER trg_append_only BEFORE UPDATE OR DELETE ON billing.siat_cuis
+        FOR EACH ROW EXECUTE FUNCTION iam.minv_append_only();
+    CREATE TRIGGER trg_append_only_truncate BEFORE TRUNCATE ON billing.siat_cuis
+        FOR EACH STATEMENT EXECUTE FUNCTION iam.minv_append_only();
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TRIGGER trg_append_only BEFORE UPDATE OR DELETE ON billing.siat_cufds
+        FOR EACH ROW EXECUTE FUNCTION iam.minv_append_only();
+    CREATE TRIGGER trg_append_only_truncate BEFORE TRUNCATE ON billing.siat_cufds
+        FOR EACH STATEMENT EXECUTE FUNCTION iam.minv_append_only();
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TRIGGER trg_append_only BEFORE UPDATE OR DELETE ON billing.siat_sync_runs
+        FOR EACH ROW EXECUTE FUNCTION iam.minv_append_only();
+    CREATE TRIGGER trg_append_only_truncate BEFORE TRUNCATE ON billing.siat_sync_runs
+        FOR EACH STATEMENT EXECUTE FUNCTION iam.minv_append_only();
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TRIGGER trg_append_only BEFORE UPDATE OR DELETE ON billing.customer_nit_checks
+        FOR EACH ROW EXECUTE FUNCTION iam.minv_append_only();
+    CREATE TRIGGER trg_append_only_truncate BEFORE TRUNCATE ON billing.customer_nit_checks
+        FOR EACH STATEMENT EXECUTE FUNCTION iam.minv_append_only();
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TRIGGER trg_append_only BEFORE UPDATE OR DELETE ON billing.siat_service_calls
+        FOR EACH ROW EXECUTE FUNCTION iam.minv_append_only();
+    CREATE TRIGGER trg_append_only_truncate BEFORE TRUNCATE ON billing.siat_service_calls
+        FOR EACH STATEMENT EXECUTE FUNCTION iam.minv_append_only();
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TRIGGER trg_append_only BEFORE UPDATE OR DELETE ON billing.fiscal_document_lines
+        FOR EACH ROW EXECUTE FUNCTION iam.minv_append_only();
+    CREATE TRIGGER trg_append_only_truncate BEFORE TRUNCATE ON billing.fiscal_document_lines
+        FOR EACH STATEMENT EXECUTE FUNCTION iam.minv_append_only();
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TRIGGER trg_append_only BEFORE UPDATE OR DELETE ON billing.fiscal_document_files
+        FOR EACH ROW EXECUTE FUNCTION iam.minv_append_only();
+    CREATE TRIGGER trg_append_only_truncate BEFORE TRUNCATE ON billing.fiscal_document_files
+        FOR EACH STATEMENT EXECUTE FUNCTION iam.minv_append_only();
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TRIGGER trg_append_only BEFORE UPDATE OR DELETE ON billing.fiscal_document_events
+        FOR EACH ROW EXECUTE FUNCTION iam.minv_append_only();
+    CREATE TRIGGER trg_append_only_truncate BEFORE TRUNCATE ON billing.fiscal_document_events
+        FOR EACH STATEMENT EXECUTE FUNCTION iam.minv_append_only();
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE TRIGGER trg_append_only BEFORE UPDATE OR DELETE ON billing.fiscal_deliveries
+        FOR EACH ROW EXECUTE FUNCTION iam.minv_append_only();
+    CREATE TRIGGER trg_append_only_truncate BEFORE TRUNCATE ON billing.fiscal_deliveries
+        FOR EACH STATEMENT EXECUTE FUNCTION iam.minv_append_only();
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    DO $$
+    DECLARE r record;
+    BEGIN
+        FOR r IN
+            SELECT c.table_schema, c.table_name
+            FROM information_schema.columns c
+            JOIN information_schema.tables t
+              ON t.table_schema = c.table_schema AND t.table_name = c.table_name AND t.table_type = 'BASE TABLE'
+            WHERE c.column_name = 'tenant_id' AND c.table_schema IN ('iam', 'catalog', 'warehouse', 'inventory', 'purchasing', 'sales', 'accounting', 'integration', 'billing')
+              AND NOT EXISTS (SELECT 1 FROM pg_policies p
+                              WHERE p.schemaname = c.table_schema AND p.tablename = c.table_name AND p.policyname = 'tenant_isolation')
+        LOOP
+            EXECUTE format('ALTER TABLE %I.%I ENABLE ROW LEVEL SECURITY', r.table_schema, r.table_name);
+            EXECUTE format('CREATE POLICY tenant_isolation ON %I.%I USING (tenant_id = iam.current_tenant_id()) '
+                           'WITH CHECK (tenant_id = iam.current_tenant_id())', r.table_schema, r.table_name);
+        END LOOP;
+    END;
+    $$;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE POLICY branch_isolation ON billing.siat_points_of_sale AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE POLICY branch_isolation ON billing.siat_cuis AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE POLICY branch_isolation ON billing.siat_cufds AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE POLICY branch_isolation ON billing.fiscal_documents AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE POLICY branch_isolation ON billing.fiscal_note_references AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE POLICY branch_isolation ON billing.fiscal_document_lines AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE POLICY branch_isolation ON billing.fiscal_document_files AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE POLICY branch_isolation ON billing.fiscal_document_events AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE POLICY branch_isolation ON billing.fiscal_deliveries AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE POLICY branch_isolation ON billing.significant_events AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE POLICY branch_isolation ON billing.fiscal_packages AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE POLICY branch_isolation ON billing.contingency_codes AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE POLICY branch_isolation ON sales.sales_returns AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE POLICY branch_isolation ON sales.sales_return_lines AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE POLICY branch_isolation ON purchasing.supplier_invoice_fiscal AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE OR REPLACE FUNCTION billing.siat_active_tenants() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, billing AS $$
+        SELECT s.tenant_id FROM billing.siat_settings s WHERE s.is_enabled
+    $$;
+    REVOKE ALL ON FUNCTION billing.siat_active_tenants() FROM PUBLIC;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    CREATE VIEW billing.v_fiscal_document_totals WITH (security_invoker = true, security_barrier = true) AS
+    SELECT t.*, round(t.total_subject_to_vat * 0.13, 2) AS vat_amount
+    FROM (
+        SELECT d.tenant_id, d.branch_id, d.id AS document_id, d.kind, d.environment, d.document_sector, d.number, d.cuf,
+               d.issued_at, d.status, d.is_reverted,
+               l.lines_subtotal, d.additional_discount, d.gift_card_amount, l.original_total,
+               CASE WHEN d.kind = 'Invoice' THEN l.lines_subtotal - d.additional_discount
+                    ELSE l.returned_subtotal - coalesce(n.discount_share, 0) END AS total_amount,
+               CASE WHEN d.kind = 'Invoice' THEN l.lines_subtotal - d.additional_discount - d.gift_card_amount
+                    ELSE l.returned_subtotal - coalesce(n.discount_share, 0) END AS total_subject_to_vat,
+               CASE WHEN d.kind = 'CreditDebitNote' THEN l.returned_subtotal - coalesce(n.discount_share, 0) END AS returned_total
+        FROM billing.fiscal_documents d
+        LEFT JOIN billing.fiscal_note_references n ON n.document_id = d.id
+        CROSS JOIN LATERAL (
+            SELECT coalesce(sum(s.subtotal) FILTER (WHERE s.transaction_code IS NULL OR s.transaction_code = 1), 0) AS lines_subtotal,
+                   coalesce(sum(s.subtotal) FILTER (WHERE s.transaction_code = 1), 0) AS original_total,
+                   coalesce(sum(s.subtotal) FILTER (WHERE s.transaction_code = 2), 0) AS returned_subtotal
+            FROM (SELECT x.transaction_code, round(x.quantity * x.unit_price, 2) - coalesce(x.discount, 0) AS subtotal
+                  FROM billing.fiscal_document_lines x
+                  WHERE x.document_id = d.id) s) l
+    ) t;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    INSERT INTO iam.permissions (id, tenant_id, code, description)
+    SELECT gen_random_uuid(), t.id, p.code, p.description
+    FROM iam.tenants t
+    CROSS JOIN (VALUES ('billing.view', 'Consultar documentos fiscales, estado del SIAT y libros de ventas y compras'), ('billing.issue', 'Emitir facturas (al vender) y reenviar documentos fiscales'), ('billing.void', 'Anular y revertir documentos fiscales y emitir notas crédito-débito'), ('billing.contingency', 'Gestionar eventos significativos, paquetes de contingencia y CAFC'), ('billing.configure', 'Configurar la facturación SIAT: NIT, token, sucursales, puntos de venta, CUIS, CUFD, catálogos y homologación')) AS p(code, description)
+    WHERE NOT EXISTS (SELECT 1 FROM iam.permissions x WHERE x.tenant_id = t.id AND x.code = p.code);
+
+    INSERT INTO iam.role_permissions (tenant_id, role_id, permission_id)
+    SELECT r.tenant_id, r.id, p.id
+    FROM iam.roles r
+    JOIN (VALUES ('ADMIN', 'billing.view'), ('ADMIN', 'billing.issue'), ('ADMIN', 'billing.void'), ('ADMIN', 'billing.contingency'), ('ADMIN', 'billing.configure'), ('VENTAS', 'billing.view'), ('VENTAS', 'billing.issue'), ('CAJERO', 'billing.view'), ('CAJERO', 'billing.issue'), ('GERENCIA', 'billing.view'), ('GERENCIA', 'billing.void'), ('GERENCIA', 'billing.contingency'), ('CONSULTA', 'billing.view')) AS m(role_code, permission_code) ON m.role_code = r.code
+    JOIN iam.permissions p ON p.tenant_id = r.tenant_id AND p.code = m.permission_code
+    WHERE NOT EXISTS (SELECT 1 FROM iam.role_permissions x WHERE x.role_id = r.id AND x.permission_id = p.id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    DO $$
+    DECLARE r text;
+    BEGIN
+        FOREACH r IN ARRAY ARRAY['minv_app', 'minv_server'] LOOP
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
+                EXECUTE format('GRANT USAGE ON SCHEMA billing TO %I', r);
+                EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON billing.siat_settings, billing.siat_environment_profiles, billing.siat_branches, billing.siat_points_of_sale, billing.siat_cuis, billing.siat_cufds, billing.siat_catalog_items, billing.siat_activities, billing.siat_activity_sectors, billing.siat_legends, billing.siat_products, billing.siat_sync_runs, billing.product_siat_codes, billing.unit_siat_codes, billing.payment_method_siat_codes, billing.customer_nit_checks, billing.fiscal_documents, billing.fiscal_note_references, billing.fiscal_document_lines, billing.fiscal_document_files, billing.fiscal_document_events, billing.fiscal_deliveries, billing.significant_events, billing.fiscal_packages, billing.contingency_codes, billing.siat_service_calls, billing.mail_settings, sales.sales_returns, sales.sales_return_lines, purchasing.supplier_invoice_fiscal TO %I', r);
+                EXECUTE format('REVOKE UPDATE, DELETE, TRUNCATE ON billing.siat_cuis, billing.siat_cufds, billing.siat_sync_runs, billing.customer_nit_checks, billing.siat_service_calls, billing.fiscal_document_lines, billing.fiscal_document_files, billing.fiscal_document_events, billing.fiscal_deliveries FROM %I', r);
+                EXECUTE format('GRANT SELECT ON billing.v_fiscal_document_totals TO %I', r);
+            END IF;
+        END LOOP;
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'minv_server') THEN
+            GRANT EXECUTE ON FUNCTION billing.siat_active_tenants() TO minv_server;
+        END IF;
+    END;
+    $$;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260926003559_V41SiatBilling') THEN
+    INSERT INTO iam.__ef_migrations_history ("MigrationId", "ProductVersion")
+    VALUES ('20260926003559_V41SiatBilling', '8.0.31');
     END IF;
 END $EF$;
 COMMIT;

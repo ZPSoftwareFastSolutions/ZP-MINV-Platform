@@ -163,6 +163,7 @@ public sealed class PostgresIntegrationTests(PostgresFixture pg) : IClassFixture
         var (scope, tenant) = await NewTenantAsync(provider, "F" + Random.Shared.Next(1000, 9999));
         var role = "minv_fis_" + Guid.NewGuid().ToString("N")[..8];
         const string password = "Fis-Prueba-2026-x";
+        Guid otherBranchId;
         using (scope)
         {
             // Una segunda sucursal y, en la principal, un punto de venta con CUIS, CUFD y una factura emitida en línea
@@ -287,14 +288,6 @@ public sealed class PostgresIntegrationTests(PostgresFixture pg) : IClassFixture
             var denied = await Assert.ThrowsAsync<PostgresException>(async () =>
                 await new NpgsqlCommand("SELECT count(*) FROM billing.siat_active_tenants()", conn).ExecuteScalarAsync());
             Assert.Equal("42501", denied.SqlState);
-
-            async Task<Guid> OtherBranchAsync()
-            {
-                await using var owner = new NpgsqlConnection(pg.ConnectionString);
-                await owner.OpenAsync();
-                await using var c = new NpgsqlCommand($"SELECT id FROM warehouse.branches WHERE tenant_id = '{tenant.TenantId}' AND code = 'SB'", owner);
-                return (Guid)(await c.ExecuteScalarAsync())!;
-            }
         }
         finally
         {

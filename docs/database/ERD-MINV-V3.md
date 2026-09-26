@@ -1,27 +1,29 @@
-# M-INV V3 y V4 · Modelo relacional (ERD) · PostgreSQL 15+
+# M-INV V3, V4 y V4.1 · Modelo relacional (ERD) · PostgreSQL 15+
 
 Fuente de verdad: el modelo Code-First de `src/2. Infrastructure/MINV.Infrastructure` (entidades en
 `src/1. Core/MINV.Domain`, configuraciones en `Persistence/Configurations`, migraciones en `Persistence/Migrations`).
 Script equivalente: `scripts/db_init.sql`. La prueba `MINV.Infrastructure.Tests.ModelTests` verifica este documento
-contra el modelo real: cada tabla del modelo debe aparecer aquí como `` `esquema.tabla` `` (V4: **110 tablas en 8
-esquemas**, FK compuestas por tenant y por sucursal, xmin, 15 libros append-only). La V3.1 tenía 97 tablas en 7
-esquemas; los cambios de la V4 (sucursal en las tablas transaccionales, transferencias rediseñadas, integraciones,
-idempotencia y modelo de lectura) están resumidos en el §7 y ya incorporados en el §4. Arquitectura:
-`docs/architecture/arquitectura-v4.md`.
+contra el modelo real: cada tabla del modelo debe aparecer aquí como `` `esquema.tabla` `` (V4.1: **140 tablas en 9
+esquemas**, FK compuestas por tenant y por sucursal, xmin, 24 libros append-only). La V3.1 tenía 97 tablas en 7
+esquemas y la V4 110 en 8; los cambios de la V4 (sucursal en las tablas transaccionales, transferencias rediseñadas,
+integraciones, idempotencia y modelo de lectura) están resumidos en el §7 y ya incorporados en el §4; la facturación
+SIAT de la V4.1 (esquema `billing`, devoluciones de venta, datos fiscales de compras y del cliente) está en el §8.
+Arquitectura: `docs/architecture/arquitectura-v4.md` y `docs/architecture/facturacion-siat-v4.1.md`.
 
 ## 1. Resumen
 
-| Contexto delimitado | Esquema | Tablas V3.1 | Tablas V4 | Nuevas en la V4 |
-|---|---|---:|---:|---|
-| IAM y tenants (identidad, RBAC, licencias, auditoría) | `iam` | 14 | 15 | `iam.processed_requests` |
-| Catálogo y datos maestros | `catalog` | 19 | 19 | — |
-| Topología de almacén | `warehouse` | 10 | 10 | — |
-| Motor transaccional de stock | `inventory` | 14 | 18 | `inventory.stock_transfer_movements`, `inventory.stock_transfer_discrepancies`, `inventory.stock_transfer_events`, `inventory.stock_transfer_line_batches` |
-| Compras y proveedores | `purchasing` | 11 | 11 | — |
-| Ventas y POS | `sales` | 19 | 20 | `sales.external_orders` |
-| Costos y contabilidad | `accounting` | 10 | 10 | — |
-| Integraciones B2B (V4) | `integration` | — | 7 | las 7 del esquema |
-| **Total** | 7 → **8** | **97** | **110** | **13** |
+| Contexto delimitado | Esquema | Tablas V3.1 | Tablas V4 | Tablas V4.1 | Nuevas en la V4 | Nuevas en la V4.1 |
+|---|---|---:|---:|---:|---|---|
+| IAM y tenants (identidad, RBAC, licencias, auditoría) | `iam` | 14 | 15 | 15 | `iam.processed_requests` | — |
+| Catálogo y datos maestros | `catalog` | 19 | 19 | 19 | — | — |
+| Topología de almacén | `warehouse` | 10 | 10 | 10 | — | — |
+| Motor transaccional de stock | `inventory` | 14 | 18 | 18 | `inventory.stock_transfer_movements`, `inventory.stock_transfer_discrepancies`, `inventory.stock_transfer_events`, `inventory.stock_transfer_line_batches` | — |
+| Compras y proveedores | `purchasing` | 11 | 11 | 12 | — | `purchasing.supplier_invoice_fiscal` |
+| Ventas y POS | `sales` | 19 | 20 | 22 | `sales.external_orders` | `sales.sales_returns`, `sales.sales_return_lines` |
+| Costos y contabilidad | `accounting` | 10 | 10 | 10 | — | — |
+| Integraciones B2B (V4) | `integration` | — | 7 | 7 | las 7 del esquema | — |
+| Facturación SIAT (V4.1) | `billing` | — | — | 27 | — | las 27 del esquema (§8) |
+| **Total** | 7 → 8 → **9** | **97** | **110** | **140** | **13** | **30** |
 
 Además, el esquema `reporting` (V4) contiene el modelo de lectura: vistas materializadas y vistas filtradas, no
 tablas del modelo EF (§7.5).
@@ -35,11 +37,11 @@ tablas del modelo EF (§7.5).
 | Multi-tenant | Toda tabla (salvo `iam.tenants` e `iam.modules`) tiene `tenant_id uuid NOT NULL` → `iam.tenants(id)`, filtro global en EF Core y **Row Level Security** (`tenant_id = iam.current_tenant_id()`) |
 | Integridad entre empresas | Cada entidad expone la clave alterna `(tenant_id, id)` y **toda FK es compuesta** `(tenant_id, x_id) → (tenant_id, id)`: una fila no puede referenciar datos de otra empresa (lo garantiza PostgreSQL) |
 | Concurrencia optimista | Las tablas transaccionales usan la columna de sistema `xmin` como token (`RowVersion` en C#); un conflicto aborta la transacción y el caso de uso reintenta con los valores actuales |
-| Append-only | `inventory.stock_movements`, `iam.audit_logs`, `iam.access_logs`, `sales.cash_movements`, `sales.payments`, `accounting.exchange_rates`, `accounting.average_cost_history` y (V4) `inventory.stock_transfer_movements`, `inventory.stock_transfer_discrepancies`, `inventory.stock_transfer_events`, `inventory.stock_transfer_line_batches`, `integration.outbox_events`, `integration.webhook_deliveries`, `sales.external_orders`, `iam.processed_requests`: triggers que rechazan UPDATE, DELETE y TRUNCATE; los roles `minv_app` y `minv_server` no tienen esos privilegios |
-| Sucursal (V4) | 35 tablas «por sucursal» (`IBranchScoped`) llevan `branch_id uuid NOT NULL`; 5 tablas «entre sucursales» (`IInterBranch`) llevan `from_branch_id` y `to_branch_id`. Filtro global de EF Core por el alcance de la sesión, guardas de escritura y **Row Level Security RESTRICTIVA** `branch_isolation` (`iam.branch_visible(…)`, variable `minv.branch_ids`). Lista completa en el §7.1 |
+| Append-only | `inventory.stock_movements`, `iam.audit_logs`, `iam.access_logs`, `sales.cash_movements`, `sales.payments`, `accounting.exchange_rates`, `accounting.average_cost_history` y (V4) `inventory.stock_transfer_movements`, `inventory.stock_transfer_discrepancies`, `inventory.stock_transfer_events`, `inventory.stock_transfer_line_batches`, `integration.outbox_events`, `integration.webhook_deliveries`, `sales.external_orders`, `iam.processed_requests` y (V4.1) `billing.siat_cuis`, `billing.siat_cufds`, `billing.siat_sync_runs`, `billing.customer_nit_checks`, `billing.siat_service_calls`, `billing.fiscal_document_lines`, `billing.fiscal_document_files`, `billing.fiscal_document_events`, `billing.fiscal_deliveries`: triggers que rechazan UPDATE, DELETE y TRUNCATE; los roles `minv_app` y `minv_server` no tienen esos privilegios |
+| Sucursal (V4) | 35 tablas «por sucursal» (`IBranchScoped`; 50 en la V4.1, §8.4) llevan `branch_id uuid NOT NULL`; 5 tablas «entre sucursales» (`IInterBranch`) llevan `from_branch_id` y `to_branch_id`. Filtro global de EF Core por el alcance de la sesión, guardas de escritura y **Row Level Security RESTRICTIVA** `branch_isolation` (`iam.branch_visible(…)`, variable `minv.branch_ids`). Lista completa en el §7.1 |
 | Integridad entre sucursales (V4) | Las tablas por sucursal exponen la clave alterna `(tenant_id, branch_id, id)` y sus hijos la referencian con `(tenant_id, branch_id, padre_id)`: un hijo nunca tiene otra sucursal que su padre, y la cadena termina en el almacén (`warehouses.branch_id`). Las de transferencias usan `(tenant_id, from_branch_id, to_branch_id, id)` |
 | Auditoría técnica | `created_at` (default `now()`), `created_by`; en las tablas no append-only también `updated_at`, `updated_by` |
-| Tipos | cantidades `numeric(18,6)` (regla `r6` de la V2.1), dinero `numeric(19,4)`, tasas `numeric(18,8)`, porcentajes `numeric(9,4)`, fechas de negocio `date`, instantes `timestamptz` (UTC), estados como texto (`varchar(20)`) |
+| Tipos | cantidades `numeric(18,6)` (regla `r6` de la V2.1), dinero `numeric(19,4)`, tasas `numeric(18,8)`, porcentajes `numeric(9,4)`, fechas de negocio `date`, instantes `timestamptz` (UTC), estados como texto (`varchar(20)`). V4.1: montos fiscales `numeric(18,2)`, cantidades, precios y descuentos del detalle fiscal `numeric(20,10)` (notas crédito-débito con hasta 10 decimales), hora fiscal del SIN `timestamp without time zone` (la misma del CUF y del XML) |
 
 ## 3. Normalización hasta 5FN
 
@@ -776,7 +778,7 @@ erDiagram
 | `inventory.stock_transfer_discrepancies` | V4 · Faltante al recibir (delta compensatorio con motivo); lo registra el destino y lo ven ambos. · **append-only** · **entre sucursales** | (id) | (from_branch_id, to_branch_id, transfer_line_id) → inventory.stock_transfer_lines<br>recorded_by_user_id → iam.users | CHECK quantity > 0 |
 | `inventory.stock_transfer_events` | V4 · Bitácora de la máquina de estados (quién, cuándo, a qué estado y detalle). · **append-only** · **entre sucursales** | (id) | (from_branch_id, to_branch_id, transfer_id) → inventory.stock_transfers<br>user_id → iam.users | índice (transfer_id, occurred_at) |
 
-### Compras y proveedores · esquema `purchasing` (11 tablas)
+### Compras y proveedores · esquema `purchasing` (11 tablas; 12 con `purchasing.supplier_invoice_fiscal` de la V4.1, §8.3)
 
 ```mermaid
 erDiagram
@@ -923,7 +925,7 @@ erDiagram
 | `purchasing.purchase_returns` | Devolución a proveedor. · OCC xmin | (id) | supplier_id → purchasing.suppliers | único (tenant_id, number) |
 | `purchasing.purchase_return_lines` | Línea de una devolución. | (id) | purchase_return_id → purchasing.purchase_returns<br>stock_level_id → inventory.stock_levels<br>goods_receipt_line_id → purchasing.goods_receipt_lines<br>stock_movement_id → inventory.stock_movements | CHECK quantity > 0 |
 
-### Ventas y POS · esquema `sales` (20 tablas)
+### Ventas y POS · esquema `sales` (20 tablas; 22 con las devoluciones de la V4.1, §8.3)
 
 ```mermaid
 erDiagram
@@ -976,6 +978,8 @@ erDiagram
         varchar phone
         uuid customer_category_id FK
         boolean is_active
+        smallint document_type
+        varchar complement
     }
     customer_addresses {
         uuid tenant_id FK
@@ -1142,7 +1146,7 @@ erDiagram
 | `sales.postal_codes` | Código postal de una ciudad («S/N» para zonas sin código). | (id) | city_id → sales.cities | único (city_id, code) |
 | `sales.addresses` | Dirección normalizada (calle → código postal → ciudad → estado → país). | (id) | postal_code_id → sales.postal_codes | — |
 | `sales.customer_categories` | Categoría de cliente. | (id) | default_price_list_id → sales.price_lists | único (tenant_id, code) |
-| `sales.customers` | Cliente. · OCC xmin | (id) | customer_category_id → sales.customer_categories | único (tenant_id, code) |
+| `sales.customers` | Cliente. V4.1: datos de facturación del SIN, `document_type` (1 CI, 2 CEX, 3 PAS, 4 OD, 5 NIT; `tax_id` es el número) y `complement` (SEGIP, solo con CI). · OCC xmin | (id) | customer_category_id → sales.customer_categories | único (tenant_id, code)<br>CHECK document_type IS NULL OR document_type BETWEEN 1 AND 5<br>CHECK complement IS NULL OR document_type = 1 |
 | `sales.customer_addresses` | Direcciones de un cliente. | (customer_id, address_id) | customer_id → sales.customers<br>address_id → sales.addresses | único (customer_id, address_type) WHERE is_default |
 | `sales.price_lists` | Lista de precios. | (id) | currency_id → accounting.currencies | único (tenant_id, name)<br>único (tenant_id) WHERE is_default<br>CHECK valid_to IS NULL OR valid_to >= valid_from |
 | `sales.price_list_items` | Precio de una variante en una lista. | (price_list_id, variant_id) | price_list_id → sales.price_lists<br>variant_id → catalog.product_variants | CHECK unit_price >= 0 |
@@ -1430,6 +1434,10 @@ V2.1).
 | (V4) `reporting.mv_branch_stock`, `reporting.mv_branch_daily_sales` | Vistas materializadas del modelo de lectura (índice único para el refresco concurrente); sin permisos para los roles de aplicación |
 | (V4) `reporting.v_branch_stock`, `reporting.v_branch_daily_sales` | Vistas `security_barrier` filtradas por `iam.current_tenant_id()` e `iam.branch_visible()`: lo único del esquema `reporting` que leen `minv_app` y `minv_server` |
 | (V4) `inventory.v_transfer_breaches` | Transferencias que violan la conservación (Σ salidas = cantidad = Σ manifiesto; recibido + faltantes = cantidad; sin movimientos si está pendiente o anulada). Debe estar vacía |
+| (V4.1) `trg_append_only` en 9 tablas de `billing` | 24 libros inmutables en total (CUIS, CUFD, sincronizaciones, verificaciones de NIT, bitácora SOAP, detalle, XML, bitácora y entregas de los documentos fiscales) |
+| (V4.1) políticas `tenant_isolation` y `branch_isolation` en las tablas nuevas | 138 tablas con `tenant_isolation`; 55 con `branch_isolation` RESTRICTIVA (50 por sucursal y 5 entre sucursales) |
+| (V4.1) `billing.siat_active_tenants()` | SECURITY DEFINER (`search_path` fijo, sin EXECUTE para PUBLIC, solo `minv_server`): empresas con la facturación activa (`siat_settings.is_enabled`); la usa el despachador del servidor antes de conocer la empresa. Devuelve solo el id |
+| (V4.1) `billing.v_fiscal_document_totals` | Vista `security_barrier` (y `security_invoker`: aplica la RLS del que consulta) con los totales DERIVADOS de cada documento fiscal con las fórmulas del SIN: subtotal de líneas (transacción nula o 1), total, base del IVA, débito o crédito del 13 % y devuelto de las notas. Los totales no se guardan (regla F-06) |
 
 ## 7. V4 · Multi-sucursal, transferencias, integraciones e idempotencia
 
@@ -1522,3 +1530,536 @@ Se refrescan con `reporting.refresh_all()` cada 5 minutos desde el API Gateway.
 | `minv_owner` | dueño | dueño | dueño | la salta (solo migraciones) |
 | `minv_server` | SELECT, INSERT, UPDATE, DELETE | solo SELECT e INSERT | EXECUTE en las 4 | sujeto (`NOBYPASSRLS`, no dueño) |
 | `minv_app` | SELECT, INSERT, UPDATE, DELETE | solo SELECT e INSERT | — | sujeto |
+
+## 8. V4.1 · Facturación SIAT (Computarizada en Línea)
+
+Migración `V41SiatBilling` (`Persistence/Migrations/20260926003559_V41SiatBilling.cs` y su parcial `.Sql.cs`).
+Reglas F-01 a F-17: `.claude/v41-billing-rules.md`; diseño: `docs/architecture/facturacion-siat-v4.1.md`. La V4.1
+agrega el esquema `billing` (27 tablas), las devoluciones de venta (`sales`), los datos fiscales de las facturas de
+proveedor (`purchasing`) y los datos de facturación del cliente. Resultado: **140 tablas en 9 esquemas**, 138 políticas
+`tenant_isolation`, 55 `branch_isolation` RESTRICTIVAS y 24 triggers append-only.
+
+Todas las tablas nuevas tienen `tenant_id` (RLS `tenant_isolation`, FK compuestas con la empresa); las de operación
+(puntos de venta, códigos, documentos, contingencia, devoluciones) son **por sucursal** (`IBranchScoped`: RLS
+`branch_isolation` y FK compuestas `(tenant_id, branch_id, x_id)`, regla F-14). La configuración de la empresa, los
+catálogos sincronizados, la homologación y la bitácora SOAP no se filtran por sucursal.
+
+### 8.1 Configuración, catálogos y homologación · esquema `billing` (15 tablas)
+
+```mermaid
+erDiagram
+    siat_settings {
+        uuid tenant_id PK, FK
+        bigint nit
+        varchar business_name
+        varchar system_code
+        integer environment
+        integer modality
+        boolean is_enabled
+        varchar online_legend
+        varchar offline_legend
+        bigint clock_offset_ms
+        timestamptz clock_synced_at
+    }
+    siat_environment_profiles {
+        uuid id PK
+        uuid tenant_id FK
+        integer environment
+        varchar codes_url
+        varchar sync_url
+        varchar operations_url
+        varchar purchase_sale_url
+        varchar computerized_url
+        varchar adjustment_url
+        varchar namespace
+        varchar qr_base_url
+        integer timeout_seconds
+        varchar token_ciphertext
+        varchar token_key_id
+        date token_valid_until
+        timestamptz token_updated_at
+    }
+    siat_branches {
+        uuid id PK
+        uuid tenant_id FK
+        uuid branch_id FK
+        integer siat_code
+        varchar municipality
+        varchar phone
+    }
+    mail_settings {
+        uuid tenant_id PK, FK
+        varchar host
+        integer port
+        boolean use_ssl
+        varchar user_name
+        varchar password_ciphertext
+        varchar password_key_id
+        varchar from_address
+        varchar from_name
+        boolean is_enabled
+    }
+    siat_catalog_items {
+        uuid id PK
+        uuid tenant_id FK
+        varchar catalog
+        integer code
+        varchar description
+        boolean is_current
+        timestamptz synced_at
+    }
+    siat_activities {
+        uuid id PK
+        uuid tenant_id FK
+        varchar code
+        varchar description
+        varchar activity_type
+        boolean is_current
+        timestamptz synced_at
+    }
+    siat_activity_sectors {
+        uuid id PK
+        uuid tenant_id FK
+        varchar activity_code
+        integer document_sector
+        varchar sector_type
+        boolean is_current
+        timestamptz synced_at
+    }
+    siat_legends {
+        uuid id PK
+        uuid tenant_id FK
+        varchar activity_code
+        varchar text
+        boolean is_current
+        timestamptz synced_at
+    }
+    siat_products {
+        uuid id PK
+        uuid tenant_id FK
+        varchar activity_code
+        integer product_code
+        varchar description
+        boolean is_current
+        timestamptz synced_at
+    }
+    siat_sync_runs {
+        uuid id PK
+        uuid tenant_id FK
+        integer environment
+        varchar catalog
+        integer items
+        varchar error
+        timestamptz occurred_at
+        uuid user_id FK
+    }
+    product_siat_codes {
+        uuid id PK
+        uuid tenant_id FK
+        uuid product_id FK
+        varchar activity_code FK
+        integer sin_product_code FK
+    }
+    unit_siat_codes {
+        uuid id PK
+        uuid tenant_id FK
+        uuid unit_id FK
+        integer sin_unit_code
+    }
+    payment_method_siat_codes {
+        uuid id PK
+        uuid tenant_id FK
+        uuid payment_method_id FK
+        integer sin_payment_method_code
+    }
+    customer_nit_checks {
+        uuid id PK
+        uuid tenant_id FK
+        uuid customer_id FK
+        bigint nit
+        integer siat_code
+        boolean is_valid
+        varchar description
+        timestamptz checked_at
+        uuid user_id FK
+    }
+    siat_service_calls {
+        uuid id PK
+        uuid tenant_id FK
+        integer environment
+        varchar resource
+        varchar operation
+        uuid branch_id FK
+        integer point_of_sale_code
+        timestamptz occurred_at
+        integer duration_ms
+        integer http_status
+        integer siat_code
+        boolean succeeded
+        varchar request_body
+        varchar response_body
+        varchar error
+    }
+    siat_settings ||--o{ siat_environment_profiles : "tenant_id"
+    siat_activities ||--o{ siat_activity_sectors : "activity_code"
+    siat_activities ||--o{ siat_legends : "activity_code"
+    siat_activities ||--o{ siat_products : "activity_code"
+    siat_products ||--o{ product_siat_codes : "(activity_code, product_code)"
+```
+
+Las relaciones actividad ↔ sector, leyenda y producto son lógicas (el SIN las sincroniza por código de actividad); la
+única FK entre catálogos es la de la homologación de productos, que apunta a la clave alterna
+`(tenant_id, activity_code, product_code)` de `billing.siat_products`: no se homologa contra un producto que el SIN no
+publicó. Lo que el SIN retira queda con `is_current = false` (nunca se borra: hay documentos que lo usan).
+
+| Tabla | Descripción | Clave | Referencias (FK) | Únicos / CHECK |
+|---|---|---|---|---|
+| `billing.siat_settings` | V4.1 · Configuración de facturación de la empresa (una fila por empresa, como `iam.tenant_configs`): NIT y razón social del Padrón, código del sistema autorizado, ambiente activo (1 producción, 2 pruebas y piloto), modalidad (siempre 2), activación, leyendas de modo en línea / fuera de línea y desfase del reloj con el SIN. · OCC xmin | (tenant_id) | tenant_id → iam.tenants | CHECK nit BETWEEN 1 AND 9999999999999<br>CHECK environment IN (1, 2)<br>CHECK modality = 2 |
+| `billing.siat_environment_profiles` | V4.1 · Conexión por ambiente: URL de cada recurso SOAP (Códigos, Sincronización, Operaciones, Compra Venta, Computarizada, Documentos de Ajuste), namespace, URL base del QR, tiempo máximo de espera y token delegado **cifrado** (AES-256-GCM con `ISecretProtector`; `token_key_id` = clave maestra usada; el texto plano nunca se guarda) con su vigencia. · OCC xmin | (id) | — | único (tenant_id, environment)<br>CHECK environment IN (1, 2)<br>CHECK timeout_seconds BETWEEN 3 AND 120<br>CHECK (token_ciphertext IS NULL) = (token_key_id IS NULL) |
+| `billing.siat_branches` | V4.1 · Sucursal de M-INV ↔ `codigoSucursal` del Padrón (0 = casa matriz), con el municipio y el teléfono que van en la factura. | (id) | branch_id → warehouse.branches | único (tenant_id, branch_id)<br>único (tenant_id, siat_code)<br>CHECK siat_code BETWEEN 0 AND 9999 |
+| `billing.mail_settings` | V4.1 · Servidor SMTP de la empresa (una fila por empresa) para entregar el XML y la representación gráfica al comprador; contraseña solo **cifrada**. · OCC xmin | (tenant_id) | tenant_id → iam.tenants | CHECK port BETWEEN 1 AND 65535<br>CHECK (password_ciphertext IS NULL) = (password_key_id IS NULL) |
+| `billing.siat_catalog_items` | V4.1 · Valor de una paramétrica sincronizada (métodos de pago, unidades, motivos de anulación, eventos significativos, monedas, tipos de documento…; `catalog` = nombre estable de `SiatCatalogNames`). | (id) | — | único (tenant_id, catalog, code)<br>CHECK code >= 0 |
+| `billing.siat_activities` | V4.1 · Actividad económica del NIT (código CAEB como texto: conserva los ceros). | (id) | — | único (tenant_id, code) |
+| `billing.siat_activity_sectors` | V4.1 · Documentos sector habilitados para cada actividad. | (id) | — | único (tenant_id, activity_code, document_sector)<br>CHECK document_sector BETWEEN 1 AND 99 |
+| `billing.siat_legends` | V4.1 · Leyendas de la Ley N° 453 por actividad (la factura lleva una al azar, guardada en el documento). | (id) | — | único (tenant_id, activity_code, text) |
+| `billing.siat_products` | V4.1 · Productos y servicios genéricos del SIN (destino de la homologación). | (id) | — | clave alterna (tenant_id, activity_code, product_code)<br>CHECK product_code BETWEEN 1 AND 99999999 |
+| `billing.siat_sync_runs` | V4.1 · Cada sincronización de un catálogo (ambiente, filas recibidas, error). · **append-only** | (id) | user_id → iam.users | índice (tenant_id, catalog, occurred_at)<br>CHECK items >= 0 |
+| `billing.product_siat_codes` | V4.1 · **Homologación** de un producto de M-INV con la actividad y el producto del SIN (tabla propia: el catálogo no gana columnas nulas). · OCC xmin | (id) | product_id → catalog.products<br>(activity_code, sin_product_code) → billing.siat_products (activity_code, product_code) | único (tenant_id, product_id) |
+| `billing.unit_siat_codes` | V4.1 · Homologación de una unidad de medida con la paramétrica «Unidad de Medida» del SIN. | (id) | unit_id → catalog.units_of_measure | único (tenant_id, unit_id)<br>CHECK sin_unit_code BETWEEN 1 AND 999 |
+| `billing.payment_method_siat_codes` | V4.1 · Homologación de un medio de pago con la paramétrica «Tipo Método Pago» del SIN. | (id) | payment_method_id → sales.payment_methods | único (tenant_id, payment_method_id)<br>CHECK sin_payment_method_code BETWEEN 1 AND 999 |
+| `billing.customer_nit_checks` | V4.1 · Cada verificación de un NIT contra el Padrón (`verificarNit`: código 986, 994…). · **append-only** | (id) | customer_id → sales.customers<br>user_id → iam.users | índice (tenant_id, nit, checked_at)<br>CHECK nit > 0 |
+| `billing.siat_service_calls` | V4.1 · Bitácora técnica de cada llamada SOAP al SIN (recurso, operación, duración, HTTP, código SIAT, cuerpos) **sin el token** (regla F-12). Es de la empresa: `branch_id` es un atributo de contexto, no una partición. · **append-only** | (id) | branch_id → warehouse.branches | índice (tenant_id, occurred_at)<br>CHECK duration_ms >= 0 |
+
+### 8.2 Operación: puntos de venta, códigos, documentos fiscales y contingencia · esquema `billing` (12 tablas)
+
+```mermaid
+erDiagram
+    siat_points_of_sale {
+        uuid id PK
+        uuid tenant_id FK
+        uuid branch_id FK
+        integer environment
+        integer code
+        integer type_code
+        varchar name
+        varchar description
+        uuid pos_register_id FK
+        varchar mode
+        timestamptz mode_since
+        timestamptz last_contact_at
+        integer consecutive_failures
+        varchar last_error
+        timestamptz retry_at
+        timestamptz closed_at
+    }
+    siat_cuis {
+        uuid id PK
+        uuid tenant_id FK
+        uuid branch_id FK
+        uuid point_of_sale_id FK
+        varchar code
+        timestamptz valid_until
+        timestamptz obtained_at
+    }
+    siat_cufds {
+        uuid id PK
+        uuid tenant_id FK
+        uuid branch_id FK
+        uuid point_of_sale_id FK
+        uuid cuis_id FK
+        varchar code
+        varchar control_code
+        varchar address
+        timestamptz valid_until
+        timestamptz obtained_at
+    }
+    fiscal_documents {
+        uuid id PK
+        uuid tenant_id FK
+        uuid branch_id FK
+        integer environment
+        varchar kind
+        uuid point_of_sale_id FK
+        uuid cuis_id FK
+        uuid cufd_id FK
+        integer document_sector
+        integer document_type
+        integer emission_type
+        bigint number
+        varchar cuf
+        timestamp issued_at
+        uuid invoice_id FK
+        uuid sales_return_id FK
+        uuid replaces_document_id FK
+        uuid customer_id FK
+        varchar customer_code
+        integer buyer_document_type
+        varchar buyer_document_number
+        varchar buyer_complement
+        varchar buyer_name
+        varchar buyer_email
+        integer payment_method_code
+        varchar card_number_masked
+        integer currency_code
+        numeric exchange_rate
+        numeric additional_discount
+        numeric gift_card_amount
+        integer exception_code
+        varchar cafc
+        varchar legend
+        varchar user_code
+        varchar status
+        boolean is_reverted
+        varchar reception_code
+        integer last_siat_code
+        uuid significant_event_id FK
+        uuid package_id FK
+        integer package_position
+        integer void_reason_code
+        timestamptz voided_at
+        timestamptz reverted_at
+        timestamptz created_at
+    }
+    fiscal_note_references {
+        uuid document_id PK, FK
+        uuid tenant_id FK
+        uuid branch_id FK
+        uuid original_document_id FK
+        bigint original_number
+        varchar original_cuf
+        timestamp original_issued_at
+        numeric discount_share
+    }
+    fiscal_document_lines {
+        uuid id PK
+        uuid tenant_id FK
+        uuid branch_id FK
+        uuid document_id FK
+        integer line_number
+        uuid variant_id FK
+        varchar activity_code
+        integer sin_product_code
+        varchar product_code
+        varchar description
+        numeric quantity
+        integer sin_unit_code
+        numeric unit_price
+        numeric discount
+        integer transaction_code
+        varchar serial_number
+        varchar imei
+    }
+    fiscal_document_files {
+        uuid id PK
+        uuid tenant_id FK
+        uuid branch_id FK
+        uuid document_id FK
+        text xml
+        varchar gzip_sha256
+        timestamptz created_at
+    }
+    fiscal_document_events {
+        uuid id PK
+        uuid tenant_id FK
+        uuid branch_id FK
+        uuid document_id FK
+        varchar action
+        timestamptz occurred_at
+        integer siat_code
+        varchar description
+        varchar reception_code
+        varchar messages
+        uuid user_id FK
+    }
+    fiscal_deliveries {
+        uuid id PK
+        uuid tenant_id FK
+        uuid branch_id FK
+        uuid document_id FK
+        varchar channel
+        varchar recipient
+        boolean succeeded
+        varchar error
+        timestamptz occurred_at
+        uuid user_id FK
+    }
+    significant_events {
+        uuid id PK
+        uuid tenant_id FK
+        uuid branch_id FK
+        uuid point_of_sale_id FK
+        integer environment
+        varchar kind
+        integer event_code
+        varchar description
+        timestamp started_at
+        timestamp ended_at
+        uuid event_cufd_id FK
+        uuid send_cufd_id FK
+        uuid contingency_code_id FK
+        varchar reception_code
+        varchar status
+        timestamptz registered_at
+        timestamptz created_at
+        uuid created_by_user_id FK
+    }
+    fiscal_packages {
+        uuid id PK
+        uuid tenant_id FK
+        uuid branch_id FK
+        uuid significant_event_id FK
+        uuid point_of_sale_id FK
+        uuid send_cufd_id FK
+        integer document_sector
+        integer document_type
+        varchar cafc
+        varchar sha256
+        varchar reception_code
+        varchar status
+        timestamptz sent_at
+        timestamptz validated_at
+        integer last_siat_code
+        text messages
+    }
+    contingency_codes {
+        uuid id PK
+        uuid tenant_id FK
+        uuid branch_id FK
+        integer document_sector
+        varchar code
+        bigint number_from
+        bigint number_to
+        date valid_until
+        boolean is_active
+    }
+    siat_points_of_sale ||--o{ siat_cuis : "point_of_sale_id"
+    siat_points_of_sale ||--o{ siat_cufds : "point_of_sale_id"
+    siat_cuis ||--o{ siat_cufds : "cuis_id"
+    siat_points_of_sale ||--o{ fiscal_documents : "point_of_sale_id"
+    siat_cuis ||--o{ fiscal_documents : "cuis_id"
+    siat_cufds ||--o{ fiscal_documents : "cufd_id"
+    fiscal_documents ||--o{ fiscal_document_lines : "document_id"
+    fiscal_documents ||--o| fiscal_note_references : "document_id"
+    fiscal_documents |o--o{ fiscal_note_references : "original_document_id"
+    fiscal_documents ||--o| fiscal_document_files : "document_id"
+    fiscal_documents ||--o{ fiscal_document_events : "document_id"
+    fiscal_documents ||--o{ fiscal_deliveries : "document_id"
+    fiscal_documents |o--o{ fiscal_documents : "replaces_document_id"
+    siat_points_of_sale ||--o{ significant_events : "point_of_sale_id"
+    siat_cufds ||--o{ significant_events : "event_cufd_id"
+    siat_cufds |o--o{ significant_events : "send_cufd_id"
+    contingency_codes |o--o{ significant_events : "contingency_code_id"
+    significant_events |o--o{ fiscal_documents : "significant_event_id"
+    significant_events ||--o{ fiscal_packages : "significant_event_id"
+    siat_points_of_sale ||--o{ fiscal_packages : "point_of_sale_id"
+    siat_cufds ||--o{ fiscal_packages : "send_cufd_id"
+    fiscal_packages |o--o{ fiscal_documents : "package_id"
+```
+
+Todas las FK de este diagrama son compuestas con la sucursal (`(tenant_id, branch_id, x_id)`): un CUFD, un documento,
+una línea o un paquete no pueden ser de otra sucursal que su punto de venta.
+
+| Tabla | Descripción | Clave | Referencias (FK) | Únicos / CHECK |
+|---|---|---|---|---|
+| `billing.siat_points_of_sale` | V4.1 · Punto de venta del SIN por sucursal y ambiente (código 0 = sin punto de venta; los demás los asigna `registroPuntoVenta`), caja de M-INV vinculada y **modo** de operación (`Online`, `Offline`, `ManualContingency`, `Recovering`: estado materializado; los hechos viven en sus tablas). · OCC xmin · **por sucursal** | (id) | branch_id → warehouse.branches<br>(branch_id, pos_register_id) → sales.pos_registers | único (tenant_id, environment, branch_id, code)<br>único (tenant_id, environment, pos_register_id) WHERE pos_register_id IS NOT NULL<br>CHECK environment IN (1, 2)<br>CHECK code BETWEEN 0 AND 9999<br>CHECK type_code BETWEEN 0 AND 99<br>CHECK mode IN (…)<br>CHECK consecutive_failures >= 0<br>CHECK closed_at IS NULL OR code > 0 |
+| `billing.siat_cuis` | V4.1 · Historial de CUIS (365 días) de un punto de venta; el vigente es el último no vencido. · **append-only** · **por sucursal** | (id) | (branch_id, point_of_sale_id) → billing.siat_points_of_sale | índice (point_of_sale_id, valid_until)<br>CHECK valid_until > obtained_at |
+| `billing.siat_cufds` | V4.1 · Historial de CUFD (24 h) con el **código de control** que se concatena al CUF y la **dirección** del XML; obtenido con un CUIS del mismo punto de venta. · **append-only** · **por sucursal** | (id) | (branch_id, point_of_sale_id) → billing.siat_points_of_sale<br>(branch_id, cuis_id) → billing.siat_cuis | índice (point_of_sale_id, obtained_at)<br>CHECK valid_until > obtained_at |
+| `billing.fiscal_documents` | V4.1 · Documento fiscal digital (agregado): factura Compra Venta (sector 1, tipo 1) o nota Crédito-Débito (sector 24, tipo 3); ambiente, punto de venta, CUIS y CUFD usados, tipo de emisión, **número**, **CUF**, hora fiscal con milisegundos (`timestamp without time zone`: la misma del CUF y del XML), comprador **congelado**, método de pago y tarjeta **enmascarada**, estado, anulación y reversión, evento y paquete. Los totales NO se guardan (vista `billing.v_fiscal_document_totals`). · OCC xmin · **por sucursal** | (id) | (branch_id, point_of_sale_id) → billing.siat_points_of_sale<br>(branch_id, cuis_id) → billing.siat_cuis<br>(branch_id, cufd_id) → billing.siat_cufds<br>(branch_id, invoice_id) → sales.invoices<br>(branch_id, sales_return_id) → sales.sales_returns<br>(branch_id, significant_event_id) → billing.significant_events<br>(branch_id, package_id) → billing.fiscal_packages<br>(branch_id, replaces_document_id) → billing.fiscal_documents<br>customer_id → sales.customers | único (tenant_id, environment, point_of_sale_id, document_sector, number)<br>único (tenant_id, cuf)<br>único (tenant_id, invoice_id) WHERE invoice_id IS NOT NULL AND status IN ('Pending', 'Valid', 'Offline', 'InPackage'): una venta tiene un solo documento activo<br>CHECK document_sector IN (1, 24) y document_type IN (1, 3), coherentes con `kind`<br>CHECK emission_type IN (1, 2)<br>CHECK exception_code IN (0, 1)<br>CHECK number > 0 AND number <= 9999999999<br>CHECK status IN (…)<br>CHECK buyer_document_type BETWEEN 1 AND 5; complemento solo con CI<br>CHECK cafc solo con emisión 2; notas solo en línea<br>CHECK invoice_id solo en facturas; sales_return_id solo en notas<br>CHECK payment_method_code obligatorio en facturas (1 a 999)<br>CHECK montos >= 0 y exchange_rate > 0<br>CHECK paquete y posición (1 a 500) juntos; `InPackage` exige paquete<br>CHECK `Voided` exige voided_at; is_reverted = (reverted_at IS NOT NULL) |
+| `billing.fiscal_note_references` | V4.1 · Subtipo 1:1 de las notas crédito-débito: factura original (documento de M-INV o transcrita: número, CUF o código de autorización, fecha) y descuento prorrateado (`montoDescuentoCreditoDebito`). · **por sucursal** | (document_id) | (branch_id, document_id) → billing.fiscal_documents<br>(branch_id, original_document_id) → billing.fiscal_documents | CHECK original_number > 0 AND original_number <= 9999999999<br>CHECK discount_share IS NULL OR discount_share >= 0 |
+| `billing.fiscal_document_lines` | V4.1 · Detalle **congelado** del documento: actividad, código de producto SIN, código propio, descripción, cantidad, unidad SIN, precio, descuento, transacción (1 original / 2 devuelto, solo notas), serie e IMEI. Cantidades, precios y descuentos `numeric(20,10)`. · **append-only** · **por sucursal** | (id) | (branch_id, document_id) → billing.fiscal_documents<br>variant_id → catalog.product_variants | único (document_id, line_number)<br>CHECK line_number BETWEEN 1 AND 500<br>CHECK quantity > 0, unit_price > 0, discount >= 0<br>CHECK sin_product_code BETWEEN 1 AND 99999999<br>CHECK sin_unit_code BETWEEN 1 AND 999<br>CHECK transaction_code IS NULL OR transaction_code IN (1, 2) |
+| `billing.fiscal_document_files` | V4.1 · XML exacto del documento (validado contra el XSD oficial) y SHA-256 del GZIP enviado (huella). · **append-only** · **por sucursal** | (id) | (branch_id, document_id) → billing.fiscal_documents | único (document_id)<br>CHECK gzip_sha256 ~ '^[0-9a-f]{64}$' |
+| `billing.fiscal_document_events` | V4.1 · Bitácora del documento: cada envío y respuesta del SIN (códigos, código de recepción, mensajes en JSON) y cada acción del usuario (anulación, reversión, entrega…). · **append-only** · **por sucursal** | (id) | (branch_id, document_id) → billing.fiscal_documents<br>user_id → iam.users | índice (document_id, occurred_at)<br>CHECK action IN (…) |
+| `billing.fiscal_deliveries` | V4.1 · Entregas del documento al comprador (correo con XML + PDF, impresión, PDF) con su resultado. · **append-only** · **por sucursal** | (id) | (branch_id, document_id) → billing.fiscal_documents<br>user_id → iam.users | índice (document_id, occurred_at)<br>CHECK channel IN ('Email', 'Print', 'Pdf') |
+| `billing.significant_events` | V4.1 · Evento significativo (fuera de línea automático o contingencia manual con CAFC): código y descripción del catálogo, inicio y fin en hora fiscal (`timestamp without time zone`), CUFD del evento, CUFD nuevo de envío, CAFC, código de recepción y estado (`Open → Closed → Registered → PackagesSent → Reconciled / WithObservations`). · OCC xmin · **por sucursal** | (id) | (branch_id, point_of_sale_id) → billing.siat_points_of_sale<br>(branch_id, event_cufd_id) → billing.siat_cufds<br>(branch_id, send_cufd_id) → billing.siat_cufds<br>(branch_id, contingency_code_id) → billing.contingency_codes<br>created_by_user_id → iam.users | índice (tenant_id, point_of_sale_id, status)<br>CHECK environment IN (1, 2); kind y status IN (…)<br>CHECK event_code BETWEEN 1 AND 99<br>CHECK ended_at IS NULL OR ended_at > started_at<br>CHECK (status = 'Open') = (ended_at IS NULL)<br>CHECK CAFC solo en la contingencia manual<br>CHECK registro, código de recepción y CUFD de envío juntos desde `Registered` |
+| `billing.fiscal_packages` | V4.1 · Paquete de contingencia GZIP(TAR) de hasta 500 documentos del mismo sector, evento y CAFC: huella, código de recepción y resultado de la validación (`Sent → Validated / Observed / Rejected`). · OCC xmin · **por sucursal** | (id) | (branch_id, significant_event_id) → billing.significant_events<br>(branch_id, point_of_sale_id) → billing.siat_points_of_sale<br>(branch_id, send_cufd_id) → billing.siat_cufds | CHECK status IN (…)<br>CHECK document_sector BETWEEN 1 AND 99<br>CHECK sha256 ~ '^[0-9a-f]{64}$'<br>CHECK (status = 'Sent') = (validated_at IS NULL) |
+| `billing.contingency_codes` | V4.1 · CAFC: talonario de facturas de contingencia manual por sucursal y documento sector (rango y vigencia). · **por sucursal** | (id) | branch_id → warehouse.branches | único (tenant_id, branch_id, document_sector, code)<br>CHECK document_sector BETWEEN 1 AND 99<br>CHECK number_from > 0 AND number_to >= number_from |
+
+### 8.3 Devoluciones de venta, datos fiscales de compras y datos de facturación del cliente
+
+```mermaid
+erDiagram
+    sales_returns {
+        uuid id PK
+        uuid tenant_id FK
+        uuid branch_id FK
+        varchar number
+        uuid invoice_id FK
+        uuid customer_id FK
+        varchar reason
+        uuid refund_payment_method_id FK
+        uuid pos_session_id FK
+        uuid user_id FK
+        timestamptz returned_at
+    }
+    sales_return_lines {
+        uuid id PK
+        uuid tenant_id FK
+        uuid branch_id FK
+        uuid sales_return_id FK
+        uuid sales_order_line_id FK
+        uuid variant_id FK
+        numeric quantity
+        uuid stock_movement_id FK
+    }
+    supplier_invoice_fiscal {
+        uuid supplier_invoice_id PK, FK
+        uuid tenant_id FK
+        uuid branch_id FK
+        varchar authorization_code
+        varchar control_code
+        numeric total_amount
+        numeric discounts
+        numeric not_subject_to_vat
+        integer purchase_type
+    }
+    sales_returns ||--o{ sales_return_lines : "sales_return_id"
+```
+
+| Tabla | Descripción | Clave | Referencias (FK) | Únicos / CHECK |
+|---|---|---|---|---|
+| `sales.sales_returns` | V4.1 · Devolución (total o parcial) de una venta, en la sucursal de la venta: el stock vuelve con movimientos de devolución, se reembolsa con el medio indicado y, si la venta estaba facturada, se emite una nota crédito-débito (`billing.fiscal_documents.sales_return_id`). El importe no se guarda: sale de las líneas del pedido. · OCC xmin · **por sucursal** | (id) | (branch_id, invoice_id) → sales.invoices<br>(branch_id, pos_session_id) → sales.pos_sessions<br>customer_id → sales.customers<br>refund_payment_method_id → sales.payment_methods<br>user_id → iam.users | único (tenant_id, number)<br>índice (tenant_id, returned_at) |
+| `sales.sales_return_lines` | V4.1 · Línea devuelta: de una línea de la misma venta y sucursal, con el movimiento de stock que la repuso. · **por sucursal** | (id) | (branch_id, sales_return_id) → sales.sales_returns<br>(branch_id, sales_order_line_id) → sales.sales_order_lines<br>variant_id → catalog.product_variants<br>(branch_id, stock_movement_id) → inventory.stock_movements | único (sales_return_id, sales_order_line_id)<br>único (stock_movement_id) WHERE stock_movement_id IS NOT NULL<br>CHECK quantity > 0 |
+| `purchasing.supplier_invoice_fiscal` | V4.1 · Datos fiscales de la factura del proveedor (subtipo 1:1 de `purchasing.supplier_invoices`) para el libro de compras: CUF o código de autorización, código de control, importe total, descuentos, importe no sujeto a crédito fiscal y tipo de compra del RCV. La base y el crédito fiscal (13 %) se derivan. · **por sucursal** | (supplier_invoice_id) | (branch_id, supplier_invoice_id) → purchasing.supplier_invoices | CHECK total_amount > 0<br>CHECK discounts >= 0 AND not_subject_to_vat >= 0 AND total_amount − not_subject_to_vat − discounts >= 0<br>CHECK purchase_type BETWEEN 1 AND 5 |
+
+`sales.customers` gana `document_type smallint` (1 CI, 2 CEX, 3 PAS, 4 OD, 5 NIT; `tax_id` es el número) y
+`complement varchar(5)` (complemento del SEGIP) con `CHECK (document_type IS NULL OR document_type BETWEEN 1 AND 5)` y
+`CHECK (complement IS NULL OR document_type = 1)` (§4, «Ventas y POS»).
+
+### 8.4 Sucursal, append-only y normalización
+
+**Por sucursal** (15 tablas nuevas, 50 en total; política `branch_isolation` RESTRICTIVA sobre `branch_id`, lista
+`BranchTablesV41` de la migración): `billing.siat_points_of_sale`, `billing.siat_cuis`, `billing.siat_cufds`,
+`billing.fiscal_documents`, `billing.fiscal_note_references`, `billing.fiscal_document_lines`,
+`billing.fiscal_document_files`, `billing.fiscal_document_events`, `billing.fiscal_deliveries`,
+`billing.significant_events`, `billing.fiscal_packages`, `billing.contingency_codes`, `sales.sales_returns`,
+`sales.sales_return_lines`, `purchasing.supplier_invoice_fiscal`.
+
+**Append-only** (9 libros nuevos, 24 en total; `trg_append_only` y privilegios revocados, lista `AppendOnlyTablesV41`,
+regla F-11): `billing.siat_cuis`, `billing.siat_cufds`, `billing.siat_sync_runs`, `billing.customer_nit_checks`,
+`billing.siat_service_calls`, `billing.fiscal_document_lines`, `billing.fiscal_document_files`,
+`billing.fiscal_document_events`, `billing.fiscal_deliveries`.
+
+**Normalización y redundancia controlada.** Los totales fiscales NO se guardan: `subTotal = round2(cantidad × precio) −
+descuento`, `montoTotal = Σ subTotal − descuentoAdicional`, `montoTotalSujetoIva = montoTotal − montoGiftCard`, en las
+notas `montoTotalDevuelto = Σ subTotal (transacción 2) − descuento prorrateado`, y el IVA es el 13 % de la base; los
+calculan el dominio (`FiscalDocument`) y la vista `billing.v_fiscal_document_totals`. Son **instantáneas legales**
+documentadas (como `tenant_id`) los datos del comprador en `fiscal_documents` y el detalle en `fiscal_document_lines`: un
+documento emitido no cambia si mañana cambian el cliente o el catálogo. Son estado materializado con su bitácora
+`fiscal_documents.status` (cada cambio deja su fila en `fiscal_document_events`), `siat_points_of_sale.mode`,
+`significant_events.status` y `fiscal_packages.status`. La homologación vive en tablas propias (`product_siat_codes`,
+`unit_siat_codes`, `payment_method_siat_codes`) para no agregar columnas opcionales a los maestros.
+
+### 8.5 Datos que agrega la migración
+
+- Permisos `billing.view`, `billing.issue`, `billing.void`, `billing.contingency` y `billing.configure` en todas las
+  empresas existentes, con la matriz de `PermissionCodes.ForRole`: ADMIN (los cinco), GERENCIA (view, void,
+  contingency), VENTAS y CAJERO (view, issue), CONSULTA (view); BODEGA, ninguno. Las empresas nuevas los reciben del
+  aprovisionamiento.
+- Módulo comercial `FISCAL_SIAT` «Facturación SIAT (computarizada en línea)» en `iam.modules` (lo siembra la parte
+  generada de la migración: `iam.modules` está en `HasData`).
+
+### 8.6 Roles
+
+`minv_server` y `minv_app` (solo si existen al migrar): `USAGE` en `billing`; SELECT, INSERT, UPDATE y DELETE en las 30
+tablas nuevas, salvo UPDATE, DELETE y TRUNCATE en los 9 libros append-only; SELECT en `billing.v_fiscal_document_totals`.
+`EXECUTE` en `billing.siat_active_tenants()` SOLO para `minv_server` (con las 4 de la V4, 5 funciones SECURITY DEFINER).
