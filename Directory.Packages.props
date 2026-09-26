@@ -24,6 +24,10 @@
     <!-- OpenAPI del API Gateway B2B (la 6.x es la línea compatible con .NET 8). -->
     <PackageVersion Include="Swashbuckle.AspNetCore" Version="6.9.0" />
   </ItemGroup>
+  <ItemGroup Label="Facturación SIAT (V4.1)">
+    <!-- Matriz del código QR de la representación gráfica (se dibuja vectorial en el PDF propio). -->
+    <PackageVersion Include="QRCoder" Version="1.7.0" />
+  </ItemGroup>
   <ItemGroup Label="Pruebas">
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageVersion Include="xunit" Version="2.9.3" />
