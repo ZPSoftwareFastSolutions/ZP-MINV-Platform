@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using MINV.Application.Abstractions;
+using MINV.Hardware.EscPos;
 using MINV.Hardware.Printers;
 
 namespace MINV.Hardware;
@@ -9,10 +10,12 @@ public sealed record HardwareOptions(string? PrinterKind = null, string? Printer
 
 public static class DependencyInjection
 {
-    /// <summary>Registra la impresora de comprobantes según la configuración (ver <see cref="ReceiptPrinters"/>).</summary>
+    /// <summary>Registra la impresora de comprobantes según la configuración (ver <see cref="ReceiptPrinters"/>) y la
+    /// representación gráfica fiscal en rollo (V4.1).</summary>
     public static IServiceCollection AddMinvHardware(this IServiceCollection services, HardwareOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
+        services.AddSingleton<IFiscalRollRenderer, FiscalRollRenderer>();
         if (ReceiptPrinters.Create(options) is { } printer)
         {
             services.AddSingleton(printer);
