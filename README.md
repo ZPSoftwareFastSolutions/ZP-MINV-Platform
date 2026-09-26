@@ -1,5 +1,8 @@
 # ZP-MINV-Platform · M-INV V4 (multi-sucursal en la nube) · V3.1 (escritorio + PostgreSQL) · V2.1 (colaborativo)
 
+> **¿Por dónde empiezo?** Lea la [guía de inicio de las cuatro ediciones](GUIA-DE-INICIO.md): Excel local, Excel
+> compartido, escritorio con base local y escritorio con base en la nube y facturación SIAT (V4.1, en desarrollo).
+
 **Sistema de inventarios y punto de venta B2B de Z&P Software Fast Solutions.** La **V4** convierte M-INV en una
 plataforma **multi-sucursal en la nube**: cada sucursal ve y opera solo lo suyo, la mercadería viaja entre sucursales
 con **transferencias en tránsito**, el escritorio trabaja **por internet** contra un servidor M-INV y la tienda en línea
