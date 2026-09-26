@@ -178,7 +178,7 @@ public sealed class FiscalPdfRenderer : IFiscalDocumentRenderer
             _page.TextCenter(columnCenter, y, _m.Municipality, PdfFont.Helvetica, 8);
             y += 10;
 
-            const double labelX = 380;
+            const double labelX = 370;
             const double valueX = 470;
             var ry = Top;
             _page.Text(labelX, ry, "NIT", PdfFont.HelveticaBold, 8).Text(valueX, ry, _m.IssuerNit.ToString(Invariant), PdfFont.Helvetica, 8);

@@ -45,7 +45,7 @@ public sealed class FiscalRollRenderer : IFiscalRollRenderer
         var subtitle = (model.Subtitle ?? string.Empty).Trim().Trim('(', ')').Trim();
         if (subtitle.Length > 0)
         {
-            Centered(doc, width, subtitle.ToUpper(CultureInfo.GetCultureInfo("es-BO")));
+            Centered(doc, width, subtitle.ToUpperInvariant());
         }
         if (model.IsOffline)
         {

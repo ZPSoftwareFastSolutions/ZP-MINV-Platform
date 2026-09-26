@@ -45,7 +45,7 @@ public static class AmountInWords
         {
             text += " " + currency.Trim();
         }
-        return char.ToUpper(text[0], CultureInfo.GetCultureInfo("es-BO")) + text[1..];
+        return char.ToUpperInvariant(text[0]) + text[1..];
     }
 
     /// <summary>Número entero en palabras (en minúsculas). <paramref name="apocopate"/>: «un» en vez de «uno» (delante de
