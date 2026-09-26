@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!-- V4.1 · Simulador HTTP del SIN (servicios SOAP de la Facturación Computarizada en Línea) para probar la facturación de
+       punta a punta sin token real: mismo contrato que el cliente (SiatSoapContract), mismo motor que la demostración
+       (SiatSimulatorEngine), interruptor para simular cortes. Puerto por defecto 5095. -->
+  <PropertyGroup>
+    <RootNamespace>MINV.SiatSimulator</RootNamespace>
+    <AssemblyName>MINV.SiatSimulator</AssemblyName>
+    <AssemblyTitle>M-INV · Simulador del SIN (SIAT)</AssemblyTitle>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\2. Infrastructure\MINV.Infrastructure\MINV.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

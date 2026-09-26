@@ -15,6 +15,12 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\3. Presentation\MINV.CloudServer\MINV.CloudServer.csproj" />
     <ProjectReference Include="..\..\src\3. Presentation\MINV.ApiGateway\MINV.ApiGateway.csproj" />
+    <!-- V4.1 · Simulador HTTP del SIN: el cliente SOAP se prueba contra él en Kestrel real -->
+    <ProjectReference Include="..\..\src\4. Tools\MINV.SiatSimulator\MINV.SiatSimulator.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- V4.1 · Datos y documentos de prueba del SIN compartidos con MINV.Infrastructure.Tests -->
+    <Compile Include="..\MINV.Infrastructure.Tests\Billing\SiatTestKit.cs" Link="Billing\SiatTestKit.cs" />
   </ItemGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />

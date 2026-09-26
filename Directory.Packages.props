@@ -20,6 +20,11 @@
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
     <PackageVersion Include="System.IO.Ports" Version="8.0.0" />
   </ItemGroup>
+  <ItemGroup Label="Facturación SIAT (V4.1)">
+    <!-- Cliente HTTP con nombre «siat» (IHttpClientFactory) y servicio en segundo plano de la facturación. -->
+    <PackageVersion Include="Microsoft.Extensions.Http" Version="8.0.1" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.1" />
+  </ItemGroup>
   <ItemGroup Label="Web (V4)">
     <!-- OpenAPI del API Gateway B2B (la 6.x es la línea compatible con .NET 8). -->
     <PackageVersion Include="Swashbuckle.AspNetCore" Version="6.9.0" />
