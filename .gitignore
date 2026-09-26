@@ -28,3 +28,6 @@ dist/
 
 # V4 · Variables reales de los servidores (deploy/.env.example es la plantilla)
 deploy/.env
+
+# Worktrees temporales de los agentes (Claude Code)
+.claude/worktrees/

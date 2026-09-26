@@ -502,3 +502,14 @@ public sealed record PendingSupplierInvoiceRow(string ReceiptNumber, DateOnly Re
 
 [RequiresPermission(PermissionCodes.PurchasingManage)]
 public sealed record GetReceiptsWithoutInvoiceQuery : IRequest<IReadOnlyList<PendingSupplierInvoiceRow>>;
+
+/// <summary>
+/// V4.1 · Ejecuta ahora el trabajo automático de la facturación de la empresa de la sesión (envío de pendientes y,
+/// con <see cref="Maintain"/>, recuperación fuera de línea, CUFD/CUIS, reloj, catálogos del día y correos). Lo usa el
+/// escritorio en modo local o demostración (en la nube lo hace el servidor solo) y el botón «Procesar ahora».
+/// </summary>
+[RequiresPermission(PermissionCodes.BillingIssue)]
+[RequiresModule(LicenseModuleCodes.FiscalSiat)]
+public sealed record RunSiatWorkCommand(bool Maintain = true) : IRequest<SiatWorkResult>;
+
+public sealed record SiatWorkResult(DispatchResult Dispatch, SiatMaintenanceResult? Maintenance);
