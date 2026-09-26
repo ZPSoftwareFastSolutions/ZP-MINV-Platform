@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using MINV.Domain.Billing;
 using MINV.Domain.Common;
+using MINV.Domain.Iam;
 using MINV.Infrastructure;
 using MINV.Infrastructure.Persistence;
 
@@ -16,13 +18,74 @@ public sealed class ModelTests
 
     private static IEnumerable<IEntityType> Entities => Model.GetEntityTypes().Where(e => !e.IsOwned());
 
+    private static string Name(IEntityType e) => $"{e.GetSchema()}.{e.GetTableName()}";
+
     [Fact]
-    public void El_modelo_tiene_mas_de_80_tablas_en_8_esquemas()
+    public void El_modelo_tiene_140_tablas_en_9_esquemas()
     {
         var tables = Entities.Select(e => (e.GetSchema(), e.GetTableName())).Distinct().ToList();
         Assert.True(tables.Count >= 80, $"solo {tables.Count} tablas");
-        Assert.Equal(110, tables.Count);   // 96 de la V3 + product_images (V3.1) + 13 de la V4 (sucursales, integración, idempotencia)
+        // 96 de la V3 + product_images (V3.1) + 13 de la V4 (sucursales, integración, idempotencia) + 30 de la V4.1 (facturación)
+        Assert.Equal(140, tables.Count);
+        Assert.Equal(9, Schemas.All.Count);
         Assert.Equal(Schemas.All.OrderBy(s => s), tables.Select(t => t.Item1!).Distinct().OrderBy(s => s));
+        Assert.Equal(27, tables.Count(t => t.Item1 == Schemas.Billing));
+    }
+
+    /// <summary>
+    /// V4.1 · Las listas explícitas de las migraciones (regla B-15) coinciden con el modelo: toda tabla de sucursal tiene
+    /// su política <c>branch_isolation</c> y todo libro su trigger append-only, y las tablas nuevas de la V4.1 son
+    /// exactamente las que reciben los privilegios de los roles de aplicación.
+    /// </summary>
+    [Fact]
+    public void Las_listas_de_las_migraciones_coinciden_con_el_modelo()
+    {
+        Assert.Equal(Entities.Where(e => typeof(IBranchScoped).IsAssignableFrom(e.ClrType)).Select(Name).Order(),
+            Persistence.Migrations.V4MultiBranchCloud.BranchTables.Concat(Persistence.Migrations.V41SiatBilling.BranchTablesV41).Order());
+        Assert.Equal(Entities.Where(e => typeof(IInterBranch).IsAssignableFrom(e.ClrType)).Select(Name).Order(),
+            Persistence.Migrations.V4MultiBranchCloud.InterBranchTables.Order());
+        Assert.Equal(Entities.Where(e => typeof(IAppendOnly).IsAssignableFrom(e.ClrType)).Select(Name).Order(),
+            Persistence.Migrations.GuardsRlsAndViews.AppendOnlyTables.Concat(Persistence.Migrations.V4MultiBranchCloud.AppendOnlyTablesV4)
+                .Concat(Persistence.Migrations.V41SiatBilling.AppendOnlyTablesV41).Order());
+        var v41 = Persistence.Migrations.V41SiatBilling.NewTablesV41;
+        Assert.Equal(v41.Length, v41.Distinct().Count());
+        Assert.Equal(Entities.Where(e => e.GetSchema() == Schemas.Billing).Select(Name)
+                .Concat(new[] { "sales.sales_returns", "sales.sales_return_lines", "purchasing.supplier_invoice_fiscal" }).Order(),
+            v41.Order());
+        Assert.All(Persistence.Migrations.V41SiatBilling.BranchTablesV41.Concat(Persistence.Migrations.V41SiatBilling.AppendOnlyTablesV41),
+            t => Assert.Contains(t, v41));
+    }
+
+    /// <summary>V4.1 · La migración siembra en las empresas existentes los mismos permisos y la misma matriz rol-permiso de
+    /// la facturación que el aprovisionamiento de una empresa nueva (<see cref="PermissionCodes"/>).</summary>
+    [Fact]
+    public void Los_permisos_de_facturacion_de_la_migracion_coinciden_con_el_dominio()
+    {
+        var billing = PermissionCodes.All.Where(p => p.Code.StartsWith("billing.", StringComparison.Ordinal)).ToList();
+        Assert.Equal(5, billing.Count);
+        Assert.Equal(billing.OrderBy(p => p.Code), Persistence.Migrations.V41SiatBilling.BillingPermissions.OrderBy(p => p.Code));
+        var expected = RoleCodes.All
+            .SelectMany(r => PermissionCodes.ForRole(r.Code).Where(p => p.StartsWith("billing.", StringComparison.Ordinal)).Select(p => (r.Code, p)))
+            .Order();
+        Assert.Equal(expected, Persistence.Migrations.V41SiatBilling.BillingRolePermissions.Order());
+        Assert.Contains(LicenseModule.Catalog(), m => m.Code == LicenseModuleCodes.FiscalSiat);
+    }
+
+    /// <summary>V4 / V4.1 · Regla B-02: una FK entre dos tablas de sucursal incluye <c>branch_id</c> (un hijo, una línea o
+    /// un documento que usa un CUIS, un CUFD o un punto de venta no puede ser de otra sucursal).</summary>
+    [Fact]
+    public void Las_FK_entre_tablas_de_sucursal_incluyen_la_sucursal()
+    {
+        foreach (var fk in Entities.SelectMany(e => e.GetForeignKeys()))
+        {
+            if (typeof(IBranchScoped).IsAssignableFrom(fk.DeclaringEntityType.ClrType)
+                && typeof(IBranchScoped).IsAssignableFrom(fk.PrincipalEntityType.ClrType))
+            {
+                Assert.True(fk.Properties.Any(p => p.Name == nameof(IBranchScoped.BranchId))
+                            && fk.PrincipalKey.Properties.Any(p => p.Name == nameof(IBranchScoped.BranchId)),
+                    $"{fk.DeclaringEntityType.ClrType.Name} → {fk.PrincipalEntityType.ClrType.Name}: FK sin branch_id");
+            }
+        }
     }
 
     [Fact]
@@ -54,9 +117,17 @@ public sealed class ModelTests
             // V3: (tenant_id, x_id). V4: (tenant_id, branch_id, x_id) entre filas de una sucursal y
             // (tenant_id, from_branch_id, to_branch_id, x_id) entre las filas de una transferencia.
             var names = fk.Properties.Select(p => p.Name).ToList();
+            Assert.True(names.Contains(nameof(ITenantScoped.TenantId)) && fk.PrincipalKey.Properties.Any(p => p.Name == nameof(ITenantScoped.TenantId)),
+                $"{fk.DeclaringEntityType.ClrType.Name} → {principal.Name}: FK sin tenant_id");
+            // V4.1 · Clave natural del catálogo sincronizado: (tenant_id, activity_code, product_code) de billing.siat_products
+            if (fk.PrincipalKey.Properties.All(p => p.Name != nameof(Entity.Id)))
+            {
+                Assert.Equal((nameof(ProductSiatCode), nameof(SiatProduct)), (fk.DeclaringEntityType.ClrType.Name, principal.Name));
+                continue;
+            }
             // (la FK a la propia sucursal, p. ej. centro de costo → sucursal, es (tenant_id, branch_id): ahí branch_id es la referencia)
             var branchColumns = principal.Name == "Branch" ? 0 : names.Count(n => n is "BranchId" or "FromBranchId" or "ToBranchId");
-            Assert.True(names.Contains(nameof(ITenantScoped.TenantId)) && fk.Properties.Count == 2 + branchColumns && branchColumns <= 2,
+            Assert.True(fk.Properties.Count == 2 + branchColumns && branchColumns <= 2,
                 $"{fk.DeclaringEntityType.ClrType.Name} → {principal.Name}: FK sin tenant_id");
         }
     }
@@ -82,10 +153,41 @@ public sealed class ModelTests
         var appendOnly = Entities.Where(e => typeof(IAppendOnly).IsAssignableFrom(e.ClrType)).Select(e => e.ClrType.Name).OrderBy(n => n);
         Assert.Equal(new[]
         {
-            "AccessLog", "AuditLog", "AverageCostHistory", "CashMovement", "ExchangeRate", "ExternalOrder", "OutboxEvent", "Payment",
-            "ProcessedRequest", "StockMovement", "StockTransferDiscrepancy", "StockTransferEvent", "StockTransferLineBatch",
-            "StockTransferMovement", "WebhookDelivery",
+            "AccessLog", "AuditLog", "AverageCostHistory", "CashMovement", "CustomerNitCheck", "ExchangeRate", "ExternalOrder",
+            "FiscalDelivery", "FiscalDocumentEvent", "FiscalDocumentFile", "FiscalDocumentLine", "OutboxEvent", "Payment",
+            "ProcessedRequest", "SiatCufd", "SiatCuis", "SiatServiceCall", "SiatSyncRun", "StockMovement", "StockTransferDiscrepancy",
+            "StockTransferEvent", "StockTransferLineBatch", "StockTransferMovement", "WebhookDelivery",
         }, appendOnly);
+    }
+
+    /// <summary>V4.1 · Todo lo operativo de la facturación es de una sucursal (regla F-14); la configuración de la empresa,
+    /// los catálogos, la homologación y la bitácora SOAP no.</summary>
+    [Fact]
+    public void La_facturacion_operativa_es_por_sucursal()
+    {
+        var branch = Entities.Where(e => e.GetSchema() == Schemas.Billing && typeof(IBranchScoped).IsAssignableFrom(e.ClrType))
+            .Select(e => e.ClrType.Name).Order();
+        Assert.Equal(new[]
+        {
+            "ContingencyCode", "FiscalDelivery", "FiscalDocument", "FiscalDocumentEvent", "FiscalDocumentFile", "FiscalDocumentLine",
+            "FiscalNoteReference", "FiscalPackage", "SiatCufd", "SiatCuis", "SiatPointOfSale", "SignificantEvent",
+        }, branch);
+        var documents = Model.FindEntityType(typeof(FiscalDocument))!;
+        Assert.Equal("timestamp without time zone", documents.FindProperty(nameof(FiscalDocument.IssuedAt))!.GetColumnType());
+        var active = Assert.Single(documents.GetIndexes(), i => i.GetFilter() is not null);
+        Assert.True(active.IsUnique);
+        Assert.Equal(new[] { nameof(FiscalDocument.TenantId), nameof(FiscalDocument.InvoiceId) }, active.Properties.Select(p => p.Name));
+        Assert.Contains("'Pending', 'Valid', 'Offline', 'InPackage'", active.GetFilter(), StringComparison.Ordinal);
+        Assert.Contains(documents.GetIndexes(), i => i.IsUnique && i.Properties.Select(p => p.Name).SequenceEqual(
+            [nameof(FiscalDocument.TenantId), nameof(FiscalDocument.Environment), nameof(FiscalDocument.PointOfSaleId),
+             nameof(FiscalDocument.DocumentSector), nameof(FiscalDocument.Number)]));
+        Assert.Contains(documents.GetIndexes(), i => i.IsUnique && i.Properties.Select(p => p.Name).SequenceEqual(
+            [nameof(FiscalDocument.TenantId), nameof(FiscalDocument.Cuf)]));
+        var line = Model.FindEntityType(typeof(FiscalDocumentLine))!;
+        Assert.Equal("numeric(20,10)", line.FindProperty(nameof(FiscalDocumentLine.Quantity))!.GetColumnType());
+        Assert.Equal("numeric(20,10)", line.FindProperty(nameof(FiscalDocumentLine.UnitPrice))!.GetColumnType());
+        Assert.Equal("smallint", Model.FindEntityType(typeof(MINV.Domain.Sales.Customer))!
+            .FindProperty(nameof(MINV.Domain.Sales.Customer.DocumentType))!.GetColumnType());
     }
 
     [Fact]
@@ -117,6 +219,17 @@ public sealed class ModelTests
     [InlineData("NULLS NOT DISTINCT")]
     [InlineData("quantity numeric(18,6) NOT NULL")]
     [InlineData("REFERENCES catalog.product_variants (tenant_id, id)")]
+    [InlineData("CREATE SCHEMA billing;")]
+    [InlineData("CREATE TABLE billing.fiscal_documents")]
+    [InlineData("issued_at timestamp without time zone NOT NULL")]
+    [InlineData("quantity numeric(20,10) NOT NULL")]
+    [InlineData("CONSTRAINT ck_fiscal_documents_sector CHECK (document_sector IN (1, 24))")]
+    [InlineData("CONSTRAINT ck_customers_complemento CHECK (complement IS NULL OR document_type = 1)")]
+    [InlineData("REFERENCES billing.siat_points_of_sale (tenant_id, branch_id, id)")]
+    [InlineData("REFERENCES billing.siat_products (tenant_id, activity_code, product_code)")]
+    [InlineData("REFERENCES sales.pos_registers (tenant_id, branch_id, id)")]
+    [InlineData("CREATE TABLE sales.sales_returns")]
+    [InlineData("CREATE TABLE purchasing.supplier_invoice_fiscal")]
     public void El_DDL_generado_contiene_las_restricciones_clave(string fragment) =>
         Assert.Contains(fragment, Ddl, StringComparison.Ordinal);
 
@@ -135,5 +248,6 @@ public sealed class ModelTests
     {
         Assert.Contains("DATA_ENGINE", Ddl, StringComparison.Ordinal);
         Assert.Contains("SLA_SUPPORT", Ddl, StringComparison.Ordinal);
+        Assert.Contains("FISCAL_SIAT", Ddl, StringComparison.Ordinal);
     }
 }
