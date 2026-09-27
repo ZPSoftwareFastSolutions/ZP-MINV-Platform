@@ -45,7 +45,11 @@ export function ProductTabs({ product }: { product: Product }) {
 
   return (
     <section aria-label="Detalle del producto">
-      <Tabs tabs={tabs} value={tab} onChange={setTab} label="Secciones del producto" />
+      <div className="relative">
+        <Tabs tabs={tabs} value={tab} onChange={setTab} label="Secciones del producto" />
+        {/* En pantallas angostas la fila de pestañas se desplaza: el degradado insinúa que hay más a la derecha. */}
+        <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-linear-to-l from-bg to-transparent sm:hidden" />
+      </div>
 
       <Panel id="descripcion" activeId={tab}>
         <div className="grid gap-8 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">

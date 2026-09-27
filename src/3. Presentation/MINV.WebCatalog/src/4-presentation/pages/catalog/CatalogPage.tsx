@@ -122,7 +122,8 @@ export function CatalogPage() {
             onSearch={(q) => update({ q })}
             onOpenFilters={() => setFiltersOpen(true)}
           />
-          <ActiveFilters className="mt-3" filters={filters} brandName={brandName} category={category} onChange={applyAll} />
+          {/* La categoría es el contexto (no cuenta como filtro): su chip solo acompaña a los filtros o la búsqueda activos. */}
+          <ActiveFilters className="mt-3" filters={filters} brandName={brandName} category={anyActive ? category : undefined} onChange={applyAll} />
 
           {result.items.length === 0 ? (
             <EmptyResults className="mt-8" q={filters.q} hasFilters={anyActive} onClear={clearAll} suggestions={suggestions} />
