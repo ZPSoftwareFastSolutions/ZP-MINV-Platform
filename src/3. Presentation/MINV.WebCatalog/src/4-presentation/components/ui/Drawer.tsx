@@ -1,11 +1,13 @@
 // Cajón lateral accesible: role="dialog", foco atrapado, Escape y clic en el fondo cierran, se cierra al navegar,
-// devuelve el foco al disparador y bloquea el desplazamiento del fondo. Animación solo con transform/opacity.
+// devuelve el foco al disparador y bloquea el desplazamiento del fondo (pila de capas modales compartida con los
+// diálogos del armador: modalLayer.ts). Animación solo con transform/opacity.
 
 import clsx from 'clsx';
 import { X } from 'lucide-react';
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useInRouterContext, useLocation } from 'react-router-dom';
+import { useModalDialog, useOpenTransition } from './modalLayer';
 
 export interface DrawerProps {
   open: boolean;
@@ -23,10 +25,7 @@ export interface DrawerProps {
 }
 
 const SIZES = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg' } as const;
-const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 const CLOSE_MS = 250;
-
-let openDrawers = 0;
 
 /** Cierra el cajón cuando cambia la ruta (sincroniza con el enrutador: por eso va en un efecto y no en el render). */
 function CloseOnNavigate({ onClose }: { onClose: () => void }) {
@@ -39,97 +38,12 @@ function CloseOnNavigate({ onClose }: { onClose: () => void }) {
 }
 
 export function Drawer({ open, onClose, title, description, side = 'right', size = 'md', footer, headerExtra, children, closeLabel = 'Cerrar' }: DrawerProps) {
-  // `closing` mantiene el panel montado durante la animación de salida; `visible` dispara la de entrada.
-  const [prevOpen, setPrevOpen] = useState(open);
-  const [closing, setClosing] = useState(false);
-  const [visible, setVisible] = useState(false);
-  if (prevOpen !== open) {
-    setPrevOpen(open);
-    if (open) {
-      setClosing(false);
-    } else {
-      setVisible(false);
-      setClosing(true);
-    }
-  }
-  const mounted = open || closing;
-
+  const { mounted, visible } = useOpenTransition(open, CLOSE_MS);
   const panelRef = useRef<HTMLDivElement>(null);
-  const restoreFocusRef = useRef<HTMLElement | null>(null);
   const titleId = useId();
   const descriptionId = useId();
   const inRouter = useInRouterContext();
-
-  useEffect(() => {
-    if (!open) return;
-    restoreFocusRef.current = document.activeElement as HTMLElement | null;
-    const frame = requestAnimationFrame(() => setVisible(true));
-    return () => cancelAnimationFrame(frame);
-  }, [open]);
-
-  useEffect(() => {
-    if (!closing) return;
-    const timer = setTimeout(() => setClosing(false), CLOSE_MS);
-    return () => clearTimeout(timer);
-  }, [closing]);
-
-  // Bloqueo del fondo (scroll + inert) mientras haya algún cajón abierto.
-  useEffect(() => {
-    if (!mounted) return;
-    openDrawers += 1;
-    const root = document.getElementById('root');
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    root?.setAttribute('inert', '');
-    return () => {
-      openDrawers -= 1;
-      if (openDrawers === 0) {
-        document.body.style.overflow = previousOverflow;
-        root?.removeAttribute('inert');
-      }
-    };
-  }, [mounted]);
-
-  // Foco inicial y devolución del foco al cerrar.
-  useEffect(() => {
-    if (!mounted) return;
-    const panel = panelRef.current;
-    const first = panel?.querySelector<HTMLElement>('[data-autofocus]') ?? panel?.querySelector<HTMLElement>(FOCUSABLE);
-    const timer = setTimeout(() => first?.focus(), 30);
-    return () => {
-      clearTimeout(timer);
-      restoreFocusRef.current?.focus?.();
-    };
-  }, [mounted]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.stopPropagation();
-        onClose();
-      }
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [open, onClose]);
-
-  const trapFocus = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== 'Tab' || !panelRef.current) return;
-    const focusable = Array.from(panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
-      (element) => element.offsetParent !== null,
-    );
-    if (focusable.length === 0) return;
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  };
+  const { trapFocus } = useModalDialog({ mounted, open, onClose, panelRef });
 
   if (!mounted) return null;
 

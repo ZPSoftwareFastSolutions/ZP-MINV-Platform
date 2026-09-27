@@ -13,7 +13,6 @@ import { Card } from '@/4-presentation/components/ui/Card';
 import { ProductImage } from '@/4-presentation/components/ui/ProductImage';
 import { formatMoney, pluralize } from '@/shared/format';
 import { presetKeyLines, TIER_LABELS } from '../builderSteps';
-import { RefButton } from './RefButton';
 
 export interface PresetCardProps {
   detail: PresetDetail;
@@ -67,18 +66,18 @@ export function PresetCard({ detail, currentCount, onLoad, layout = 'card', prio
     <div role="alert" className="flex flex-col gap-2 rounded-xl border border-warning/40 bg-warning-soft p-3 text-sm">
       <p className="text-text">Reemplaza {pluralize(currentCount, 'pieza que ya elegiste', 'piezas que ya elegiste')}. ¿Continuar?</p>
       <div className="flex flex-wrap gap-2">
-        <RefButton buttonRef={cancelRef} variant="ghost" onClick={cancel}>
+        <Button ref={cancelRef} variant="ghost" onClick={cancel}>
           Cancelar
-        </RefButton>
+        </Button>
         <Button variant="cta" onClick={load}>
           Sí, reemplazar
         </Button>
       </div>
     </div>
   ) : (
-    <RefButton buttonRef={loadRef} variant="accent" fullWidth={layout === 'card'} leftIcon={<Sparkles aria-hidden="true" />} onClick={request}>
+    <Button ref={loadRef} variant="accent" fullWidth={layout === 'card'} leftIcon={<Sparkles aria-hidden="true" />} onClick={request}>
       Cargar este armado
-    </RefButton>
+    </Button>
   );
 
   const pieces = (

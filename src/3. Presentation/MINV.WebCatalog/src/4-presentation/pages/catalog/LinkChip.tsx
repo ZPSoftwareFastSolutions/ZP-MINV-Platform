@@ -20,7 +20,7 @@ export function LinkChip({ to, selected = false, count, icon, size = 'md', class
       aria-current={selected ? 'page' : undefined}
       className={clsx(
         'inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border font-medium transition-colors duration-200',
-        size === 'sm' ? 'h-9 px-3 text-sm [&_svg]:size-4' : 'h-11 px-4 text-sm [&_svg]:size-4',
+        size === 'sm' ? 'h-9 px-3 text-sm max-sm:h-11 [&_svg]:size-4' : 'h-11 px-4 text-sm [&_svg]:size-4',
         selected
           ? 'border-accent/60 bg-accent-soft text-accent-hover hover:border-accent'
           : 'border-border bg-surface-2 text-text-muted hover:border-border-strong hover:text-text',

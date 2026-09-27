@@ -6,8 +6,12 @@ import type { CategoryNode } from '@/1-domain/catalog/categories';
 import type { Brand, Category, Product } from '@/1-domain/catalog/types';
 import type { ICatalogRepository } from '@/1-domain/ports/ICatalogRepository';
 import * as builder from './builder/queries';
+import { getCategoryFilterTree } from './catalog/filterTree';
 import * as catalog from './catalog/queries';
 import type {
+  CatalogStats,
+  CategoryFilterTree,
+  CategoryFilterTreeQuery,
   PresetDetail,
   SearchCatalogQuery,
   SearchCatalogResult,
@@ -22,10 +26,19 @@ export interface CatalogUseCases {
   getCategories(): readonly Category[];
   getRootCategories(): Category[];
   getCategory(slug: string): Category | undefined;
-  getCategoryByCode(code: string): Category | undefined;
   getCategoryPath(code: string): Category[];
+  /** Categorías raíz con más productos primero. */
+  getPopularCategories(limit?: number): Category[];
   getBrands(): readonly Brand[];
+  getBrandByName(name: string): Brand | undefined;
+  /** Marcas con más productos primero; `exclude` deja fuera una marca (la de la propia tienda). */
+  getTopBrands(limit?: number, exclude?: string): Brand[];
+  getCatalogStats(): CatalogStats;
   searchCatalog(query?: SearchCatalogQuery): SearchCatalogResult;
+  /** Árbol de categorías con conteos para el panel de filtros (una pasada sobre los productos). */
+  getCategoryFilterTree(query?: CategoryFilterTreeQuery): CategoryFilterTree;
+  /** Consolas, videojuegos y accesorios de consola por popularidad. */
+  getConsoleProducts(limit?: number): Product[];
   getFeaturedProducts(limit?: number): Product[];
   getOffers(limit?: number): Product[];
   getNewArrivals(limit?: number): Product[];
@@ -45,10 +58,15 @@ export function createCatalogUseCases(repo: ICatalogRepository): CatalogUseCases
     getCategories: () => repo.getCategories(),
     getRootCategories: () => catalog.getRootCategories(repo),
     getCategory: (slug) => catalog.getCategory(repo, slug),
-    getCategoryByCode: (code) => catalog.getCategoryByCode(repo, code),
     getCategoryPath: (code) => catalog.getCategoryPath(repo, code),
+    getPopularCategories: (limit) => catalog.getPopularCategories(repo, limit),
     getBrands: () => catalog.getBrands(repo),
+    getBrandByName: (name) => catalog.getBrandByName(repo, name),
+    getTopBrands: (limit, exclude) => catalog.getTopBrands(repo, limit, exclude),
+    getCatalogStats: () => catalog.getCatalogStats(repo),
     searchCatalog: (query) => catalog.searchCatalog(repo, query),
+    getCategoryFilterTree: (query) => getCategoryFilterTree(repo, query),
+    getConsoleProducts: (limit) => catalog.getConsoleProducts(repo, limit),
     getFeaturedProducts: (limit) => catalog.getFeaturedProducts(repo, limit),
     getOffers: (limit) => catalog.getOffers(repo, limit),
     getNewArrivals: (limit) => catalog.getNewArrivals(repo, limit),

@@ -52,7 +52,7 @@ export function Badge({ tone = 'neutral', variant = 'soft', size = 'md', icon, c
     <span
       className={clsx(
         'inline-flex items-center gap-1 whitespace-nowrap rounded-full border font-semibold uppercase tracking-wide',
-        size === 'sm' ? 'h-5 px-2 text-[0.6875rem] [&_svg]:size-3' : 'h-6 px-2.5 text-xs [&_svg]:size-3.5',
+        size === 'sm' ? 'h-5 px-2 text-xs [&_svg]:size-3' : 'h-6 px-2.5 text-xs [&_svg]:size-3.5',
         STYLES[variant][tone],
         className,
       )}

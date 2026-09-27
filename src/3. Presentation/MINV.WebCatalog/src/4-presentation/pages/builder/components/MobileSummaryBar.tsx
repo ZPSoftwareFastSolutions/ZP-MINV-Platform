@@ -5,8 +5,8 @@ import { ChevronUp } from 'lucide-react';
 import type { RefObject } from 'react';
 import type { BuildProgress as Progress } from '@/1-domain/builder/build';
 import { formatMoney, pluralize } from '@/shared/format';
+import { Button } from '@/4-presentation/components/ui/Button';
 import { BuildProgress } from './BuildProgress';
-import { RefButton } from './RefButton';
 
 export interface MobileSummaryBarProps {
   count: number;
@@ -28,9 +28,9 @@ export function MobileSummaryBar({ count, total, progress, onOpen, buttonRef }: 
           </p>
           <p className="font-display text-xl font-semibold leading-tight text-text tabular-nums">{formatMoney(total)}</p>
         </div>
-        <RefButton buttonRef={buttonRef} variant="brand" rightIcon={<ChevronUp aria-hidden="true" />} onClick={onOpen} aria-haspopup="dialog">
+        <Button ref={buttonRef} variant="brand" rightIcon={<ChevronUp aria-hidden="true" />} onClick={onOpen} aria-haspopup="dialog">
           Ver resumen
-        </RefButton>
+        </Button>
       </div>
     </div>
   );

@@ -9,7 +9,6 @@ import type { SlotKey } from '@/1-domain/builder/types';
 import { Button } from '@/4-presentation/components/ui/Button';
 import { formatMoney, pluralize } from '@/shared/format';
 import { BuildProgress } from './BuildProgress';
-import { RefButton } from './RefButton';
 
 export interface BuilderHeaderProps {
   summary: BuildSummary;
@@ -52,18 +51,18 @@ export function BuilderHeader({ summary, onPickPreset, onClear, onPrint, onGoToS
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-          <RefButton buttonRef={presetRef} variant="brand" leftIcon={<Sparkles aria-hidden="true" />} onClick={onPickPreset}>
+          <Button ref={presetRef} variant="brand" leftIcon={<Sparkles aria-hidden="true" />} onClick={onPickPreset}>
             Empezar desde un armado sugerido
-          </RefButton>
+          </Button>
           <Button variant="outline" leftIcon={<Printer />} disabled={empty} onClick={onPrint} title="Abre el diálogo de impresión del navegador">
             Imprimir resumen
           </Button>
           {confirmClear ? (
             <div role="alert" className="flex flex-wrap items-center gap-2 rounded-xl border border-danger/40 bg-danger-soft px-3 py-1.5 text-sm text-text">
               <span>¿Vaciar el armado?</span>
-              <RefButton buttonRef={cancelRef} variant="ghost" onClick={() => setConfirmClear(false)}>
+              <Button ref={cancelRef} variant="ghost" onClick={() => setConfirmClear(false)}>
                 No
-              </RefButton>
+              </Button>
               <Button
                 variant="cta"
                 onClick={() => {
@@ -75,9 +74,9 @@ export function BuilderHeader({ summary, onPickPreset, onClear, onPrint, onGoToS
               </Button>
             </div>
           ) : (
-            <RefButton buttonRef={clearRef} variant="ghost" leftIcon={<Trash2 aria-hidden="true" />} disabled={empty} onClick={() => setConfirmClear(true)}>
+            <Button ref={clearRef} variant="ghost" leftIcon={<Trash2 aria-hidden="true" />} disabled={empty} onClick={() => setConfirmClear(true)}>
               Vaciar
-            </RefButton>
+            </Button>
           )}
         </div>
       </div>

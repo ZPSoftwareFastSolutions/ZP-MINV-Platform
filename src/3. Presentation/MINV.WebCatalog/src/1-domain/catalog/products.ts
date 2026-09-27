@@ -113,7 +113,7 @@ export function sortProducts(products: readonly Product[], sort: ProductSort, qu
       const scores = new Map(copy.map((product) => [product.sku, searchScore(product, query)]));
       return copy.sort(
         (a, b) =>
-          (scores.get(b.sku) as number) - (scores.get(a.sku) as number) ||
+          (scores.get(b.sku) ?? 0) - (scores.get(a.sku) ?? 0) ||
           b.popularity - a.popularity ||
           collator.compare(a.name, b.name),
       );

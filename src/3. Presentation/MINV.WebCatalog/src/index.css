@@ -13,12 +13,18 @@
   --color-tile: #182038;
   --color-border: #253150;
   --color-border-strong: #34437a;
+  /* Borde de controles de formulario (campos, casillas, puntos del carrusel): ≥ 3:1 sobre bg y surface-2 (WCAG 1.4.11).
+     `border` y `border-strong` quedan para separadores decorativos y tarjetas. */
+  --color-border-control: #5d6c9a;
   --color-text: #e5e7eb;
   --color-text-muted: #a3adc2;
   /* Texto terciario: ≥ 4,5:1 también sobre surface-3 (el valor anterior, #6f7b96, bajaba a 3,5:1 sobre las tarjetas). */
   --color-text-faint: #8792ad;
   --color-primary: #7c3aed;
-  --color-primary-hover: #8b5cf6;
+  /* Hover más oscuro (≈ 6,9:1 con texto blanco): el estado hover también cumple AA. */
+  --color-primary-hover: #6d28d9;
+  /* Violeta claro decorativo (degradado del wordmark y de los títulos): nunca como fondo de texto blanco. */
+  --color-primary-bright: #8b5cf6;
   --color-primary-soft: #2b1d5c;
   /* Texto violeta legible sobre superficies oscuras (≥ 7:1). */
   --color-primary-text: #c4b5fd;
@@ -67,6 +73,15 @@ html {
   scroll-behavior: smooth;
   /* Reserva el ancho de la barra de desplazamiento: al abrir un cajón (body overflow hidden) la página no se corre. */
   scrollbar-gutter: stable;
+  /* La cabecera fija (64 px + barra de categorías de 48 px) no debe tapar el control enfocado ni los anclas (WCAG 2.4.11). */
+  scroll-padding-top: 8rem;
+}
+
+/* Mientras el armador está montado, la barra fija inferior de móvil (builder.css) tampoco debe tapar el foco. */
+@media (width < 64rem) {
+  html[data-builder-bar] {
+    scroll-padding-bottom: calc(6rem + env(safe-area-inset-bottom));
+  }
 }
 
 body {
@@ -121,6 +136,18 @@ body::before {
   outline-offset: 2px;
 }
 
+/* Los contenedores que reciben el foco por programa (el <main> tras «Saltar al contenido», la cabecera del armador)
+   no necesitan indicador: dibujaría un marco alrededor de toda la página. */
+[tabindex='-1']:focus-visible,
+main:focus-visible {
+  outline: none;
+}
+
+/* Todo control dentro del contenido mantiene un margen al desplazarse al recibir el foco (refuerzo de scroll-padding). */
+main :is(a, button, input, select, textarea, [tabindex]) {
+  scroll-margin-block: 8rem 6rem;
+}
+
 /* Enlace «Saltar al contenido»: invisible hasta recibir el foco. */
 .skip-link {
   position: absolute;
@@ -141,7 +168,7 @@ body::before {
 
 /* Wordmark y títulos con el degradado de marca (texto, no fondo). */
 @utility text-gradient-brand {
-  background-image: linear-gradient(90deg, var(--color-primary-hover), var(--color-accent-hover));
+  background-image: linear-gradient(90deg, var(--color-primary-bright), var(--color-accent-hover));
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;

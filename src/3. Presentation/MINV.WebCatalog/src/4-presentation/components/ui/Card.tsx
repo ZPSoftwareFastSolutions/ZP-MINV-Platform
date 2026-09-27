@@ -19,7 +19,8 @@ export function Card({ as: Tag = 'div', interactive = false, padding = 'md', ele
       className={clsx(
         'rounded-card border border-border shadow-card',
         elevated ? 'bg-surface-2' : 'bg-surface',
-        interactive && 'transition-[border-color,box-shadow] duration-200 hover:border-border-strong hover:shadow-glow',
+        interactive &&
+          'transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-border-strong hover:shadow-glow focus-within:ring-2 focus-within:ring-accent motion-reduce:hover:translate-y-0',
         PADDING[padding],
         className,
       )}

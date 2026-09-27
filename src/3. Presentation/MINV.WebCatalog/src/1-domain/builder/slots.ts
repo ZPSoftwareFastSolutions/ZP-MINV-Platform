@@ -124,12 +124,11 @@ for (const slot of BUILD_SLOTS) {
   for (const category of slot.categories) slotsByCategory.set(category, slot);
 }
 
+/** Ranura por clave. Lanza si la clave no existe: un SlotKey inválido es un error de programación, no un dato. */
 export function slotByKey(key: SlotKey): BuildSlot {
-  return slotsByKey.get(key) as BuildSlot;
-}
-
-export function isSlotKey(value: string | null | undefined): value is SlotKey {
-  return value != null && slotsByKey.has(value as SlotKey);
+  const slot = slotsByKey.get(key);
+  if (!slot) throw new Error(`Ranura desconocida: ${key}`);
+  return slot;
 }
 
 /** Ranura que admite una categoría del catálogo (undefined si no se arma con ella: consolas, laptops, juegos…). */

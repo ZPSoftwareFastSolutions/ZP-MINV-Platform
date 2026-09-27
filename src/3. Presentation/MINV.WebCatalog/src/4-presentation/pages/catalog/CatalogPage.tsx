@@ -16,7 +16,7 @@ import { useServices } from '@/4-presentation/hooks/useServices';
 import { ActiveFilters } from './ActiveFilters';
 import { activeFilterCount, catalogHref, catalogQuery, clearedFilters, hasActiveFilters, type CatalogFilters } from './catalogFilters';
 import { catalogHeading } from './catalogHeading';
-import { buildCategoryFilterTree } from './categoryFilterTree';
+
 import { EmptyResults } from './EmptyResults';
 import { FilterPanel } from './FilterPanel';
 import { FiltersDrawer } from './FiltersDrawer';
@@ -33,7 +33,7 @@ export function CatalogPage() {
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   const result = useMemo(() => catalog.searchCatalog(catalogQuery(filters)), [catalog, filters]);
-  const tree = useMemo(() => buildCategoryFilterTree(catalog, filters), [catalog, filters]);
+  const tree = useMemo(() => catalog.getCategoryFilterTree(filters), [catalog, filters]);
   const brandNames = useMemo(() => new Map(catalog.getBrands().map((brand) => [brand.code, brand.name])), [catalog]);
   const suggestions = useMemo(
     () => [...catalog.getRootCategories()].sort((a, b) => b.productCount - a.productCount).slice(0, SUGGESTED_CATEGORIES),

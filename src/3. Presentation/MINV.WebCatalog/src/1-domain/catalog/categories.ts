@@ -11,12 +11,11 @@ export function buildCategoryTree(categories: readonly Category[]): CategoryNode
   const nodes = new Map<CategoryCode, CategoryNode>();
   for (const category of categories) nodes.set(category.code, { ...category, children: [] });
   const roots: CategoryNode[] = [];
-  for (const category of categories) {
-    const node = nodes.get(category.code) as CategoryNode;
-    if (category.parent === null) {
+  for (const node of nodes.values()) {
+    if (node.parent === null) {
       roots.push(node);
     } else {
-      nodes.get(category.parent)?.children.push(node);
+      nodes.get(node.parent)?.children.push(node);
     }
   }
   return roots;
@@ -24,10 +23,6 @@ export function buildCategoryTree(categories: readonly Category[]): CategoryNode
 
 export function rootCategories(categories: readonly Category[]): Category[] {
   return categories.filter((category) => category.parent === null);
-}
-
-export function isRootCategory(category: Category): boolean {
-  return category.parent === null;
 }
 
 export function findCategoryBySlug(categories: readonly Category[], slug: string): Category | undefined {
@@ -60,17 +55,11 @@ export function categorySubtreeCodes(categories: readonly Category[], code: Cate
   const result: CategoryCode[] = [];
   const queue: CategoryCode[] = [code];
   const seen = new Set<CategoryCode>();
-  while (queue.length > 0) {
-    const current = queue.shift() as CategoryCode;
+  for (let current = queue.shift(); current !== undefined; current = queue.shift()) {
     if (seen.has(current)) continue;
     seen.add(current);
     result.push(current);
     for (const child of categoryChildren(categories, current)) queue.push(child.code);
   }
   return result;
-}
-
-/** Raíz a la que pertenece una categoría (ella misma si ya es raíz). */
-export function rootOf(categories: readonly Category[], code: CategoryCode): Category | undefined {
-  return categoryPath(categories, code)[0];
 }

@@ -22,7 +22,7 @@ import type { Brand, Category, Condition, Product } from '@/1-domain/catalog/typ
 import type { ICatalogRepository } from '@/1-domain/ports/ICatalogRepository';
 import { normalizeText } from '@/shared/text';
 import { PAGE_SIZE_DEFAULT } from '@/shared/constants';
-import type { BrandFacet, CategoryFacet, ConditionFacet, SearchCatalogQuery, SearchCatalogResult } from './types';
+import type { BrandFacet, CatalogStats, CategoryFacet, ConditionFacet, SearchCatalogQuery, SearchCatalogResult } from './types';
 
 const PAGE_SIZE_MAX = 96;
 const CONDITION_ORDER: readonly Condition[] = ['Nuevo', 'Reacondicionado', 'Usado'];
@@ -39,10 +39,6 @@ export function getCategory(repo: ICatalogRepository, slug: string): Category | 
   return findCategoryBySlug(repo.getCategories(), slug);
 }
 
-export function getCategoryByCode(repo: ICatalogRepository, code: string): Category | undefined {
-  return repo.getCategories().find((category) => category.code === code);
-}
-
 /** Ruta raíz → categoría, para migas de pan. */
 export function getCategoryPath(repo: ICatalogRepository, code: string): Category[] {
   return categoryPath(repo.getCategories(), code);
@@ -50,6 +46,44 @@ export function getCategoryPath(repo: ICatalogRepository, code: string): Categor
 
 export function getBrands(repo: ICatalogRepository): readonly Brand[] {
   return repo.getBrands();
+}
+
+/** Marca por su nombre tal como figura en `Product.brand` (sin acentos ni mayúsculas). */
+export function getBrandByName(repo: ICatalogRepository, name: string): Brand | undefined {
+  const key = normalizeText(name);
+  return repo.getBrands().find((brand) => normalizeText(brand.name) === key);
+}
+
+/** Marcas con más productos primero (empate por nombre), opcionalmente sin una marca (la de la propia tienda). */
+export function getTopBrands(repo: ICatalogRepository, limit?: number, exclude?: string): Brand[] {
+  const excluded = exclude ? normalizeText(exclude) : undefined;
+  const sorted = repo
+    .getBrands()
+    .filter((brand) => excluded === undefined || normalizeText(brand.name) !== excluded)
+    .sort((a, b) => b.productCount - a.productCount || a.name.localeCompare(b.name, 'es'));
+  return limit == null ? sorted : sorted.slice(0, limit);
+}
+
+/** Categorías raíz con más productos primero (para sugerencias y estados vacíos). */
+export function getPopularCategories(repo: ICatalogRepository, limit?: number): Category[] {
+  const sorted = [...rootCategories(repo.getCategories())].sort((a, b) => b.productCount - a.productCount || a.name.localeCompare(b.name, 'es'));
+  return limit == null ? sorted : sorted.slice(0, limit);
+}
+
+/** Cifras de la portada: productos, marcas y armados sugeridos. */
+export function getCatalogStats(repo: ICatalogRepository): CatalogStats {
+  return { products: repo.getProducts().length, brands: repo.getBrands().length, presets: repo.getPresets().length };
+}
+
+/** Consolas, videojuegos y accesorios de consola (subárboles CON, JUE y ACC) del más popular al menos popular. */
+export function getConsoleProducts(repo: ICatalogRepository, limit?: number): Product[] {
+  const categories = repo.getCategories();
+  const codes = new Set(['CON', 'JUE', 'ACC'].flatMap((code) => categorySubtreeCodes(categories, code)));
+  const sorted = sortProducts(
+    repo.getProducts().filter((product) => codes.has(product.category)),
+    'relevancia',
+  );
+  return limit == null ? sorted : sorted.slice(0, limit);
 }
 
 /** Convierte códigos (o nombres) de marca a los nombres que llevan los productos. */

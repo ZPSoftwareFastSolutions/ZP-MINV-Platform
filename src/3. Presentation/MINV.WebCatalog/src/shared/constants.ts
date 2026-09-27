@@ -16,12 +16,10 @@ export const STORE = {
   year: 2026,
 } as const;
 
-/** Escala de capas (z-index): cabecera < menús desplegables < cajones < avisos. */
-export const Z_INDEX = {
-  header: 30,
-  dropdown: 40,
-  drawer: 50,
-  toast: 60,
-} as const;
+/** Título de la pestaña cuando la página no fija uno (el mismo que index.html). */
+export const DEFAULT_TITLE = 'Tech Zone Gaming · Armá tu PC';
+/** Descripción por defecto (index.html); cada página escribe la suya con useDocumentMeta. */
+export const DEFAULT_DESCRIPTION =
+  'Tech Zone Gaming: componentes de PC, tarjetas de video, monitores, periféricos y consolas en Bolivia. Armá tu PC pieza por pieza.';
 
 export const PAGE_SIZE_DEFAULT = 24;

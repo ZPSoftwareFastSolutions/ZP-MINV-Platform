@@ -10,7 +10,7 @@ import type { CatalogFacets } from '@/2-application';
 import { CategoryIcon } from '@/4-presentation/components/ui/CategoryIcon';
 import { Chip } from '@/4-presentation/components/ui/Chip';
 import type { CatalogFilters } from './catalogFilters';
-import type { CategoryFilterNode, CategoryFilterTree } from './categoryFilterTree';
+import type { CategoryFilterNode, CategoryFilterTree } from '@/2-application/catalog/types';
 import { PriceRangeFilter } from './PriceRangeFilter';
 
 export interface FilterPanelProps {

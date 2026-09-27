@@ -1,6 +1,5 @@
-// Reglas de dinero del catálogo: precios en bolivianos con IVA incluido (13 %, informativo), ofertas y ahorro.
-
-import { formatMoney, formatPercent } from '@/shared/format';
+// Reglas de dinero del catálogo: precios en bolivianos con IVA incluido (13 %, informativo), ofertas, ahorro y cuotas
+// informativas. Solo números: los textos («-13 %», «Bs 2.049,00») los arma la presentación con shared/format.
 
 /** IVA de Bolivia; los precios del catálogo ya lo incluyen. */
 export const IVA_RATE = 0.13;
@@ -35,20 +34,20 @@ export function isOnSale(price: number, listPrice: number | null | undefined): b
 
 /** Cuánto se ahorra respecto del precio de lista (0 si no hay oferta). */
 export function savingAmount(price: number, listPrice: number | null | undefined): number {
-  return isOnSale(price, listPrice) ? roundMoney((listPrice as number) - price) : 0;
+  return listPrice != null && listPrice > price ? roundMoney(listPrice - price) : 0;
 }
 
 /** Porcentaje entero de ahorro (0 si no hay oferta): 1.099 sobre 1.263,85 → 13. */
 export function savingPercent(price: number, listPrice: number | null | undefined): number {
-  if (!isOnSale(price, listPrice)) return 0;
-  return Math.round((1 - price / (listPrice as number)) * 100);
+  if (listPrice == null || listPrice <= price) return 0;
+  return Math.round((1 - price / listPrice) * 100);
 }
 
-/** «-13 %» listo para una insignia de oferta, o cadena vacía si no hay ahorro. */
-export function savingLabel(price: number, listPrice: number | null | undefined): string {
-  const percent = savingPercent(price, listPrice);
-  return percent > 0 ? `-${formatPercent(percent)}` : '';
-}
+/** Cuotas informativas con tarjeta de bancos asociados (sin interés, solo presentación): hasta 12. */
+export const INSTALLMENTS_MAX = 12;
 
-/** Alias del formato de dinero para que el dominio no dependa de la ruta de `shared` en cada import. */
-export const money = formatMoney;
+/** Importe de cada una de `months` cuotas iguales de un precio (redondeado a centavos; 0 si no aplica). */
+export function installmentAmount(price: number, months = INSTALLMENTS_MAX): number {
+  if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(months) || months < 1) return 0;
+  return roundMoney(price / Math.trunc(months));
+}

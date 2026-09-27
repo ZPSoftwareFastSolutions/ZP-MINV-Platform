@@ -7,9 +7,8 @@ import {
   categorySubtreeCodes,
   findCategoryBySlug,
   rootCategories,
-  rootOf,
 } from './categories';
-import { ivaBreakdown, isOnSale, savingAmount, savingLabel, savingPercent, sumMoney } from './money';
+import { ivaBreakdown, isOnSale, savingAmount, savingPercent, sumMoney } from './money';
 import { filterProducts, matchesQuery, priceRange, productsWithTag, relatedProducts, sortProducts } from './products';
 import { stockLabel, stockStatus } from './stock';
 
@@ -27,13 +26,11 @@ describe('dinero', () => {
     expect(isOnSale(cpu5600.price, cpu5600.listPrice)).toBe(true);
     expect(savingAmount(cpu5600.price, cpu5600.listPrice)).toBe(164.85);
     expect(savingPercent(cpu5600.price, cpu5600.listPrice)).toBe(13);
-    expect(savingLabel(cpu5600.price, cpu5600.listPrice)).toBe('-13 %');
   });
 
   it('sin precio de lista no hay oferta ni ahorro', () => {
     expect(isOnSale(100, null)).toBe(false);
     expect(savingPercent(100, 100)).toBe(0);
-    expect(savingLabel(100, 90)).toBe('');
     expect(sumMoney([0.1, 0.2])).toBe(0.3);
   });
 });
@@ -54,7 +51,6 @@ describe('categorías', () => {
     expect(categoryPath(CATEGORIES, 'GPU').map((category) => category.name)).toEqual(['Componentes', 'Tarjetas de video']);
     expect(categorySubtreeCodes(CATEGORIES, 'CON')).toEqual(['CON', 'CPS', 'CXB', 'CNS']);
     expect(categorySubtreeCodes(CATEGORIES, 'MON')).toEqual(['MON']);
-    expect(rootOf(CATEGORIES, 'LIC')?.code).toBe('SOFT');
     expect(categoryPath(CATEGORIES, 'NO-EXISTE')).toEqual([]);
   });
 

@@ -1,7 +1,8 @@
 // Galería de la ficha: la ilustración grande sobre la loseta `bg-tile` (mismo fondo que la imagen) con un zoom suave al
 // pasar el mouse. El catálogo trae una ilustración por producto, así que no hay miniaturas.
 
-import { isOnSale, savingLabel } from '@/1-domain/catalog/money';
+import { isOnSale } from '@/1-domain/catalog/money';
+import { savingLabel } from '@/4-presentation/i18n/priceLabels';
 import type { Product } from '@/1-domain/catalog/types';
 import { Badge } from '@/4-presentation/components/ui/Badge';
 import { ProductImage } from '@/4-presentation/components/ui/ProductImage';

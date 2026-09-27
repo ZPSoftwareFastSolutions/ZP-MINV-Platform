@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { formatMoney, formatNumber, formatPercent, pluralize } from './format';
-import { normalizeText, slugify, tokenize, truncate } from './text';
+import { normalizeText, tokenize } from './text';
 
 describe('formato es-BO', () => {
   it('formatea dinero como «Bs 2.049,00» con miles y dos decimales', () => {
@@ -32,11 +32,5 @@ describe('texto', () => {
   it('normaliza sin acentos ni mayúsculas', () => {
     expect(normalizeText('  Refrigeración   Líquida ')).toBe('refrigeracion liquida');
     expect(tokenize('RTX  5070 Ti')).toEqual(['rtx', '5070', 'ti']);
-  });
-
-  it('genera slugs de ruta', () => {
-    expect(slugify('Tarjetas de video')).toBe('tarjetas-de-video');
-    expect(slugify('Audífonos y headsets')).toBe('audifonos-y-headsets');
-    expect(truncate('Procesador AMD Ryzen 5 7600', 12)).toBe('Procesador…');
   });
 });

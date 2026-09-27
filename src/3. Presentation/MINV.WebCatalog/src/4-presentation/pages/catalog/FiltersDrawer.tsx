@@ -9,7 +9,6 @@ import { Drawer } from '@/4-presentation/components/ui/Drawer';
 import { useServices } from '@/4-presentation/hooks/useServices';
 import { formatNumber } from '@/shared/format';
 import { activeFilterCount, catalogQuery, clearedFilters, type CatalogFilters } from './catalogFilters';
-import { buildCategoryFilterTree } from './categoryFilterTree';
 import { FilterPanel } from './FilterPanel';
 
 export interface FiltersDrawerProps {
@@ -30,7 +29,7 @@ export function FiltersDrawer({ open, onClose, filters, onApply }: FiltersDrawer
   }
 
   const preview = useMemo(() => catalog.searchCatalog({ ...catalogQuery(draft, 1), page: 1 }), [catalog, draft]);
-  const tree = useMemo(() => buildCategoryFilterTree(catalog, draft), [catalog, draft]);
+  const tree = useMemo(() => catalog.getCategoryFilterTree(draft), [catalog, draft]);
   const active = activeFilterCount(draft);
 
   const apply = () => {

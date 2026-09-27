@@ -17,6 +17,7 @@ import {
   KeyRound,
   Keyboard,
   Laptop,
+  LayoutGrid,
   MemoryStick,
   Monitor,
   MonitorSmartphone,
@@ -49,6 +50,7 @@ export const CATEGORY_ICONS: Record<string, LucideIcon> = {
   KeyRound,
   Keyboard,
   Laptop,
+  LayoutGrid,
   MemoryStick,
   Monitor,
   MonitorSmartphone,
@@ -62,8 +64,3 @@ export const CATEGORY_ICONS: Record<string, LucideIcon> = {
   Wrench,
   Zap,
 };
-
-/** Componente de ícono para un nombre de `Category.icon` / `BuildSlot.icon` (Package si no existe). */
-export function categoryIcon(name: string): LucideIcon {
-  return CATEGORY_ICONS[name] ?? Package;
-}

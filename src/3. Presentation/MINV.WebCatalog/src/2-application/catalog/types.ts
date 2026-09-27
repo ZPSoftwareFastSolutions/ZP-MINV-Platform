@@ -69,6 +69,36 @@ export interface SearchCatalogResult {
   facets: CatalogFacets;
 }
 
+/** Entrada de `getCategoryFilterTree`: el alcance del catálogo sin la categoría (búsqueda, stock, etiquetas) y la categoría activa. */
+export type CategoryFilterTreeQuery = Pick<SearchCatalogQuery, 'q' | 'inStock' | 'tags' | 'category'>;
+
+export interface CategoryFilterNode {
+  code: string;
+  name: string;
+  slug: string;
+  icon: string;
+  count: number;
+  selected: boolean;
+  /** Solo la raíz activa trae sus hijas. */
+  children: CategoryFilterNode[];
+}
+
+export interface CategoryFilterTree {
+  roots: CategoryFilterNode[];
+  /** Productos del alcance sin filtrar por categoría (para «Todas las categorías»). */
+  total: number;
+  selected?: Category;
+  /** Raíz → categoría elegida. */
+  path: Category[];
+}
+
+/** Cifras del catálogo para la portada. */
+export interface CatalogStats {
+  products: number;
+  brands: number;
+  presets: number;
+}
+
 export interface SlotCandidatesQuery {
   q?: string;
   brands?: readonly string[];

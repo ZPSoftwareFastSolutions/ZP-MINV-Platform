@@ -23,7 +23,7 @@ export function Chip({ selected = false, count, icon, onRemove, size = 'md', cla
       className={clsx(
         'inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-full border font-medium transition-colors duration-200',
         'disabled:cursor-not-allowed disabled:opacity-50',
-        size === 'sm' ? 'h-9 px-3 text-sm [&_svg]:size-4' : 'h-11 px-4 text-sm [&_svg]:size-4',
+        size === 'sm' ? 'h-9 px-3 text-sm max-sm:h-11 [&_svg]:size-4' : 'h-11 px-4 text-sm [&_svg]:size-4',
         selected
           ? 'border-accent/60 bg-accent-soft text-accent-hover hover:border-accent'
           : 'border-border bg-surface-2 text-text-muted hover:border-border-strong hover:text-text',

@@ -2,7 +2,7 @@
 // Todo vive en memoria: no persiste ni valida compatibilidad (solo presentación).
 
 import type { Product } from '@/1-domain/catalog/types';
-import { savingAmount, sumMoney } from '@/1-domain/catalog/money';
+import { roundMoney, savingAmount, sumMoney } from '@/1-domain/catalog/money';
 import { BUILD_SLOTS, REQUIRED_SLOTS, slotByKey, slotForProduct } from './slots';
 import type { BuildLine, BuildSlot, SlotKey } from './types';
 
@@ -22,9 +22,16 @@ export type BuildAction =
   | { type: 'clear' }
   | { type: 'loadPreset'; lines: readonly BuildLine[] };
 
-export function clampQuantity(quantity: number): number {
+/** Unidades máximas que admite una pieza en el armado: el tope general acotado por su stock (al menos 1). */
+export function maxQuantityFor(product: Pick<Product, 'stock'>): number {
+  return Math.max(1, Math.min(MAX_QUANTITY, Math.trunc(product.stock)));
+}
+
+/** Acota una cantidad a [0, máximo] (MAX_QUANTITY, o el tope por stock si se pasa el producto). */
+export function clampQuantity(quantity: number, product?: Pick<Product, 'stock'>): number {
   if (!Number.isFinite(quantity)) return 1;
-  return Math.min(MAX_QUANTITY, Math.max(0, Math.trunc(quantity)));
+  const max = product ? maxQuantityFor(product) : MAX_QUANTITY;
+  return Math.min(max, Math.max(0, Math.trunc(quantity)));
 }
 
 function sortLines(lines: readonly BuildLine[]): BuildLine[] {
@@ -42,10 +49,10 @@ export function buildReducer(state: BuildState, action: BuildAction): BuildState
     case 'add': {
       const slot = action.slot ? slotByKey(action.slot) : slotForProduct(action.product);
       if (!slot) return state;
-      const quantity = Math.max(1, clampQuantity(action.quantity ?? 1));
+      const quantity = Math.max(1, clampQuantity(action.quantity ?? 1, action.product));
       const existing = state.lines.find((line) => line.product.sku === action.product.sku);
       if (existing) {
-        const merged = slot.multiple ? clampQuantity(existing.quantity + quantity) : quantity;
+        const merged = slot.multiple ? clampQuantity(existing.quantity + quantity, action.product) : quantity;
         return {
           lines: state.lines.map((line) =>
             line.product.sku === action.product.sku ? { ...line, slot: slot.key, quantity: merged } : line,
@@ -58,7 +65,9 @@ export function buildReducer(state: BuildState, action: BuildAction): BuildState
     case 'remove':
       return { lines: state.lines.filter((line) => line.product.sku !== action.sku) };
     case 'setQuantity': {
-      const quantity = clampQuantity(action.quantity);
+      const target = state.lines.find((line) => line.product.sku === action.sku);
+      if (!target) return state;
+      const quantity = clampQuantity(action.quantity, target.product);
       if (quantity === 0) return { lines: state.lines.filter((line) => line.product.sku !== action.sku) };
       return {
         lines: state.lines.map((line) => (line.product.sku === action.sku ? { ...line, quantity } : line)),
@@ -67,14 +76,15 @@ export function buildReducer(state: BuildState, action: BuildAction): BuildState
     case 'clear':
       return EMPTY_BUILD;
     case 'loadPreset':
-      return { lines: sortLines(action.lines.map((line) => ({ ...line, quantity: Math.max(1, clampQuantity(line.quantity)) }))) };
+      return { lines: sortLines(action.lines.map((line) => ({ ...line, quantity: Math.max(1, clampQuantity(line.quantity, line.product)) }))) };
     default:
       return state;
   }
 }
 
-export function lineTotal(line: BuildLine): number {
-  return line.product.price * line.quantity;
+/** Subtotal de una línea (precio × cantidad, redondeado a centavos). */
+export function lineTotal(line: Pick<BuildLine, 'product' | 'quantity'>): number {
+  return roundMoney(line.product.price * line.quantity);
 }
 
 /** Suma simple de precio × cantidad (sin envío ni descuentos: no hay checkout). */

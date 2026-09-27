@@ -3,7 +3,6 @@ import { PRODUCTS } from '@/3-infrastructure/data/catalog.data';
 import { CATEGORIES } from '@/3-infrastructure/data/categories.data';
 import {
   EMPTY_BUILD,
-  MAX_QUANTITY,
   buildCount,
   buildProgress,
   buildReducer,
@@ -93,7 +92,7 @@ describe('reductor del armado', () => {
   it('cambia cantidades con límites y quita con cantidad 0', () => {
     let state = buildReducer(EMPTY_BUILD, { type: 'add', product: ssd });
     state = buildReducer(state, { type: 'setQuantity', sku: ssd.sku, quantity: 99 });
-    expect(state.lines[0].quantity).toBe(MAX_QUANTITY);
+    expect(state.lines[0].quantity).toBe(3);
     state = buildReducer(state, { type: 'setQuantity', sku: ssd.sku, quantity: 0 });
     expect(state.lines).toHaveLength(0);
   });

@@ -24,8 +24,9 @@ const VARIANTS: Record<IconButtonVariant, string> = {
   primary: 'bg-primary text-white hover:bg-primary-hover',
 };
 
+/* Objetivo táctil: 44 px en móvil incluso en `sm` (36 px solo desde sm, donde hay puntero). */
 const SIZES: Record<IconButtonSize, string> = {
-  sm: 'size-9 [&_svg]:size-4',
+  sm: 'size-9 max-sm:size-11 [&_svg]:size-4',
   md: 'size-11 [&_svg]:size-5',
   lg: 'size-12 [&_svg]:size-6',
 };
