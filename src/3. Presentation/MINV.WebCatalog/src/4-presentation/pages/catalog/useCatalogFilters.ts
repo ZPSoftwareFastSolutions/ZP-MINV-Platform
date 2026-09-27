@@ -31,7 +31,8 @@ export function useCatalogFilters(): CatalogFiltersApi {
   const update = useCallback(
     (patch: Partial<CatalogFilters>) => {
       const next = { ...filters, ...patch, page: patch.page ?? 1 };
-      apply(next, { push: patch.category !== undefined && patch.category !== filters.category });
+      // Cambiar de categoría (también volver a «Todas») es una navegación: agrega una entrada al historial.
+      apply(next, { push: 'category' in patch && patch.category !== filters.category });
     },
     [apply, filters],
   );
