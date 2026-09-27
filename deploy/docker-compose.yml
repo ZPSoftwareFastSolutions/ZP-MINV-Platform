@@ -65,6 +65,15 @@ services:
     volumes:
       - minv-siat:/data
 
+  webcatalog:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.webcatalog
+    image: minv-webcatalog:5.0.0-alpha.1
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+
   postgres:
     profiles: ["local-db"]
     image: postgres:16

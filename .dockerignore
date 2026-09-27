@@ -1,0 +1,10 @@
+.git
+.vscode
+.claude
+.venv
+**/node_modules
+**/dist
+**/bin
+**/obj
+.env
+.env.*
