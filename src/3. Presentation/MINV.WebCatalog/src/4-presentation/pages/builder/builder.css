@@ -1,0 +1,141 @@
+/*
+  Estilos de impresión del armador «Armá tu PC».
+  La vista imprimible (.builder-print) vive fuera de #root y está oculta en pantalla. Solo al pulsar «Imprimir resumen»
+  la página pone <html data-print="armado">, llama a window.print() y lo quita al terminar: así Ctrl+P desde cualquier
+  otra pantalla sigue imprimiendo la página normal. Papel: texto negro sobre blanco (colores del medio impreso, no del
+  tema), tipografía del sistema y tablas con bordes finos.
+*/
+
+.builder-print {
+  display: none;
+}
+
+/*
+  Barra fija inferior de móvil (total + «Ver resumen»): mientras el armador está montado, <html data-builder-bar>
+  reserva su alto al final del documento para que el pie de página no quede tapado. En lg+ la barra no existe.
+*/
+@media (width < 64rem) {
+  html[data-builder-bar] body {
+    padding-bottom: calc(5.5rem + env(safe-area-inset-bottom));
+  }
+}
+
+@media print {
+  html[data-print='armado'] body > :not(.builder-print) {
+    display: none !important;
+  }
+
+  html[data-print='armado'] body::before {
+    content: none;
+  }
+
+  html[data-print='armado'],
+  html[data-print='armado'] body {
+    background: white;
+    color: black;
+    color-scheme: light;
+  }
+
+  html[data-print='armado'] .builder-print {
+    display: block;
+    padding: 0;
+    font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+    font-size: 11pt;
+    line-height: 1.4;
+    color: black;
+  }
+
+  .builder-print h1,
+  .builder-print h2 {
+    color: black;
+    font-family: 'Space Grotesk', 'Inter', ui-sans-serif, system-ui, sans-serif;
+    margin: 0;
+  }
+
+  .builder-print h1 {
+    font-size: 18pt;
+  }
+
+  .builder-print h2 {
+    font-size: 13pt;
+    margin-top: 16pt;
+  }
+
+  .builder-print p,
+  .builder-print li {
+    margin: 0;
+  }
+
+  .builder-print__header {
+    display: flex;
+    justify-content: space-between;
+    gap: 24pt;
+    padding-bottom: 12pt;
+    margin-bottom: 12pt;
+    border-bottom: 1.5pt solid black;
+  }
+
+  .builder-print__brand {
+    font-family: 'Space Grotesk', 'Inter', ui-sans-serif, system-ui, sans-serif;
+    font-size: 16pt;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+  }
+
+  .builder-print__meta {
+    text-align: right;
+  }
+
+  .builder-print table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 10pt;
+  }
+
+  .builder-print th,
+  .builder-print td {
+    padding: 5pt 6pt;
+    border-bottom: 0.5pt solid rgb(0 0 0 / 0.3);
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .builder-print thead th {
+    border-bottom: 1pt solid black;
+    font-size: 8.5pt;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .builder-print tfoot th,
+  .builder-print tfoot td {
+    border-bottom: none;
+  }
+
+  .builder-print__num {
+    text-align: right !important;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .builder-print__total {
+    font-size: 13pt;
+    font-weight: 700;
+  }
+
+  .builder-print ul {
+    margin: 6pt 0 0;
+    padding-left: 16pt;
+  }
+
+  .builder-print__note {
+    margin-top: 12pt;
+    font-size: 9pt;
+    color: rgb(0 0 0 / 0.7);
+  }
+
+  .builder-print tr,
+  .builder-print li {
+    break-inside: avoid;
+  }
+}
