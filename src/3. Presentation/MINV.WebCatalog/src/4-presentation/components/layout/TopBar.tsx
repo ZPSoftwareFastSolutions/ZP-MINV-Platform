@@ -32,7 +32,7 @@ export function TopBar() {
           <li className="flex items-center gap-1.5">
             <MapPin aria-hidden="true" className="size-4 text-accent" />
             <span className="hidden lg:inline">{STORE.branches.join(' · ')}</span>
-            <span className="lg:hidden">3 sucursales</span>
+            <span className="lg:hidden">{STORE.branches.length} sucursales</span>
           </li>
         </ul>
       </Container>

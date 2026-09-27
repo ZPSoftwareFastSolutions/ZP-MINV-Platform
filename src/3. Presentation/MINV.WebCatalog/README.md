@@ -40,6 +40,8 @@ shared          formato es-BO (Bs 2.049,00), texto sin acentos, constantes
 
 - `4-presentation/app/container.ts` es el **único** archivo de la presentación que importa `3-infrastructure`.
 - El dominio no conoce React ni la infraestructura; los casos de uso reciben el repositorio por el puerto.
+- `src/architecture.test.ts` comprueba estas reglas leyendo los `import` de todo `src/` (sin las pruebas) y falla si
+  una capa apunta hacia afuera o si algún archivo usa `localStorage`, `fetch` u otro acceso a red o almacenamiento.
 - Idioma de la interfaz, comentarios y documentación: español (Bolivia). Moneda: bolivianos con IVA incluido (13 %,
   informativo).
 
@@ -84,9 +86,14 @@ tools/           generar_catalogo_web.py
 - **Solo frontend.** Sin rutas de servidor, servicios externos ni almacenamiento (ni `localStorage`): el armado es
   estado en memoria (`Context + useReducer` con el reductor puro del dominio).
 - **Mock generado.** `npm run generar-catalogo` reconstruye `data/*.data.ts` desde
-  `src/2. Infrastructure/MINV.Infrastructure/Seeding/Tecnologia/catalogo-tecnologia.json` de forma determinista.
+  `src/2. Infrastructure/MINV.Infrastructure/Seeding/Tecnologia/catalogo-tecnologia.json` de forma determinista
+  (las piezas de los armados sugeridos nunca quedan agotadas).
+- **Fragmentos de producción.** `vite.config.ts` separa el mock (`catalogo`) y las bibliotecas (`vendor`) del código de
+  la aplicación, así el navegador guarda en caché lo que no cambia entre versiones.
 - **Repositorio síncrono.** El puerto devuelve datos en memoria sin promesas: las páginas calculan con `useMemo` y no
   necesitan estados de carga (los esqueletos quedan para imágenes y suspensión futura).
 - **Diseño.** Tema oscuro gaming con tokens (`bg-bg`, `bg-surface`, `text-primary-text`, `bg-tile`…), tipografía Space
-  Grotesk + Inter, contraste AA, foco visible, objetivos táctiles ≥ 44 px, animaciones solo con transform/opacity y
-  respeto de `prefers-reduced-motion`. Íconos de Lucide (sin emojis).
+  Grotesk + Inter, contraste AA (`text-muted` ≥ 7:1 y `text-faint` ≥ 4,5:1 sobre todas las superficies), foco visible,
+  objetivos táctiles ≥ 44 px, animaciones solo con transform/opacity y respeto de `prefers-reduced-motion`. Íconos de
+  Lucide (sin emojis). Los avisos (toasts) y los cajones se montan en portales sobre `<body>`, fuera de `#root`, para
+  que sigan siendo usables mientras un cajón deja el resto de la página inerte.

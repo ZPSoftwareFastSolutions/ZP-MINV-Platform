@@ -212,8 +212,9 @@ export function CategoryNav() {
               <Cpu aria-hidden="true" className="size-4" />
               Armá tu PC
               {count > 0 && (
-                <span className="ml-0.5 rounded-full bg-accent px-1.5 font-display text-xs font-bold text-bg" aria-label={`${count} piezas en tu armado`}>
+                <span className="ml-0.5 rounded-full bg-accent px-1.5 font-display text-xs font-bold text-bg">
                   {count}
+                  <span className="sr-only">{count === 1 ? ' pieza en tu armado' : ' piezas en tu armado'}</span>
                 </span>
               )}
             </NavLink>

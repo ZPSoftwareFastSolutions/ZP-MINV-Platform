@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { PRODUCTS } from '@/3-infrastructure/data/catalog.data';
+import { CATEGORIES } from '@/3-infrastructure/data/categories.data';
 import {
   EMPTY_BUILD,
   MAX_QUANTITY,
@@ -12,7 +13,7 @@ import {
   summarizeBuild,
   type BuildState,
 } from './build';
-import { BUILD_SLOTS, REQUIRED_SLOTS, isBuildable, slotForProduct } from './slots';
+import { BUILD_SLOTS, REQUIRED_SLOTS, isBuildable, slotForCategory, slotForProduct } from './slots';
 
 const bySku = (sku: string) => PRODUCTS.find((product) => product.sku === sku)!;
 const cpu = bySku('CPU-AMD-7600');
@@ -30,6 +31,27 @@ describe('ranuras', () => {
     expect(REQUIRED_SLOTS.map((slot) => slot.key)).toEqual(['cpu', 'motherboard', 'ram', 'storage', 'psu', 'case']);
     expect(BUILD_SLOTS.filter((slot) => slot.multiple).map((slot) => slot.key)).toEqual(['storage', 'peripherals', 'software']);
     expect(BUILD_SLOTS.every((slot) => slot.hint.length > 20 && slot.icon.length > 0)).toBe(true);
+  });
+
+  it('asigna cada una de las 29 categorías hoja a una ranura sensata (o a ninguna si no se arma con ella)', () => {
+    const esperado: Record<string, string | undefined> = {
+      CPU: 'cpu', GPU: 'gpu', MB: 'motherboard', RAM: 'ram', STO: 'storage', PSU: 'psu', CASE: 'case', COOL: 'cooler',
+      LAPG: undefined, LAPU: undefined, DESK: undefined,
+      MON: 'monitor',
+      KEY: 'peripherals', MOU: 'peripherals', AUD: 'peripherals', PAD: 'peripherals', CAM: 'peripherals', CHA: 'peripherals',
+      CPS: undefined, CXB: undefined, CNS: undefined, JUE: undefined,
+      MAND: 'peripherals', CARG: undefined, ALMC: undefined,
+      RED: undefined, CAB: undefined,
+      LIC: 'software', SRV: 'software',
+    };
+    const hojas = CATEGORIES.filter((category) => !CATEGORIES.some((child) => child.parent === category.code));
+    expect(hojas).toHaveLength(29);
+    for (const hoja of hojas) expect(slotForCategory(hoja.code)?.key, hoja.code).toBe(esperado[hoja.code]);
+    // Toda categoría que admite una ranura existe en el catálogo.
+    const codigos = new Set(CATEGORIES.map((category) => category.code));
+    expect(BUILD_SLOTS.flatMap((slot) => slot.categories).every((code) => codigos.has(code))).toBe(true);
+    // Todo producto del catálogo es armable exactamente cuando su categoría tiene ranura.
+    expect(PRODUCTS.filter(isBuildable).length).toBe(PRODUCTS.filter((product) => esperado[product.category] !== undefined).length);
   });
 
   it('infiere la ranura de un producto por su categoría', () => {

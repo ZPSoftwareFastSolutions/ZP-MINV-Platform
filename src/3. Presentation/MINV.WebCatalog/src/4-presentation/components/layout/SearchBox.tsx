@@ -55,7 +55,8 @@ export function SearchBox({ onSubmitted, autoFocus = false, size = 'md', classNa
           'transition-colors duration-200 hover:border-border-strong focus:border-accent focus:outline-none',
           '[&::-webkit-search-cancel-button]:hidden',
           size === 'lg' ? 'h-12' : 'h-11',
-          value ? 'pr-24' : 'pr-14',
+          // Espacio para los botones de la derecha: solo la lupa en móvil; «Buscar» (y la «x» con texto) desde sm.
+          value ? 'pr-24 sm:pr-32' : 'pr-12 sm:pr-22',
         )}
       />
       <div className="absolute right-1.5 flex items-center gap-0.5">

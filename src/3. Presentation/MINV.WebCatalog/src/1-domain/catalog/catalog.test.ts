@@ -127,6 +127,6 @@ describe('stock', () => {
     expect(stockLabel({ stock: 1 })).toBe('Última unidad');
     expect(stockLabel({ stock: 3 })).toBe('Últimas 3 unidades');
     expect(stockLabel({ stock: 20 })).toBe('En stock');
-    expect(PRODUCTS.filter((product) => stockStatus(product) === 'agotado')).toHaveLength(9);
+    expect(PRODUCTS.filter((product) => stockStatus(product) === 'agotado')).toHaveLength(8);
   });
 });

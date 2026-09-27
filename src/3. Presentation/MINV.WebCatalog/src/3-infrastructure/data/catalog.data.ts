@@ -13346,7 +13346,7 @@ export const PRODUCTS: Product[] = [
     "price": 749.0,
     "listPrice": null,
     "image": "/images/products/ram.png",
-    "stock": 0,
+    "stock": 4,
     "condition": "Nuevo",
     "warrantyMonths": 36,
     "serialized": true,

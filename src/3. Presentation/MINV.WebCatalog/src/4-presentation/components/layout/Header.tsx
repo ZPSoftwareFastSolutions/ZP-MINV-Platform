@@ -36,8 +36,9 @@ export function Header() {
           <Button to={ROUTES.builder} variant="brand" leftIcon={<Cpu />} className="max-sm:hidden">
             Armá tu PC
             {count > 0 && (
-              <span className="ml-1 rounded-full bg-white/20 px-1.5 font-display text-xs font-bold" aria-label={`${count} piezas en tu armado`}>
+              <span className="ml-1 rounded-full bg-white/20 px-1.5 font-display text-xs font-bold">
                 {count}
+                <span className="sr-only">{count === 1 ? ' pieza en tu armado' : ' piezas en tu armado'}</span>
               </span>
             )}
           </Button>

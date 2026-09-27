@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { slotForProduct } from '@/1-domain/builder/slots';
+import { roundMoney } from '@/1-domain/catalog/money';
 import { InMemoryCatalogRepository } from '@/3-infrastructure/InMemoryCatalogRepository';
+import { normalizeText } from '@/shared/text';
 import { createCatalogUseCases } from './index';
 
 const useCases = createCatalogUseCases(new InMemoryCatalogRepository());
@@ -114,5 +117,86 @@ describe('casos de uso del armador', () => {
     expect(summary.total).toBe(cpu.price);
     expect(summary.missing.map((slot) => slot.key)).toEqual(['motherboard', 'ram', 'storage', 'psu', 'case']);
     expect(useCases.getBuildSlots()).toHaveLength(11);
+  });
+});
+
+describe('revisión de los casos de uso sobre los datos reales', () => {
+  it('una categoría raíz abarca todo su subárbol y las facetas de hijas suman el total', () => {
+    const componentes = useCases.searchCatalog({ category: 'componentes', pageSize: 96 });
+    expect([...new Set(componentes.items.map((product) => product.category))].sort()).toEqual([
+      'CASE', 'COOL', 'CPU', 'GPU', 'MB', 'PSU', 'RAM', 'STO',
+    ]);
+    expect(componentes.facets.categories.reduce((acc, facet) => acc + facet.count, 0)).toBe(componentes.total);
+    const consolas = useCases.searchCatalog({ category: 'consolas', pageSize: 96 });
+    expect(consolas.total).toBe(11);
+    expect(consolas.facets.categories.map((facet) => facet.slug)).toEqual(['playstation', 'xbox', 'nintendo']);
+    const procesadores = useCases.searchCatalog({ category: 'procesadores' });
+    expect(procesadores.total).toBe(10);
+    expect(procesadores.breadcrumbs.map((category) => category.code)).toEqual(['COMP', 'CPU']);
+    expect(procesadores.facets.categories).toEqual([]);
+    const inexistente = useCases.searchCatalog({ category: 'no-existe' });
+    expect(inexistente.category).toBeUndefined();
+    expect(inexistente.total).toBe(159);
+  });
+
+  it('la búsqueda ignora acentos y mayúsculas: «refrigeracion» encuentra «Refrigeración»', () => {
+    const sinAcento = useCases.searchCatalog({ q: 'refrigeracion', pageSize: 96 });
+    expect(sinAcento.total).toBe(6);
+    expect(sinAcento.items.every((product) => product.category === 'COOL')).toBe(true);
+    const conAcento = useCases.searchCatalog({ q: 'REFRIGERACIÓN LÍQUIDA', pageSize: 96 });
+    expect(conAcento.total).toBeGreaterThan(0);
+    expect(conAcento.items.every((product) => normalizeText(product.name).includes('liquida'))).toBe(true);
+    expect(useCases.searchCatalog({ q: 'audifonos' }).total).toBe(useCases.searchCatalog({ q: 'Audífonos' }).total);
+    expect(useCases.searchCatalog({ q: 'CPU-AMD-5600' }).items[0]?.sku).toBe('CPU-AMD-5600');
+  });
+
+  it('filtra por marca (código o nombre), precio inclusivo y condición; las facetas se calculan sin su propio filtro', () => {
+    const porCodigo = useCases.searchCatalog({ brands: ['LIANLI'], pageSize: 96 });
+    const porNombre = useCases.searchCatalog({ brands: ['Lian Li'], pageSize: 96 });
+    expect(porCodigo.total).toBe(2);
+    expect(porNombre.items.map((product) => product.sku)).toEqual(porCodigo.items.map((product) => product.sku));
+    // Un código de marca desconocido se ignora (no filtra): la URL con una marca inexistente muestra todo el catálogo.
+    expect(useCases.searchCatalog({ brands: ['MARCA-INEXISTENTE'] }).total).toBe(159);
+
+    const gpus = useCases.searchCatalog({ category: 'tarjetas-de-video', pageSize: 96 });
+    const minimo = gpus.facets.priceRange.min;
+    const soloElMasBarato = useCases.searchCatalog({ category: 'tarjetas-de-video', maxPrice: minimo, pageSize: 96 });
+    expect(soloElMasBarato.total).toBeGreaterThan(0);
+    expect(soloElMasBarato.items.every((product) => product.price === minimo)).toBe(true);
+    expect(soloElMasBarato.facets.priceRange).toEqual(gpus.facets.priceRange);
+    expect(soloElMasBarato.facets.brands.reduce((acc, facet) => acc + facet.count, 0)).toBe(soloElMasBarato.total);
+    expect(gpus.facets.conditions.reduce((acc, facet) => acc + facet.count, 0)).toBe(gpus.total);
+
+    const reacondicionados = useCases.searchCatalog({ condition: 'Reacondicionado', pageSize: 96 });
+    expect(reacondicionados.total).toBe(1);
+    expect(reacondicionados.facets.conditions.map((facet) => facet.value)).toEqual(['Nuevo', 'Reacondicionado']);
+  });
+
+  it('pagina de a 24 y limita el tamaño de página a 96', () => {
+    const grande = useCases.searchCatalog({ pageSize: 1000 });
+    expect(grande.pageSize).toBe(96);
+    expect(grande.pageCount).toBe(2);
+    const segunda = useCases.searchCatalog({ page: 2 });
+    expect(segunda.page).toBe(2);
+    expect(segunda.items).toHaveLength(24);
+    expect(segunda.items[0].sku).not.toBe(useCases.searchCatalog({ page: 1 }).items[0].sku);
+    const total = Array.from({ length: segunda.pageCount }, (_, index) => useCases.searchCatalog({ page: index + 1 }).items.length).reduce(
+      (acc, count) => acc + count,
+      0,
+    );
+    expect(total).toBe(159);
+  });
+
+  it('cada armado sugerido suma precio × cantidad y sus líneas caen en la ranura de su categoría', () => {
+    for (const detail of useCases.getPresets()) {
+      const esperado = roundMoney(detail.lines.reduce((acc, line) => acc + line.product.price * line.quantity, 0));
+      expect(detail.summary.total).toBe(esperado);
+      expect(detail.summary.count).toBe(detail.lines.reduce((acc, line) => acc + line.quantity, 0));
+      expect(detail.summary.savings).toBeGreaterThanOrEqual(0);
+      for (const line of detail.lines) expect(slotForProduct(line.product)?.key).toBe(line.slot);
+      expect(detail.lines.every((line) => line.product.stock > 0)).toBe(true);
+    }
+    const entrada = useCases.getPreset('arm-cm-000001')!;
+    expect(entrada.summary.total).toBe(10421);
   });
 });

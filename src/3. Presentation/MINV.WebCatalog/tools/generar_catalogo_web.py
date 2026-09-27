@@ -232,6 +232,13 @@ def main() -> None:
             "lines": lineas,
         })
 
+    # Un armado sugerido no debe ofrecer piezas agotadas: si el azar dejó en 0 una pieza de un armado, recibe un
+    # stock fijo (se corrige después del sorteo para no alterar el resto de la secuencia determinista).
+    skus_en_armados = {linea["sku"] for armado in presets_ts for linea in armado["lines"]}
+    for p in productos_ts:
+        if p["sku"] in skus_en_armados and p["stock"] == 0:
+            p["stock"] = 4
+
     DESTINO_DATOS.mkdir(parents=True, exist_ok=True)
     cabecera = "// Archivo GENERADO por tools/generar_catalogo_web.py a partir del catálogo de tecnología de la V4.2. No editar a mano.\n"
     (DESTINO_DATOS / "categories.data.ts").write_text(

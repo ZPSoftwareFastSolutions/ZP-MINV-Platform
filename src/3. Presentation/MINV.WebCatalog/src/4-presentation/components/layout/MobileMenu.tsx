@@ -67,7 +67,12 @@ export function MobileMenu({ open, onClose }: { open: boolean; onClose: () => vo
         <div className="space-y-2">
           <Button to={ROUTES.builder} variant="brand" fullWidth leftIcon={<Cpu />}>
             Armá tu PC
-            {count > 0 && <span className="ml-1 rounded-full bg-white/20 px-2 text-xs">{count}</span>}
+            {count > 0 && (
+              <span className="ml-1 rounded-full bg-white/20 px-2 text-xs">
+                {count}
+                <span className="sr-only">{count === 1 ? ' pieza en tu armado' : ' piezas en tu armado'}</span>
+              </span>
+            )}
           </Button>
           <div className="grid grid-cols-2 gap-2">
             <Link to={ROUTES.presets} className={clsx(LINK, LINK_IDLE, 'justify-center border border-border text-sm')}>
