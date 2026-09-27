@@ -1,47 +1,120 @@
-// PLACEHOLDER: la página de inicio completa (hero, banner, destacados, ofertas, categorías) la construye el agente
-// de Inicio sobre este archivo. Aquí solo hay una vista mínima que ejercita el kit UI y las tarjetas.
+// Portada de Tech Zone Gaming: hero con productos reales del mock, campañas, categorías, destacados, ofertas,
+// novedades, armados sugeridos, consolas por plataforma, marcas y el cierre con ayuda y boletín. Todo sale de los
+// casos de uso (síncronos, en memoria): las secciones se calculan una vez con useMemo.
 
-import { Cpu, Search } from 'lucide-react';
+import { BadgePercent } from 'lucide-react';
+import { useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { ROUTES } from '@/4-presentation/app/routes';
-import { ProductCard } from '@/4-presentation/components/product/ProductCard';
-import { Button } from '@/4-presentation/components/ui/Button';
 import { Container } from '@/4-presentation/components/ui/Container';
-import { SectionHeading } from '@/4-presentation/components/ui/SectionHeading';
 import { useDocumentTitle } from '@/4-presentation/hooks/useDocumentTitle';
 import { useServices } from '@/4-presentation/hooks/useServices';
-import { STORE } from '@/shared/constants';
+import { formatPercent, pluralize } from '@/shared/format';
+import { BrandsSection } from './BrandsSection';
+import { CampaignCarousel } from './CampaignCarousel';
+import { CategoryGrid } from './CategoryGrid';
+import { ConsolesSection } from './ConsolesSection';
+import { HeroSection } from './HeroSection';
+import { NewsletterSection } from './NewsletterSection';
+import { PresetsSection } from './PresetsSection';
+import { ProductRail } from './ProductRail';
+import { maxSavingPercent, pickHeroProducts } from './homeSelectors';
+
+/** Categorías (slug) que alimentan «Consolas y juegos»: consolas (PS, Xbox, Nintendo), videojuegos y accesorios. */
+const CONSOLE_CATEGORY_SLUGS = ['consolas', 'videojuegos', 'accesorios-de-consola'] as const;
+
+/** Cuántas ofertas se consultan para la cinta (total y mayor ahorro); la grilla muestra solo las primeras. */
+const OFFERS_SCAN_LIMIT = 200;
 
 export function HomePage() {
   useDocumentTitle();
   const { catalog } = useServices();
-  const featured = catalog.getFeaturedProducts(8);
+
+  const data = useMemo(() => {
+    const allOffers = catalog.getOffers(OFFERS_SCAN_LIMIT);
+    const consoleProducts = CONSOLE_CATEGORY_SLUGS.flatMap(
+      (slug) => catalog.searchCatalog({ category: slug, sort: 'relevancia', pageSize: 96 }).items,
+    ).sort((a, b) => b.popularity - a.popularity);
+    return {
+      hero: pickHeroProducts(catalog),
+      stats: {
+        products: catalog.searchCatalog({ pageSize: 1 }).total,
+        brands: catalog.getBrands().length,
+        presets: catalog.getPresets().length,
+      },
+      tree: catalog.getCategoryTree(),
+      featured: catalog.getFeaturedProducts(8),
+      offers: allOffers.slice(0, 8),
+      offersTotal: allOffers.length,
+      maxSaving: maxSavingPercent(allOffers),
+      newArrivals: catalog.getNewArrivals(8),
+      presets: catalog.getPresets(),
+      consoles: consoleProducts,
+      brands: catalog.getBrands(),
+    };
+  }, [catalog]);
 
   return (
-    <Container className="space-y-12 py-10">
-      <section className="animate-fade-up">
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-accent">Tech Zone Gaming</p>
-        <h1 className="mt-2 max-w-3xl font-display text-4xl font-bold tracking-tight text-text sm:text-5xl">
-          Armá la PC que querés, <span className="text-gradient-brand">pieza por pieza</span>.
-        </h1>
-        <p className="mt-4 max-w-2xl text-lg text-text-muted">{STORE.tagline}</p>
-        <div className="mt-6 flex flex-wrap gap-3">
-          <Button to={ROUTES.builder} variant="brand" size="lg" leftIcon={<Cpu />}>
-            Armá tu PC
-          </Button>
-          <Button to={ROUTES.catalog} variant="outline" size="lg" leftIcon={<Search />}>
-            Explorar el catálogo
-          </Button>
-        </div>
-      </section>
+    <>
+      <HeroSection products={data.hero} stats={data.stats} />
 
-      <section aria-labelledby="destacados">
-        <SectionHeading id="destacados" eyebrow="Lo más buscado" title="Productos destacados" subtitle="Una muestra del catálogo de prueba." action={{ label: 'Ver todo', to: ROUTES.catalog }} />
-        <div className="mt-6 grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 xl:grid-cols-4">
-          {featured.map((product, index) => (
-            <ProductCard key={product.sku} product={product} priority={index < 4} />
-          ))}
-        </div>
-      </section>
-    </Container>
+      <Container className="space-y-16 py-12 sm:space-y-20 sm:py-16">
+        <CampaignCarousel />
+
+        <CategoryGrid tree={data.tree} />
+
+        <ProductRail
+          id="destacados-titulo"
+          eyebrow="Lo más buscado"
+          title="Destacados de la semana"
+          subtitle="Lo que más se lleva la comunidad gamer: procesadores, tarjetas de video, periféricos y consolas."
+          action={{ label: 'Ver todo el catálogo', to: ROUTES.catalog }}
+          products={data.featured}
+        />
+
+        <ProductRail
+          id="ofertas-titulo"
+          eyebrow="Precios rebajados"
+          title="Ofertas de la semana"
+          subtitle="Descuentos reales sobre el precio de lista, con la misma garantía oficial."
+          action={{ label: 'Ver todas las ofertas', to: ROUTES.offers }}
+          products={data.offers}
+          emptyTitle="No hay ofertas activas"
+          emptyDescription="Las ofertas cambian cada semana. Suscribite al boletín para enterarte primero."
+          ribbon={
+            data.offersTotal > 0 ? (
+              <div className="flex flex-col gap-2 rounded-xl border border-cta/40 bg-cta/10 px-4 py-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className="flex min-h-11 items-center gap-2 text-sm font-semibold text-cta-hover">
+                  <BadgePercent aria-hidden="true" className="size-5 shrink-0" />
+                  {data.maxSaving > 0 ? `Ahorrá hasta ${formatPercent(data.maxSaving)} frente al precio de lista` : 'Precios rebajados frente al precio de lista'}
+                </p>
+                <Link to={ROUTES.offers} className="inline-flex min-h-11 items-center text-sm text-text-muted transition-colors duration-200 hover:text-text">
+                  {pluralize(data.offersTotal, 'producto en oferta', 'productos en oferta')} · válidas hasta agotar stock
+                </Link>
+              </div>
+            ) : null
+          }
+        />
+
+        <ProductRail
+          id="novedades-titulo"
+          eyebrow="Recién llegados"
+          title="Novedades"
+          subtitle="Lo último en llegar a las sucursales: consolas, juegos y componentes de nueva generación."
+          action={{ label: 'Ver todas las novedades', to: ROUTES.newArrivals }}
+          products={data.newArrivals}
+          emptyTitle="Sin novedades por ahora"
+          emptyDescription="Cada semana llegan productos nuevos. Volvé pronto o mirá el catálogo completo."
+        />
+
+        <PresetsSection presets={data.presets} />
+
+        <ConsolesSection products={data.consoles} />
+
+        <BrandsSection brands={data.brands} />
+
+        <NewsletterSection />
+      </Container>
+    </>
   );
 }
