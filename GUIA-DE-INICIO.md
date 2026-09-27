@@ -22,6 +22,7 @@ Esta guía explica, para cada edición:
 | 3 | **App de escritorio con base de datos local** | V3.1 · `Inventario-V3.-BaseDeDatosLocal` | Empresa con una sede, cajas y punto de venta | Windows 10/11, .NET 8 o superior, PostgreSQL (se instala solo) |
 | 4 | **App de escritorio con base de datos en la nube y facturación** | V4 · `Inventario-V4.-BaseDeDatosNube` y **V4.1 · `Inventario-V4.1`** | Empresa con sucursales, tienda en línea y facturación del SIN | Lo de la 3, más un servidor en la nube (se prueba entero en este equipo) |
 | 5 | **Tecnología: PC, componentes, consolas y videojuegos** | **V4.2 · `Inventario-V4.2`** | Tiendas de computadoras, componentes, periféricos, consolas y videojuegos, con sucursales | Lo de la 4 (se prueba entero en este equipo) |
+| 6 | **Catálogo Web M-INV** | **V5.0 · `Inventario-V5`** | Clientes finales que navegan el catálogo, arman su PC y ven ofertas | Lo de la 5, más la interfaz web responsiva |
 
 > **Una edición a la vez.** Cada edición vive en su **rama** de Git. Para usar una, se cambia a su rama
 > (`git switch <rama>`) y se siguen sus pasos. Quédese en una edición hasta que decida pasar a otra. La **base de datos

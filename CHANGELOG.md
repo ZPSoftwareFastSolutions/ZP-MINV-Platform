@@ -2,6 +2,18 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semántico.
 
+## [5.0.0-alpha.1 · Catálogo Web] · 2026-09-27 · rama `Inventario-V5`
+
+Tema: **Catálogo Web M-INV (MINV.WebCatalog)**. El catálogo web ahora funciona de punta a punta, con un diseño renovado y responsivo, sin errores de consola.
+
+### Agregado
+
+- **Página de Inicio**: Hero con titular en dos tonos, tres productos protagonistas flotando en losetas con brillo, cifras en vivo (ej. 159 productos, 40 marcas, 6 armados), cinta de confianza, carrusel de campañas, y secciones dedicadas a categorías, destacados, ofertas, novedades, PC armadas, consolas, marcas y boletín.
+- **Catálogo Principal**: Navegación con migas de pan, chips de categorías con conteos en tiempo real, panel de filtros a la izquierda (en móvil bajo un botón «Filtros»), buscador interno del catálogo, opciones de orden, selector de vista (grilla o lista) y paginación (12 por página).
+- **Ficha de Producto**: Ilustración grande del producto, insignias dinámicas (oferta, destacado, serie/IMEI), precio con formato «Antes» tachado y monto de ahorro, indicador de stock y garantía, recomendaciones de compatibilidad («Va en: Tarjeta de video»), y botones de acción rápida («Agregar al armado» y «Ver mi armado»).
+- **Correcciones de Código**: Resolución de errores de TypeScript (`tsc`), alineación de importaciones del dominio y aplicación (ej. `getCategoryFilterTree`), limpieza de componentes obsoletos (`RefButton`) y estabilización de la suite de pruebas unitarias con Vitest (todas en verde).
+
+
 ## [4.2.0-alpha.1 · edición Tecnología] · 2026-09-26 · rama `Inventario-V4.2`
 
 Tema: M-INV **exclusivo para tiendas de tecnología y gaming** (componentes de PC, computadoras, monitores, periféricos,
