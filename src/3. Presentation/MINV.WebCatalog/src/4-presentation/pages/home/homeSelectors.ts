@@ -1,7 +1,7 @@
 // Selectores y constantes puras de la portada (sin React): qué productos protagonizan el hero, cómo se agrupan las
 // consolas por plataforma, cómo se describe cada nivel de armado y validaciones locales del boletín.
 
-import type { BuildLine, PresetTier, SlotKey } from '@/1-domain/builder/types';
+import type { BuildLine, BuildSlot, PresetTier, SlotKey } from '@/1-domain/builder/types';
 import { savingPercent } from '@/1-domain/catalog/money';
 import type { Product } from '@/1-domain/catalog/types';
 import type { CatalogUseCases, PresetDetail } from '@/2-application';
@@ -46,15 +46,25 @@ export const PLATFORM_FILTERS: readonly PlatformFilter[] = [
   { id: 'switch2', label: 'Nintendo Switch 2', match: ['Nintendo Switch 2'] },
 ];
 
-/** Valor de la especificación «plataforma» de un producto (consolas, juegos y accesorios), o undefined. */
-export function productPlatform(product: Product): string | undefined {
-  return product.specs.find((spec) => spec.key === 'plataforma')?.text;
+/**
+ * Plataformas de un producto: las consolas y los juegos traen «plataforma» (un valor) y los accesorios «plataformas»
+ * (multivalor, p. ej. un mando para PS5 y PC). Devuelve [] si el producto no tiene ninguna.
+ */
+export function productPlatforms(product: Product): string[] {
+  const platforms: string[] = [];
+  for (const spec of product.specs) {
+    if (spec.key !== 'plataforma' && spec.key !== 'plataformas') continue;
+    if (Array.isArray(spec.value)) platforms.push(...spec.value);
+    else if (typeof spec.value === 'string') platforms.push(spec.value);
+    else platforms.push(spec.text);
+  }
+  return platforms;
 }
 
+/** Sin filtro pasa todo; con filtro, alguna plataforma del producto debe estar en `match` (coincidencia exacta). */
 export function matchesPlatform(product: Product, filter: PlatformFilter | undefined): boolean {
   if (!filter) return true;
-  const platform = productPlatform(product);
-  return platform !== undefined && filter.match.includes(platform);
+  return productPlatforms(product).some((platform) => filter.match.includes(platform));
 }
 
 /** Etiqueta, tono de insignia y descripción corta de cada nivel de armado sugerido. */
@@ -70,9 +80,18 @@ export const TIER_META: Record<PresetTier, { label: string; tone: BadgeTone; blu
 /** Ranuras que resumen un armado en su tarjeta (procesador, tarjeta de video y memoria). */
 export const PRESET_HIGHLIGHT_SLOTS: readonly SlotKey[] = ['cpu', 'gpu', 'ram'];
 
-/** Primera línea de una ranura del armado (undefined si la ranura está vacía, p. ej. sin tarjeta de video). */
-export function presetLineForSlot(detail: PresetDetail, slot: SlotKey): BuildLine | undefined {
-  return detail.summary.slots.find((entry) => entry.slot.key === slot)?.lines[0];
+/** Pieza clave de un armado: la ranura (siempre existe en el resumen) y su primera línea, o undefined si está vacía. */
+export interface PresetHighlight {
+  slot: BuildSlot;
+  line: BuildLine | undefined;
+}
+
+/** Las piezas clave de un armado en el orden de PRESET_HIGHLIGHT_SLOTS (una ranura vacía = gráficos integrados). */
+export function presetHighlights(detail: PresetDetail): PresetHighlight[] {
+  return PRESET_HIGHLIGHT_SLOTS.flatMap((slotKey) => {
+    const entry = detail.summary.slots.find((candidate) => candidate.slot.key === slotKey);
+    return entry ? [{ slot: entry.slot, line: entry.lines[0] }] : [];
+  });
 }
 
 /** Mayor porcentaje de ahorro entre las ofertas (0 si no hay ofertas). */

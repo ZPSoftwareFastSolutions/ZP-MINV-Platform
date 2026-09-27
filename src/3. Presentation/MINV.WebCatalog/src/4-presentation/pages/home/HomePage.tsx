@@ -1,6 +1,6 @@
-// Portada de Tech Zone Gaming: hero con productos reales del mock, campañas, categorías, destacados, ofertas, armados
-// sugeridos, consolas por plataforma, novedades, marcas y el cierre con ayuda y boletín. Todo sale de los casos de uso
-// (síncronos, en memoria): las secciones se calculan una vez con useMemo.
+// Portada de Tech Zone Gaming: hero con productos reales del mock, campañas, categorías, destacados, ofertas,
+// novedades, armados sugeridos, consolas por plataforma, marcas y el cierre con ayuda y boletín. Todo sale de los
+// casos de uso (síncronos, en memoria): las secciones se calculan una vez con useMemo.
 
 import { BadgePercent } from 'lucide-react';
 import { useMemo } from 'react';
@@ -20,14 +20,18 @@ import { PresetsSection } from './PresetsSection';
 import { ProductRail } from './ProductRail';
 import { maxSavingPercent, pickHeroProducts } from './homeSelectors';
 
+/** Categorías (slug) que alimentan «Consolas y juegos»: consolas (PS, Xbox, Nintendo), videojuegos y accesorios. */
 const CONSOLE_CATEGORY_SLUGS = ['consolas', 'videojuegos', 'accesorios-de-consola'] as const;
+
+/** Cuántas ofertas se consultan para la cinta (total y mayor ahorro); la grilla muestra solo las primeras. */
+const OFFERS_SCAN_LIMIT = 200;
 
 export function HomePage() {
   useDocumentTitle();
   const { catalog } = useServices();
 
   const data = useMemo(() => {
-    const allOffers = catalog.getOffers(200);
+    const allOffers = catalog.getOffers(OFFERS_SCAN_LIMIT);
     const consoleProducts = CONSOLE_CATEGORY_SLUGS.flatMap(
       (slug) => catalog.searchCatalog({ category: slug, sort: 'relevancia', pageSize: 96 }).items,
     ).sort((a, b) => b.popularity - a.popularity);
@@ -66,7 +70,6 @@ export function HomePage() {
           subtitle="Lo que más se lleva la comunidad gamer: procesadores, tarjetas de video, periféricos y consolas."
           action={{ label: 'Ver todo el catálogo', to: ROUTES.catalog }}
           products={data.featured}
-          priority
         />
 
         <ProductRail
@@ -80,20 +83,18 @@ export function HomePage() {
           emptyDescription="Las ofertas cambian cada semana. Suscribite al boletín para enterarte primero."
           ribbon={
             data.offersTotal > 0 ? (
-              <div className="flex flex-col gap-2 rounded-xl border border-cta/40 bg-cta/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                <p className="flex items-center gap-2 text-sm font-semibold text-cta-hover">
+              <div className="flex flex-col gap-2 rounded-xl border border-cta/40 bg-cta/10 px-4 py-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className="flex min-h-11 items-center gap-2 text-sm font-semibold text-cta-hover">
                   <BadgePercent aria-hidden="true" className="size-5 shrink-0" />
                   {data.maxSaving > 0 ? `Ahorrá hasta ${formatPercent(data.maxSaving)} frente al precio de lista` : 'Precios rebajados frente al precio de lista'}
                 </p>
-                <Link to={ROUTES.offers} className="inline-flex min-h-11 items-center text-sm text-text-muted transition-colors duration-200 hover:text-text sm:min-h-0">
+                <Link to={ROUTES.offers} className="inline-flex min-h-11 items-center text-sm text-text-muted transition-colors duration-200 hover:text-text">
                   {pluralize(data.offersTotal, 'producto en oferta', 'productos en oferta')} · válidas hasta agotar stock
                 </Link>
               </div>
             ) : null
           }
         />
-
-        <PresetsSection presets={data.presets} />
 
         <ProductRail
           id="novedades-titulo"
@@ -105,6 +106,8 @@ export function HomePage() {
           emptyTitle="Sin novedades por ahora"
           emptyDescription="Cada semana llegan productos nuevos. Volvé pronto o mirá el catálogo completo."
         />
+
+        <PresetsSection presets={data.presets} />
 
         <ConsolesSection products={data.consoles} />
 

@@ -1,6 +1,5 @@
 import clsx from 'clsx';
-import { ChevronDown, PcCase, Sparkles } from 'lucide-react';
-import { useId, useState } from 'react';
+import { ArrowRight, PcCase, Sparkles } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import type { PresetDetail } from '@/2-application';
 import { ROUTES } from '@/4-presentation/app/routes';
@@ -13,17 +12,16 @@ import { PriceTag } from '@/4-presentation/components/ui/PriceTag';
 import { SectionHeading } from '@/4-presentation/components/ui/SectionHeading';
 import { useBuilder } from '@/4-presentation/hooks/useBuilder';
 import { formatMoney, pluralize } from '@/shared/format';
-import { PRESET_HIGHLIGHT_SLOTS, TIER_META, presetLineForSlot } from './homeSelectors';
+import { TIER_META, presetHighlights } from './homeSelectors';
 
 export interface PresetsSectionProps {
   presets: PresetDetail[];
 }
 
+/** Tarjeta de un armado sugerido: nivel, piezas clave (CPU, GPU, RAM), total, carga al armador y enlace a las piezas. */
 function PresetCard({ detail }: { detail: PresetDetail }) {
   const { loadPreset } = useBuilder();
   const navigate = useNavigate();
-  const [open, setOpen] = useState(false);
-  const partsId = useId();
   const meta = TIER_META[detail.preset.tier];
   const { summary } = detail;
 
@@ -45,25 +43,20 @@ function PresetCard({ detail }: { detail: PresetDetail }) {
           <p className="mt-1 text-sm text-text-muted">{meta.blurb}</p>
         </div>
 
-        <ul className="space-y-2 rounded-xl border border-border bg-surface-2 p-3">
-          {PRESET_HIGHLIGHT_SLOTS.map((slotKey) => {
-            const entry = summary.slots.find((candidate) => candidate.slot.key === slotKey);
-            if (!entry) return null;
-            const line = presetLineForSlot(detail, slotKey);
-            return (
-              <li key={slotKey} className="flex items-start gap-3">
-                <span aria-hidden="true" className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-surface-3 text-accent">
-                  <CategoryIcon name={entry.slot.icon} className="size-4" />
+        <ul aria-label="Piezas clave" className="space-y-2 rounded-xl border border-border bg-surface-2 p-3">
+          {presetHighlights(detail).map(({ slot, line }) => (
+            <li key={slot.key} className="flex items-start gap-3">
+              <span aria-hidden="true" className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-surface-3 text-accent">
+                <CategoryIcon name={slot.icon} className="size-4" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-[0.6875rem] font-semibold uppercase tracking-wide text-text-faint">{slot.label}</span>
+                <span className={clsx('block truncate text-sm', line ? 'font-medium text-text' : 'text-text-muted')}>
+                  {line ? line.product.shortName : 'Gráficos integrados en el procesador'}
                 </span>
-                <span className="min-w-0">
-                  <span className="block text-[0.6875rem] font-semibold uppercase tracking-wide text-text-faint">{entry.slot.label}</span>
-                  <span className={clsx('block truncate text-sm', line ? 'font-medium text-text' : 'text-text-muted')}>
-                    {line ? line.product.shortName : 'Gráficos integrados en el procesador'}
-                  </span>
-                </span>
-              </li>
-            );
-          })}
+              </span>
+            </li>
+          ))}
         </ul>
 
         <div className="mt-auto flex flex-wrap items-end justify-between gap-x-4 gap-y-1">
@@ -82,38 +75,11 @@ function PresetCard({ detail }: { detail: PresetDetail }) {
           <Button type="button" variant="primary" leftIcon={<PcCase />} onClick={load} aria-label={`Cargar este armado: ${detail.preset.name}`}>
             Cargar este armado
           </Button>
-          <Button
-            type="button"
-            variant="outline"
-            aria-expanded={open}
-            aria-controls={partsId}
-            rightIcon={<ChevronDown className={clsx('transition-transform duration-200', open && 'rotate-180')} />}
-            onClick={() => setOpen((current) => !current)}
-          >
-            {open ? 'Ocultar piezas' : 'Ver piezas'}
+          <Button to={ROUTES.presets} variant="outline" rightIcon={<ArrowRight />} aria-label={`Ver piezas: ${detail.preset.name}`}>
+            Ver piezas
           </Button>
         </div>
       </div>
-
-      {open && (
-        <div id={partsId} className="border-t border-border bg-surface-2/60 p-5 animate-fade-up">
-          <p className="text-xs font-semibold uppercase tracking-wide text-text-faint">Piezas del armado</p>
-          <ul className="mt-2 divide-y divide-border/60">
-            {summary.lines.map((line) => (
-              <li key={`${line.slot}-${line.product.sku}`} className="flex items-center justify-between gap-3 py-2 text-sm">
-                <span className="min-w-0">
-                  <span className="block text-[0.6875rem] font-semibold uppercase tracking-wide text-text-faint">
-                    {summary.slots.find((entry) => entry.slot.key === line.slot)?.slot.label ?? line.slot}
-                    {line.quantity > 1 && ` × ${line.quantity}`}
-                  </span>
-                  <span className="block truncate text-text">{line.product.shortName}</span>
-                </span>
-                <span className="shrink-0 font-medium text-text tabular-nums">{formatMoney(line.product.price * line.quantity)}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
     </Card>
   );
 }
