@@ -10,13 +10,16 @@ export interface PresetPickerProps {
   presets: readonly PresetDetail[];
   currentCount: number;
   onLoad: (id: string) => void;
+  /** Foco de reserva al cerrar (cuando se abrió desde la hoja de móvil). */
+  fallbackFocus?: () => HTMLElement | null | undefined;
 }
 
-export function PresetPicker({ open, onClose, presets, currentCount, onLoad }: PresetPickerProps) {
+export function PresetPicker({ open, onClose, presets, currentCount, onLoad, fallbackFocus }: PresetPickerProps) {
   return (
     <BuilderDialog
       open={open}
       onClose={onClose}
+      fallbackFocus={fallbackFocus}
       size="lg"
       title="Empezar desde un armado sugerido"
       description={

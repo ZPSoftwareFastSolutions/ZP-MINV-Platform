@@ -20,6 +20,11 @@ export interface BuilderDialogProps {
   /** Elemento extra en la cabecera, a la izquierda del botón de cerrar. */
   headerExtra?: ReactNode;
   closeLabel?: string;
+  /**
+   * Adónde devolver el foco si el disparador ya no existe al cerrar (por ejemplo, un botón de la hoja de móvil que se
+   * cerró para abrir este diálogo).
+   */
+  fallbackFocus?: () => HTMLElement | null | undefined;
   children: ReactNode;
 }
 
@@ -28,7 +33,10 @@ const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 const CLOSE_MS = 220;
 
+// Diálogos montados a la vez (la hoja de móvil sigue montada mientras se cierra y ya se abre el resumen final): el
+// bloqueo del fondo se toma con el primero y se devuelve con el último, con el overflow que tenía el body antes.
 let openDialogs = 0;
+let savedOverflow = '';
 
 export function BuilderDialog({
   open,
@@ -40,6 +48,7 @@ export function BuilderDialog({
   footer,
   headerExtra,
   closeLabel = 'Cerrar',
+  fallbackFocus,
   children,
 }: BuilderDialogProps) {
   // `closing` mantiene el panel montado durante la animación de salida; `visible` dispara la de entrada.
@@ -59,8 +68,13 @@ export function BuilderDialog({
 
   const panelRef = useRef<HTMLDivElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
+  const fallbackFocusRef = useRef(fallbackFocus);
   const titleId = useId();
   const descriptionId = useId();
+
+  useEffect(() => {
+    fallbackFocusRef.current = fallbackFocus;
+  }, [fallbackFocus]);
 
   useEffect(() => {
     if (!open) return;
@@ -78,21 +92,23 @@ export function BuilderDialog({
   // Bloqueo del fondo (scroll + inert) mientras haya algún diálogo abierto.
   useEffect(() => {
     if (!mounted) return;
-    openDialogs += 1;
     const root = document.getElementById('root');
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    root?.setAttribute('inert', '');
+    if (openDialogs === 0) {
+      savedOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      root?.setAttribute('inert', '');
+    }
+    openDialogs += 1;
     return () => {
       openDialogs -= 1;
       if (openDialogs === 0) {
-        document.body.style.overflow = previousOverflow;
+        document.body.style.overflow = savedOverflow;
         root?.removeAttribute('inert');
       }
     };
   }, [mounted]);
 
-  // Foco inicial y devolución del foco al cerrar.
+  // Foco inicial y devolución del foco al cerrar (al disparador si sigue en la página; si no, al elemento de reserva).
   useEffect(() => {
     if (!mounted) return;
     const panel = panelRef.current;
@@ -100,7 +116,10 @@ export function BuilderDialog({
     const timer = setTimeout(() => first?.focus(), 30);
     return () => {
       clearTimeout(timer);
-      restoreFocusRef.current?.focus?.();
+      const previous = restoreFocusRef.current;
+      const usable = previous && previous !== document.body && previous.isConnected && !previous.closest('[inert]');
+      const target = usable ? previous : fallbackFocusRef.current?.();
+      target?.focus?.();
     };
   }, [mounted]);
 

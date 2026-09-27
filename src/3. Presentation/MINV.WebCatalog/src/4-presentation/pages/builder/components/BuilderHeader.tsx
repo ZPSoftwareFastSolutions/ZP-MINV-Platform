@@ -1,13 +1,15 @@
 // Cabecera del armador: título, progreso de las piezas esenciales y acciones (armado sugerido, vaciar con confirmación
-// inline e imprimir el resumen).
+// inline e imprimir el resumen). El foco acompaña a la confirmación: al pedir «Vaciar» pasa a «No» (la opción segura)
+// y al resolverla vuelve a «Vaciar» o, si el armado quedó vacío, al botón de armados sugeridos.
 
 import { Printer, Sparkles, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { BuildSummary } from '@/1-domain/builder/build';
 import type { SlotKey } from '@/1-domain/builder/types';
 import { Button } from '@/4-presentation/components/ui/Button';
 import { formatMoney, pluralize } from '@/shared/format';
 import { BuildProgress } from './BuildProgress';
+import { RefButton } from './RefButton';
 
 export interface BuilderHeaderProps {
   summary: BuildSummary;
@@ -19,14 +21,28 @@ export interface BuilderHeaderProps {
 
 export function BuilderHeader({ summary, onPickPreset, onClear, onPrint, onGoToStep }: BuilderHeaderProps) {
   const [confirmClear, setConfirmClear] = useState(false);
+  const presetRef = useRef<HTMLButtonElement>(null);
+  const clearRef = useRef<HTMLButtonElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const wasConfirming = useRef(false);
   const empty = summary.lines.length === 0;
   if (confirmClear && empty) setConfirmClear(false);
+
+  useEffect(() => {
+    if (confirmClear) {
+      cancelRef.current?.focus();
+    } else if (wasConfirming.current) {
+      const clear = clearRef.current;
+      (clear && !clear.disabled ? clear : presetRef.current)?.focus();
+    }
+    wasConfirming.current = confirmClear;
+  }, [confirmClear]);
 
   return (
     <header className="animate-fade-up">
       <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-accent">Paso a paso</p>
       <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-        <div className="max-w-2xl">
+        <div className="max-w-2xl lg:max-w-xl">
           <h1 className="text-3xl sm:text-4xl">
             Armá tu <span className="text-gradient-brand">PC</span>
           </h1>
@@ -36,22 +52,20 @@ export function BuilderHeader({ summary, onPickPreset, onClear, onPrint, onGoToS
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-          <Button variant="brand" leftIcon={<Sparkles />} onClick={onPickPreset}>
+          <RefButton buttonRef={presetRef} variant="brand" leftIcon={<Sparkles aria-hidden="true" />} onClick={onPickPreset}>
             Empezar desde un armado sugerido
-          </Button>
-          <Button variant="outline" leftIcon={<Printer />} disabled={empty} onClick={onPrint} aria-label="Imprimir o compartir el resumen del armado">
+          </RefButton>
+          <Button variant="outline" leftIcon={<Printer />} disabled={empty} onClick={onPrint} title="Abre el diálogo de impresión del navegador">
             Imprimir resumen
           </Button>
           {confirmClear ? (
-            <div role="alert" className="flex items-center gap-2 rounded-xl border border-danger/40 bg-danger-soft px-3 py-1.5 text-sm text-text">
+            <div role="alert" className="flex flex-wrap items-center gap-2 rounded-xl border border-danger/40 bg-danger-soft px-3 py-1.5 text-sm text-text">
               <span>¿Vaciar el armado?</span>
-              <Button size="sm" variant="ghost" onClick={() => setConfirmClear(false)}>
+              <RefButton buttonRef={cancelRef} variant="ghost" onClick={() => setConfirmClear(false)}>
                 No
-              </Button>
+              </RefButton>
               <Button
-                size="sm"
                 variant="cta"
-                data-autofocus
                 onClick={() => {
                   onClear();
                   setConfirmClear(false);
@@ -61,9 +75,9 @@ export function BuilderHeader({ summary, onPickPreset, onClear, onPrint, onGoToS
               </Button>
             </div>
           ) : (
-            <Button variant="ghost" leftIcon={<Trash2 />} disabled={empty} onClick={() => setConfirmClear(true)}>
+            <RefButton buttonRef={clearRef} variant="ghost" leftIcon={<Trash2 aria-hidden="true" />} disabled={empty} onClick={() => setConfirmClear(true)}>
               Vaciar
-            </Button>
+            </RefButton>
           )}
         </div>
       </div>
@@ -91,7 +105,8 @@ export function BuilderHeader({ summary, onPickPreset, onClear, onPrint, onGoToS
                   <button
                     type="button"
                     onClick={() => onGoToStep(slot.key)}
-                    className="inline-flex h-9 cursor-pointer items-center rounded-full border border-warning/40 bg-warning-soft px-3 text-sm font-medium text-warning-text transition-colors duration-200 hover:border-warning"
+                    aria-label={`${slot.label}: ir al paso`}
+                    className="inline-flex h-11 cursor-pointer items-center rounded-full border border-warning/40 bg-warning-soft px-3 text-sm font-medium text-warning-text transition-colors duration-200 hover:border-warning"
                   >
                     {slot.label}
                   </button>

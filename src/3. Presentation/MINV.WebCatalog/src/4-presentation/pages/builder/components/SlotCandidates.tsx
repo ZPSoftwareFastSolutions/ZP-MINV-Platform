@@ -72,21 +72,21 @@ export function SlotCandidates({ slot, lines, onChoose, onRemove, onQuantity }: 
             }}
             autoComplete="off"
             placeholder={`Buscar en ${slot.label.toLowerCase()}…`}
-            className="h-11 w-full rounded-xl border border-border bg-surface pl-10 pr-10 text-sm text-text placeholder:text-text-faint transition-colors duration-200 hover:border-border-strong focus:border-accent focus:outline-none [&::-webkit-search-cancel-button]:hidden"
+            className="h-11 w-full rounded-xl border border-border bg-surface pl-10 pr-12 text-sm text-text placeholder:text-text-faint transition-colors duration-200 hover:border-border-strong focus:border-accent focus:outline-none [&::-webkit-search-cancel-button]:hidden"
           />
           {q && (
             <button
               type="button"
               aria-label="Borrar búsqueda"
               onClick={() => setQ('')}
-              className="absolute right-1.5 flex size-9 cursor-pointer items-center justify-center rounded-lg text-text-muted transition-colors duration-200 hover:bg-surface-3 hover:text-text"
+              className="absolute inset-y-0 right-0 flex w-11 cursor-pointer items-center justify-center rounded-r-xl text-text-muted transition-colors duration-200 hover:bg-surface-3 hover:text-text"
             >
               <X aria-hidden="true" className="size-4" />
             </button>
           )}
         </div>
         <div className="flex items-center gap-2">
-          <Chip size="sm" selected={inStock} onClick={() => setInStock((value) => !value)}>
+          <Chip selected={inStock} onClick={() => setInStock((value) => !value)}>
             Solo en stock
           </Chip>
           <label htmlFor={sortId} className="sr-only">
@@ -115,7 +115,7 @@ export function SlotCandidates({ slot, lines, onChoose, onRemove, onQuantity }: 
       {result.facets.brands.length > 1 && (
         <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 scrollbar-none" role="group" aria-label={`Filtrar ${slot.label} por marca`}>
           {result.facets.brands.map((brand) => (
-            <Chip key={brand.code} size="sm" selected={brands.includes(brand.code)} count={brand.count} onClick={() => toggleBrand(brand.code)}>
+            <Chip key={brand.code} selected={brands.includes(brand.code)} count={brand.count} onClick={() => toggleBrand(brand.code)}>
               {brand.name}
             </Chip>
           ))}
@@ -129,7 +129,7 @@ export function SlotCandidates({ slot, lines, onChoose, onRemove, onQuantity }: 
 
       {items.length === 0 ? (
         <EmptyState size="sm" icon={<PackageSearch />} title="Sin resultados" description="Probá con otra palabra o quitá algún filtro.">
-          <Button variant="outline" size="sm" onClick={resetFilters}>
+          <Button variant="outline" onClick={resetFilters}>
             Quitar filtros
           </Button>
         </EmptyState>

@@ -45,7 +45,7 @@ export function BuildSummaryPanel({ summary, onRemove, onGoToStep, onFinish, onP
 
       {lines.length === 0 ? (
         <EmptyState size="sm" icon={<PcCase />} title="Todavía no elegiste piezas" description="Abrí un paso y elegí una opción, o empezá desde un armado sugerido.">
-          <Button variant="accent" size="sm" leftIcon={<Sparkles />} onClick={onPickPreset}>
+          <Button variant="accent" leftIcon={<Sparkles />} onClick={onPickPreset}>
             Ver armados sugeridos
           </Button>
         </EmptyState>
@@ -54,9 +54,14 @@ export function BuildSummaryPanel({ summary, onRemove, onGoToStep, onFinish, onP
           <BuildProgress progress={progress} size="sm" className="-mt-1" />
           <ul className="divide-y divide-border" aria-label="Piezas del armado">
             {filledSlots.map(({ slot, lines: slotLines, subtotal }) => (
-              <li key={slot.key} className="py-3 first:pt-0 last:pb-0">
-                <div className="mb-2 flex items-center justify-between gap-3 text-[0.6875rem] font-semibold uppercase tracking-wide text-text-faint">
-                  <button type="button" onClick={() => onGoToStep(slot.key)} className="cursor-pointer rounded-sm text-left transition-colors duration-200 hover:text-accent-hover">
+              <li key={slot.key} className="py-1.5 first:pt-0 last:pb-0">
+                <div className="mb-1 flex min-h-11 items-center justify-between gap-3 text-[0.6875rem] font-semibold uppercase tracking-wide text-text-faint">
+                  <button
+                    type="button"
+                    onClick={() => onGoToStep(slot.key)}
+                    aria-label={`${slot.order}. ${slot.label}: ir al paso`}
+                    className="inline-flex min-h-11 cursor-pointer items-center rounded-sm text-left transition-colors duration-200 hover:text-accent-hover"
+                  >
                     {slot.order}. {slot.label}
                   </button>
                   {slotLines.length > 1 && <span className="tabular-nums">{formatMoney(subtotal)}</span>}
@@ -76,7 +81,7 @@ export function BuildSummaryPanel({ summary, onRemove, onGoToStep, onFinish, onP
                           <span className="font-semibold text-text">{formatMoney(line.product.price * line.quantity)}</span>
                         </p>
                       </div>
-                      <IconButton size="sm" label={`Quitar ${line.product.shortName} del armado`} icon={<Trash2 />} onClick={() => onRemove(line.product.sku)} />
+                      <IconButton label={`Quitar ${line.product.shortName} del armado`} icon={<Trash2 />} onClick={() => onRemove(line.product.sku)} />
                     </li>
                   ))}
                 </ul>
@@ -96,7 +101,7 @@ export function BuildSummaryPanel({ summary, onRemove, onGoToStep, onFinish, onP
                     <button
                       type="button"
                       onClick={() => onGoToStep(slot.key)}
-                      className="inline-flex h-9 cursor-pointer items-center gap-1 rounded-full border border-warning/50 bg-surface px-3 text-sm font-medium text-text transition-colors duration-200 hover:border-warning hover:text-warning-text"
+                      className="inline-flex h-11 cursor-pointer items-center gap-1 rounded-full border border-warning/50 bg-surface px-3 text-sm font-medium text-text transition-colors duration-200 hover:border-warning hover:text-warning-text"
                     >
                       {slot.label}
                       <ArrowRight aria-hidden="true" className="size-3.5" />

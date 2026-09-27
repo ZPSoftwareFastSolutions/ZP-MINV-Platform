@@ -20,9 +20,11 @@ export interface FinalSummaryDialogProps {
   buildNumber: string;
   issuedAt: Date;
   onPrint: () => void;
+  /** Foco de reserva al cerrar (cuando se abrió desde la hoja de móvil). */
+  fallbackFocus?: () => HTMLElement | null | undefined;
 }
 
-export function FinalSummaryDialog({ open, onClose, summary, buildNumber, issuedAt, onPrint }: FinalSummaryDialogProps) {
+export function FinalSummaryDialog({ open, onClose, summary, buildNumber, issuedAt, onPrint, fallbackFocus }: FinalSummaryDialogProps) {
   const breakdown = ivaBreakdown(summary.total);
   const filledSlots = summary.slots.filter((entry) => entry.lines.length > 0);
 
@@ -30,6 +32,7 @@ export function FinalSummaryDialog({ open, onClose, summary, buildNumber, issued
     <BuilderDialog
       open={open}
       onClose={onClose}
+      fallbackFocus={fallbackFocus}
       size="lg"
       title="Resumen de tu armado"
       description={`${buildNumber} · ${formatLongDate(issuedAt)}`}

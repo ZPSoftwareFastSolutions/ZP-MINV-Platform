@@ -25,13 +25,16 @@ import { PrintSummary } from './components/PrintSummary';
 import { SlotStep } from './components/SlotStep';
 
 interface FocusRequest {
-  key: SlotKey;
+  /** Cabecera de un paso, o la cabecera de la página («top») tras cargar un armado desde la galería. */
+  target: SlotKey | 'top';
   /** Espera (ms) antes de enfocar: al cerrar la hoja de móvil, el diálogo devuelve el foco a su disparador primero. */
   delay: number;
   tick: number;
 }
 
 const PRINT_ATTRIBUTE = 'data-print';
+/** Mientras el armador está montado reserva el alto de la barra inferior de móvil (builder.css). */
+const BAR_ATTRIBUTE = 'data-builder-bar';
 
 export function BuilderPage() {
   useDocumentTitle('Armá tu PC');
@@ -54,35 +57,45 @@ export function BuilderPage() {
 
   const headerRefs = useRef(new Map<SlotKey, HTMLButtonElement>());
   const topRef = useRef<HTMLDivElement>(null);
+  const barButtonRef = useRef<HTMLButtonElement>(null);
 
   // Mueve el foco (y la vista) a la cabecera del paso pedido después de que React lo dibuje.
   useEffect(() => {
     if (!focusRequest) return;
     const timer = setTimeout(() => {
-      const element = headerRefs.current.get(focusRequest.key);
+      const element = focusRequest.target === 'top' ? topRef.current : headerRefs.current.get(focusRequest.target);
       if (!element) return;
       element.focus({ preventScroll: true });
-      element.closest('li')?.scrollIntoView?.({ block: 'start' });
+      (element.closest('li') ?? element).scrollIntoView?.({ block: 'start' });
     }, focusRequest.delay);
     return () => clearTimeout(timer);
   }, [focusRequest]);
 
-  // Al desmontar (navegación) no debe quedar el modo de impresión activo.
-  useEffect(() => () => document.documentElement.removeAttribute(PRINT_ATTRIBUTE), []);
+  // Reserva el alto de la barra de móvil mientras la página existe; al desmontar (navegación) tampoco debe quedar el
+  // modo de impresión activo.
+  useEffect(() => {
+    const root = document.documentElement;
+    root.setAttribute(BAR_ATTRIBUTE, '');
+    return () => {
+      root.removeAttribute(BAR_ATTRIBUTE);
+      root.removeAttribute(PRINT_ATTRIBUTE);
+    };
+  }, []);
 
-  const focusStep = (key: SlotKey, delay = 0) => setFocusRequest((current) => ({ key, delay, tick: (current?.tick ?? 0) + 1 }));
+  const requestFocus = (target: SlotKey | 'top', delay = 0) => setFocusRequest((current) => ({ target, delay, tick: (current?.tick ?? 0) + 1 }));
+  const focusBarButton = () => barButtonRef.current;
 
   const goToStep = (key: SlotKey) => {
     setExpanded(key);
     const fromSheet = sheetOpen;
     setSheetOpen(false);
-    focusStep(key, fromSheet ? 300 : 0);
+    requestFocus(key, fromSheet ? 300 : 0);
   };
 
   const advanceFrom = (slot: BuildSlot, predictedLines: typeof lines, nextSkipped: ReadonlySet<SlotKey>, prefix: string) => {
     const next = nextOpenSlot(slot.key, predictedLines, nextSkipped);
     setExpanded(next?.key ?? null);
-    focusStep(next?.key ?? slot.key);
+    requestFocus(next?.key ?? slot.key);
     setAnnouncement(next ? `${prefix} Siguiente paso: ${next.order}, ${next.label}.` : `${prefix} No quedan pasos pendientes.`);
   };
 
@@ -107,6 +120,13 @@ export function BuilderPage() {
     advanceFrom(slot, lines, nextSkipped, `Omitiste ${slot.label}.`);
   };
 
+  const unskip = (slot: BuildSlot) => {
+    const nextSkipped = new Set(skipped);
+    nextSkipped.delete(slot.key);
+    setSkipped(nextSkipped);
+    setAnnouncement(`${slot.label} vuelve a estar pendiente.`);
+  };
+
   const clear = () => {
     builder.clear();
     setSkipped(new Set());
@@ -120,7 +140,8 @@ export function BuilderPage() {
     setSkipped(new Set());
     setExpanded(null);
     setAnnouncement('Armado sugerido cargado. Revisá cada paso y cambiá lo que quieras.');
-    if (scrollToTop) topRef.current?.scrollIntoView?.({ block: 'start' });
+    // Desde la galería (al pie de la página) el foco y la vista suben a la cabecera con el progreso y el total.
+    if (scrollToTop) requestFocus('top');
   };
 
   const openFinal = () => {
@@ -140,8 +161,8 @@ export function BuilderPage() {
 
   return (
     <>
-      <Container className="py-8 pb-32 lg:py-10 lg:pb-16">
-        <div ref={topRef} className="scroll-mt-32">
+      <Container className="py-8 lg:py-10">
+        <div ref={topRef} tabIndex={-1} className="scroll-mt-32 outline-none">
           <BuilderHeader summary={summary} onPickPreset={() => setPickerOpen(true)} onClear={clear} onPrint={print} onGoToStep={goToStep} />
         </div>
 
@@ -171,6 +192,7 @@ export function BuilderPage() {
                   expanded={expanded === slot.key}
                   onToggle={() => setExpanded((current) => (current === slot.key ? null : slot.key))}
                   onSkip={() => skip(slot)}
+                  onUnskip={() => unskip(slot)}
                   onChoose={(product) => chooseIn(slot, product)}
                   onRemove={builder.remove}
                   onQuantity={builder.setQuantity}
@@ -196,7 +218,7 @@ export function BuilderPage() {
         </div>
       </Container>
 
-      <MobileSummaryBar count={summary.count} total={summary.total} progress={summary.progress} onOpen={() => setSheetOpen(true)} />
+      <MobileSummaryBar count={summary.count} total={summary.total} progress={summary.progress} onOpen={() => setSheetOpen(true)} buttonRef={barButtonRef} />
 
       <BuilderDialog
         variant="sheet"
@@ -220,9 +242,24 @@ export function BuilderPage() {
         />
       </BuilderDialog>
 
-      <PresetPicker open={pickerOpen} onClose={() => setPickerOpen(false)} presets={presets} currentCount={summary.count} onLoad={(id) => loadPreset(id)} />
+      <PresetPicker
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        presets={presets}
+        currentCount={summary.count}
+        onLoad={(id) => loadPreset(id)}
+        fallbackFocus={focusBarButton}
+      />
 
-      <FinalSummaryDialog open={finalOpen} onClose={() => setFinalOpen(false)} summary={summary} buildNumber={buildNumber} issuedAt={issuedAt} onPrint={print} />
+      <FinalSummaryDialog
+        open={finalOpen}
+        onClose={() => setFinalOpen(false)}
+        summary={summary}
+        buildNumber={buildNumber}
+        issuedAt={issuedAt}
+        onPrint={print}
+        fallbackFocus={focusBarButton}
+      />
 
       <PrintSummary summary={summary} buildNumber={buildNumber} issuedAt={issuedAt} />
     </>

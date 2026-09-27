@@ -2,7 +2,7 @@
 // piezas elegidas (con cantidad y quitar) y los candidatos filtrables. «Omitir este paso» solo en las opcionales.
 
 import clsx from 'clsx';
-import { Check, ChevronDown, Lightbulb, Minus, SkipForward } from 'lucide-react';
+import { Check, ChevronDown, Lightbulb, Minus, RotateCcw, SkipForward } from 'lucide-react';
 import { useId } from 'react';
 import type { BuildLine, BuildSlot } from '@/1-domain/builder/types';
 import type { Product } from '@/1-domain/catalog/types';
@@ -23,6 +23,8 @@ export interface SlotStepProps {
   expanded: boolean;
   onToggle: () => void;
   onSkip: () => void;
+  /** Deshace «Omitir este paso»: la ranura vuelve a estar pendiente. */
+  onUnskip: () => void;
   onChoose: (product: Product) => void;
   onRemove: (sku: string) => void;
   onQuantity: (sku: string, quantity: number) => void;
@@ -32,7 +34,7 @@ export interface SlotStepProps {
 
 const STATUS_TEXT: Record<StepStatus, string> = { elegido: 'Elegida', omitido: 'Omitido', pendiente: 'Sin elegir' };
 
-export function SlotStep({ slot, lines, subtotal, status, expanded, onToggle, onSkip, onChoose, onRemove, onQuantity, headerRef }: SlotStepProps) {
+export function SlotStep({ slot, lines, subtotal, status, expanded, onToggle, onSkip, onUnskip, onChoose, onRemove, onQuantity, headerRef }: SlotStepProps) {
   const panelId = useId();
   const headerId = useId();
   const first = lines[0];
@@ -116,8 +118,13 @@ export function SlotStep({ slot, lines, subtotal, status, expanded, onToggle, on
               <span>{slot.hint}</span>
             </p>
             {!slot.required && lines.length === 0 && status !== 'omitido' && (
-              <Button variant="ghost" size="sm" leftIcon={<SkipForward />} onClick={onSkip} className="shrink-0 self-start">
+              <Button variant="ghost" leftIcon={<SkipForward />} onClick={onSkip} className="shrink-0 self-start">
                 Omitir este paso
+              </Button>
+            )}
+            {status === 'omitido' && (
+              <Button variant="ghost" leftIcon={<RotateCcw />} onClick={onUnskip} className="shrink-0 self-start">
+                Volver a considerar
               </Button>
             )}
           </div>

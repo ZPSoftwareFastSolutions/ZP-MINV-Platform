@@ -10,6 +10,16 @@
   display: none;
 }
 
+/*
+  Barra fija inferior de móvil (total + «Ver resumen»): mientras el armador está montado, <html data-builder-bar>
+  reserva su alto al final del documento para que el pie de página no quede tapado. En lg+ la barra no existe.
+*/
+@media (width < 64rem) {
+  html[data-builder-bar] body {
+    padding-bottom: calc(5.5rem + env(safe-area-inset-bottom));
+  }
+}
+
 @media print {
   html[data-print='armado'] body > :not(.builder-print) {
     display: none !important;

@@ -12,6 +12,7 @@ import { ROUTES } from '@/4-presentation/app/routes';
 import { ProductBadges } from '@/4-presentation/components/product/ProductBadges';
 import { StockIndicator } from '@/4-presentation/components/product/StockIndicator';
 import { Button } from '@/4-presentation/components/ui/Button';
+import { IconButton } from '@/4-presentation/components/ui/IconButton';
 import { PriceTag } from '@/4-presentation/components/ui/PriceTag';
 import { ProductImage } from '@/4-presentation/components/ui/ProductImage';
 import { QuantityStepper } from '@/4-presentation/components/ui/QuantityStepper';
@@ -32,33 +33,32 @@ export function CandidateCard({ product, slot, quantity, onChoose, onRemove, onQ
   const available = isAvailable(product);
   const specs = keySpecsFor(product, slot.key);
 
+  // Todos los controles miden 44 px (objetivo táctil): el armador se usa sobre todo desde el celular.
   let action: ReactNode;
   if (!available && !selected) {
     action = (
-      <Button variant="subtle" size="sm" disabled fullWidth aria-label={`Agotado: ${product.shortName}`}>
+      <Button variant="subtle" disabled fullWidth aria-label={`Agotado: ${product.shortName}`}>
         Agotado
       </Button>
     );
   } else if (slot.multiple) {
     action = selected ? (
-      <div className="flex items-center gap-2">
-        <QuantityStepper size="sm" value={quantity} onChange={(next) => onQuantity(product.sku, next)} label={`Cantidad de ${product.shortName}`} />
-        <Button variant="ghost" size="sm" leftIcon={<Trash2 />} aria-label={`Quitar ${product.shortName} del armado`} onClick={() => onRemove(product.sku)}>
-          Quitar
-        </Button>
+      <div className="flex items-center gap-2 sm:justify-end">
+        <QuantityStepper value={quantity} onChange={(next) => onQuantity(product.sku, next)} label={`Cantidad de ${product.shortName}`} />
+        <IconButton variant="subtle" label={`Quitar ${product.shortName} del armado`} icon={<Trash2 />} onClick={() => onRemove(product.sku)} />
       </div>
     ) : (
-      <Button variant="primary" size="sm" fullWidth leftIcon={<Plus />} aria-label={`Agregar ${product.shortName} al armado`} onClick={() => onChoose(product)}>
+      <Button variant="primary" fullWidth leftIcon={<Plus />} aria-label={`Agregar ${product.shortName} al armado`} onClick={() => onChoose(product)}>
         Agregar
       </Button>
     );
   } else {
     action = selected ? (
-      <Button variant="subtle" size="sm" fullWidth leftIcon={<Trash2 />} aria-label={`Quitar ${product.shortName} del armado`} onClick={() => onRemove(product.sku)}>
+      <Button variant="subtle" fullWidth leftIcon={<Trash2 />} aria-label={`Quitar ${product.shortName} del armado`} onClick={() => onRemove(product.sku)}>
         Quitar
       </Button>
     ) : (
-      <Button variant="primary" size="sm" fullWidth leftIcon={<Check />} aria-label={`Elegir ${product.shortName}`} onClick={() => onChoose(product)}>
+      <Button variant="primary" fullWidth leftIcon={<Check />} aria-label={`Elegir ${product.shortName}`} onClick={() => onChoose(product)}>
         Elegir
       </Button>
     );
@@ -104,7 +104,7 @@ export function CandidateCard({ product, slot, quantity, onChoose, onRemove, onQ
           <StockIndicator product={product} />
         </div>
       </div>
-      <div className="col-span-2 sm:col-span-1 sm:w-44 sm:justify-self-end">{action}</div>
+      <div className="col-span-2 sm:col-span-1 sm:min-w-44 sm:justify-self-end">{action}</div>
     </li>
   );
 }
