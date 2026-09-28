@@ -44,6 +44,12 @@ describe('StorefrontApi', () => {
     expect(new StorefrontApi(BASE).url('/catalog')).toBe(`${BASE}/storefront/v1/catalog`);
   });
 
+  it('«/» es el mismo origen: rutas relativas (tienda pública detrás del nginx del catálogo)', () => {
+    expect(resolveApiUrl('/')).toBe('');
+    expect(new StorefrontApi('/').url('/catalog')).toBe('/storefront/v1/catalog');
+    expect(new StorefrontApi('/').url('products/gpu/image')).toBe('/storefront/v1/products/gpu/image');
+  });
+
   it('sin respuesta del servidor lanza un error de red', async () => {
     fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
     await expect(new StorefrontApi(BASE).get('/catalog')).rejects.toMatchObject({ kind: 'network', status: 0 });

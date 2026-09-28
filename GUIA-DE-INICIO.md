@@ -508,6 +508,26 @@ verificó de punta a punta con una base de prueba temporal.
 | **Tienda web** (cuenta técnica nueva) | No es una persona: es el usuario `tienda-web@techzone.example` con el que el API Gateway ejecuta cada petición de la web. Solo puede leer el catálogo, reservar y ver el stock; **no tiene contraseña utilizable** y no entra al escritorio |
 | **Cliente de la web** | No tiene cuenta: reserva con su nombre y teléfono, y consulta o libera su reserva con el número **y** el teléfono |
 
+### Tienda pública con Docker (un enlace para tus clientes)
+
+Para que los clientes vean los productos desde su celular, sin instalar nada, la edición se publica desde este equipo con
+Docker Desktop y un enlace `https://….trycloudflare.com` (guía completa:
+[`docs/deployment/tienda-publica-docker-v6.md`](docs/deployment/tienda-publica-docker-v6.md)):
+
+```text
+  1. Docker Desktop abierto («Engine running») y la base de la edición creada (paso 2 del algoritmo de arriba).
+  2. Apague los servidores sueltos (paso 10) y suba todo:
+        powershell -ExecutionPolicy Bypass -File tools\docker_local.ps1 -Accion subir
+     → al final: «ENLACE PUBLICO PARA TUS CLIENTES: https://….trycloudflare.com» (también en
+       %LOCALAPPDATA%\M-INV\enlace-publico.txt)
+  3. Una vez:  tools\docker_local.ps1 -Accion arranque  → al iniciar sesión se enciende todo solo.
+  4. El escritorio sigue igual: M-INV.exe → «Nube» → http://localhost:5080 → TECHZONE.
+  5. Enlace vigente: -Accion enlace · estado: -Accion estado · apagar: -Accion bajar
+```
+
+El enlace **cambia** cada vez que el túnel se reinicia (reinicio del equipo o de Docker): vuelva a mirarlo con `-Accion
+enlace`. El equipo debe quedar encendido; para un enlace fijo hace falta un dominio en Cloudflare (ver la guía).
+
 ### Qué NO hace
 
 Sin pagos en línea (se cobra en la caja), sin series desde la web (se eligen al vender), una sola sucursal en la web (la

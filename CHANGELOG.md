@@ -122,6 +122,29 @@ y del escritorio) están fusionadas en la rama, y la **fase C** las verificó de
   devuelve la misma reserva con `Idempotent-Replayed: true` (y `422 idempotency` con otro contenido); CORS solo para el
   origen configurado y `429` al superar 10 reservas o 300 lecturas por minuto por IP.
 
+### Agregado (tienda pública en Docker)
+
+- `tools/docker_local.ps1` (`subir`, `reanudar`, `enlace`, `estado`, `arranque`, `bajar`): levanta la V6 en **Docker Desktop**
+  de este equipo sobre el PostgreSQL local (`host.docker.internal`), con el estado del simulador del SIN copiado al volumen,
+  y la publica con un **túnel rápido de Cloudflare** (perfil `publico`, servicio `tunel`): un enlace
+  `https://….trycloudflare.com` para todo público que se guarda en `%LOCALAPPDATA%\M-INV\enlace-publico.txt`. La tarea
+  programada «M-INV Tienda publica» (al iniciar sesión) enciende la base, abre Docker Desktop, levanta los contenedores
+  (`restart: unless-stopped`) y guarda el enlace nuevo. Guía: `docs/deployment/tienda-publica-docker-v6.md`.
+- `deploy/nginx.webcatalog.conf`: el nginx del catálogo sirve la SPA y reenvía `/storefront/` al gateway (un solo origen,
+  sin CORS); solo la tienda sale a internet (ni `/docs`, ni la API B2B, ni el servidor del escritorio). Pasa la IP real del
+  cliente (`Cf-Connecting-IP`) en `X-Forwarded-For`.
+- API Gateway: `Minv:ForwardedHeaders` (apagado por defecto; `true` en Docker) acepta `X-Forwarded-For` solo desde redes
+  privadas conocidas, para que el límite por IP de la tienda sea por cliente y no uno compartido por todos.
+- La web admite `VITE_API_URL=/` (mismo origen, rutas relativas `/storefront/v1/…`); es el valor por defecto de la imagen.
+
+### Corregido (tienda pública en Docker)
+
+- `createSources` resolvía dos veces la URL de la API: con `VITE_API_URL=/` la base quedaba vacía y el constructor la volvía
+  a `http://localhost:5090`, así que la tienda publicada mostraba «No pudimos cargar el catálogo». Ahora se resuelve una vez.
+- El healthcheck de `Dockerfile.cloudserver` ejecutaba `dotnet MINV.CloudServer.dll --version`, que intentaba levantar un
+  segundo servidor y dejaba el contenedor «unhealthy»; ahora consulta `GET /api/v1/health`.
+- `deploy/docker-compose.yml` exigía `POSTGRES_PASSWORD` aun sin el perfil `local-db`.
+
 ### Cambiado
 
 - `Directory.Build.props`, imágenes de `deploy/docker-compose.yml` y `package.json` de la web: **6.0.0-alpha.1**.

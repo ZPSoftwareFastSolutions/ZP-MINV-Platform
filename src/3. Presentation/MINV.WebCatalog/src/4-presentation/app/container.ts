@@ -10,7 +10,7 @@ import type { CatalogSnapshot } from '@/1-domain/storefront/types';
 import { createCatalogUseCases, createReservationUseCases, type CatalogUseCases, type ReservationUseCases } from '@/2-application';
 import { HttpCatalogSource } from '@/3-infrastructure/http/HttpCatalogSource';
 import { HttpReservationGateway } from '@/3-infrastructure/http/HttpReservationGateway';
-import { isMockApiUrl, resolveApiUrl, StorefrontApi } from '@/3-infrastructure/http/api';
+import { isMockApiUrl, StorefrontApi } from '@/3-infrastructure/http/api';
 import { InMemoryCatalogRepository, type InMemoryCatalogData } from '@/3-infrastructure/InMemoryCatalogRepository';
 
 export type CatalogMode = 'api' | 'mock';
@@ -49,7 +49,9 @@ export async function createSources(apiUrl: string | undefined = import.meta.env
     const mock = await import('@/3-infrastructure/data/mockCatalog');
     return createMockSources(mock.MOCK_CATALOG, mock);
   }
-  const api = new StorefrontApi(resolveApiUrl(apiUrl));
+  // El valor crudo: StorefrontApi lo resuelve UNA vez («/» = mismo origen). Resolverlo aquí antes lo convertía en vacío y el
+  // constructor lo tomaba como «sin configurar» (volvía a http://localhost:5090 y la tienda pública no cargaba).
+  const api = new StorefrontApi(apiUrl ?? '');
   return { mode: 'api', apiUrl: api.baseUrl, source: new HttpCatalogSource(api), gateway: new HttpReservationGateway(api) };
 }
 

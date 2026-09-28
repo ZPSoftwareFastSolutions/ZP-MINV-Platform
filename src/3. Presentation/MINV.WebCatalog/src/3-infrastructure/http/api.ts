@@ -10,7 +10,11 @@ export const DEFAULT_API_URL = 'http://localhost:5090';
 /** Valor de `VITE_API_URL` que usa el mock de la V5 en vez de la API. */
 export const MOCK_API_URL = 'mock';
 
-/** Base de la API a partir de `VITE_API_URL` (sin barra final; vacía o ausente → el gateway local). */
+/**
+ * Base de la API a partir de `VITE_API_URL` (sin barra final; vacía o ausente → el gateway local). «/» significa el MISMO
+ * origen que la web (base vacía → rutas relativas `/storefront/v1/…`): es lo que usa la tienda pública, donde el nginx del
+ * catálogo reenvía `/storefront/` al gateway y un solo enlace sirve la web y su API.
+ */
 export function resolveApiUrl(raw: string | undefined | null): string {
   const value = (raw ?? '').trim();
   if (!value) return DEFAULT_API_URL;

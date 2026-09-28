@@ -1,8 +1,10 @@
+using System.Net;
 using System.Security.Claims;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.OpenApi.Models;
 using MINV.ApiGateway.Background;
 using MINV.ApiGateway.Endpoints;
@@ -49,6 +51,29 @@ public static class ApiGatewayApp
         if (storefront.IsConfigured)
         {
             builder.Services.AddHostedService<StorefrontReservationExpiryService>();
+        }
+        // V6 · Detrás del proxy de la tienda pública (nginx del catálogo web + túnel): la IP del cliente sale de X-Forwarded-For,
+        // SOLO si la petición llega desde una red de confianza (la red interna de Docker). Sin esto, el límite por IP de la
+        // tienda lo compartirían todos los clientes (todos llegarían con la IP del proxy).
+        var forwarded = builder.Configuration.GetSection("Minv:ForwardedHeaders");
+        var trustProxy = forwarded.GetValue("Enabled", false);
+        if (trustProxy)
+        {
+            var networks = forwarded.GetSection("KnownNetworks").Get<string[]>() is { Length: > 0 } configured
+                ? configured
+                : ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8"];
+            builder.Services.Configure<ForwardedHeadersOptions>(options =>
+            {
+                options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+                options.ForwardLimit = 1;
+                options.KnownNetworks.Clear();
+                options.KnownProxies.Clear();
+                foreach (var cidr in networks)
+                {
+                    var parts = cidr.Split('/', 2);
+                    options.KnownNetworks.Add(new Microsoft.AspNetCore.HttpOverrides.IPNetwork(IPAddress.Parse(parts[0]), int.Parse(parts[1], System.Globalization.CultureInfo.InvariantCulture)));
+                }
+            });
         }
         builder.Services.AddCors(options => options.AddPolicy(StorefrontEndpoints.CorsPolicy, policy => policy
             .WithOrigins(storefront.AllowedOrigins.Where(o => !string.IsNullOrWhiteSpace(o)).Select(o => o.Trim().TrimEnd('/')).ToArray())
@@ -126,6 +151,11 @@ public static class ApiGatewayApp
         builder.Services.AddSingleton(new StorageInfo(storage));
 
         var app = builder.Build();
+        if (trustProxy)
+        {
+            // Primero de todo: el limitador por IP y la auditoría ven la IP real del cliente
+            app.UseForwardedHeaders();
+        }
         // Errores de los casos de uso → ProblemDetails (RFC 7807) con el mismo criterio que el servidor en la nube
         app.UseExceptionHandler(errors => errors.Run(async http =>
         {

@@ -100,6 +100,7 @@ dotnet test tests/MINV.Integration.Tests --filter Storefront                    
 cd "src\3. Presentation\MINV.WebCatalog"; npm install; npm run dev              # V5/V6: la web en http://localhost:5173 (V6: VITE_API_URL, por defecto http://localhost:5090; =mock usa los datos de la V5; npm test · typecheck · lint · build)
 dotnet run --project "src/4. Tools/MINV.Cli" -- migrate --conexion "…"           # V6: base existente de la V4.2/V5 → migración V6Storefront sin recrear (rol minv_owner)
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build   # V6: servidores + webcatalog (MINV_STOREFRONT_TENANT/BRANCH/ORIGIN/HOURS, MINV_WEB_API_URL)
+powershell -ExecutionPolicy Bypass -File tools\docker_local.ps1 -Accion subir   # V6: tienda pública en Docker Desktop + túnel trycloudflare (reanudar, enlace, estado, arranque, bajar); docs/deployment/tienda-publica-docker-v6.md
 powershell -ExecutionPolicy Bypass -File tools\bd_local.ps1 -Accion recrear     # V4.2: base local con Tech Zone Gaming (TECHZONE): 60 días, series, RMA, armados y facturación (~2 min de carga)
 dotnet run --project "src/4. Tools/MINV.Cli" -- datos-prueba --conexion "…"      # V4.2: empresa TECHZONE por defecto (--codigo, --dias 60, --semilla 2026)
 dotnet run --project "src/4. Tools/MINV.Cli" -- verify --codigo TECHZONE --conexion "…"   # V4.2: además, series en stock = stock (v_serial_breaches)
