@@ -248,7 +248,7 @@ def main() -> None:
         cabecera + "import type { Brand } from '@/1-domain/catalog/types';\n\nexport const BRANDS: Brand[] = " + ts(marcas_ts) + ";\n",
         encoding="utf-8")
     (DESTINO_DATOS / "catalog.data.ts").write_text(
-        cabecera + "import type { Product } from '@/1-domain/catalog/types';\n\nexport const PRODUCTS: Product[] = " + ts(productos_ts) + ";\n",
+        cabecera + "import type { MockProduct } from './mockTypes';\n\nexport const PRODUCTS: MockProduct[] = " + ts(productos_ts) + ";\n",
         encoding="utf-8")
     (DESTINO_DATOS / "presets.data.ts").write_text(
         cabecera + "import type { BuildPreset } from '@/1-domain/builder/types';\n\nexport const PRESETS: BuildPreset[] = " + ts(presets_ts) + ";\n",

@@ -18,7 +18,8 @@ namespace MINV.Integration.Tests;
 /// <summary>Cliente mínimo del contrato RPC (lo mismo que hace el escritorio en modo nube).</summary>
 internal sealed class RpcTestClient(HttpClient http)
 {
-    public const string ClientVersion = "4.0.0-alpha.1";
+    // V6 · La versión del cliente debe tener la misma versión mayor que el servidor (antes estaba fija en 4.0.0-alpha.1)
+    public static readonly string ClientVersion = MINV.Infrastructure.Hosting.ServerHosting.Version;
 
     public string? Token { get; private set; }
 

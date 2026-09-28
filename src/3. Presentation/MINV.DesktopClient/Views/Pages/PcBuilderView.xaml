@@ -103,8 +103,10 @@
             </StackPanel>
         </DockPanel>
 
-        <UniformGrid Grid.Row="1" Columns="3" Margin="-6,0,-6,10" Visibility="{Binding IsQuotesTab, Converter={StaticResource Visible}}">
+        <UniformGrid Grid.Row="1" Columns="4" Margin="-6,0,-6,10" Visibility="{Binding IsQuotesTab, Converter={StaticResource Visible}}">
             <ContentControl Content="{Binding QuotedKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+            <!-- V6 · reservas hechas desde la tienda web todavía vigentes -->
+            <ContentControl Content="{Binding WebKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
             <ContentControl Content="{Binding SoldKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
             <ContentControl Content="{Binding DraftKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
         </UniformGrid>
@@ -243,13 +245,29 @@
                         </Grid>
                         <StackPanel Margin="0,8,0,0" Visibility="{Binding HasCurrent, Converter={StaticResource Visible}}">
                             <Button Style="{StaticResource SoftButton}" Content="Vender en caja" c:Ui.Icon="{x:Static c:Glyphs.Cart}" Command="{Binding SellInPos}"
-                                    ToolTip="Cobrar la cotización vigente en el punto de venta (precios cotizados y series de cada pieza)" />
+                                    ToolTip="Cobrar la cotización o la reserva vigente en el punto de venta (precios cotizados y series de cada pieza; la venta consume la reserva)" />
+                            <!-- V6 · Reservar el stock de la cotización / liberar la reserva (regla S-08) -->
+                            <Button Content="Reservar stock" c:Ui.Icon="{x:Static c:Glyphs.Clock}" Command="{Binding ReserveBuild}" Margin="0,8,0,0"
+                                    c:Ui.IsBusy="{Binding ReserveBuild.IsRunning}" Visibility="{Binding CanReserve, Converter={StaticResource Visible}}"
+                                    ToolTip="Reservar cada pieza en la sucursal por las horas que indique (48 por defecto): nadie más la vende mientras dure" />
+                            <Button Content="Liberar reserva" c:Ui.Icon="{x:Static c:Glyphs.Undo}" Command="{Binding ReleaseReservation}" Margin="0,8,0,0"
+                                    c:Ui.IsBusy="{Binding ReleaseReservation.IsRunning}" Visibility="{Binding CanRelease, Converter={StaticResource Visible}}"
+                                    ToolTip="Devolver el stock reservado (pide el motivo): el armado queda anulado" />
                             <UniformGrid Columns="2" Margin="0,8,0,0">
                                 <Button Content="Proforma" c:Ui.Icon="{x:Static c:Glyphs.Printer}" Command="{Binding Proforma}" Margin="0,0,4,0"
                                         c:Ui.IsBusy="{Binding Proforma.IsRunning}" ToolTip="Ver, imprimir o guardar en PDF la proforma de la cotización" />
-                                <Button Content="Anular" c:Ui.Icon="{x:Static c:Glyphs.Error}" Command="{Binding CancelBuild}" Margin="4,0,0,0"
-                                        ToolTip="Anular la cotización (no se puede cobrar después)" />
+                                <Grid Margin="4,0,0,0">
+                                    <Button Content="Anular" c:Ui.Icon="{x:Static c:Glyphs.Error}" Command="{Binding CancelBuild}"
+                                            Visibility="{Binding CanCancel, Converter={StaticResource Visible}}" ToolTip="Anular la cotización (no se puede cobrar después)" />
+                                    <!-- V6 · Publicar en la web ocupa el lugar de «Anular» cuando el armado ya no se anula (reservado o vendido) -->
+                                    <Button Content="{Binding PublishText}" c:Ui.Icon="{x:Static c:Glyphs.Globe}" Command="{Binding TogglePublish}"
+                                            c:Ui.IsBusy="{Binding TogglePublish.IsRunning}" Visibility="{Binding ShowPublishBeside, Converter={StaticResource Visible}}"
+                                            ToolTip="Publicar el armado como sugerido en la tienda web (o retirarlo)" />
+                                </Grid>
                             </UniformGrid>
+                            <Button Content="{Binding PublishText}" c:Ui.Icon="{x:Static c:Glyphs.Globe}" Command="{Binding TogglePublish}" Margin="0,8,0,0"
+                                    c:Ui.IsBusy="{Binding TogglePublish.IsRunning}" Visibility="{Binding ShowPublishBelow, Converter={StaticResource Visible}}"
+                                    ToolTip="Publicar el armado como sugerido en la tienda web (o retirarlo)" />
                         </StackPanel>
                     </StackPanel>
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
@@ -299,6 +317,71 @@
                             <TextBlock Text="{Binding PsuLoadText}" Style="{StaticResource Caption}" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap"
                                        Visibility="{Binding PsuLoadText, Converter={StaticResource HasValue}}" />
 
+                            <!-- V6 · Reserva web: contacto del cliente (teléfono solo con permiso, regla S-06), notas y piezas con disponibilidad -->
+                            <StackPanel Visibility="{Binding HasContact, Converter={StaticResource Visible}}">
+                                <TextBlock Text="RESERVA DE LA TIENDA WEB" Style="{StaticResource Overline}" Margin="0,16,0,6"
+                                           Visibility="{Binding IsWebReservation, Converter={StaticResource Visible}}" />
+                                <TextBlock Text="CONTACTO" Style="{StaticResource Overline}" Margin="0,16,0,6" Visibility="{Binding IsWebReservation, Converter={StaticResource Hidden}}" />
+                                <Border Style="{StaticResource Panel}" Padding="12,10">
+                                    <StackPanel>
+                                        <Border Style="{StaticResource StatusPill}" c:Ui.BrushKey="{Binding ReservationSoftBrush}" Margin="0,0,0,8"
+                                                Visibility="{Binding ReservationText, Converter={StaticResource HasValue}}">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Clock}" FontSize="10" Margin="0,0,5,0" VerticalAlignment="Center"
+                                                           c:Ui.BrushKey="{Binding ReservationBrush}" />
+                                                <TextBlock Text="{Binding ReservationText}" FontSize="11" FontWeight="SemiBold" c:Ui.BrushKey="{Binding ReservationBrush}" />
+                                            </StackPanel>
+                                        </Border>
+                                        <DockPanel>
+                                            <TextBlock DockPanel.Dock="Left" Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Person}" FontSize="13" Margin="0,2,8,0"
+                                                       VerticalAlignment="Top" Foreground="{DynamicResource BrandText}" />
+                                            <TextBlock Text="{Binding ContactName}" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" TextWrapping="Wrap" />
+                                        </DockPanel>
+                                        <DockPanel Margin="0,6,0,0">
+                                            <Button DockPanel.Dock="Right" Style="{StaticResource SoftButton}" Content="Copiar teléfono" c:Ui.Icon="{x:Static c:Glyphs.Copy}" Height="28"
+                                                    Padding="8,0" FontSize="11.5" Command="{Binding CopyPhone}" Margin="8,0,0,0"
+                                                    Visibility="{Binding HasContactPhone, Converter={StaticResource Visible}}" ToolTip="Copiar el teléfono para llamar o escribir por WhatsApp" />
+                                            <TextBlock DockPanel.Dock="Left" Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Phone}" FontSize="12" Margin="0,2,8,0"
+                                                       VerticalAlignment="Top" Foreground="{DynamicResource TextMuted}" />
+                                            <TextBlock Text="{Binding ContactPhoneText}" Style="{StaticResource Mono}" FontSize="12.5" TextWrapping="Wrap" VerticalAlignment="Center"
+                                                       Foreground="{DynamicResource TextPrimary}" />
+                                        </DockPanel>
+                                        <DockPanel Margin="0,4,0,0" Visibility="{Binding HasContactEmail, Converter={StaticResource Visible}}">
+                                            <TextBlock DockPanel.Dock="Left" Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Mail}" FontSize="12" Margin="0,2,8,0"
+                                                       VerticalAlignment="Top" Foreground="{DynamicResource TextMuted}" />
+                                            <TextBlock Text="{Binding ContactEmail}" Style="{StaticResource Caption}" FontSize="12" TextWrapping="Wrap" />
+                                        </DockPanel>
+                                        <Border Background="{DynamicResource SurfaceHover}" CornerRadius="8" Padding="10,7" Margin="0,8,0,0"
+                                                Visibility="{Binding HasContactNotes, Converter={StaticResource Visible}}">
+                                            <StackPanel>
+                                                <TextBlock Text="Notas del cliente" Style="{StaticResource Caption}" FontSize="11" />
+                                                <TextBlock Text="{Binding ContactNotes}" FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondary}" Margin="0,2,0,0" />
+                                            </StackPanel>
+                                        </Border>
+                                    </StackPanel>
+                                </Border>
+                                <!-- Piezas con su disponibilidad actual en la sucursal -->
+                                <ItemsControl ItemsSource="{Binding ReservationLines}" Focusable="False" Margin="0,8,0,0"
+                                              Visibility="{Binding HasReservationLines, Converter={StaticResource Visible}}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type vm:PcReservationLine}">
+                                            <DockPanel Margin="0,3">
+                                                <TextBlock DockPanel.Dock="Right" Text="{Binding AvailabilityText}" FontSize="11.5" FontWeight="SemiBold" Margin="8,0,0,0"
+                                                           VerticalAlignment="Top" TextAlignment="Right" TextWrapping="Wrap" MaxWidth="120" c:Ui.BrushKey="{Binding AvailabilityBrush}" />
+                                                <StackPanel>
+                                                    <TextBlock FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondary}">
+                                                        <Run Text="{Binding Name, Mode=OneWay}" /> <Run Text="{Binding QuantityText, Mode=OneWay}" Foreground="{DynamicResource TextMuted}" />
+                                                    </TextBlock>
+                                                    <TextBlock Style="{StaticResource Caption}" FontSize="11">
+                                                        <Run Text="{Binding Slot, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding Sku, Mode=OneWay}" />
+                                                    </TextBlock>
+                                                </StackPanel>
+                                            </DockPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+
                             <TextBlock Text="COTIZACIÓN" Style="{StaticResource Overline}" Margin="0,16,0,6" />
                             <TextBlock Text="{Binding CurrentDetail}" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,0,0,8" />
                             <TextBlock Text="Nombre del armado" Style="{StaticResource FieldLabel}" />
@@ -316,7 +399,13 @@
 
         <!-- ================================================================ cotizaciones -->
         <DockPanel Grid.Row="2" Visibility="{Binding IsQuotesTab, Converter={StaticResource Visible}}">
-            <ComboBox DockPanel.Dock="Top" Width="240" ItemsSource="{Binding Statuses}" SelectedItem="{Binding StatusFilter}" HorizontalAlignment="Left" Margin="0,0,0,10" />
+            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+                <TextBlock DockPanel.Dock="Right" Text="{Binding BuildsSummary}" Style="{StaticResource Caption}" VerticalAlignment="Center" />
+                <ComboBox Width="240" ItemsSource="{Binding Statuses}" SelectedItem="{Binding StatusFilter}" HorizontalAlignment="Left" />
+                <!-- V6 · filtro rápido: solo las reservas hechas por los clientes en la tienda web -->
+                <CheckBox Style="{StaticResource Switch}" Content="Reservas web" IsChecked="{Binding OnlyWebReservations}" VerticalAlignment="Center" Margin="14,0,0,0"
+                          HorizontalAlignment="Left" ToolTip="Solo los armados reservados desde la tienda web (con el contacto del cliente y su vencimiento)" />
+            </DockPanel>
             <Border Style="{StaticResource CardFlat}" Padding="4,2,4,4">
                 <Grid>
                     <DataGrid ItemsSource="{Binding Builds}" SelectedItem="{Binding SelectedBuild}" RowHeight="54">
@@ -324,7 +413,7 @@
                             <MouseBinding Gesture="LeftDoubleClick" Command="{Binding OpenBuild}" CommandParameter="{Binding SelectedBuild}" />
                         </DataGrid.InputBindings>
                         <DataGrid.Columns>
-                            <DataGridTemplateColumn Header="NÚMERO" Width="140" SortMemberPath="Number" CanUserSort="True">
+                            <DataGridTemplateColumn Header="NÚMERO" Width="132" SortMemberPath="Number" CanUserSort="True">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate DataType="{x:Type vm:PcBuildItem}">
                                         <Border Style="{StaticResource Pill}" Background="{DynamicResource BrandSoft}">
@@ -333,7 +422,25 @@
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
-                            <DataGridTemplateColumn Header="ARMADO" Width="*" MinWidth="220" SortMemberPath="Name" CanUserSort="True">
+                            <!-- V6 · Canal: insignia «Web» con ícono para las reservas de la tienda; los del escritorio, en texto atenuado -->
+                            <DataGridTemplateColumn Header="CANAL" Width="96" SortMemberPath="ChannelText" CanUserSort="True">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate DataType="{x:Type vm:PcBuildItem}">
+                                        <Grid VerticalAlignment="Center">
+                                            <Border Style="{StaticResource Badge}" Visibility="{Binding IsWeb, Converter={StaticResource Visible}}"
+                                                    ToolTip="Reserva hecha por el cliente en la tienda web">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Globe}" FontSize="10" Margin="0,0,5,0" VerticalAlignment="Center" />
+                                                    <TextBlock Text="Web" />
+                                                </StackPanel>
+                                            </Border>
+                                            <TextBlock Text="{Binding ChannelText}" Style="{StaticResource Caption}" FontSize="11.5" VerticalAlignment="Center"
+                                                       Visibility="{Binding IsWeb, Converter={StaticResource Hidden}}" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="ARMADO" Width="*" MinWidth="200" SortMemberPath="Name" CanUserSort="True">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate DataType="{x:Type vm:PcBuildItem}">
                                         <StackPanel VerticalAlignment="Center">
@@ -346,7 +453,19 @@
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
-                            <DataGridTemplateColumn Header="COMPATIBILIDAD" Width="175">
+                            <!-- V6 · Contacto de la reserva web: nombre y teléfono (el correo, en el detalle; teléfono solo con permiso, regla S-06) -->
+                            <DataGridTemplateColumn Header="CONTACTO" Width="160" SortMemberPath="ContactName" CanUserSort="True">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate DataType="{x:Type vm:PcBuildItem}">
+                                        <StackPanel VerticalAlignment="Center" Visibility="{Binding HasContact, Converter={StaticResource Visible}}">
+                                            <TextBlock Text="{Binding ContactName}" TextTrimming="CharacterEllipsis" ToolTip="{Binding ContactName}" />
+                                            <TextBlock Text="{Binding ContactPhone}" Style="{StaticResource Mono}" FontSize="11.5" Foreground="{DynamicResource TextSecondary}"
+                                                       Visibility="{Binding HasPhone, Converter={StaticResource Visible}}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="COMPATIBILIDAD" Width="132">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate DataType="{x:Type vm:PcBuildItem}">
                                         <TextBlock Text="{Binding CompatibilityText}" c:Ui.BrushKey="{Binding CompatibilityBrush}" FontWeight="SemiBold" VerticalAlignment="Center"
@@ -354,10 +473,34 @@
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
-                            <DataGridTextColumn Header="VIGENCIA / VENTA" Binding="{Binding ValidText}" Width="180" ElementStyle="{StaticResource CellText}" />
-                            <DataGridTextColumn Header="TOTAL" Binding="{Binding TotalText}" Width="120" SortMemberPath="Total"
+                            <DataGridTextColumn Header="VIGENCIA / VENTA" Binding="{Binding ValidText}" Width="150" ElementStyle="{StaticResource CellText}" />
+                            <!-- V6 · Reservado hasta: resaltado si vence en menos de 6 h (ámbar) o ya venció (rojo) -->
+                            <DataGridTemplateColumn Header="RESERVADO HASTA" Width="150" SortMemberPath="ReservedUntilSort" CanUserSort="True">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate DataType="{x:Type vm:PcBuildItem}">
+                                        <DockPanel VerticalAlignment="Center">
+                                            <TextBlock DockPanel.Dock="Left" Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Warning}" FontSize="11" Margin="0,0,5,0"
+                                                       VerticalAlignment="Center" c:Ui.BrushKey="{Binding ReservedUntilBrush}"
+                                                       Visibility="{Binding HighlightReservation, Converter={StaticResource Visible}}" />
+                                            <TextBlock Text="{Binding ReservedUntilText}" TextWrapping="Wrap" FontSize="12" c:Ui.BrushKey="{Binding ReservedUntilBrush}"
+                                                       ToolTip="{Binding ReservedUntilText}">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding HighlightReservation}" Value="True">
+                                                                <Setter Property="FontWeight" Value="SemiBold" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </DockPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="TOTAL" Binding="{Binding TotalText}" Width="108" SortMemberPath="Total"
                                                 HeaderStyle="{StaticResource HeaderRight}" ElementStyle="{StaticResource CellRight}" />
-                            <DataGridTemplateColumn Header="ESTADO" Width="150" SortMemberPath="StatusText" CanUserSort="True">
+                            <DataGridTemplateColumn Header="ESTADO" Width="128" SortMemberPath="StatusText" CanUserSort="True">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate DataType="{x:Type vm:PcBuildItem}">
                                         <Border Style="{StaticResource StatusPill}" c:Ui.BrushKey="{Binding StatusSoftBrush}">
@@ -366,7 +509,20 @@
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
-                            <DataGridTemplateColumn Width="90" CanUserSort="False">
+                            <!-- V6 · Publicado como armado sugerido en la tienda web -->
+                            <DataGridTemplateColumn Header="WEB" Width="72" SortMemberPath="IsPublished" CanUserSort="True">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate DataType="{x:Type vm:PcBuildItem}">
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Visibility="{Binding IsPublished, Converter={StaticResource Visible}}"
+                                                    ToolTip="Publicado en la tienda web como armado sugerido">
+                                            <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.CheckCircle}" FontSize="12" Foreground="{DynamicResource Success}"
+                                                       Margin="0,0,4,0" VerticalAlignment="Center" />
+                                            <TextBlock Text="Publicado" FontSize="11.5" Foreground="{DynamicResource Success}" FontWeight="SemiBold" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Width="84" CanUserSort="False">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate DataType="{x:Type vm:PcBuildItem}">
                                         <Button Style="{StaticResource SoftButton}" Content="Abrir" Height="30" Padding="12,0" HorizontalAlignment="Right"
@@ -381,6 +537,12 @@
                             <TextBlock Text="Todavía no hay armados" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" HorizontalAlignment="Center" />
                             <TextBlock Text="Arme una PC en la pestaña «Armar» y cotícela para el cliente." Style="{StaticResource Caption}" HorizontalAlignment="Center"
                                        Margin="0,4,0,0" />
+                        </StackPanel>
+                    </ContentControl>
+                    <ContentControl Style="{StaticResource EmptyState}" Tag="{x:Static c:Glyphs.Globe}" Visibility="{Binding NoBuildsMatch, Converter={StaticResource Visible}}">
+                        <StackPanel>
+                            <TextBlock Text="Ningún armado coincide con el filtro" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" HorizontalAlignment="Center" />
+                            <TextBlock Text="Cambie el estado o quite el filtro «Reservas web»." Style="{StaticResource Caption}" HorizontalAlignment="Center" Margin="0,4,0,0" />
                         </StackPanel>
                     </ContentControl>
                 </Grid>

@@ -2345,3 +2345,85 @@ es de su lote.
 `minv_server` y `minv_app` (solo si existen al migrar): `USAGE` en `service`; SELECT, INSERT, UPDATE y DELETE en las 12
 tablas nuevas, salvo UPDATE, DELETE y TRUNCATE en los 5 libros append-only; SELECT en `inventory.v_serial_breaches`.
 Ninguna función SECURITY DEFINER nueva.
+
+## 10. V6 · Tienda web conectada (reservas de armados, bitácora, canal web)
+
+Migración `V6Storefront` (`Persistence/Migrations/20260927173304_V6Storefront.cs` y su parcial `.Sql.cs`). Reglas S-01 a
+S-10: `.claude/v6-storefront-rules.md`; diseño: `docs/architecture/tienda-web-conectada-v6.md`; contrato de la API pública:
+`docs/integration/storefront-api-v1.md`. La V6 agrega **1 tabla** (`sales.pc_build_events`), 9 columnas a `sales.pc_builds`, el
+tercer origen de `inventory.stock_reservations` y el canal `storefront` de la auditoría. Resultado: **153 tablas en 10
+esquemas**, 151 políticas `tenant_isolation`, 63 `branch_isolation` RESTRICTIVAS (57 por sucursal y 6 entre sucursales) y
+30 triggers append-only.
+
+### 10.1 Armados: canal, contacto, reserva, publicación y bitácora · esquema `sales`
+
+```mermaid
+erDiagram
+    pc_builds {
+        varchar channel "Desktop | Web"
+        varchar contact_name
+        varchar contact_phone
+        varchar contact_email
+        varchar notes
+        timestamptz reserved_at
+        timestamptz reserved_until
+        varchar cancel_reason
+        boolean published_to_web
+    }
+    pc_build_events {
+        uuid id PK
+        uuid tenant_id FK
+        uuid branch_id FK
+        uuid pc_build_id FK
+        varchar action
+        varchar status
+        uuid user_id FK
+        timestamptz occurred_at
+        varchar detail
+    }
+    stock_reservations {
+        uuid pc_build_line_id FK "tercer origen del arco"
+    }
+    pc_builds ||--o{ pc_build_events : "(branch_id, pc_build_id)"
+    pc_build_lines ||--o{ stock_reservations : "(branch_id, pc_build_line_id)"
+```
+
+| Tabla / columna | Descripción | Referencias (FK) | Únicos / CHECK |
+|---|---|---|---|
+| `sales.pc_builds.channel` | V6 · Por dónde nació el armado: `Desktop` (vendedor) o `Web` (cliente de la tienda). Los existentes al migrar quedan `Desktop`. | — | CHECK channel IN ('Desktop', 'Web') |
+| `sales.pc_builds.contact_name / contact_phone / contact_email / notes` | V6 · Contacto del cliente. El teléfono se guarda normalizado (7 u 8 dígitos, con «+591» si vino con código de país). Obligatorios nombre y teléfono en canal Web. | — | CHECK channel <> 'Web' OR (contact_name IS NOT NULL AND contact_phone IS NOT NULL) |
+| `sales.pc_builds.reserved_at`, `reserved_until` | V6 · Cuándo se reservó el stock y hasta cuándo vale la reserva (estado `Reserved`: `Draft → Quoted → Reserved → Sold \| Cancelled`). | — | CHECK status IN ('Draft', 'Quoted', 'Reserved', 'Sold', 'Cancelled')<br>CHECK status <> 'Reserved' OR (reserved_at IS NOT NULL AND reserved_until IS NOT NULL)<br>CHECK status NOT IN ('Quoted', 'Reserved') OR quoted_at IS NOT NULL<br>índice (tenant_id, reserved_until) WHERE status = 'Reserved' |
+| `sales.pc_builds.cancel_reason` | V6 · Motivo del cierre: «Vencida» (trabajo en segundo plano), liberada por el cliente o el vendedor, anulada. | — | — |
+| `sales.pc_builds.published_to_web` | V6 · Armado sugerido visible en la tienda web (solo armados del escritorio cotizados, reservados o vendidos). | — | CHECK NOT published_to_web OR (channel = 'Desktop' AND status IN ('Quoted', 'Reserved', 'Sold'))<br>índice (tenant_id, published_to_web) WHERE published_to_web |
+| `sales.pc_build_events` | V6 · **Bitácora append-only** del armado (regla S-04): una fila por cambio de estado (`Created`, `Quoted`, `Reserved`, `Released`, `Expired`, `Sold`, `Cancelled`, `Published`, `Unpublished`) con el estado resultante, quién y cuándo. La escribe SOLO `PcBuild`. · **por sucursal** | (branch_id, pc_build_id) → sales.pc_builds<br>user_id → iam.users | CHECK action IN (9 acciones)<br>CHECK status IN (5 estados)<br>índice (pc_build_id, occurred_at) |
+| `inventory.stock_reservations.pc_build_line_id` | V6 · Tercer origen de una reserva de stock: la línea del armado reservado (tienda web o escritorio). Arco exclusivo con la caja y la línea de pedido. | (branch_id, pc_build_line_id) → sales.pc_build_lines | CHECK num_nonnulls(pos_session_id, sales_order_line_id, pc_build_line_id) <= 1<br>índice (pc_build_line_id, status) WHERE pc_build_line_id IS NOT NULL |
+| `iam.audit_logs.channel` | V6 · Canal `storefront` (tienda web pública, sin API Key). | — | CHECK channel IS NULL OR channel IN ('desktop', 'cloud', 'api', 'storefront') |
+
+### 10.2 Sucursal, append-only y normalización
+
+**Por sucursal** (1 tabla nueva, 57 en total; lista `BranchTablesV6`): `sales.pc_build_events`. **Append-only** (1 libro
+nuevo, 30 en total; lista `AppendOnlyTablesV6`): `sales.pc_build_events`. Sin tablas entre sucursales nuevas.
+
+**Normalización y redundancia controlada.** `pc_builds.status` sigue siendo estado materializado con su bitácora (cada
+cambio deja su fila en `pc_build_events`). El disponible NUNCA se guarda: es `quantity_on_hand − quantity_reserved` de
+`stock_levels` (regla S-03), y lo reservado por un armado es la suma de sus `stock_reservations` activas. El total de la
+reserva sale de las líneas (precio cotizado). Una reserva web se identifica en `iam.processed_requests` por el id
+determinista de su `Idempotency-Key` (SHA-256), con el hash del contenido y la respuesta guardada (regla S-05).
+
+### 10.3 Datos que agrega la migración
+
+- Relleno: `pc_builds.channel = 'Desktop'` en todos los armados existentes (con verificación) y bitácora reconstruida (una
+  fila `Created` por armado y, si corresponde, `Quoted`, `Sold` o `Cancelled` con el detalle «Historial reconstruido al
+  migrar a la V6»), antes de crear el trigger append-only.
+- Permisos `storefront.read` y `storefront.reserve` en todas las empresas, con la matriz de `PermissionCodes.ForRole`: ADMIN y
+  GERENCIA (ambos); rol nuevo `TIENDA_WEB` («Tienda web», de sistema) con ambos más `inventory.stock.view`.
+- **Usuario técnico** `tienda-web@<dominio del administrador>` (o `<empresa>.local`) por empresa: rol TIENDA_WEB, asignado a la
+  casa matriz (la sucursal del almacén principal), con una credencial aleatoria inutilizable. El API Gateway lo autentica por
+  configuración (`Minv:Storefront:TenantCode`); nunca inicia sesión en el escritorio. Las empresas nuevas lo reciben del
+  aprovisionamiento (`TenantProvisioner`).
+
+### 10.4 Roles
+
+`minv_server` y `minv_app` (solo si existen al migrar): SELECT e INSERT en `sales.pc_build_events` (UPDATE, DELETE y TRUNCATE
+revocados: append-only). Ninguna función SECURITY DEFINER nueva: el principal de la tienda se construye leyendo `iam.tenants`
+(sin `tenant_id`, sin RLS) y después las tablas de la empresa con la sesión fijada.

@@ -2,6 +2,10 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# V6 · URL del API Gateway que usará el navegador (Vite la incrusta al construir): docker-compose la pasa como build arg
+ARG VITE_API_URL=http://localhost:5090
+ENV VITE_API_URL=$VITE_API_URL
+
 # Copiar el código fuente de WebCatalog
 COPY ["src/3. Presentation/MINV.WebCatalog/", "."]
 

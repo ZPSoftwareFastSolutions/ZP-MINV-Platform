@@ -110,7 +110,10 @@ public static class DependencyInjection
     /// <summary>Base en memoria compartida por todos los contextos del mismo <paramref name="root"/> (la auditoría usa un
     /// contexto propio). Las transacciones no existen en memoria: se aceptan y se ignoran.</summary>
     internal static DbContextOptionsBuilder ConfigureInMemory(DbContextOptionsBuilder options, string name, InMemoryDatabaseRoot root) =>
-        options.UseInMemoryDatabase(name, root).ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning));
+        // Cada demostración o prueba en memoria es una base propia (su raíz y sus opciones): EF Core avisa a partir de veinte
+        // proveedores internos en un mismo proceso (las suites de pruebas los superan); no es una fuga, es una base por prueba
+        options.UseInMemoryDatabase(name, root)
+            .ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning, CoreEventId.ManyServiceProvidersCreatedWarning));
 }
 
 /// <summary>Fábrica de diseño para <c>dotnet ef</c> (migraciones y script SQL). Cadena: variable MINV_DB o la de

@@ -193,16 +193,20 @@ public sealed class PcIssueItem(PcIssue issue)
     public string SoftBrush => Brush + "Soft";
 }
 
-/// <summary>V4.2 · Fila de la lista de cotizaciones del armador.</summary>
-public sealed class PcBuildItem(PcBuildRow row)
+/// <summary>V4.2 · Fila de la lista de cotizaciones del armador. V6: canal (insignia «Web»), contacto (teléfono solo con
+/// <c>sales.pcbuild.manage</c>, regla S-06), «Reservado hasta» con resaltado (vence en menos de 6 h o ya venció) y publicado.</summary>
+public sealed class PcBuildItem(PcBuildRow row, DateTimeOffset now)
 {
+    /// <summary>Una reserva que vence dentro de este plazo se resalta (queda poco tiempo para que el cliente pase a cobrarla).</summary>
+    public static readonly TimeSpan ExpiringSoon = TimeSpan.FromHours(6);
+
     public PcBuildRow Row { get; } = row;
 
     public string Number => Row.Number;
 
     public string Name => Row.Name;
 
-    public string Customer => Row.Customer ?? "Sin cliente";
+    public string Customer => Row.Customer ?? (HasContact ? Row.ContactName! : "Sin cliente");
 
     public string StatusText => TechText.BuildStatus(Row.Status, Row.IsExpired);
 
@@ -218,7 +222,7 @@ public sealed class PcBuildItem(PcBuildRow row)
 
     public string CreatedText => Fmt.DateTime(Row.CreatedAt);
 
-    public string ValidText => Row.Status == PcBuildStatus.Quoted
+    public string ValidText => Row.Status is PcBuildStatus.Quoted or PcBuildStatus.Reserved
         ? (Row.IsExpired ? $"Venció el {Fmt.Date(Row.ValidUntil)}" : $"Vigente hasta {Fmt.Date(Row.ValidUntil)}")
         : Row.InvoiceNumber is { } i ? $"Venta {i}" : "—";
 
@@ -228,7 +232,73 @@ public sealed class PcBuildItem(PcBuildRow row)
 
     public string CompatibilityBrush => Row.IsCompatible ? "Success" : "Danger";
 
-    public bool CanSell => Row.Status == PcBuildStatus.Quoted && !Row.IsExpired;
+    /// <summary>V6 · Se cobra en la caja una cotización o una reserva vigentes (la venta consume la reserva, regla S-04).</summary>
+    public bool CanSell => Row.Status is PcBuildStatus.Quoted or PcBuildStatus.Reserved && !Row.IsExpired;
+
+    // ------------------------------------------------------------------------------------------------ V6 · canal y contacto
+    public bool IsWeb => Row.Channel == PcBuildChannel.Web;
+
+    public string ChannelText => IsWeb ? "Web" : "Escritorio";
+
+    public string ChannelGlyph => IsWeb ? Glyphs.Globe : Glyphs.Monitor;
+
+    public bool HasContact => !string.IsNullOrWhiteSpace(Row.ContactName);
+
+    public string ContactName => Row.ContactName ?? "—";
+
+    /// <summary>Teléfono del cliente web (vacío si la sesión no puede verlo, regla S-06).</summary>
+    public string ContactPhone => Row.ContactPhone ?? string.Empty;
+
+    public bool HasPhone => ContactPhone.Length > 0;
+
+    // ------------------------------------------------------------------------------------------------ V6 · reserva
+    public bool IsReserved => Row.Status == PcBuildStatus.Reserved;
+
+    public bool IsReservationActive => Row.IsReservationActive(now);
+
+    /// <summary>Reservado y con el plazo cumplido (la cierra el trabajo en segundo plano; mientras tanto se resalta).</summary>
+    public bool IsReservationExpired => IsReserved && !IsReservationActive;
+
+    public bool IsExpiringSoon => IsReservationActive && Row.ReservedUntil!.Value - now < ExpiringSoon;
+
+    public bool HighlightReservation => IsReservationExpired || IsExpiringSoon;
+
+    public string ReservedUntilText => !IsReserved || Row.ReservedUntil is not { } until
+        ? "—"
+        : IsReservationExpired ? $"Venció {Fmt.DateTime(until)}" : IsExpiringSoon ? $"{Fmt.DateTime(until)} · vence pronto" : Fmt.DateTime(until);
+
+    public DateTimeOffset ReservedUntilSort => Row.ReservedUntil ?? DateTimeOffset.MaxValue;
+
+    public string ReservedUntilBrush => IsReservationExpired ? "Danger" : IsExpiringSoon ? "Warning" : "TextSecondary";
+
+    public bool IsPublished => Row.PublishedToWeb;
+
+    public string PublishedText => Row.PublishedToWeb ? "Publicado" : "—";
+}
+
+/// <summary>V6 · Cómo abrir el armador desde otra pantalla (la tarjeta «Reservas web activas» del tablero).</summary>
+public enum PcBuilderFilter
+{
+    /// <summary>Pestaña Cotizaciones con el filtro rápido «Reservas web».</summary>
+    WebReservations,
+}
+
+/// <summary>V6 · Línea de una reserva con la disponibilidad actual de la pieza en la sucursal (lo que hay ADEMÁS de lo reservado).</summary>
+public sealed class PcReservationLine(PcBuildItemView item, bool reserved)
+{
+    public string Slot => TechText.Slot(item.Slot);
+
+    public string Name => item.Name;
+
+    public string Sku => item.Sku;
+
+    public string QuantityText => $"× {item.Quantity}";
+
+    public string AvailabilityText => reserved
+        ? item.Stock > 0 ? $"Reservada · {Fmt.Qty(item.Stock)} más disponible{(item.Stock == 1 ? "" : "s")}" : "Reservada · sin más unidades"
+        : item.Stock >= item.Quantity ? $"Disponible {Fmt.Qty(item.Stock)}" : item.Stock > 0 ? $"Solo {Fmt.Qty(item.Stock)} disponible{(item.Stock == 1 ? "" : "s")}" : "Sin stock";
+
+    public string AvailabilityBrush => reserved ? "Brand" : item.Stock >= item.Quantity ? "Success" : "Danger";
 }
 
 /// <summary>
@@ -261,6 +331,7 @@ public sealed class PcBuilderViewModel : PageViewModel
     private string _tab = "build";
     private PcBuildItem? _selectedBuild;
     private Choice<PcBuildStatus?> _statusFilter;
+    private bool _onlyWeb;
     private int _candidateVersion;
     private int _checkVersion;
 
@@ -274,8 +345,8 @@ public sealed class PcBuilderViewModel : PageViewModel
         _validity = Validities[1];
         Statuses =
         [
-            new("Todos los estados", null), new("Borradores", PcBuildStatus.Draft), new("Cotizados", PcBuildStatus.Quoted), new("Vendidos", PcBuildStatus.Sold),
-            new("Anulados", PcBuildStatus.Cancelled),
+            new("Todos los estados", null), new("Borradores", PcBuildStatus.Draft), new("Cotizados", PcBuildStatus.Quoted), new("Reservados", PcBuildStatus.Reserved),
+            new("Vendidos", PcBuildStatus.Sold), new("Anulados", PcBuildStatus.Cancelled),
         ];
         _statusFilter = Statuses[0];
         Builds = CollectionViewSource.GetDefaultView(_builds);
@@ -290,10 +361,15 @@ public sealed class PcBuilderViewModel : PageViewModel
         NewBuild = new AsyncRelayCommand(NewBuildAsync, () => CanManage);
         SaveDraft = new AsyncRelayCommand(() => SaveAsync(quote: false), () => CanManage && CanEdit && HasParts);
         Quote = new AsyncRelayCommand(() => SaveAsync(quote: true), () => CanManage && CanEdit && HasParts);
-        Proforma = new AsyncRelayCommand(ProformaAsync, () => _current is { Status: PcBuildStatus.Quoted or PcBuildStatus.Sold });
-        SellInPos = new RelayCommand(SellInPos_, () => _current is { Status: PcBuildStatus.Quoted, IsExpired: false } && App.Session.Can(PermissionCodes.PosOperate));
-        CancelBuild = new AsyncRelayCommand(CancelBuildAsync, () => CanManage && _current is { Status: PcBuildStatus.Draft or PcBuildStatus.Quoted });
+        Proforma = new AsyncRelayCommand(ProformaAsync, () => _current is { Status: PcBuildStatus.Quoted or PcBuildStatus.Reserved or PcBuildStatus.Sold });
+        SellInPos = new RelayCommand(SellInPos_, () => CanSellCurrent);
+        CancelBuild = new AsyncRelayCommand(CancelBuildAsync, () => CanCancel);
         OpenBuild = new AsyncRelayCommand<PcBuildItem>(b => OpenBuildAsync(b.Number));
+        // V6 · Reservas y publicación en la tienda web (regla S-08)
+        ReserveBuild = new AsyncRelayCommand(ReserveAsync, () => CanReserve);
+        ReleaseReservation = new AsyncRelayCommand(ReleaseAsync, () => CanRelease);
+        TogglePublish = new AsyncRelayCommand(TogglePublishAsync, () => CanPublish);
+        CopyPhone = new RelayCommand(CopyPhone_, () => HasContactPhone);
     }
 
     public ObservableCollection<PcSlotItem> Slots { get; }
@@ -345,6 +421,25 @@ public sealed class PcBuilderViewModel : PageViewModel
     public bool IsQuotesTab { get => _tab == "quotes"; set { if (value) { Tab = "quotes"; } } }
 
     public string QuotesTabText => $"Cotizaciones ({_builds.Count})";
+
+    /// <summary>V6 · Filtro rápido «Reservas web»: solo los armados que nacieron en la tienda web (reservas de clientes).</summary>
+    public bool OnlyWebReservations
+    {
+        get => _onlyWeb;
+        set
+        {
+            if (Set(ref _onlyWeb, value))
+            {
+                Builds.Refresh();
+                OnPropertiesChanged(nameof(NoBuildsMatch), nameof(BuildsSummary));
+            }
+        }
+    }
+
+    /// <summary>Hay armados pero ninguno pasa los filtros.</summary>
+    public bool NoBuildsMatch => HasLoaded && _builds.Count > 0 && Builds.Cast<object>().Any() == false;
+
+    public string BuildsSummary => Builds.Cast<object>().Count() is var n && n == _builds.Count ? $"{n} armados" : $"{n} de {_builds.Count} armados";
 
     // ------------------------------------------------------------------------------------------------ candidatos
     public string Search
@@ -446,7 +541,12 @@ public sealed class PcBuilderViewModel : PageViewModel
             if (Set(ref _current, value))
             {
                 OnPropertiesChanged(nameof(CanEdit), nameof(IsReadOnly), nameof(CurrentTitle), nameof(CurrentStatusText), nameof(CurrentStatusBrush),
-                    nameof(CurrentStatusSoftBrush), nameof(HasCurrent), nameof(Total), nameof(TotalText), nameof(CurrentDetail));
+                    nameof(CurrentStatusSoftBrush), nameof(HasCurrent), nameof(Total), nameof(TotalText), nameof(CurrentDetail), nameof(CanReserve), nameof(CanRelease),
+                    nameof(CanPublish), nameof(CanCancel), nameof(CanSellCurrent), nameof(PublishText), nameof(ShowPublishBeside), nameof(ShowPublishBelow),
+                    nameof(IsWebReservation), nameof(HasContact), nameof(ContactName),
+                    nameof(ContactPhone), nameof(HasContactPhone), nameof(ContactPhoneText), nameof(ContactEmail), nameof(HasContactEmail), nameof(ContactNotes),
+                    nameof(HasContactNotes), nameof(ReservationText), nameof(ReservationBrush), nameof(ReservationSoftBrush), nameof(HasReservationLines),
+                    nameof(IsPublished));
                 System.Windows.Input.CommandManager.InvalidateRequerySuggested();
             }
         }
@@ -466,11 +566,88 @@ public sealed class PcBuilderViewModel : PageViewModel
     {
         null => "Elija las piezas por ranura: el panel revisa la compatibilidad mientras arma.",
         { Status: PcBuildStatus.Quoted, IsExpired: true } c => $"La cotización venció el {Fmt.Date(c.ValidUntil)}: arme una nueva para cotizar otra vez.",
-        { Status: PcBuildStatus.Quoted } c => $"Precios congelados hasta el {Fmt.Date(c.ValidUntil)}" + (c.QuotedWithErrors ? " · cotizado con errores aceptados" : ""),
-        { Status: PcBuildStatus.Sold } c => $"Vendido en la venta {c.InvoiceNumber}.",
+        { Status: PcBuildStatus.Quoted } c => $"Precios congelados hasta el {Fmt.Date(c.ValidUntil)}" + (c.QuotedWithErrors ? " · cotizado con errores aceptados" : "")
+                                              + (c.PublishedToWeb ? " · publicado en la tienda web" : ""),
+        { Status: PcBuildStatus.Reserved } c when !c.IsReservationActive(App.Now) =>
+            $"La reserva venció el {Fmt.DateTime(c.ReservedUntil!.Value)}: el trabajo automático la libera; puede liberarla ahora o cobrarla si el cliente llegó.",
+        { Status: PcBuildStatus.Reserved } c => $"Stock reservado hasta el {Fmt.DateTime(c.ReservedUntil!.Value)} · precios congelados hasta el {Fmt.Date(c.ValidUntil)}"
+                                                + (c.Channel == PcBuildChannel.Web ? " · reserva hecha por el cliente en la tienda web" : "")
+                                                + " · al cobrarla en la caja se consume la reserva",
+        { Status: PcBuildStatus.Sold } c => $"Vendido en la venta {c.InvoiceNumber}." + (c.PublishedToWeb ? " Sigue publicado como armado sugerido en la web." : ""),
+        { Status: PcBuildStatus.Cancelled, CancelReason: { Length: > 0 } reason } => $"Armado anulado: {reason}.",
         { Status: PcBuildStatus.Cancelled } => "Armado anulado.",
         _ => "Borrador: puede cambiar las piezas y cotizarlo cuando el cliente lo apruebe.",
     };
+
+    // ------------------------------------------------------------------------------------------------ V6 · reserva y tienda web
+    /// <summary>Se reserva una cotización vigente (el dominio exige Cotizado y no vencido; aquí solo se muestra el botón).</summary>
+    public bool CanReserve => CanManage && _current is { Status: PcBuildStatus.Quoted, IsExpired: false };
+
+    public bool CanRelease => CanManage && _current is { Status: PcBuildStatus.Reserved };
+
+    /// <summary>Solo los armados del escritorio se publican (los de la web son reservas de clientes, regla del dominio).</summary>
+    public bool CanPublish => CanManage && _current is { Channel: PcBuildChannel.Desktop, Status: PcBuildStatus.Quoted or PcBuildStatus.Reserved or PcBuildStatus.Sold };
+
+    public bool CanCancel => CanManage && _current is { Status: PcBuildStatus.Draft or PcBuildStatus.Quoted };
+
+    public bool CanSellCurrent => _current is { Status: PcBuildStatus.Quoted or PcBuildStatus.Reserved, IsExpired: false } && App.Session.Can(PermissionCodes.PosOperate);
+
+    public bool IsPublished => _current?.PublishedToWeb == true;
+
+    public string PublishText => IsPublished ? "Quitar de la web" : "Publicar en la web";
+
+    /// <summary>El botón de publicar ocupa el lugar de «Anular» cuando el armado ya no se anula (reservado o vendido).</summary>
+    public bool ShowPublishBeside => CanPublish && !CanCancel;
+
+    public bool ShowPublishBelow => CanPublish && CanCancel;
+
+    public bool IsWebReservation => _current?.Channel == PcBuildChannel.Web;
+
+    public bool HasContact => !string.IsNullOrWhiteSpace(_current?.ContactName);
+
+    public string ContactName => _current?.ContactName ?? string.Empty;
+
+    public string ContactPhone => _current?.ContactPhone ?? string.Empty;
+
+    public bool HasContactPhone => ContactPhone.Length > 0;
+
+    /// <summary>El teléfono solo lo ve quien gestiona armados (regla S-06); a los demás se les dice por qué no aparece.</summary>
+    public string ContactPhoneText => HasContactPhone ? ContactPhone : "Teléfono visible solo con el permiso de gestión de armados";
+
+    public string ContactEmail => _current?.ContactEmail ?? string.Empty;
+
+    public bool HasContactEmail => ContactEmail.Length > 0;
+
+    public string ContactNotes => _current?.Notes ?? string.Empty;
+
+    public bool HasContactNotes => ContactNotes.Length > 0;
+
+    public string ReservationText => _current switch
+    {
+        { Status: PcBuildStatus.Reserved, ReservedUntil: { } until } c when !c.IsReservationActive(App.Now) => $"Reserva vencida el {Fmt.DateTime(until)}",
+        { Status: PcBuildStatus.Reserved, ReservedUntil: { } until } c when until - App.Now < PcBuildItem.ExpiringSoon => $"Reservado hasta {Fmt.DateTime(until)} · vence pronto",
+        { Status: PcBuildStatus.Reserved, ReservedUntil: { } until } => $"Reservado hasta {Fmt.DateTime(until)}",
+        { Status: PcBuildStatus.Sold } c => $"Vendido · {c.InvoiceNumber}",
+        { Status: PcBuildStatus.Cancelled, CancelReason: { Length: > 0 } reason } => $"Liberada: {reason}",
+        { Status: PcBuildStatus.Cancelled } => "Liberada",
+        _ => string.Empty,
+    };
+
+    public string ReservationBrush => _current switch
+    {
+        { Status: PcBuildStatus.Reserved, ReservedUntil: { } until } c when !c.IsReservationActive(App.Now) => "Danger",
+        { Status: PcBuildStatus.Reserved, ReservedUntil: { } until } when until - App.Now < PcBuildItem.ExpiringSoon => "Warning",
+        { Status: PcBuildStatus.Reserved } => "Brand",
+        { Status: PcBuildStatus.Sold } => "Success",
+        _ => "StatusInactive",
+    };
+
+    public string ReservationSoftBrush => ReservationBrush + "Soft";
+
+    /// <summary>Piezas del armado abierto con su disponibilidad en la sucursal (detalle de una reserva).</summary>
+    public BulkObservableCollection<PcReservationLine> ReservationLines { get; } = [];
+
+    public bool HasReservationLines => HasContact && ReservationLines.Count > 0;
 
     public string Name { get => _name; set => Set(ref _name, value ?? string.Empty); }
 
@@ -486,6 +663,7 @@ public sealed class PcBuilderViewModel : PageViewModel
             if (Set(ref _statusFilter, value ?? Statuses[0]))
             {
                 Builds.Refresh();
+                OnPropertiesChanged(nameof(NoBuildsMatch), nameof(BuildsSummary));
             }
         }
     }
@@ -503,6 +681,9 @@ public sealed class PcBuilderViewModel : PageViewModel
     public KpiCard SoldKpi { get; } = new("Armados vendidos", Glyphs.Cart, "Success", "SuccessSoft");
 
     public KpiCard DraftKpi { get; } = new("Borradores", Glyphs.Clipboard, "Warning", "WarningSoft");
+
+    /// <summary>V6 · Reservas hechas desde la tienda web todavía vigentes (cantidad y total en Bs).</summary>
+    public KpiCard WebKpi { get; } = new("Reservas web activas", Glyphs.Globe, "Brand", "BrandSoft");
 
     public RelayCommand<PcSlotItem> SelectSlot { get; }
 
@@ -523,6 +704,29 @@ public sealed class PcBuilderViewModel : PageViewModel
     public AsyncRelayCommand CancelBuild { get; }
 
     public AsyncRelayCommand<PcBuildItem> OpenBuild { get; }
+
+    /// <summary>V6 · Reserva el stock de la cotización abierta (pide las horas; 48 por defecto).</summary>
+    public AsyncRelayCommand ReserveBuild { get; }
+
+    /// <summary>V6 · Libera la reserva (pide el motivo): el stock vuelve y el armado queda anulado.</summary>
+    public AsyncRelayCommand ReleaseReservation { get; }
+
+    /// <summary>V6 · Publica el armado como sugerido en la tienda web o lo retira.</summary>
+    public AsyncRelayCommand TogglePublish { get; }
+
+    /// <summary>V6 · Copia el teléfono del cliente web al portapapeles.</summary>
+    public RelayCommand CopyPhone { get; }
+
+    /// <summary>V6 · Desde el tablero: la pestaña Cotizaciones con el filtro «Reservas web».</summary>
+    public override void OnNavigatedTo(object? parameter)
+    {
+        if (parameter is PcBuilderFilter.WebReservations)
+        {
+            StatusFilter = Statuses[0];
+            OnlyWebReservations = true;
+            Tab = "quotes";
+        }
+    }
 
     protected override async Task LoadCoreAsync(bool force)
     {
@@ -552,12 +756,13 @@ public sealed class PcBuilderViewModel : PageViewModel
     private async Task LoadBuildsAsync()
     {
         var rows = await App.SendAsync(new GetPcBuildsQuery());
-        _builds = rows.Select(r => new PcBuildItem(r)).ToList();
+        var now = App.Now;
+        _builds = rows.Select(r => new PcBuildItem(r, now)).ToList();
         Builds = CollectionViewSource.GetDefaultView(_builds);
-        Builds.Filter = o => o is PcBuildItem b && (_statusFilter.Value is not { } s || b.Row.Status == s);
+        Builds.Filter = o => o is PcBuildItem b && (_statusFilter.Value is not { } s || b.Row.Status == s) && (!_onlyWeb || b.IsWeb);
         Builds.SortDescriptions.Add(new SortDescription(nameof(PcBuildItem.CreatedAt), ListSortDirection.Descending));
-        OnPropertiesChanged(nameof(Builds), nameof(NoBuilds), nameof(QuotesTabText));
-        var valid = rows.Where(r => r.Status == PcBuildStatus.Quoted && !r.IsExpired).ToList();
+        OnPropertiesChanged(nameof(Builds), nameof(NoBuilds), nameof(NoBuildsMatch), nameof(BuildsSummary), nameof(QuotesTabText));
+        var valid = rows.Where(r => r.Status is PcBuildStatus.Quoted or PcBuildStatus.Reserved && !r.IsExpired).ToList();
         QuotedKpi.Value = valid.Count.ToString("N0", Fmt.Culture);
         QuotedKpi.Detail = valid.Count == 0 ? "Ninguna vigente" : $"{Fmt.Money(valid.Sum(v => v.Total))} por cobrar";
         var sold = rows.Where(r => r.Status == PcBuildStatus.Sold).ToList();
@@ -565,6 +770,13 @@ public sealed class PcBuilderViewModel : PageViewModel
         SoldKpi.Detail = sold.Count == 0 ? "Todavía ninguno" : Fmt.Money(sold.Sum(s => s.Total));
         DraftKpi.Value = rows.Count(r => r.Status == PcBuildStatus.Draft).ToString("N0", Fmt.Culture);
         DraftKpi.Detail = "Por cotizar";
+        // V6 · Reservas web vigentes (reservadas y no vencidas) y cuántas vencen pronto
+        var web = _builds.Where(b => b.IsWeb && b.IsReservationActive).ToList();
+        var soon = web.Count(b => b.IsExpiringSoon);
+        WebKpi.Value = web.Count.ToString("N0", Fmt.Culture);
+        WebKpi.Detail = web.Count == 0
+            ? "Ninguna reserva vigente"
+            : $"{Fmt.Money(web.Sum(b => b.Total))} reservados" + (soon > 0 ? $" · {soon} vence{(soon == 1 ? "" : "n")} en menos de {PcBuildItem.ExpiringSoon.TotalHours:0} h" : string.Empty);
     }
 
     private async Task SelectSlotAsync(PcSlotItem slot)
@@ -744,6 +956,7 @@ public sealed class PcBuilderViewModel : PageViewModel
         {
             slot.Parts.Clear();
         }
+        ReservationLines.ReplaceAll([]);
         Current = null;
         Name = string.Empty;
         Customer = NoCustomer;
@@ -803,10 +1016,13 @@ public sealed class PcBuilderViewModel : PageViewModel
                 slot.Parts.Add(new PcPartItem(item.Slot, item.Sku, item.Name, item.UnitPrice, item.Stock, item.KeySpecs, _images.GetValueOrDefault(item.Sku),
                     item.Quantity, slot.IsMulti, () => _ = RecheckAsync()));
             }
+            // V6 · Detalle de una reserva: cada pieza con lo que hay disponible ADEMÁS de lo reservado (regla S-03)
+            ReservationLines.ReplaceAll(items.Select(i => new PcReservationLine(i, detail.Build.Status == PcBuildStatus.Reserved)));
             Current = detail.Build;
             Name = detail.Build.Name;
             Customer = Customers.FirstOrDefault(c => detail.Build.Customer is { } n && c.Label.StartsWith(n + " (", StringComparison.Ordinal)) ?? NoCustomer;
             Tab = "build";
+            OnPropertyChanged(nameof(HasReservationLines));
             await RecheckAsync();
             await LoadCandidatesAsync();
         }
@@ -814,6 +1030,107 @@ public sealed class PcBuilderViewModel : PageViewModel
         {
             App.Notify.Error("No se pudo abrir el armado", AppServices.Describe(ex));
         }
+    }
+
+    // ------------------------------------------------------------------------------------------------ V6 · reservas y web
+    /// <summary>Reserva el stock de la cotización abierta por las horas que indique el vendedor (48 por defecto): una reserva
+    /// por pieza en la sucursal del armado, todo o nada; si falta stock el dominio dice qué piezas y cuánto hay (regla S-03).</summary>
+    private async Task ReserveAsync()
+    {
+        var build = _current!;
+        var answer = await App.Dialogs.PromptAsync($"Reservar el stock de {build.Number}",
+            $"Se reserva cada pieza de «{build.Name}» en la sucursal del armado durante las horas indicadas: mientras dure la reserva no se vende a otro cliente ni en la web. " +
+            "Si falta stock de alguna pieza no se reserva nada. El cliente la cobra en la caja (la venta consume la reserva).",
+            "Horas de reserva", ["24", "48", "72", "168"], "Reservar", "48", "48", glyph: Glyphs.Clock);
+        if (answer is null)
+        {
+            return;
+        }
+        if (!int.TryParse(answer, NumberStyles.Integer, Fmt.Culture, out var hours) || hours is < 1 or > 24 * 30)
+        {
+            App.Notify.Warning("Horas de reserva", "Escriba un número entero de horas entre 1 y 720 (30 días).");
+            return;
+        }
+        try
+        {
+            var row = await App.SendAsync(new ReservePcBuildCommand(build.Number, hours));
+            Current = row;
+            App.Notify.Success($"Stock reservado para {row.Number}",
+                $"{Fmt.Qty(row.Reserved)} unidad{(row.Reserved == 1 ? "" : "es")} reservada{(row.Reserved == 1 ? "" : "s")} hasta el {Fmt.DateTime(row.ReservedUntil!.Value)}");
+            await AfterReservationChangeAsync(row.Number);
+        }
+        catch (Exception ex) when (AppServices.IsExpected(ex))
+        {
+            App.Notify.Error("No se pudo reservar", AppServices.Describe(ex));
+        }
+    }
+
+    /// <summary>Libera la reserva con su motivo: el stock vuelve a disponible y el armado queda anulado (regla S-04).</summary>
+    private async Task ReleaseAsync()
+    {
+        var build = _current!;
+        var reason = await App.Dialogs.PromptAsync($"Liberar la reserva de {build.Number}",
+            $"El stock reservado de «{build.Name}» ({Fmt.Money(build.Total)}) vuelve a estar disponible y el armado queda anulado con el motivo. Esto no se deshace.",
+            "Motivo", ["El cliente desistió", "El cliente no pasó a recoger", "Sin respuesta del cliente", "Reservado por error"], "Liberar reserva",
+            isDanger: true, placeholder: "Escriba o elija el motivo");
+        if (reason is null)
+        {
+            return;
+        }
+        if (reason.Length == 0)
+        {
+            App.Notify.Warning("Falta el motivo", "Indique por qué se libera la reserva: queda en la bitácora del armado.");
+            return;
+        }
+        try
+        {
+            var row = await App.SendAsync(new ReleasePcBuildReservationCommand(build.Number, reason));
+            Current = row;
+            App.Notify.Success($"Reserva de {row.Number} liberada", "El stock volvió a estar disponible en la sucursal.");
+            await AfterReservationChangeAsync(row.Number);
+        }
+        catch (Exception ex) when (AppServices.IsExpected(ex))
+        {
+            App.Notify.Error("No se pudo liberar la reserva", AppServices.Describe(ex));
+        }
+    }
+
+    private async Task TogglePublishAsync()
+    {
+        var build = _current!;
+        var publish = !build.PublishedToWeb;
+        try
+        {
+            var row = await App.SendAsync(new PublishPcBuildCommand(build.Number, publish));
+            Current = row;
+            App.Notify.Success(publish ? $"{row.Number} publicado en la tienda web" : $"{row.Number} retirado de la tienda web",
+                publish ? "Aparece como armado sugerido con sus precios cotizados; la web muestra la disponibilidad de cada pieza." : "Ya no aparece entre los armados sugeridos.");
+            await LoadBuildsAsync();
+        }
+        catch (Exception ex) when (AppServices.IsExpected(ex))
+        {
+            App.Notify.Error(publish ? "No se pudo publicar" : "No se pudo retirar de la web", AppServices.Describe(ex));
+        }
+    }
+
+    private void CopyPhone_()
+    {
+        if (ClipboardText.TrySet(ContactPhone))
+        {
+            App.Notify.Info("Teléfono copiado", $"{ContactName} · {ContactPhone}");
+        }
+        else
+        {
+            App.Notify.Warning("No se pudo copiar", "Intente de nuevo.");
+        }
+    }
+
+    /// <summary>Después de reservar o liberar: la lista, la disponibilidad de las piezas y el stock de las demás pantallas cambian.</summary>
+    private async Task AfterReservationChangeAsync(string number)
+    {
+        App.Data.Invalidate();
+        await LoadBuildsAsync();
+        await OpenBuildAsync(number);
     }
 
     private async Task CancelBuildAsync()
@@ -836,6 +1153,12 @@ public sealed class PcBuilderViewModel : PageViewModel
     {
         if (_current is { } build)
         {
+            if (build.Status == PcBuildStatus.Reserved)
+            {
+                // V6 · La venta consume la reserva: el stock reservado se descuenta UNA sola vez (regla S-04)
+                App.Notify.Info("La venta consume la reserva",
+                    $"Al cobrar {build.Number} en la caja, las {Fmt.Qty(build.Reserved)} unidades reservadas salen del stock con la venta (no se descuentan dos veces).");
+            }
             App.Navigator.Navigate("pos", new PcBuildToSell(build.Number));
         }
     }

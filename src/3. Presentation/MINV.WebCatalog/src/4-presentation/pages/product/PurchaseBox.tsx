@@ -1,13 +1,14 @@
-// Bloque de compra de la ficha: precio grande con lista tachada y ahorro, IVA incluido, disponibilidad, garantía,
-// ranura del armador («Va en: Tarjeta de video»), cantidad (solo en ranuras múltiples), «Agregar al armado»,
-// «Ver mi armado» y beneficios. Todo el estado del armado vive en memoria (useBuilder).
+// Bloque de compra de la ficha: precio grande con lista tachada y ahorro, IVA incluido, disponibilidad FRESCA (V6: la
+// ficha consulta `GET /products/{slug}` al abrirse y muestra disponible y reservado), garantía, ranura del armador («Va
+// en: Tarjeta de video»), cantidad (solo en ranuras múltiples, con lo disponible como tope), «Agregar al armado», «Ver mi
+// armado» y beneficios. Todo el estado del armado vive en memoria (useBuilder).
 
-import { ArrowRight, Check, CreditCard, MessageCircle, PcCase, Plus, ScanBarcode, ShieldCheck, Store, Truck } from 'lucide-react';
+import { ArrowRight, Check, CreditCard, LoaderCircle, MessageCircle, PcCase, Plus, ScanBarcode, ShieldCheck, Store, Truck } from 'lucide-react';
 import { useId, useState } from 'react';
-import { MAX_QUANTITY } from '@/1-domain/builder/build';
+import { maxQuantityFor } from '@/1-domain/builder/build';
 import { slotForProduct } from '@/1-domain/builder/slots';
 import { savingAmount } from '@/1-domain/catalog/money';
-import { isAvailable } from '@/1-domain/catalog/stock';
+import { isAvailable, reservedLabel, stockStatus, unavailableLabel } from '@/1-domain/catalog/stock';
 import type { Product } from '@/1-domain/catalog/types';
 import { StockIndicator } from '@/4-presentation/components/product/StockIndicator';
 import { Button } from '@/4-presentation/components/ui/Button';
@@ -16,6 +17,8 @@ import { CategoryIcon } from '@/4-presentation/components/ui/CategoryIcon';
 import { PriceTag } from '@/4-presentation/components/ui/PriceTag';
 import { QuantityStepper } from '@/4-presentation/components/ui/QuantityStepper';
 import { useBuilder } from '@/4-presentation/hooks/useBuilder';
+import { useFreshProduct } from '@/4-presentation/hooks/useFreshProduct';
+import { useStore } from '@/4-presentation/hooks/useStore';
 import { STORE } from '@/shared/constants';
 import { formatMoney } from '@/shared/format';
 import { warrantyLabel } from './productInfo';
@@ -26,19 +29,23 @@ export interface PurchaseBoxProps {
   categoryHref: string;
 }
 
-export function PurchaseBox({ product, categoryHref }: PurchaseBoxProps) {
+export function PurchaseBox({ product: snapshotProduct, categoryHref }: PurchaseBoxProps) {
   const { add, isInBuild, openDrawer, count } = useBuilder();
+  const { branch } = useStore();
+  // Disponibilidad recién consultada a la tienda (regla S-07); mientras llega, la de la instantánea.
+  const { product, refreshing, fresh } = useFreshProduct(snapshotProduct);
   const headingId = useId();
   const quantityId = useId();
   const slot = slotForProduct(product);
   const available = isAvailable(product);
+  const status = stockStatus(product);
   const inBuild = isInBuild(product.sku);
   const saving = savingAmount(product.price, product.listPrice);
-  const maxQuantity = Math.max(1, Math.min(MAX_QUANTITY, product.stock));
+  const maxQuantity = maxQuantityFor(product);
   const [quantity, setQuantity] = useState(1);
-  const branches = STORE.branches.join(', ');
+  const reserved = reservedLabel(product);
 
-  const addLabel = !available ? 'Agotado' : inBuild ? (slot?.multiple ? 'Agregar otra vez' : 'En tu armado') : 'Agregar al armado';
+  const addLabel = !available ? unavailableLabel(product) : inBuild ? (slot?.multiple ? 'Agregar otra vez' : 'En tu armado') : 'Agregar al armado';
 
   return (
     <Card as="section" aria-labelledby={headingId} elevated padding="md" className="animate-fade-up">
@@ -52,10 +59,17 @@ export function PurchaseBox({ product, categoryHref }: PurchaseBoxProps) {
       </div>
 
       <dl className="mt-4 space-y-2.5 text-sm">
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1" data-testid="disponibilidad-ficha" data-fresh={fresh ? 'true' : 'false'}>
           <dt className="sr-only">Disponibilidad</dt>
-          <dd>
+          <dd className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
             <StockIndicator product={product} className="text-sm" />
+            {reserved && <span className="text-xs text-text-muted">{reserved}</span>}
+            {refreshing && (
+              <span className="inline-flex items-center gap-1 text-xs text-text-faint" role="status">
+                <LoaderCircle aria-hidden="true" className="size-3.5 animate-spin" />
+                Consultando disponibilidad…
+              </span>
+            )}
           </dd>
         </div>
         <div className="flex items-center gap-2.5 text-text-muted">
@@ -87,7 +101,7 @@ export function PurchaseBox({ product, categoryHref }: PurchaseBoxProps) {
                 <span id={quantityId} className="text-sm font-medium text-text-muted">
                   Cantidad
                 </span>
-                <QuantityStepper value={quantity} onChange={setQuantity} min={1} max={maxQuantity} label={`Cantidad de ${product.shortName}`} />
+                <QuantityStepper value={Math.min(quantity, maxQuantity)} onChange={setQuantity} min={1} max={maxQuantity} label={`Cantidad de ${product.shortName}`} />
               </div>
             )}
             <Button
@@ -96,7 +110,7 @@ export function PurchaseBox({ product, categoryHref }: PurchaseBoxProps) {
               fullWidth
               disabled={!available}
               leftIcon={inBuild && !slot.multiple ? <Check /> : <Plus />}
-              onClick={() => add(product, slot.key, slot.multiple ? quantity : undefined)}
+              onClick={() => add(product, slot.key, slot.multiple ? Math.min(quantity, maxQuantity) : undefined)}
             >
               {addLabel}
             </Button>
@@ -119,7 +133,9 @@ export function PurchaseBox({ product, categoryHref }: PurchaseBoxProps) {
         )}
         {!available && (
           <p className="text-sm text-text-muted">
-            Sin stock por ahora.{' '}
+            {status === 'reservado'
+              ? 'Las unidades que quedan están reservadas por otros clientes; si una reserva se libera o vence, vuelven a estar disponibles. '
+              : 'Sin stock por ahora. '}
             <a href={STORE.whatsappUrl} target="_blank" rel="noreferrer noopener" className="font-semibold text-accent transition-colors duration-200 hover:text-accent-hover">
               Consultanos por WhatsApp
             </a>{' '}
@@ -139,7 +155,7 @@ export function PurchaseBox({ product, categoryHref }: PurchaseBoxProps) {
         </li>
         <li className="flex items-start gap-2.5">
           <Store aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-accent" />
-          <span>Retiro sin costo en sucursal: {branches}</span>
+          <span>Reservá y retirá en {branch.name}: la reserva se confirma y paga en la tienda</span>
         </li>
       </ul>
     </Card>

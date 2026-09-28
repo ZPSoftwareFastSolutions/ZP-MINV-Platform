@@ -2,6 +2,7 @@ import clsx from 'clsx';
 import { Trash2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import { maxQuantityFor } from '@/1-domain/builder/build';
 import type { Product } from '@/1-domain/catalog/types';
 import { ROUTES } from '@/4-presentation/app/routes';
 import { IconButton } from '@/4-presentation/components/ui/IconButton';
@@ -71,7 +72,7 @@ export function ProductCardCompact({
           <div className="mt-1 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               {quantity != null && onQuantityChange && (
-                <QuantityStepper size="sm" value={quantity} onChange={onQuantityChange} label={`Cantidad de ${product.shortName}`} />
+                <QuantityStepper size="sm" value={quantity} max={maxQuantityFor(product)} onChange={onQuantityChange} label={`Cantidad de ${product.shortName}`} />
               )}
               {quantity != null && !onQuantityChange && <span className="text-sm text-text-muted">× {quantity}</span>}
               {onRemove && <IconButton size="sm" label={`Quitar ${product.shortName} del armado`} icon={<Trash2 />} onClick={onRemove} />}

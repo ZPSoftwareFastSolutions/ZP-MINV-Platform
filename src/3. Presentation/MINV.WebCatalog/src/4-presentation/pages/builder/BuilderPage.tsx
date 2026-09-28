@@ -1,27 +1,30 @@
 // Página «Armá tu PC»: pasos numerados por ranura (acordeón), resumen fijo a la derecha en escritorio y hoja inferior
-// en móvil, armados sugeridos (#armados), modal de resumen final y vista imprimible.
+// en móvil, armados sugeridos (#armados), el diálogo «Reservar armado» (V6) y la vista imprimible.
 // Estado del armado: exclusivamente useBuilder (React en memoria). El estado de la página (paso abierto, pasos
-// omitidos, diálogos) también vive en memoria: nada persiste.
+// omitidos, diálogos, última reserva aceptada) también vive en memoria: lo único que persiste es la RESERVA en la tienda.
 
 import './builder.css';
 import { ListChecks } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { BuildSlot, SlotKey } from '@/1-domain/builder/types';
 import type { Product } from '@/1-domain/catalog/types';
+import type { Reservation, StockShortage } from '@/1-domain/storefront/types';
 import { Container } from '@/4-presentation/components/ui/Container';
 import { useBuilder } from '@/4-presentation/hooks/useBuilder';
 import { useDocumentTitle } from '@/4-presentation/hooks/useDocumentTitle';
 import { useServices } from '@/4-presentation/hooks/useServices';
+import { useStore } from '@/4-presentation/hooks/useStore';
+import { useToast } from '@/4-presentation/hooks/useToast';
 import { pluralize } from '@/shared/format';
-import { initialOpenSlot, nextOpenSlot, randomBuildNumber, stepStatus } from './builderSteps';
+import { initialOpenSlot, nextOpenSlot, stepStatus } from './builderSteps';
 import { BuilderDialog } from './components/BuilderDialog';
 import { BuilderHeader } from './components/BuilderHeader';
 import { BuildSummaryPanel, SummaryTotals } from './components/BuildSummaryPanel';
-import { FinalSummaryDialog } from './components/FinalSummaryDialog';
 import { MobileSummaryBar } from './components/MobileSummaryBar';
 import { PresetGallery } from './components/PresetGallery';
 import { PresetPicker } from './components/PresetPicker';
 import { PrintSummary } from './components/PrintSummary';
+import { ReserveDialog } from './components/ReserveDialog';
 import { SlotStep } from './components/SlotStep';
 
 interface FocusRequest {
@@ -38,7 +41,9 @@ const BAR_ATTRIBUTE = 'data-builder-bar';
 
 export function BuilderPage() {
   useDocumentTitle('Armá tu PC');
-  const { catalog } = useServices();
+  const { catalog, refresh } = useServices();
+  const store = useStore();
+  const toast = useToast();
   const builder = useBuilder();
   const { lines, summary } = builder;
 
@@ -49,8 +54,8 @@ export function BuilderPage() {
   const [skipped, setSkipped] = useState<ReadonlySet<SlotKey>>(() => new Set());
   const [pickerOpen, setPickerOpen] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [finalOpen, setFinalOpen] = useState(false);
-  const [buildNumber, setBuildNumber] = useState(() => randomBuildNumber());
+  const [reserveOpen, setReserveOpen] = useState(false);
+  const [lastReservation, setLastReservation] = useState<Reservation | null>(null);
   const [issuedAt, setIssuedAt] = useState(() => new Date());
   const [announcement, setAnnouncement] = useState('');
   const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null);
@@ -131,7 +136,6 @@ export function BuilderPage() {
     builder.clear();
     setSkipped(new Set());
     setExpanded(slots[0]?.key ?? null);
-    setBuildNumber(randomBuildNumber());
     setAnnouncement('Armado vaciado.');
   };
 
@@ -144,10 +148,33 @@ export function BuilderPage() {
     if (scrollToTop) requestFocus('top');
   };
 
-  const openFinal = () => {
+  const openReserve = () => {
     setIssuedAt(new Date());
     setSheetOpen(false);
-    setFinalOpen(true);
+    // Los avisos («Armado cargado») no deben tapar el formulario de la reserva.
+    toast.dismissAll();
+    setReserveOpen(true);
+  };
+
+  /** La tienda aceptó la reserva: el armado se vacía (ya vive en la base) y el catálogo se refresca con lo reservado. */
+  const reserved = (reservation: Reservation) => {
+    setLastReservation(reservation);
+    builder.clear();
+    setSkipped(new Set());
+    setExpanded(slots[0]?.key ?? null);
+    setAnnouncement(`Reserva ${reservation.number} registrada. Las piezas quedaron guardadas a tu nombre.`);
+    void refresh();
+  };
+
+  /** 409: baja cada pieza afectada a lo disponible (o la quita si no queda nada) y pide la instantánea fresca. */
+  const adjustToAvailable = (shortages: readonly StockShortage[]) => {
+    for (const shortage of shortages) {
+      const available = Math.trunc(shortage.available);
+      if (available <= 0) builder.remove(shortage.sku);
+      else builder.setQuantity(shortage.sku, available);
+    }
+    setAnnouncement(`Armado ajustado a lo disponible en ${pluralize(shortages.length, 'pieza', 'piezas')}.`);
+    void refresh();
   };
 
   const print = () => {
@@ -159,11 +186,23 @@ export function BuilderPage() {
     window.print();
   };
 
+  const canPrint = summary.lines.length > 0 || lastReservation !== null;
+
   return (
     <>
       <Container className="py-8 lg:py-10">
         <div ref={topRef} tabIndex={-1} className="scroll-mt-32 outline-none">
-          <BuilderHeader summary={summary} onPickPreset={() => setPickerOpen(true)} onClear={clear} onPrint={print} onGoToStep={goToStep} />
+          <BuilderHeader
+            summary={summary}
+            branchName={store.branch.name}
+            hasPresets={presets.length > 0}
+            canPrint={canPrint}
+            lastReservation={lastReservation}
+            onPickPreset={() => setPickerOpen(true)}
+            onClear={clear}
+            onPrint={print}
+            onGoToStep={goToStep}
+          />
         </div>
 
         <p role="status" aria-live="polite" className="sr-only">
@@ -209,7 +248,14 @@ export function BuilderPage() {
             aria-label="Resumen del armado"
             className="max-lg:hidden lg:sticky lg:top-32 lg:max-h-[calc(100dvh-9rem)] lg:overflow-y-auto lg:overscroll-contain rounded-card border border-border bg-surface p-5 shadow-card"
           >
-            <BuildSummaryPanel summary={summary} onRemove={builder.remove} onGoToStep={goToStep} onFinish={openFinal} onPickPreset={() => setPickerOpen(true)} />
+            <BuildSummaryPanel
+              summary={summary}
+              hasPresets={presets.length > 0}
+              onRemove={builder.remove}
+              onGoToStep={goToStep}
+              onFinish={openReserve}
+              onPickPreset={() => setPickerOpen(true)}
+            />
           </aside>
         </div>
 
@@ -226,15 +272,16 @@ export function BuilderPage() {
         onClose={() => setSheetOpen(false)}
         title="Tu armado"
         description={summary.count > 0 ? pluralize(summary.count, 'pieza elegida', 'piezas elegidas') : 'Todavía no elegiste piezas'}
-        footer={summary.lines.length > 0 ? <SummaryTotals compact total={summary.total} savings={summary.savings} count={summary.count} onFinish={openFinal} /> : undefined}
+        footer={summary.lines.length > 0 ? <SummaryTotals compact total={summary.total} savings={summary.savings} count={summary.count} onFinish={openReserve} /> : undefined}
       >
         <BuildSummaryPanel
           summary={summary}
+          hasPresets={presets.length > 0}
           withHeading={false}
           withTotals={false}
           onRemove={builder.remove}
           onGoToStep={goToStep}
-          onFinish={openFinal}
+          onFinish={openReserve}
           onPickPreset={() => {
             setSheetOpen(false);
             setPickerOpen(true);
@@ -251,17 +298,17 @@ export function BuilderPage() {
         fallbackFocus={focusBarButton}
       />
 
-      <FinalSummaryDialog
-        open={finalOpen}
-        onClose={() => setFinalOpen(false)}
+      <ReserveDialog
+        open={reserveOpen}
+        onClose={() => setReserveOpen(false)}
         summary={summary}
-        buildNumber={buildNumber}
-        issuedAt={issuedAt}
+        onReserved={reserved}
+        onAdjust={adjustToAvailable}
         onPrint={print}
         fallbackFocus={focusBarButton}
       />
 
-      <PrintSummary summary={summary} buildNumber={buildNumber} issuedAt={issuedAt} />
+      <PrintSummary summary={summary} reservation={lastReservation} store={store} issuedAt={issuedAt} />
     </>
   );
 }

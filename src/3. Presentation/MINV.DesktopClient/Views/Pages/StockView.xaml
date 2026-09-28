@@ -119,6 +119,14 @@
                                             <Run Text="{Binding Unit, Mode=OneWay}" Foreground="{DynamicResource TextMuted}" FontSize="11.5" />
                                         </TextBlock>
                                     </DockPanel>
+                                    <!-- V6 · Unidades reservadas (armados web y del escritorio): disponible = existencias − reservado -->
+                                    <Border Style="{StaticResource Badge}" Margin="0,5,0,0" Visibility="{Binding HasReserved, Converter={StaticResource Visible}}"
+                                            ToolTip="{Binding AvailableText}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Clock}" FontSize="10" Margin="0,0,5,0" VerticalAlignment="Center" />
+                                            <TextBlock Text="{Binding ReservedText}" />
+                                        </StackPanel>
+                                    </Border>
                                     <c:LevelBar Value="{Binding Level}" Status="{Binding Status}" Margin="0,6,0,0" />
                                     <DockPanel Margin="0,7,0,0">
                                         <TextBlock DockPanel.Dock="Right" Text="{Binding ValueText}" Style="{StaticResource Caption}" FontSize="11.5" />
@@ -174,6 +182,22 @@
                                             <Run Text="{Binding Unit, Mode=OneWay}" Foreground="{DynamicResource TextMuted}" FontSize="11.5" />
                                         </TextBlock>
                                         <c:LevelBar Value="{Binding Level}" Status="{Binding Status}" Width="108" HorizontalAlignment="Left" Margin="0,5,0,0" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <!-- V6 · Reservado y disponible (existencias − reservado) -->
+                        <DataGridTemplateColumn Header="RESERVADO" Width="128" SortMemberPath="Reserved" CanUserSort="True">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:StockItem}">
+                                    <StackPanel VerticalAlignment="Center" Visibility="{Binding HasReserved, Converter={StaticResource Visible}}">
+                                        <Border Style="{StaticResource Badge}">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Clock}" FontSize="10" Margin="0,0,5,0" VerticalAlignment="Center" />
+                                                <TextBlock Text="{Binding ReservedText}" />
+                                            </StackPanel>
+                                        </Border>
+                                        <TextBlock Text="{Binding AvailableText}" Style="{StaticResource Caption}" FontSize="11.5" Margin="0,3,0,0" />
                                     </StackPanel>
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>

@@ -7,7 +7,7 @@ import { Button } from '@/4-presentation/components/ui/Button';
 import { Container } from '@/4-presentation/components/ui/Container';
 import { PriceTag } from '@/4-presentation/components/ui/PriceTag';
 import { ProductImage } from '@/4-presentation/components/ui/ProductImage';
-import { STORE } from '@/shared/constants';
+import { useStore } from '@/4-presentation/hooks/useStore';
 import { formatNumber } from '@/shared/format';
 
 export interface HeroSectionProps {
@@ -20,7 +20,6 @@ const TRUST = [
   { icon: Truck, title: 'Envíos a todo el país', detail: 'En 24 a 72 horas hábiles' },
   { icon: ShieldCheck, title: 'Garantía oficial', detail: 'De 12 a 36 meses según el producto' },
   { icon: QrCode, title: 'Pago con QR, tarjeta o transferencia', detail: 'También en cuotas con bancos asociados' },
-  { icon: MapPin, title: `${STORE.branches.length} sucursales`, detail: STORE.branches.join(' · ') },
 ] as const;
 
 /** Posición, tamaño y retraso de aparición de cada loseta del hero (la primera es la protagonista). */
@@ -55,6 +54,15 @@ function HeroTile({ product, className, delay, priority }: { product: Product; c
  * reales del mock. Debajo, la cinta de confianza (envíos, garantía, pagos y sucursales).
  */
 export function HeroSection({ products, stats }: HeroSectionProps) {
+  const { company } = useStore();
+  const trust = [
+    ...TRUST,
+    {
+      icon: MapPin,
+      title: company.branches.length === 1 ? '1 sucursal' : `${company.branches.length} sucursales`,
+      detail: company.branches.map((branch) => branch.name).join(' · '),
+    },
+  ];
   return (
     <section aria-labelledby="hero-titulo" className="relative overflow-hidden">
       <div aria-hidden="true" className="pointer-events-none absolute inset-0">
@@ -67,7 +75,7 @@ export function HeroSection({ products, stats }: HeroSectionProps) {
         <div className="animate-fade-up">
           <p className="inline-flex items-center gap-2 rounded-full border border-border bg-surface/80 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-accent">
             <span aria-hidden="true" className="size-1.5 rounded-full bg-accent" />
-            {STORE.legalName} · Bolivia
+            {company.name} · Bolivia
           </p>
           <h1 id="hero-titulo" className="mt-5 max-w-2xl font-display text-4xl font-bold tracking-tight text-text sm:text-5xl lg:text-[3.5rem] lg:leading-[1.05]">
             Armá la PC que querés, <span className="text-gradient-brand">pieza por pieza</span>.
@@ -111,7 +119,7 @@ export function HeroSection({ products, stats }: HeroSectionProps) {
       <div className="relative border-y border-border/70 bg-surface/60">
         <Container>
           <ul className="grid grid-cols-1 divide-y divide-border/60 sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-4 lg:divide-x">
-            {TRUST.map((item) => (
+            {trust.map((item) => (
               <li key={item.title} className="flex items-center gap-3 py-3 sm:pr-4 lg:px-5 lg:first:pl-0 lg:last:pr-0">
                 <span aria-hidden="true" className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent-hover">
                   <item.icon className="size-5" />

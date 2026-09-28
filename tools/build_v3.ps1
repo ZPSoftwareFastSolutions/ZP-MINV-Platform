@@ -13,10 +13,10 @@
                                                 temporal y verifica /health, el WSDL y el corte simulado (/control).
     4. dotnet ef migrations has-pending-model-changes   El modelo no puede tener cambios sin migracion.
     5. scripts\db_init.sql                      Se regenera: cabecera + "dotnet ef migrations script --idempotent"
-                                                (V4.2: 152 tablas en 10 esquemas + historial de migraciones).
-    6. -Capturas                                Cliente de escritorio V4.2: M-INV.exe --capturas con la demostracion
-                                                -> docs\product\capturas\v4.2 (claro, oscuro y por rol; reglas A-11 y T-10;
-                                                armador de PC, series e IMEI, garantias y RMA, catalogo tecnico).
+                                                (V6: 153 tablas en 10 esquemas + historial de migraciones).
+    6. -Capturas                                Cliente de escritorio V6: M-INV.exe --capturas con la demostracion
+                                                -> docs\product\capturas\v6 (claro, oscuro y por rol; reglas A-11, T-10 y S-08;
+                                                reservas de la tienda web en el armador y stock con reservado).
                                                 Si existe la base local de prueba (tools\bd_local.ps1), las pantallas de
                                                 negocio (POS, ventas, compras, reportes, contabilidad) se capturan con ella.
     7. -Publicar                                tools\publicar_escritorio.ps1 -> dist\M-INV-<version>-win-x64\M-INV.exe
@@ -97,14 +97,14 @@ Paso 'Regenerar scripts\db_init.sql' {
         [IO.File]::WriteAllText((Join-Path $root 'scripts\db_init.sql'), $header + $body.Replace("`r`n", "`n"), $utf8)
         Remove-Item $tmp -Force
         $tablas = (Select-String -Path (Join-Path $root 'scripts\db_init.sql') -Pattern 'CREATE TABLE' | Measure-Object).Count
-        Write-Output ('scripts\db_init.sql regenerado: ' + $tablas + ' sentencias CREATE TABLE (V4.2: 152 tablas en 10 esquemas + historial de migraciones)')
+        Write-Output ('scripts\db_init.sql regenerado: ' + $tablas + ' sentencias CREATE TABLE (V6: 153 tablas en 10 esquemas + historial de migraciones)')
     }
 }
 
 if ($Capturas) {
-    Paso 'Capturas del cliente de escritorio V4.2 (docs\product\capturas\v4.2)' {
+    Paso 'Capturas del cliente de escritorio V6 (docs\product\capturas\v6)' {
         $exe = Get-ChildItem ('src\3. Presentation\MINV.DesktopClient\bin\' + $Configuration) -Filter 'M-INV.exe' -Recurse | Select-Object -First 1
-        $dir = Join-Path $root 'docs\product\capturas\v4.2'
+        $dir = Join-Path $root 'docs\product\capturas\v6'
         if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
         $usuarios = Join-Path $env:LOCALAPPDATA 'M-INV\usuarios-prueba.txt'
         if (Test-Path $usuarios) { $env:MINV_CAPTURAS_USUARIOS = $usuarios; Write-Output 'Pantallas de negocio con la base LOCAL de prueba.' }

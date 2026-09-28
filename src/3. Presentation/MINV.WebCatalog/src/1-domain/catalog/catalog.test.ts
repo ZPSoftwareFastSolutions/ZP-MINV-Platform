@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { PRODUCTS } from '@/3-infrastructure/data/catalog.data';
 import { CATEGORIES } from '@/3-infrastructure/data/categories.data';
+import { MOCK_CATALOG } from '@/3-infrastructure/data/mockCatalog';
 import {
   buildCategoryTree,
   categoryPath,
@@ -10,8 +10,10 @@ import {
 } from './categories';
 import { ivaBreakdown, isOnSale, savingAmount, savingPercent, sumMoney } from './money';
 import { filterProducts, matchesQuery, priceRange, productsWithTag, relatedProducts, sortProducts } from './products';
-import { stockLabel, stockStatus } from './stock';
+import { isAvailable, reservedLabel, stockLabel, stockStatus, unavailableLabel } from './stock';
 
+/** Productos del mock ya como `Product` (con `reserved`). */
+const PRODUCTS = MOCK_CATALOG.products;
 const cpu5600 = PRODUCTS.find((product) => product.sku === 'CPU-AMD-5600')!;
 
 describe('dinero', () => {
@@ -122,7 +124,21 @@ describe('stock', () => {
     expect(stockLabel({ stock: 0 })).toBe('Agotado');
     expect(stockLabel({ stock: 1 })).toBe('Última unidad');
     expect(stockLabel({ stock: 3 })).toBe('Últimas 3 unidades');
-    expect(stockLabel({ stock: 20 })).toBe('En stock');
+    expect(stockLabel({ stock: 20 })).toBe('Disponible (20)');
     expect(PRODUCTS.filter((product) => stockStatus(product) === 'agotado')).toHaveLength(8);
+  });
+
+  it('V6: disponible = existencias − reservado; sin disponible pero con reservas el estado es «reservado»', () => {
+    expect(stockStatus({ stock: 0, reserved: 2 })).toBe('reservado');
+    expect(stockLabel({ stock: 0, reserved: 2 })).toBe('Reservado');
+    expect(unavailableLabel({ stock: 0, reserved: 2 })).toBe('Reservado');
+    expect(unavailableLabel({ stock: 0, reserved: 0 })).toBe('Agotado');
+    expect(isAvailable({ stock: 0, reserved: 5 })).toBe(false);
+    expect(stockStatus({ stock: 2, reserved: 3 })).toBe('ultimas');
+    expect(stockStatus({ stock: 12, reserved: 3 })).toBe('disponible');
+    expect(reservedLabel({ stock: 12, reserved: 0 })).toBe('');
+    expect(reservedLabel({ stock: 12, reserved: 1 })).toBe('1 unidad reservada');
+    expect(reservedLabel({ stock: 12, reserved: 3 })).toBe('3 unidades reservadas');
+    expect(stockLabel({ stock: 4.5 })).toBe('Disponible (4)');
   });
 });

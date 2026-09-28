@@ -112,19 +112,19 @@ public sealed class PostgresIntegrationTests(PostgresFixture pg) : IClassFixture
     }
 
     [PostgresFact]
-    public async Task Las_migraciones_crean_152_tablas_triggers_RLS_por_sucursal_y_vistas()
+    public async Task Las_migraciones_crean_153_tablas_triggers_RLS_por_sucursal_y_vistas()
     {
         await using var provider = pg.Services();
         using var scope = provider.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MinvWriteDbContext>();
         async Task<int> Count(string sql) => await db.Database.SqlQueryRaw<int>(sql).SingleAsync();
-        Assert.Equal(152, await Count("SELECT count(*)::int AS \"Value\" FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema IN ('iam','catalog','warehouse','inventory','purchasing','sales','accounting','integration','billing','service') AND table_name <> '__ef_migrations_history'"));
+        Assert.Equal(153, await Count("SELECT count(*)::int AS \"Value\" FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema IN ('iam','catalog','warehouse','inventory','purchasing','sales','accounting','integration','billing','service') AND table_name <> '__ef_migrations_history'"));
         Assert.Equal(27, await Count("SELECT count(*)::int AS \"Value\" FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema = 'billing'"));
         Assert.Equal(2, await Count("SELECT count(*)::int AS \"Value\" FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema = 'service'"));
-        Assert.Equal(29, await Count("SELECT count(*)::int AS \"Value\" FROM pg_trigger WHERE tgname = 'trg_append_only'"));
-        Assert.Equal(29, await Count("SELECT count(*)::int AS \"Value\" FROM pg_trigger WHERE tgname = 'trg_append_only_truncate'"));
-        Assert.Equal(150, await Count("SELECT count(*)::int AS \"Value\" FROM pg_policies WHERE policyname = 'tenant_isolation'"));
-        Assert.Equal(62, await Count("SELECT count(*)::int AS \"Value\" FROM pg_policies WHERE policyname = 'branch_isolation' AND permissive = 'RESTRICTIVE'"));
+        Assert.Equal(30, await Count("SELECT count(*)::int AS \"Value\" FROM pg_trigger WHERE tgname = 'trg_append_only'"));   // V6: + pc_build_events
+        Assert.Equal(30, await Count("SELECT count(*)::int AS \"Value\" FROM pg_trigger WHERE tgname = 'trg_append_only_truncate'"));
+        Assert.Equal(151, await Count("SELECT count(*)::int AS \"Value\" FROM pg_policies WHERE policyname = 'tenant_isolation'"));
+        Assert.Equal(63, await Count("SELECT count(*)::int AS \"Value\" FROM pg_policies WHERE policyname = 'branch_isolation' AND permissive = 'RESTRICTIVE'"));
         Assert.Equal(1, await Count("SELECT count(*)::int AS \"Value\" FROM pg_trigger WHERE tgname = 'trg_spec_value_matches'"));
         // Toda tabla con tenant_id tiene la política de empresa (incluidas las 30 de la V4.1 y las 12 de la V4.2)
         Assert.Equal(0, await Count("SELECT count(*)::int AS \"Value\" FROM information_schema.columns c JOIN pg_tables t ON t.schemaname = c.table_schema AND t.tablename = c.table_name WHERE c.column_name = 'tenant_id' AND NOT EXISTS (SELECT 1 FROM pg_policies p WHERE p.schemaname = c.table_schema AND p.tablename = c.table_name AND p.policyname = 'tenant_isolation')"));

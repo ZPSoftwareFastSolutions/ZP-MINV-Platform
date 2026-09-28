@@ -57,6 +57,17 @@ public sealed class StockItem(StockRow r)
 
     public string StockText => Fmt.Qty(Row.Stock);
 
+    /// <summary>V6 · Unidades reservadas (armados web y del escritorio, caja); disponible = existencias − reservado (regla S-03).</summary>
+    public decimal Reserved { get; init; }
+
+    public bool HasReserved => Reserved > 0;
+
+    public string ReservedText => ReservedStock.Badge(Reserved);
+
+    public decimal Available => Math.Max(0, Row.Stock - Reserved);
+
+    public string AvailableText => $"Disponible {Fmt.Qty(Available)}";
+
     public string MinMaxText => Row.Maximum > 0 || Row.Minimum > 0 ? $"{Fmt.Qty(Row.Minimum)} / {Fmt.Qty(Row.Maximum)}" : "—";
 
     public double Level => (double)(Row.Level ?? (Row.Stock > 0 ? 1m : 0m));

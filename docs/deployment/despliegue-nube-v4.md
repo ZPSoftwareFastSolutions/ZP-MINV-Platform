@@ -1,19 +1,23 @@
 # Despliegue en la nube · M-INV V4 (PostgreSQL gestionado + servidores) · paso a paso
 
-Cómo llevar M-INV 4.2.0-alpha.1 (V4 multi-sucursal + V4.1 facturación SIAT + V4.2 edición Tecnología) a una base PostgreSQL **gestionada** (DigitalOcean, AWS RDS o Supabase) con el
-**servidor en la nube** (`MINV.CloudServer`, para los escritorios) y el **API Gateway** (`MINV.ApiGateway`, para
-integraciones B2B). Arquitectura: [`docs/architecture/arquitectura-v4.md`](../architecture/arquitectura-v4.md) ·
+Cómo llevar M-INV 6.0.0-alpha.1 (V4 multi-sucursal + V4.1 facturación SIAT + V4.2 edición Tecnología + V6 tienda web
+conectada) a una base PostgreSQL **gestionada** (DigitalOcean, AWS RDS o Supabase) con el
+**servidor en la nube** (`MINV.CloudServer`, para los escritorios), el **API Gateway** (`MINV.ApiGateway`, para
+integraciones B2B y, V6, la **API pública de tienda** `/storefront/v1`) y, V6, el **catálogo web** (`MINV.WebCatalog`, sitio
+estático). Arquitectura: [`docs/architecture/arquitectura-v4.md`](../architecture/arquitectura-v4.md) ·
 integradores: [`docs/integration/api-gateway-v1.md`](../integration/api-gateway-v1.md) · probar todo primero en un solo
-equipo: [`docs/deployment/inicio-rapido-v4.md`](inicio-rapido-v4.md) y, con la facturación,
-[`docs/deployment/inicio-rapido-v4.1.md`](inicio-rapido-v4.1.md). La facturación SIAT en la nube (el despachador fiscal
-del servidor y cómo apuntar al SIN real) está en el §12.
+equipo: [`docs/deployment/inicio-rapido-v4.md`](inicio-rapido-v4.md), con la facturación
+[`docs/deployment/inicio-rapido-v4.1.md`](inicio-rapido-v4.1.md) y, con la tienda web,
+[`docs/deployment/inicio-rapido-v6.md`](inicio-rapido-v6.md). La facturación SIAT en la nube (el despachador fiscal
+del servidor y cómo apuntar al SIN real) está en el §12; la tienda web conectada (gateway con la tienda, catálogo web,
+CORS y TLS), en el §14.
 
 ```text
 ALGORITMO DE DESPLIEGUE EN LA NUBE
  1. Crear el PostgreSQL gestionado (15 o superior; 16 recomendado), con TLS y acceso solo desde sus servidores.
  2. Como administrador del proveedor: rol dueño «minv_owner» (con CREATEROLE) y base «minv» a su nombre.
  3. Preparar la base:   tools\bd_nube.ps1 -Accion preparar -Conexion "<cadena del rol dueño>" [-DatosPrueba]
-       → crea minv_server y minv_app (claves al azar), aplica scripts\db_init.sql (152 tablas, RLS, funciones),
+       → crea minv_server y minv_app (claves al azar), aplica scripts\db_init.sql (153 tablas, RLS, funciones),
          guarda %LOCALAPPDATA%\M-INV\credenciales-nube.txt.        Comprobar:  tools\bd_nube.ps1 -Accion estado
  4. Generar la clave maestra de integraciones (MINV_INTEGRATION_KEYS) y guardarla en una bóveda.
  5. Levantar los dos servidores con el rol minv_server (dotnet, ejecutable publicado o docker compose) detrás de https.
@@ -22,6 +26,9 @@ ALGORITMO DE DESPLIEGUE EN LA NUBE
  8. Respaldos (PITR), réplica de lectura opcional (MINV_DB_READ) y lista de verificación (§11).
  9. V4.1 · Facturación: en el escritorio (Administrador) › Facturación SIAT: NIT, token delegado, URL del SIN (piloto o
        producción), sucursales y puntos de venta → Preparar → Homologación → activar. El servidor en la nube hace el resto (§12).
+10. V6 · Tienda web: en el gateway, Minv__Storefront__TenantCode (la empresa), BranchCode (la sucursal de la tienda) y
+       AllowedOrigins (https://tienda.suempresa.com); publicar el catálogo web (npm run build con VITE_API_URL=https://api.suempresa.com
+       o el servicio webcatalog de docker compose) detrás de https; comprobar GET https://api.suempresa.com/storefront/v1/catalog (§14).
 ```
 
 ## 0. Qué se despliega
@@ -29,21 +36,24 @@ ALGORITMO DE DESPLIEGUE EN LA NUBE
 ```text
    escritorios M-INV.exe ──https──►  minv.suempresa.com  ─┐   proxy TLS (Caddy, balanceador del proveedor…)
    tienda / ERP (API Key) ──https──►  api.suempresa.com   ─┤
+   navegadores de los clientes ──https──► tienda.suempresa.com (V6: catálogo web, sitio estático) ──► api.suempresa.com/storefront/v1 (sin llave, CORS)
                                                           ▼
-              ┌───────────────────────────────┐   ┌───────────────────────────────────────────────┐
-              │ MINV.CloudServer  (:5080/8080)│   │ MINV.ApiGateway (:5090/8080)                  │
-              │ login · RPC · idempotencia    │   │ /v1 · webhooks (salida) · refresco de reportes│
-              └───────────────┬───────────────┘   └──────────────────────┬────────────────────────┘
+              ┌───────────────────────────────┐   ┌───────────────────────────────────────────────────────────┐
+              │ MINV.CloudServer  (:5080/8080)│   │ MINV.ApiGateway (:5090/8080)                              │
+              │ login · RPC · idempotencia    │   │ /v1 · webhooks (salida) · refresco de reportes · V6:      │
+              │                               │   │ /storefront/v1 (principal técnico) · vencimiento de reservas│
+              └───────────────┬───────────────┘   └──────────────────────┬────────────────────────────────────┘
                               │   rol minv_server · SSL Mode=VerifyFull  │
                               ▼                                          ▼
               ┌─────────────────────────────────────────────────────────────────────┐   ┌──────────────────┐
-              │ PostgreSQL gestionado: base «minv» · 152 tablas · RLS · PITR         │──►│ réplica (opcional)│
+              │ PostgreSQL gestionado: base «minv» · 153 tablas · RLS · PITR         │──►│ réplica (opcional)│
               └─────────────────────────────────────────────────────────────────────┘   │ MINV_DB_READ      │
                                                                                           └──────────────────┘
 ```
 
 - **Despliegue SIEMPRE el gateway** (al menos una réplica), aunque no tenga integraciones: además del API, entrega los
-  webhooks y refresca el modelo de lectura de la gerencia cada 5 minutos.
+  webhooks, refresca el modelo de lectura de la gerencia cada 5 minutos y, V6, atiende la tienda web y cierra las
+  reservas vencidas (§14).
 - Ambos servidores son **sin estado** (la sesión y la idempotencia viven en la base): puede correr varias réplicas de
   cada uno detrás del balanceador. El despachador de webhooks y el refresco de reportes son seguros con varias réplicas.
 - Los escritorios en modo nube **no tienen credenciales de la base**: solo necesitan llegar por https al servidor.
@@ -194,7 +204,7 @@ Réplica de lectura: **Actions › Create read replica** (misma región o entre 
 Respaldos: diarios según el plan; la restauración a un punto en el tiempo (PITR) es un complemento del plan Pro o
 superior: actívelo si contrató CLOUD_HA. Réplicas de lectura: disponibles en planes pagos → `MINV_DB_READ`.
 
-## 4. Preparar la base (roles, 152 tablas, seguridad)
+## 4. Preparar la base (roles, 153 tablas, seguridad)
 
 ### 4.1 Con la herramienta (recomendado)
 
@@ -204,7 +214,8 @@ powershell -ExecutionPolicy Bypass -File tools\bd_nube.ps1 -Accion preparar `
 ```
 
 - Crea los roles `minv_server` y `minv_app` con contraseñas **aleatorias**, aplica `scripts\db_init.sql` (idempotente:
-  152 tablas en 10 esquemas —V4.1: 27 de facturación en `billing`; V4.2: 2 de garantías en `service`—, triggers append-only, Row Level Security por
+  153 tablas en 10 esquemas —V4.1: 27 de facturación en `billing`; V4.2: 2 de garantías en `service`; V6: la bitácora de los
+  armados `sales.pc_build_events`, el rol `TIENDA_WEB` y el usuario técnico de la tienda de cada empresa—, triggers append-only, Row Level Security por
   empresa y por sucursal, funciones SECURITY DEFINER, modelo de lectura `reporting` y permisos) y escribe las cadenas de conexión en
   `%LOCALAPPDATA%\M-INV\credenciales-nube.txt` (solo en ese equipo: cópielas a su bóveda y **borre el archivo** cuando
   termine).
@@ -264,10 +275,10 @@ GRANT EXECUTE ON FUNCTION integration.resolve_api_key(text), iam.resolve_session
 ```sql
 SELECT count(*) FROM information_schema.tables
  WHERE table_type = 'BASE TABLE' AND table_name <> '__ef_migrations_history'
-   AND table_schema IN ('iam','catalog','warehouse','inventory','purchasing','sales','accounting','integration','billing','service');   -- 152
-SELECT count(*) FROM pg_policies WHERE policyname = 'tenant_isolation';                                           -- 150
-SELECT count(*) FROM pg_policies WHERE policyname = 'branch_isolation';                                           -- 62
-SELECT count(*) FROM pg_trigger  WHERE tgname = 'trg_append_only';                                                -- 29
+   AND table_schema IN ('iam','catalog','warehouse','inventory','purchasing','sales','accounting','integration','billing','service');   -- 153
+SELECT count(*) FROM pg_policies WHERE policyname = 'tenant_isolation';                                           -- 151
+SELECT count(*) FROM pg_policies WHERE policyname = 'branch_isolation';                                           -- 63
+SELECT count(*) FROM pg_trigger  WHERE tgname = 'trg_append_only';                                                -- 30
 SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname LIKE 'minv_%';     -- minv_server y minv_app: f, f
 ```
 
@@ -295,8 +306,17 @@ cobrado y que ninguna venta tenga dos documentos fiscales vigentes; V4.2, que la
 | `Minv__Webhooks__AllowPrivateTargets` | gateway | no | `false`; `true` solo para pruebas locales (webhooks en `localhost`) |
 | `Minv__Reporting__Enabled` | gateway | no | `true` (por defecto) |
 | `Minv__Reporting__RefreshMinutes` | gateway | no | cada cuántos minutos se refresca el modelo de lectura (5) |
+| `Minv__Storefront__Enabled` | gateway | no | V6: `true` (por defecto); `false` apaga la tienda web (`/storefront/v1` responde 503) |
+| `Minv__Storefront__TenantCode` | gateway | **sí, para la tienda** | V6: código de la empresa cuya tienda se publica (p. ej. `TECHZONE`). Sin él, `/storefront/v1` responde 503 y no corre el vencimiento de reservas |
+| `Minv__Storefront__BranchCode` | gateway | no | V6: sucursal cuyo stock ve la tienda y donde se retira; si falta, la del almacén principal (casa matriz) |
+| `Minv__Storefront__AllowedOrigins__0` (`__1`…) | gateway | **sí, para la tienda** | V6: orígenes del catálogo web permitidos por CORS, exactos y sin barra final (`https://tienda.suempresa.com`) |
+| `Minv__Storefront__ReservationHours` | gateway | no | V6: horas que vale una reserva (48; se acota a 1…720) |
+| `Minv__Storefront__ReadsPerMinute` / `ReservationsPerMinute` | gateway | no | V6: límites por IP de la tienda (300 lecturas; 10 reservas o cancelaciones) |
+| `Minv__Storefront__ExpiryMinutes` | gateway | no | V6: cada cuántos minutos se cierran las reservas vencidas (5; 1…60) |
+| `VITE_API_URL` | catálogo web (al **construir**) | **sí** | V6: URL pública del gateway que ve el navegador (`https://api.suempresa.com`, sin barra final); Vite la incrusta en `npm run build` (`.env.production`) o la recibe `deploy/Dockerfile.webcatalog` como `ARG` (`MINV_WEB_API_URL` en Docker Compose) |
 
-Las claves `Minv:…` también se pueden pasar como argumentos (`--Minv:Webhooks:Enabled false`).
+Las claves `Minv:…` también se pueden pasar como argumentos (`--Minv:Webhooks:Enabled false`,
+`--Minv:Storefront:TenantCode TECHZONE`).
 
 **Generar la clave maestra** (32 bytes aleatorios; el id identifica la clave, ≤ 40 caracteres, sin `:` ni `;`):
 
@@ -365,13 +385,17 @@ journalctl -u minv-cloudserver -f
 ### 6.3 Con Docker Compose
 
 La carpeta `deploy/` trae `docker-compose.yml`, `Dockerfile.cloudserver`, `Dockerfile.apigateway`,
-`Dockerfile.siatsimulator` y `.env.example`, con dos servicios opcionales SOLO para ensayos: el perfil `local-db`
-(PostgreSQL local; en producción use el gestionado) y, V4.1, el perfil `siat-simulador` (simulador del SIN, comparte la
-red del servidor en la nube y responde en `http://localhost:5095`, como en un equipo local).
+`Dockerfile.siatsimulator`, V6 `Dockerfile.webcatalog` y `.env.example`, con dos servicios opcionales SOLO para ensayos:
+el perfil `local-db` (PostgreSQL local; en producción use el gestionado) y, V4.1, el perfil `siat-simulador` (simulador del
+SIN, comparte la red del servidor en la nube y responde en `http://localhost:5095`, como en un equipo local). V6: el
+servicio `webcatalog` construye el catálogo web (Node + nginx, puerto `5173:80`) con `VITE_API_URL` = `MINV_WEB_API_URL`,
+y el gateway recibe la tienda por `MINV_STOREFRONT_ENABLED`, `MINV_STOREFRONT_TENANT`, `MINV_STOREFRONT_BRANCH`,
+`MINV_STOREFRONT_ORIGIN` y `MINV_STOREFRONT_HOURS` (por defecto TECHZONE, CM, `http://localhost:5173` y 48: en producción
+defínalas en `.env`, §14).
 
 ```bash
 cd deploy
-cp .env.example .env            # complete MINV_DB, MINV_DB_READ (opcional) y MINV_INTEGRATION_KEYS; nunca lo versione
+cp .env.example .env            # complete MINV_DB, MINV_DB_READ (opcional), MINV_INTEGRATION_KEYS y, V6, MINV_STOREFRONT_* y MINV_WEB_API_URL; nunca lo versione
 docker compose up -d --build
 docker compose --profile siat-simulador up -d --build   # SOLO ensayos: simulador del SIN (MINV_SIAT_TOKEN en .env)
 docker compose ps
@@ -391,10 +415,14 @@ minv.suempresa.com {
 api.suempresa.com {
     reverse_proxy localhost:5090
 }
+tienda.suempresa.com {
+    reverse_proxy localhost:5173      # V6: el catálogo web (contenedor webcatalog), o `root * /var/www/tienda` + `file_server` + `try_files {path} /index.html` si lo publica como sitio estático
+}
 ```
 
 (o el balanceador del proveedor: DigitalOcean Load Balancer / App Platform, AWS ALB con certificado de ACM). Con proxy,
-defina `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` y no publique los puertos 5080/5090 a internet.
+defina `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` y no publique los puertos 5080/5090/5173 a internet. V6: el gateway
+necesita la IP real del cliente para los límites de la tienda web (300 lecturas y 10 reservas por minuto por IP).
 
 ### 6.5 Qué comprueban al arrancar
 
@@ -403,20 +431,22 @@ defina `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` y no publique los puertos 5080
 3. El rol puede ejecutar `iam.resolve_session` (si no: es otro rol o se creó después de migrar, §4.3).
 
 Luego: `GET /api/v1/health` (servidor en la nube) y `GET /health` (gateway) responden
-`{"status":"ok",…,"version":"4.2.0-alpha.1"}`.
+`{"status":"ok",…,"version":"6.0.0-alpha.1"}`. V6: `GET /storefront/v1/catalog` responde el catálogo (o 503 «Tienda web no
+disponible» si falta la empresa, el usuario técnico `TIENDA_WEB` o la sucursal: la base no tiene la migración V6 o
+`Minv__Storefront__TenantCode` está mal).
 
 ## 7. Conectar los escritorios
 
 1. Publique el escritorio (`tools\publicar_escritorio.ps1`) y distribúyalo: **no** necesita `ConnectionStrings` ni
    `MINV_DB` en modo nube.
 2. En el inicio de sesión elija **Nube**, escriba `https://minv.suempresa.com` en **Servidor** y pulse
-   **Probar**: debe decir «Servidor M-INV 4.2.0-alpha.1 disponible».
+   **Probar**: debe decir «Servidor M-INV 6.0.0-alpha.1 disponible».
 3. Empresa, correo y contraseña. El escritorio recuerda el modo y la dirección en `%LOCALAPPDATA%\M-INV\cliente.json`;
    el token de sesión vive solo en memoria y vence tras 12 horas sin actividad.
 4. La barra superior muestra la sucursal activa; la gerencia global puede elegir «Todas las sucursales».
 
 Reglas: la dirección debe ser **https** (http solo se acepta para `localhost`); el escritorio y el servidor deben tener
-la misma versión mayor (4), si no: «Este servidor es M-INV 4.x: actualice el escritorio».
+la misma versión mayor (6), si no: «Este servidor es M-INV 6.x: actualice el escritorio».
 
 ## 8. Integraciones B2B
 
@@ -462,7 +492,7 @@ la misma versión mayor (4), si no: «Este servidor es M-INV 4.x: actualice el e
 - [ ] PostgreSQL 15+ gestionado, TLS obligatorio, acceso de red solo desde los servidores (y temporalmente desde el
       equipo de preparación).
 - [ ] Rol `minv_owner` dueño de la base `minv`; `minv_server` y `minv_app` creados **antes** de migrar.
-- [ ] 152 tablas en 10 esquemas, 150 políticas `tenant_isolation`, 62 `branch_isolation`, 29 triggers append-only (§4.4 o
+- [ ] 153 tablas en 10 esquemas, 151 políticas `tenant_isolation`, 63 `branch_isolation`, 30 triggers append-only (§4.4 o
       `minv verify`).
 - [ ] `minv_server`: `rolsuper = f`, `rolbypassrls = f`, sin tablas propias.
 - [ ] Conexión directa o pool en **modo sesión** (nunca transacción, nunca RDS Proxy).
@@ -471,7 +501,7 @@ la misma versión mayor (4), si no: «Este servidor es M-INV 4.x: actualice el e
 - [ ] `MINV_ALLOW_PRIVILEGED_ROLE` **no** definida.
 - [ ] Servidor en la nube y gateway (al menos una réplica) arriba; `/api/v1/health` y `/health` responden.
 - [ ] https delante de ambos; `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` si hay proxy; puertos internos no expuestos.
-- [ ] Escritorios en modo «Nube» con `https://…`; versión 4.x.
+- [ ] Escritorios en modo «Nube» con `https://…`; versión 6.x.
 - [ ] Respaldos automáticos y PITR activos; restauración probada; réplica de lectura en `MINV_DB_READ` (si contrató
       GLOBAL_AUDIT).
 - [ ] `credenciales-nube.txt` copiado a la bóveda y borrado del equipo de preparación.
@@ -480,6 +510,11 @@ la misma versión mayor (4), si no: «Este servidor es M-INV 4.x: actualice el e
 - [ ] V4.1: el servidor en la nube llega por https a los servicios del SIN (salida a internet permitida) y su reloj está
       sincronizado (NTP); `Minv__Siat__Background` no está en `false` en todas las réplicas.
 - [ ] V4.1: el simulador del SIN (perfil `siat-simulador`) **no** está levantado junto a empresas que facturan de verdad.
+- [ ] V6: `Minv__Storefront__TenantCode`, `BranchCode` y `AllowedOrigins` definidos en el gateway (o `Minv__Storefront__Enabled=false`
+      si no se publica tienda); `GET /storefront/v1/catalog` responde el catálogo y **no** expone costos ni clientes.
+- [ ] V6: el catálogo web construido con la `VITE_API_URL` pública (https) y servido detrás de https en el origen exacto
+      que admite el gateway; la reserva de prueba desde la web aparece en el escritorio y se libera.
+- [ ] V6: al menos una réplica del gateway con la tienda configurada (el vencimiento de reservas corre ahí).
 
 ## 12. Facturación SIAT en la nube (V4.1)
 
@@ -539,3 +574,53 @@ simulación, sin valor legal). Su estado (CUIS, CUFD, documentos) vive en el vol
 | V4.1 · El SIN responde «token inválido» (989) | el token venció o es del otro ambiente (el de piloto no sirve en producción): cargue uno nuevo en Facturación SIAT |
 | V4.1 · «Este equipo no tiene la clave maestra de integraciones» al guardar el token | falta `MINV_INTEGRATION_KEYS` en el servidor en la nube |
 | V4.1 · Nadie pide el CUFD del día ni recupera los cortes | `Minv__Siat__Background=false` en todas las réplicas: déjelo en `true` en al menos una |
+| V6 · `/storefront/v1/…` responde **503 «Tienda web no disponible»** | falta `Minv__Storefront__TenantCode`, la empresa no existe o está inactiva, no tiene el usuario técnico `TIENDA_WEB` (base sin la migración V6: aplíquela con `minv_owner`) o `BranchCode` no es una sucursal activa |
+| V6 · El navegador bloquea las llamadas de la web al gateway (**CORS**) | el origen de la web (`https://tienda.suempresa.com`, exacto y sin barra final) no está en `Minv__Storefront__AllowedOrigins__N`; o la web se construyó con otra `VITE_API_URL` |
+| V6 · La web muestra el aviso de error con «Reintentar» | el gateway no responde desde internet, `VITE_API_URL` apunta a otra dirección o es `http` en una página `https` (contenido mixto): reconstruya la web con la URL pública https |
+| V6 · Muchos `429` en la tienda web | detrás de un proxy sin `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` todos los clientes parecen una sola IP (300 lecturas y 10 reservas por minuto); o un cliente abusa: es lo esperado |
+| V6 · Las reservas vencidas no se cierran | ninguna réplica del gateway tiene la tienda configurada (el trabajo solo corre con `TenantCode`), o `Minv__Storefront__Enabled=false` en todas |
+| V6 · «Falta la cabecera Idempotency-Key» (400) al reservar desde otra aplicación | `POST /storefront/v1/reservations` exige `Idempotency-Key` (o `idempotencyKey` en el cuerpo): contrato en `docs/integration/storefront-api-v1.md` |
+
+## 14. Tienda web conectada en la nube (V6)
+
+**Qué se agrega.** El API Gateway publica, además del API B2B, la **API pública de tienda** `/storefront/v1` (sin API Key:
+cada petición corre como el usuario técnico `tienda-web` de la empresa configurada, en la sucursal de la tienda, con solo
+`storefront.read`, `storefront.reserve` e `inventory.stock.view`) y corre el **vencimiento de reservas** (cada 5 minutos).
+El **catálogo web** (`src/3. Presentation/MINV.WebCatalog`) es un sitio estático que el navegador del cliente descarga de
+`tienda.suempresa.com` y que llama al gateway desde el navegador (CORS). Contrato y límites:
+[`docs/integration/storefront-api-v1.md`](../integration/storefront-api-v1.md); diseño:
+[`docs/architecture/tienda-web-conectada-v6.md`](../architecture/tienda-web-conectada-v6.md).
+
+```text
+ALGORITMO V6 EN LA NUBE (después de los pasos 1 a 8 del despliegue)
+ 1. Base al día: la migración V6Storefront (scripts\db_init.sql de la V6 o `minv migrate` con minv_owner) crea el rol TIENDA_WEB y el
+    usuario técnico tienda-web@<dominio> de cada empresa. Compruebe: SELECT email FROM iam.users WHERE email LIKE 'tienda-web@%';
+ 2. Gateway: Minv__Storefront__TenantCode=<empresa>, Minv__Storefront__BranchCode=<sucursal de retiro>,
+    Minv__Storefront__AllowedOrigins__0=https://tienda.suempresa.com (y ReservationHours si no son 48). Reinicie.
+ 3. Compruebe:  GET https://api.suempresa.com/storefront/v1/catalog  → JSON con la empresa, la sucursal y los productos con precio
+    (503 = falta algo del paso 1 o 2). Revise que NO haya costos, clientes ni usuarios en la respuesta (es público).
+ 4. Catálogo web: construya con la URL pública del gateway y publíquelo detrás de https:
+       Windows:  cd "src\3. Presentation\MINV.WebCatalog"; $env:VITE_API_URL='https://api.suempresa.com'; npm ci; npm run build   → dist\
+       Docker:   MINV_WEB_API_URL=https://api.suempresa.com en deploy/.env → docker compose up -d --build webcatalog (puerto 5173:80)
+    Sirva dist\ como SPA (toda ruta desconocida → index.html) en tienda.suempresa.com.
+ 5. Recorrido de aceptación (regla S-10): en la web reserve un armado con un teléfono de prueba → en el escritorio (Nube) aparece en
+    Armador de PC › Cotizaciones con el stock reservado → «Vender en caja» o «Liberar reserva» → la web refleja el cambio.
+ 6. Monitoreo: api-gateway registra «Tienda web: N reserva(s) de armados vencida(s) cerradas»; vigile los 429 y el tamaño de
+    iam.processed_requests (una fila por reserva).
+```
+
+| Decisión | Recomendación |
+|---|---|
+| Dónde corre la tienda | En el **mismo gateway** que el API B2B (una réplica basta; con varias, todas atienden la tienda y el vencimiento es seguro). Si prefiere separarlos, levante un gateway solo para la tienda con `Minv__Webhooks__Enabled=false` y `Minv__Reporting__Enabled=false`, y deje la tienda apagada en el otro (`Minv__Storefront__Enabled=false`) |
+| Empresa y sucursal | Una tienda por gateway: `TenantCode` es una sola empresa y `BranchCode` una sola sucursal (la que entrega las reservas). Varias tiendas = varios gateways |
+| Orígenes (CORS) | Solo el dominio público de la web, exacto (`https://tienda.suempresa.com`), sin barra final; agregue `__1` para un segundo dominio (p. ej. `www`). Nunca `*` |
+| Límites por IP | 300 lecturas y 10 reservas por minuto por IP (ajustables con `ReadsPerMinute` y `ReservationsPerMinute`); necesitan `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` detrás del proxy. Un WAF o el límite del balanceador delante del gateway suma protección |
+| Caché | La instantánea sale con `Cache-Control: public, max-age=30` y las imágenes con `ETag` y 1 h: un CDN delante de `api.suempresa.com/storefront/v1` puede cachearlas; `products/{slug}` y las reservas son `no-cache` |
+| Privacidad | La API nunca devuelve teléfonos ni correos; una reserva se consulta solo con número **y** teléfono; la auditoría guarda el teléfono enmascarado (canal `storefront`). El escritorio muestra el contacto solo a quien tiene `sales.pcbuild.manage` |
+| La web | Es estática: puede vivir en el mismo servidor (Caddy `file_server`), en un contenedor (`webcatalog`) o en un hosting estático o CDN del proveedor. Cada cambio de `VITE_API_URL` exige **reconstruirla** |
+| Sin tienda | Si la empresa no publica tienda, `Minv__Storefront__Enabled=false` (o sin `TenantCode`): `/storefront/v1` responde 503 y no corre el trabajo de vencimiento |
+
+**Variables de la tienda** (§5): `Minv__Storefront__Enabled`, `TenantCode`, `BranchCode`, `AllowedOrigins__N`,
+`ReservationHours`, `ReadsPerMinute`, `ReservationsPerMinute`, `ExpiryMinutes`; y, al construir la web, `VITE_API_URL`.
+En Docker Compose: `MINV_STOREFRONT_ENABLED`, `MINV_STOREFRONT_TENANT`, `MINV_STOREFRONT_BRANCH`, `MINV_STOREFRONT_ORIGIN`,
+`MINV_STOREFRONT_HOURS` y `MINV_WEB_API_URL`.

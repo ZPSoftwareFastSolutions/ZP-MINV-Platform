@@ -1,9 +1,9 @@
-# Guía de inicio de M-INV · las cinco ediciones, paso a paso
+# Guía de inicio de M-INV · las siete ediciones, paso a paso
 
 M-INV es el sistema de inventarios de **Z&P Software Fast Solutions**. Nació como un libro de Excel y hoy es una
-aplicación de escritorio con base de datos en la nube, facturación del SIN y, en su quinta edición, especializada en
-**tiendas de tecnología y gaming**. Las cinco ediciones siguen en el repositorio y funcionan con la **misma lógica de
-negocio**:
+aplicación de escritorio con base de datos en la nube, facturación del SIN, especializada en **tiendas de tecnología y
+gaming** y, en su séptima edición, con una **tienda web conectada** a la misma base de datos. Las siete ediciones siguen
+en el repositorio y funcionan con la **misma lógica de negocio**:
 
 - El stock solo cambia registrando **movimientos** (entradas, salidas y ajustes).
 - Nada se borra: los errores se corrigen con un **ajuste**.
@@ -22,7 +22,8 @@ Esta guía explica, para cada edición:
 | 3 | **App de escritorio con base de datos local** | V3.1 · `Inventario-V3.-BaseDeDatosLocal` | Empresa con una sede, cajas y punto de venta | Windows 10/11, .NET 8 o superior, PostgreSQL (se instala solo) |
 | 4 | **App de escritorio con base de datos en la nube y facturación** | V4 · `Inventario-V4.-BaseDeDatosNube` y **V4.1 · `Inventario-V4.1`** | Empresa con sucursales, tienda en línea y facturación del SIN | Lo de la 3, más un servidor en la nube (se prueba entero en este equipo) |
 | 5 | **Tecnología: PC, componentes, consolas y videojuegos** | **V4.2 · `Inventario-V4.2`** | Tiendas de computadoras, componentes, periféricos, consolas y videojuegos, con sucursales | Lo de la 4 (se prueba entero en este equipo) |
-| 6 | **Catálogo Web M-INV** | **V5.0 · `Inventario-V5`** | Clientes finales que navegan el catálogo, arman su PC y ven ofertas | Lo de la 5, más la interfaz web responsiva |
+| 6 | **Catálogo Web M-INV** | V5.0 · `Inventario-V5` | Clientes finales que navegan el catálogo, arman su PC y ven ofertas (con datos de muestra) | Node.js 22; no necesita base de datos ni servidores |
+| 7 | **Tienda web conectada** | **V6.0 · `Inventario-V6`** | Clientes finales que ven el stock real y **reservan** su armado; la tienda lo ve, lo vende en caja o lo libera | Lo de la 5 y la 6 (se prueba entero en este equipo) |
 
 > **Una edición a la vez.** Cada edición vive en su **rama** de Git. Para usar una, se cambia a su rama
 > (`git switch <rama>`) y se siguen sus pasos. Quédese en una edición hasta que decida pasar a otra. La **base de datos
@@ -384,10 +385,142 @@ Se prueba entero en este equipo con la empresa **Tech Zone Gaming S.R.L.** (cód
 
 ---
 
-## 6. Usuarios de prueba
+## 6. Edición Catálogo Web (V5 · `Inventario-V5`)
 
-**Edición 5 (esta rama, `Inventario-V4.2`):** empresa **TECHZONE**, Tech Zone Gaming S.R.L. Las **contraseñas** están en
-`%LOCALAPPDATA%\M-INV\usuarios-prueba.txt` y cambian cada vez que se recrea la base.
+Un sitio web responsivo para los **clientes** de Tech Zone Gaming: recorren el catálogo por categorías, marcas y precio,
+abren la ficha de cada producto (imagen, ficha técnica, garantía) y **arman su PC** pieza por pieza con el total al
+instante. En la V5 es **solo presentación**: los datos salen de un archivo generado desde el catálogo de la edición 5 y
+nada se guarda ni se compra («Finalizar armado» muestra un resumen). Es la base que la edición 7 conecta a la base de datos.
+
+### Archivos
+
+| Archivo o carpeta | Para qué |
+|---|---|
+| `src\3. Presentation\MINV.WebCatalog` | La web (Vite + React + TypeScript) |
+| [`docs/product/catalogo-web-v5.md`](docs/product/catalogo-web-v5.md) | Páginas, disponibilidad, cómo correrla y qué cambia en la V6 |
+
+### Algoritmo
+
+```text
+ 0. Cambie a la rama de la edición:  git switch Inventario-V5
+ 1. Requisito: Node.js 22 (node --version) y conexión a internet la primera vez.
+ 2. cd "src\3. Presentation\MINV.WebCatalog"
+ 3. npm install          (una sola vez)
+ 4. npm run dev          → abra http://localhost:5173
+ 5. Recorra Inicio, Catálogo (filtros, búsqueda, grilla o lista), la ficha de un producto y «Armá tu PC».
+ 6. Sitio estático para publicar:  npm run build  → carpeta dist\
+```
+
+### Funciones
+
+| Página | Qué hace |
+|---|---|
+| **Inicio** | Productos protagonistas, cifras del catálogo, campañas, categorías, destacados, ofertas, novedades, PC armadas, consolas y marcas |
+| **Catálogo** | Chips de categorías con conteos, filtros por marca, precio y etiqueta, buscador, orden, vista de grilla o lista y paginación |
+| **Ficha del producto** | Imagen, insignias (oferta, destacado, serie o IMEI), precio con «Antes» tachado, disponibilidad, garantía, ficha técnica y «Agregar al armado» |
+| **Armá tu PC** | Una ranura por tipo de pieza, candidatos, total y progreso, y armados sugeridos para partir de uno |
+
+**Roles.** No hay usuarios ni contraseñas: es un sitio público de solo lectura.
+
+---
+
+## 7. Edición Tienda web conectada (V6 · `Inventario-V6`)
+
+La web de la edición 6 deja los datos de muestra y se conecta a la **misma base de datos** que el escritorio de la
+edición 5, a través de una **API pública de tienda** del API Gateway (`/storefront/v1`, sin llave):
+
+- la web muestra **el stock real** de la casa matriz: disponible = existencias − reservado;
+- el visitante **reserva** su armado con nombre y teléfono: queda como cotización `ARM-WEB-000001` con el **stock de cada
+  pieza reservado 48 horas**; puede consultarla o liberarla con su número y su teléfono;
+- el vendedor la ve en **Armador de PC › Cotizaciones**, la **vende en caja** (con factura; la reserva se consume) o la
+  **libera**; también **reserva** sus propias cotizaciones y **publica** armados sugeridos en la web;
+- lo que se vende en el escritorio deja de estar disponible en la web al instante; una reserva vencida la cierra sola el
+  gateway y el stock vuelve.
+
+Se prueba entero en este equipo con Tech Zone Gaming (`TECHZONE`). Estado: **6.0.0-alpha.1**: el servidor, la base, la API y
+las pantallas nuevas de la web y del escritorio están en la rama, y el recorrido completo (web → escritorio → web) se
+verificó de punta a punta con una base de prueba temporal.
+
+### Archivos
+
+| Archivo o carpeta | Para qué |
+|---|---|
+| `dist\M-INV-6.0.0-alpha.1-win-x64\M-INV.exe` | El programa de la edición (lo crea el paso 3 del algoritmo) |
+| `src\3. Presentation\MINV.WebCatalog` | La web; `VITE_API_URL` dice a qué gateway llama (por defecto `http://localhost:5090`) |
+| `tools\servidores_locales.ps1` | Enciende la «nube» de este equipo; el API Gateway lleva ahora la tienda web (`-EmpresaTienda`, `-SucursalTienda`, `-OrigenTienda`) |
+| [`docs/deployment/inicio-rapido-v6.md`](docs/deployment/inicio-rapido-v6.md) | La guía detallada: el recorrido completo, qué no hace, usuarios y problemas frecuentes |
+| [`docs/integration/storefront-api-v1.md`](docs/integration/storefront-api-v1.md) | Qué devuelve la API pública de tienda (para técnicos) |
+| [`docs/architecture/tienda-web-conectada-v6.md`](docs/architecture/tienda-web-conectada-v6.md) | El diseño (para técnicos) |
+| `%LOCALAPPDATA%\M-INV\usuarios-prueba.txt` | Correos y contraseñas de prueba; menciona el usuario técnico de la tienda (sin contraseña) |
+
+### Algoritmo · todo en este equipo
+
+```text
+ PRIMERA VEZ (una sola vez)
+  0. Abra PowerShell en la carpeta del repositorio y cambie a la edición 7:   git switch Inventario-V6
+  1. Apague los servidores de otra edición:  powershell -ExecutionPolicy Bypass -File tools\servidores_locales.ps1 -Accion detener
+  2. Recree la base (BORRA la base anterior de este equipo y cambia las contraseñas de prueba; unos minutos):
+        powershell -ExecutionPolicy Bypass -File tools\bd_local.ps1 -Accion recrear
+     (¿nunca instaló PostgreSQL? Edición 3, paso B, con -Accion instalar, una vez)
+  3. Publique el programa:  powershell -ExecutionPolicy Bypass -File tools\publicar_escritorio.ps1
+  4. Instale la web (necesita Node.js 22):  cd "src\3. Presentation\MINV.WebCatalog"  y  npm install
+
+ CADA VEZ QUE LO USE
+  5. Si reinició el equipo, encienda la base:  powershell -ExecutionPolicy Bypass -File tools\bd_local.ps1 -Accion iniciar
+  6. Encienda la «nube» (simulador del SIN :5095, servidor en la nube :5080 y API Gateway :5090 con la tienda /storefront/v1):
+        powershell -ExecutionPolicy Bypass -File tools\servidores_locales.ps1 -Accion iniciar
+  7. En OTRA ventana de PowerShell, encienda la web:   cd "src\3. Presentation\MINV.WebCatalog"   y   npm run dev
+        → http://localhost:5173  (la web llama a http://localhost:5090)
+  8. Abra dist\M-INV-6.0.0-alpha.1-win-x64\M-INV.exe → «Nube» → http://localhost:5080 → «Probar» → empresa TECHZONE
+        → Fernando Choque (Ventas, CM) o el Administrador; contraseñas en usuarios-prueba.txt
+  9. EL RECORRIDO:
+       a. Web: Armá tu PC → piezas → «Reservar armado» → nombre y teléfono → número ARM-WEB-… (vale 48 h)
+       b. Escritorio: Armador de PC › Cotizaciones › «Reservas web» → la reserva con su contacto y «Reservado hasta»;
+          Stock → la pieza dice «Reservado: n»
+       c. Escritorio: «Vender en caja» → series → CI o NIT → Cobrar → factura; la reserva se consume (se descuenta una vez)
+       d. Web: la ficha ya no tiene esa unidad («Últimas n» o «Agotado»); «Consultar mi reserva» → Vendida
+       e. Al revés: en el escritorio guarde una cotización → «Reservar stock» → en la web esa pieza tiene menos disponible
+       f. «Liberar reserva» (escritorio) o «Liberar mi reserva» (web) → el stock vuelve; lo vencido lo cierra el gateway cada 5 min
+ 10. Al terminar: Ctrl + C en la ventana de la web  y  tools\servidores_locales.ps1 -Accion detener
+```
+
+### Funciones que se suman a las ediciones 5 y 6
+
+| Área | Qué hace |
+|---|---|
+| **Web · catálogo real** | Categorías, marcas, productos, fichas, precios, imágenes y armados sugeridos salen de la base de datos; disponibilidad **Disponible (n)**, **Últimas n**, **Reservado** o **Agotado** que se refresca sola; pantalla de carga y aviso con «Reintentar» si el servidor no responde |
+| **Web · Reservar armado** | Formulario con nombre, teléfono o WhatsApp de Bolivia, correo opcional y notas; aviso de 48 h; número `ARM-WEB-…`, vencimiento, líneas y total; si falta stock, marca qué piezas y cuánto hay (no reserva nada); página **Mi reserva** para consultar el estado y **Liberar mi reserva** |
+| **Escritorio · Armador de PC › Cotizaciones** | Canal (**Web** o escritorio), contacto, «Reservado hasta», publicado; filtro «Reservas web»; acciones **Reservar stock** (48 h), **Liberar reserva** (motivo), **Vender en caja** (consume la reserva), **Publicar en la web** / **Quitar de la web**; detalle con notas del cliente, «Copiar teléfono», líneas con disponibilidad y bitácora |
+| **Escritorio · Stock, Catálogo y Caja** | «Reservado: n» y disponible = existencias − reservado; la caja muestra «Disponible n (reservado m)» y no deja vender lo reservado |
+| **Escritorio · Inicio › Tecnología** | Tarjeta «Reservas web activas» (cantidad y Bs) |
+| **API pública de tienda** | `http://localhost:5090/storefront/v1`: catálogo, producto, imagen, armados, reservar, consultar y liberar; sin llave; 300 lecturas y 10 reservas por minuto por IP; documentación en `/docs` |
+| **Servidores** | El gateway cierra las reservas vencidas cada 5 minutos; los eventos `pcbuild.reserved`, `pcbuild.released` y `pcbuild.sold` salen por los webhooks de la edición 4 |
+
+### Funciones por rol (V6)
+
+| Rol | Qué puede hacer |
+|---|---|
+| **Administrador** | Todo lo de las ediciones anteriores; en el armador: reservar, liberar, vender en caja y publicar; ve el contacto de las reservas web |
+| **Gerencia** | Todas las sucursales. Reservar, liberar y publicar; ve el contacto; no cobra (no tiene caja) |
+| **Ventas** y **Cajero** | Su sucursal. Reservar, liberar, **vender en caja** y publicar; ven el contacto de las reservas web |
+| **Bodega** | Ve el stock con lo reservado («Reservado: n»); no entra a Cotizaciones ni ve el contacto del cliente |
+| **Consulta** | Solo lectura: stock con lo reservado y reportes; sin cotizaciones ni contacto |
+| **Tienda web** (cuenta técnica nueva) | No es una persona: es el usuario `tienda-web@techzone.example` con el que el API Gateway ejecuta cada petición de la web. Solo puede leer el catálogo, reservar y ver el stock; **no tiene contraseña utilizable** y no entra al escritorio |
+| **Cliente de la web** | No tiene cuenta: reserva con su nombre y teléfono, y consulta o libera su reserva con el número **y** el teléfono |
+
+### Qué NO hace
+
+Sin pagos en línea (se cobra en la caja), sin series desde la web (se eligen al vender), una sola sucursal en la web (la
+casa matriz), sin cuentas de cliente ni carrito persistente; la compatibilidad de las piezas se informa y no bloquea.
+Detalle: [`docs/deployment/inicio-rapido-v6.md`](docs/deployment/inicio-rapido-v6.md) §7.
+
+---
+
+## 8. Usuarios de prueba
+
+**Ediciones 5, 6 y 7 (ramas `Inventario-V4.2`, `Inventario-V5` e `Inventario-V6`):** empresa **TECHZONE**, Tech Zone
+Gaming S.R.L. Las **contraseñas** están en `%LOCALAPPDATA%\M-INV\usuarios-prueba.txt` y cambian cada vez que se recrea la
+base (la edición 6, la web sola, no usa usuarios).
 
 | Rol | Nombre | Correo | Sucursales |
 |---|---|---|---|
@@ -403,6 +536,7 @@ Se prueba entero en este equipo con la empresa **Tech Zone Gaming S.R.L.** (cód
 | Cajero | Camila Fernández | camila.fernandez@techzone.example | CB |
 | Cajero | Camila Morales | camila.morales@techzone.example | SC |
 | Consulta | María Villarroel | maria.villarroel@techzone.example | CM, CB, SC |
+| Tienda web (técnico, V6) | Tienda web | tienda-web@techzone.example | CM · **sin contraseña**: lo usa el API Gateway para `/storefront/v1`; no entra al escritorio |
 
 Sucursales: **CM** = casa matriz La Paz, **CB** = Cochabamba, **SC** = Santa Cruz.
 
@@ -415,14 +549,14 @@ En la **demostración** no hay contraseñas: se elige el rol en la pantalla de i
 
 ---
 
-## 7. Si algo no funciona
+## 9. Si algo no funciona
 
 | Síntoma | Solución |
 |---|---|
 | El programa dice «Sin conexión con la base de datos» | `tools\bd_local.ps1 -Accion iniciar` y pulse «Reintentar» |
 | Modo Nube: «Sin conexión con el servidor» | `tools\servidores_locales.ps1 -Accion iniciar`, luego «Probar» |
 | Modo Nube: «actualice el escritorio» | El escritorio y el servidor deben ser de la misma versión: detenga los servidores, confirme la rama (`git branch --show-current`), vuelva a iniciarlos y publique el escritorio con `tools\publicar_escritorio.ps1` |
-| La empresa TECHZONE no existe (o la base todavía es la ferretería MINV) | La base es de otra edición: desde la rama `Inventario-V4.2`, `tools\bd_local.ps1 -Accion recrear` |
+| La empresa TECHZONE no existe (o la base todavía es la ferretería MINV) | La base es de otra edición: desde la rama de la edición que va a usar (`Inventario-V4.2` o `Inventario-V6`), `tools\bd_local.ps1 -Accion recrear` |
 | «Su usuario no tiene sucursales asignadas» | Como Administrador: Sucursales › Asignar usuarios |
 | Facturas «fuera de línea» que no pasan a válidas | ¿Está encendido el simulador? `tools\servidores_locales.ps1 -Accion estado`; luego Estado SIAT › «Procesar ahora» |
 | La caja dice «producto sin homologar» | Facturación › Homologación: asigne su código del SIN (o «Sugerir») |
@@ -434,13 +568,20 @@ En la **demostración** no hay contraseñas: se elige el rol en la pantalla de i
 | V4.2 · El armador no deja guardar la cotización | Tiene piezas incompatibles: corríjalas o confírmelo expresamente (la cotización queda marcada) |
 | V4.2 · La devolución responde «Su rol no tiene el permiso…» | Con los roles de fábrica, las devoluciones las hace el Administrador |
 | V4.2 · El tablero avisa «existencias con serie sin todas sus series» | Series e IMEI › **Registrar series de stock** |
+| V6 · La web muestra un aviso de error con «Reintentar» | El gateway no está encendido o la web apunta a otra dirección: `tools\servidores_locales.ps1 -Accion estado`, abra `http://localhost:5090/storefront/v1/catalog` y revise `VITE_API_URL` |
+| V6 · La consola del navegador dice «CORS» | Abra la web exactamente en `http://localhost:5173` (el único origen permitido); si Vite arrancó en otro puerto, reinicie los servidores con `-OrigenTienda http://localhost:<puerto>` |
+| V6 · `…/storefront/v1/catalog` responde 503 «Tienda web no disponible» | La base no tiene la migración de la V6 (o los servidores son de otra rama): `minv migrate` o recree la base desde `Inventario-V6` y reinicie los servidores |
+| V6 · «No hay stock suficiente» al reservar | Alguien vendió o reservó esas unidades antes: la web marca las piezas y cuánto hay; no se reservó nada |
+| V6 · «Consultar mi reserva» dice que no existe | El número o el teléfono no coinciden con los de la reserva (no se dice cuál, a propósito) |
+| V6 · La reserva no aparece en el escritorio | La tienda reserva en la casa matriz (**CM**): elija esa sucursal activa; si pasaron más de 48 h, está en **Anulado** (venció) |
 | Olvidé la contraseña de prueba | Está en `%LOCALAPPDATA%\M-INV\usuarios-prueba.txt` |
 | Excel compartido: «su cuenta no está autorizada» | El ADMIN agrega el correo al final de `02_USUARIOS` |
 | Excel: los botones no hacen nada | En la edición Plus, habilite las macros. En la compartida, agregue el script sobre el recuadro ⚙ |
 
-Más casos de la edición 5: [`docs/deployment/inicio-rapido-v4.2.md`](docs/deployment/inicio-rapido-v4.2.md) §9.
+Más casos de la edición 5: [`docs/deployment/inicio-rapido-v4.2.md`](docs/deployment/inicio-rapido-v4.2.md) §9; de la
+edición 7: [`docs/deployment/inicio-rapido-v6.md`](docs/deployment/inicio-rapido-v6.md) §9.
 
-## 8. Documentación relacionada
+## 10. Documentación relacionada
 
 | Tema | Documento |
 |---|---|
@@ -449,4 +590,6 @@ Más casos de la edición 5: [`docs/deployment/inicio-rapido-v4.2.md`](docs/depl
 | Nube y sucursales (V4) | [`docs/deployment/inicio-rapido-v4.md`](docs/deployment/inicio-rapido-v4.md) · [`docs/deployment/despliegue-nube-v4.md`](docs/deployment/despliegue-nube-v4.md) · [`docs/product/escritorio-v4.md`](docs/product/escritorio-v4.md) · [`docs/integration/api-gateway-v1.md`](docs/integration/api-gateway-v1.md) |
 | Facturación SIAT (V4.1) | [`docs/deployment/inicio-rapido-v4.1.md`](docs/deployment/inicio-rapido-v4.1.md) · [`docs/product/escritorio-v4.1.md`](docs/product/escritorio-v4.1.md) · [`docs/billing/puesta-en-produccion-siat.md`](docs/billing/puesta-en-produccion-siat.md) · [`docs/billing/README.md`](docs/billing/README.md) · [`docs/architecture/facturacion-siat-v4.1.md`](docs/architecture/facturacion-siat-v4.1.md) · [`.claude/v41-billing-rules.md`](.claude/v41-billing-rules.md) · investigación de la normativa del SIN en [`docs/billing/investigacion-siat/`](docs/billing/investigacion-siat/) |
 | Edición Tecnología (V4.2) | [`docs/deployment/inicio-rapido-v4.2.md`](docs/deployment/inicio-rapido-v4.2.md) · [`docs/product/escritorio-v4.2.md`](docs/product/escritorio-v4.2.md) · [`docs/architecture/edicion-tecnologia-v4.2.md`](docs/architecture/edicion-tecnologia-v4.2.md) · [`.claude/v42-tech-rules.md`](.claude/v42-tech-rules.md) · tema gaming en [`docs/product/ux-ui-guidelines.md`](docs/product/ux-ui-guidelines.md) §13 · tablas en [`docs/database/ERD-MINV-V3.md`](docs/database/ERD-MINV-V3.md) §9 |
+| Catálogo web (V5) | [`docs/product/catalogo-web-v5.md`](docs/product/catalogo-web-v5.md) · `src/3. Presentation/MINV.WebCatalog/README.md` |
+| Tienda web conectada (V6) | [`docs/deployment/inicio-rapido-v6.md`](docs/deployment/inicio-rapido-v6.md) · [`docs/architecture/tienda-web-conectada-v6.md`](docs/architecture/tienda-web-conectada-v6.md) · [`docs/integration/storefront-api-v1.md`](docs/integration/storefront-api-v1.md) · [`.claude/v6-storefront-rules.md`](.claude/v6-storefront-rules.md) · nube [`docs/deployment/despliegue-nube-v4.md`](docs/deployment/despliegue-nube-v4.md) §14 · tablas en [`docs/database/ERD-MINV-V3.md`](docs/database/ERD-MINV-V3.md) §10 |
 | Historial de cambios | [`CHANGELOG.md`](CHANGELOG.md) |

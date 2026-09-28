@@ -1,4 +1,5 @@
-// Datos institucionales de ejemplo del sitio de demostración. Nada de aquí es un dato real de una persona.
+// Datos institucionales de contacto de la tienda (teléfonos, correo, horario: no viajan en la API). Nada de aquí es un
+// dato real de una persona. La empresa y sus sucursales salen de la instantánea del catálogo (useStore).
 
 export const STORE = {
   legalName: 'Tech Zone Gaming S.R.L.',
@@ -12,7 +13,6 @@ export const STORE = {
   address: 'Av. Ejemplo 1234, Sopocachi',
   city: 'La Paz, Bolivia',
   hours: 'Lun. a vie. 9:00 a 19:00 · Sáb. 9:00 a 13:00',
-  branches: ['La Paz', 'Cochabamba', 'Santa Cruz'],
   year: 2026,
 } as const;
 

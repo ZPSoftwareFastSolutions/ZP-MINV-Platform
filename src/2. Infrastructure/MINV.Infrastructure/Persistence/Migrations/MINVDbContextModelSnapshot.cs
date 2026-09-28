@@ -4869,7 +4869,7 @@ namespace MINV.Infrastructure.Persistence.Migrations
 
                     b.ToTable("audit_logs", "iam", t =>
                         {
-                            t.HasCheckConstraint("ck_audit_logs_canal", "channel IS NULL OR channel IN ('desktop', 'cloud', 'api')");
+                            t.HasCheckConstraint("ck_audit_logs_canal", "channel IS NULL OR channel IN ('desktop', 'cloud', 'api', 'storefront')");
                         });
                 });
 
@@ -7452,6 +7452,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("expires_at");
 
+                    b.Property<Guid?>("PcBuildLineId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("pc_build_line_id");
+
                     b.Property<Guid?>("PosSessionId")
                         .HasColumnType("uuid")
                         .HasColumnName("pos_session_id");
@@ -7502,8 +7506,15 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasAlternateKey("TenantId", "BranchId", "Id")
                         .HasName("ak_stock_reservations_tenant_id_branch_id_id");
 
+                    b.HasIndex("PcBuildLineId", "Status")
+                        .HasDatabaseName("ix_stock_reservations_pc_build_line_id_status")
+                        .HasFilter("pc_build_line_id IS NOT NULL");
+
                     b.HasIndex("StockLevelId", "Status")
                         .HasDatabaseName("ix_stock_reservations_stock_level_id_status");
+
+                    b.HasIndex("TenantId", "BranchId", "PcBuildLineId")
+                        .HasDatabaseName("ix_stock_reservations_tenant_id_branch_id_pc_build_line_id");
 
                     b.HasIndex("TenantId", "BranchId", "PosSessionId")
                         .HasDatabaseName("ix_stock_reservations_tenant_id_branch_id_pos_session_id");
@@ -7518,7 +7529,7 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("ck_stock_reservations_cantidad", "quantity > 0");
 
-                            t.HasCheckConstraint("ck_stock_reservations_origen", "num_nonnulls(pos_session_id, sales_order_line_id) <= 1");
+                            t.HasCheckConstraint("ck_stock_reservations_origen", "num_nonnulls(pos_session_id, sales_order_line_id, pc_build_line_id) <= 1");
                         });
                 });
 
@@ -9965,6 +9976,32 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("branch_id");
 
+                    b.Property<string>("CancelReason")
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)")
+                        .HasColumnName("cancel_reason");
+
+                    b.Property<string>("Channel")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasColumnName("channel");
+
+                    b.Property<string>("ContactEmail")
+                        .HasMaxLength(254)
+                        .HasColumnType("character varying(254)")
+                        .HasColumnName("contact_email");
+
+                    b.Property<string>("ContactName")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("contact_name");
+
+                    b.Property<string>("ContactPhone")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("contact_phone");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -9993,11 +10030,20 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(150)")
                         .HasColumnName("name");
 
+                    b.Property<string>("Notes")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("notes");
+
                     b.Property<string>("Number")
                         .IsRequired()
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)")
                         .HasColumnName("number");
+
+                    b.Property<bool>("PublishedToWeb")
+                        .HasColumnType("boolean")
+                        .HasColumnName("published_to_web");
 
                     b.Property<DateTimeOffset?>("QuotedAt")
                         .HasColumnType("timestamp with time zone")
@@ -10006,6 +10052,14 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.Property<bool>("QuotedWithErrors")
                         .HasColumnType("boolean")
                         .HasColumnName("quoted_with_errors");
+
+                    b.Property<DateTimeOffset?>("ReservedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reserved_at");
+
+                    b.Property<DateTimeOffset?>("ReservedUntil")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reserved_until");
 
                     b.Property<uint>("RowVersion")
                         .IsConcurrencyToken()
@@ -10055,6 +10109,14 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "CustomerId")
                         .HasDatabaseName("ix_pc_builds_tenant_id_customer_id");
 
+                    b.HasIndex("TenantId", "PublishedToWeb")
+                        .HasDatabaseName("ix_pc_builds_tenant_id_published_to_web")
+                        .HasFilter("published_to_web");
+
+                    b.HasIndex("TenantId", "ReservedUntil")
+                        .HasDatabaseName("ix_pc_builds_tenant_id_reserved_until")
+                        .HasFilter("status = 'Reserved'");
+
                     b.HasIndex("TenantId", "Status")
                         .HasDatabaseName("ix_pc_builds_tenant_id_status");
 
@@ -10067,13 +10129,101 @@ namespace MINV.Infrastructure.Persistence.Migrations
 
                     b.ToTable("pc_builds", "sales", t =>
                         {
-                            t.HasCheckConstraint("ck_pc_builds_cotizacion", "status <> 'Quoted' OR quoted_at IS NOT NULL");
+                            t.HasCheckConstraint("ck_pc_builds_canal", "channel IN ('Desktop', 'Web')");
 
-                            t.HasCheckConstraint("ck_pc_builds_estado", "status IN ('Draft', 'Quoted', 'Sold', 'Cancelled')");
+                            t.HasCheckConstraint("ck_pc_builds_contacto", "channel <> 'Web' OR (contact_name IS NOT NULL AND contact_phone IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_pc_builds_cotizacion", "status NOT IN ('Quoted', 'Reserved') OR quoted_at IS NOT NULL");
+
+                            t.HasCheckConstraint("ck_pc_builds_estado", "status IN ('Draft', 'Quoted', 'Reserved', 'Sold', 'Cancelled')");
 
                             t.HasCheckConstraint("ck_pc_builds_marcado", "NOT quoted_with_errors OR quoted_at IS NOT NULL");
 
+                            t.HasCheckConstraint("ck_pc_builds_publicado", "NOT published_to_web OR (channel = 'Desktop' AND status IN ('Quoted', 'Reserved', 'Sold'))");
+
+                            t.HasCheckConstraint("ck_pc_builds_reserva", "status <> 'Reserved' OR (reserved_at IS NOT NULL AND reserved_until IS NOT NULL)");
+
                             t.HasCheckConstraint("ck_pc_builds_venta", "(status = 'Sold') = (invoice_id IS NOT NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("MINV.Domain.Sales.PcBuildEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("action");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Detail")
+                        .IsRequired()
+                        .HasMaxLength(250)
+                        .HasColumnType("character varying(250)")
+                        .HasColumnName("detail");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("occurred_at");
+
+                    b.Property<Guid>("PcBuildId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("pc_build_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_pc_build_events");
+
+                    b.HasAlternateKey("TenantId", "Id")
+                        .HasName("ak_pc_build_events_tenant_id_id");
+
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_pc_build_events_tenant_id_branch_id_id");
+
+                    b.HasIndex("PcBuildId", "OccurredAt")
+                        .HasDatabaseName("ix_pc_build_events_pc_build_id_occurred_at");
+
+                    b.HasIndex("TenantId", "UserId")
+                        .HasDatabaseName("ix_pc_build_events_tenant_id_user_id");
+
+                    b.HasIndex("TenantId", "BranchId", "PcBuildId")
+                        .HasDatabaseName("ix_pc_build_events_tenant_id_branch_id_pc_build_id");
+
+                    b.ToTable("pc_build_events", "sales", t =>
+                        {
+                            t.HasCheckConstraint("ck_pc_build_events_accion", "action IN ('Created', 'Quoted', 'Reserved', 'Released', 'Expired', 'Sold', 'Cancelled', 'Published', 'Unpublished')");
+
+                            t.HasCheckConstraint("ck_pc_build_events_estado", "status IN ('Draft', 'Quoted', 'Reserved', 'Sold', 'Cancelled')");
                         });
                 });
 
@@ -13908,6 +14058,13 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_stock_reservations_tenant_id");
 
+                    b.HasOne("MINV.Domain.Sales.PcBuildLine", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BranchId", "PcBuildLineId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_stock_reservations_tenant_id_branch_id_pc_build_line_id");
+
                     b.HasOne("MINV.Domain.Sales.PosSession", null)
                         .WithMany()
                         .HasForeignKey("TenantId", "BranchId", "PosSessionId")
@@ -14776,6 +14933,32 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_pc_builds_tenant_id_branch_id_invoice_id");
                 });
 
+            modelBuilder.Entity("MINV.Domain.Sales.PcBuildEvent", b =>
+                {
+                    b.HasOne("MINV.Domain.Iam.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_pc_build_events_tenant_id");
+
+                    b.HasOne("MINV.Domain.Iam.User", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "UserId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_pc_build_events_tenant_id_user_id");
+
+                    b.HasOne("MINV.Domain.Sales.PcBuild", null)
+                        .WithMany("History")
+                        .HasForeignKey("TenantId", "BranchId", "PcBuildId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_pc_build_events_tenant_id_branch_id_pc_build_id");
+                });
+
             modelBuilder.Entity("MINV.Domain.Sales.PcBuildLine", b =>
                 {
                     b.HasOne("MINV.Domain.Iam.Tenant", null)
@@ -15498,6 +15681,8 @@ namespace MINV.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("MINV.Domain.Sales.PcBuild", b =>
                 {
+                    b.Navigation("History");
+
                     b.Navigation("Lines");
                 });
 

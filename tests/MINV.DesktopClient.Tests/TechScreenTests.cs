@@ -88,9 +88,10 @@ public sealed class TechScreenTests
                 await shell.Current.LoadAsync(force: true);
                 Assert.False(shell.Current.HasError, $"{user.RoleCode} · {key}: {shell.Current.ErrorMessage}");
             }
-            if (user.RoleCode == RoleCodes.Cashier)
+            if (user.RoleCode == RoleCodes.Cashier && demo.Seed.To.DayOfWeek != DayOfWeek.Sunday)
             {
-                // El cajero de la casa matriz tiene su turno abierto: la caja preseleccionada es la suya (no la primera)
+                // El cajero de la casa matriz tiene su turno abierto: la caja preseleccionada es la suya (no la primera). Los
+                // domingos la tienda no abre (la carga no registra turnos ese día): no hay turno que comprobar.
                 shell.Navigate("pos");
                 var pos = (PosViewModel)shell.Current;
                 await pos.LoadAsync(force: true);
@@ -114,10 +115,12 @@ public sealed class TechScreenTests
         var pos = (PosViewModel)shell.Current;
         await pos.LoadAsync(force: true);
         Assert.True(pos.IsClosed);
-        Assert.Equal("CAJA03", pos.Register?.Code);   // la caja libre: CAJA01 y CAJA02 tienen el turno de su cajero
+        // La caja libre: CAJA01 y CAJA02 tienen el turno de su cajero (los domingos la tienda no abre y todas están libres)
+        var freeRegister = demo.Seed.To.DayOfWeek == DayOfWeek.Sunday ? "CAJA01" : "CAJA03";
+        Assert.Equal(freeRegister, pos.Register?.Code);
         await pos.OpenSession.ExecuteAsync();
         Assert.True(pos.IsOpen);
-        Assert.Equal("CAJA03", pos.Session!.RegisterCode);
+        Assert.Equal(freeRegister, pos.Session!.RegisterCode);
         Assert.True(pos.IsBilling);
         Assert.Contains(pos.PlatformChips, c => c.Label == "PS5");   // chips de las opciones de la especificación «plataforma»
         Assert.True(pos.HasManyCategories);   // muchas categorías: los chips se pliegan a dos filas y se despliegan a pedido

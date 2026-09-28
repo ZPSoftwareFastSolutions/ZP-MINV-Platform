@@ -1,11 +1,16 @@
-# ZP-MINV-Platform · M-INV V4.2 (edición Tecnología) · V4.1 (facturación SIAT) · V4 (multi-sucursal en la nube) · V3.1 (escritorio + PostgreSQL) · V2.1 (colaborativo)
+# ZP-MINV-Platform · M-INV V6 (tienda web conectada) · V5 (catálogo web) · V4.2 (edición Tecnología) · V4.1 (facturación SIAT) · V4 (multi-sucursal en la nube) · V3.1 (escritorio + PostgreSQL) · V2.1 (colaborativo)
 
-> **¿Por dónde empiezo?** Lea la [guía de inicio de las cinco ediciones](GUIA-DE-INICIO.md): Excel local, Excel
-> compartido, escritorio con base local, escritorio con base en la nube y facturación SIAT, y la edición Tecnología
-> (V4.2, en desarrollo) para tiendas de computadoras, componentes, consolas y videojuegos.
+> **¿Por dónde empiezo?** Lea la [guía de inicio de las siete ediciones](GUIA-DE-INICIO.md): Excel local, Excel
+> compartido, escritorio con base local, escritorio con base en la nube y facturación SIAT, la edición Tecnología (V4.2)
+> para tiendas de computadoras, componentes, consolas y videojuegos, el catálogo web (V5) y la **tienda web conectada**
+> (V6, en desarrollo) que reserva sobre la misma base de datos del escritorio.
 
-**Sistema de inventarios y punto de venta B2B de Z&P Software Fast Solutions.** La **V4.2** (en desarrollo) lo
-especializa para **tiendas de tecnología y gaming**: series e IMEI por unidad (también en la factura del SIN), garantías y
+**Sistema de inventarios y punto de venta B2B de Z&P Software Fast Solutions.** La **V6** (en desarrollo) conecta el
+catálogo web a la **misma base de datos en la nube** del escritorio a través de una **API pública de tienda**
+(`/storefront/v1`): stock real en la web, **reservas de armados** con el stock reservado 48 h, y el escritorio que las ve,
+las vende en caja o las libera (153 tablas en 10 esquemas). La **V5** dejó el **catálogo web** (Vite + React) con la
+experiencia «Armá tu PC» sobre datos de muestra. La **V4.2**
+especializa M-INV para **tiendas de tecnología y gaming**: series e IMEI por unidad (también en la factura del SIN), garantías y
 RMA, fichas técnicas con filtros por especificación, armador de PC con compatibilidad y cotización, tablero Tecnología y
 tema gaming (152 tablas en 10 esquemas). La **V4.1** agrega la
 **facturación SIAT** de Bolivia (Facturación Computarizada en Línea: facturas y notas crédito-débito, contingencia,
@@ -19,7 +24,9 @@ cliente-servidor: solución **.NET 8** en Clean Architecture (dominio rico, CQRS
 construida sobre el modelo de la **V2.1** (su importador migra el libro colaborativo y verifica la paridad). La V2.1
 (Excel en Microsoft 365) y la V1.2 (Excel local) siguen en el repositorio.
 
-> **¿Cómo la ejecuto?** V4.2 (edición Tecnología, el algoritmo paso a paso):
+> **¿Cómo la ejecuto?** V6 (tienda web conectada, el algoritmo paso a paso con el recorrido web → escritorio → web):
+> [`docs/deployment/inicio-rapido-v6.md`](docs/deployment/inicio-rapido-v6.md). V5 (catálogo web solo):
+> [`docs/product/catalogo-web-v5.md`](docs/product/catalogo-web-v5.md). V4.2 (edición Tecnología):
 > [`docs/deployment/inicio-rapido-v4.2.md`](docs/deployment/inicio-rapido-v4.2.md).
 > V4.1 (facturación): [`docs/deployment/inicio-rapido-v4.1.md`](docs/deployment/inicio-rapido-v4.1.md).
 > V4: siga [`docs/deployment/inicio-rapido-v4.md`](docs/deployment/inicio-rapido-v4.md): base
@@ -27,10 +34,67 @@ construida sobre el modelo de la **V2.1** (su importador migra el libro colabora
 > la nube simulada en su equipo (`tools\servidores_locales.ps1 -Accion iniciar`) y el API con `curl`; para una nube
 > real, [`docs/deployment/despliegue-nube-v4.md`](docs/deployment/despliegue-nube-v4.md). V3.1:
 > [`docs/deployment/inicio-rapido-v3.md`](docs/deployment/inicio-rapido-v3.md). Interfaz:
-> [`docs/product/escritorio-v3.1.md`](docs/product/escritorio-v3.1.md). Modelo de datos (V3 y V4):
+> [`docs/product/escritorio-v3.1.md`](docs/product/escritorio-v3.1.md). Modelo de datos (V3 a V6):
 > [`docs/database/ERD-MINV-V3.md`](docs/database/ERD-MINV-V3.md).
 
-## M-INV V4.2 · rama `Inventario-V4.2` (4.2.0-alpha.1) · edición Tecnología (en desarrollo)
+## M-INV V6 · rama `Inventario-V6` (6.0.0-alpha.1) · tienda web conectada (en desarrollo)
+
+Construida sobre `Inventario-V5`. El catálogo web deja el mock y consume la **API pública de tienda** del API Gateway
+(`/storefront/v1`, sin API Key: principal técnico `tienda-web` del rol `TIENDA_WEB`) sobre la **misma base** que el
+escritorio: instantánea del catálogo con disponibilidad = existencias − reservado, imágenes, armados publicados desde el
+escritorio, **reservas de armados** (`ARM-WEB-000001`, 48 h, una reserva de stock por línea, idempotentes, todo o nada),
+consulta y cancelación con el teléfono, vencimiento en segundo plano, y venta en caja que **consume** la reserva. **153
+tablas en 10 esquemas** (1 nueva: la bitácora `sales.pc_build_events`). Diseño:
+[`docs/architecture/tienda-web-conectada-v6.md`](docs/architecture/tienda-web-conectada-v6.md) · reglas S-01 a S-10:
+[`.claude/v6-storefront-rules.md`](.claude/v6-storefront-rules.md) · contrato de la API:
+[`docs/integration/storefront-api-v1.md`](docs/integration/storefront-api-v1.md).
+
+```text
+  web (React) ──GET /storefront/v1/catalog──► MINV.ApiGateway ──MediatR──► la MISMA base del escritorio
+      │ POST /reservations (Idempotency-Key)        │ principal técnico tienda-web · límite por IP · CORS
+      ▼                                             ▼
+  ARM-WEB-000001 RESERVADA 48 h ──► escritorio: Armador de PC › Cotizaciones (canal Web, contacto, vence)
+      disponible = existencias − reservado           ├─ Vender en caja → factura; la reserva se CONSUME (una sola salida)
+      (web, stock, catálogo y caja ven lo mismo)     ├─ Liberar / el cliente libera / vence (gateway, cada 5 min) → el stock vuelve
+                                                     └─ Reservar cotizaciones propias · Publicar armados sugeridos en la web
+```
+
+| Parte | Contenido |
+|---|---|
+| `MINV.Domain` | `PcBuild` con canal, contacto, `Reserved`, reserva/liberación/vencimiento/publicación y bitácora `PcBuildEvent`; `StockReservation` con el origen «línea de armado»; `StockLevel.Fulfill`; rol `TIENDA_WEB` y permisos `storefront.*` |
+| `MINV.Application/Storefront` | Instantánea del catálogo (misma forma que el mock de la V5), producto, imagen, armados publicados, reservar (idempotente, 409 con el detalle), consultar y cancelar con el teléfono, vencer (sistema); `MINV.Application/Tech`: reservar, liberar y publicar desde el escritorio; vender consume |
+| API Gateway | Esquema `Storefront`, `/storefront/v1` (7 rutas), 300 lecturas y 10 reservas por minuto por IP, CORS, caché HTTP, OpenAPI «Tienda web», `StorefrontReservationExpiryService` |
+| Base de datos | Migración `V6Storefront`: 153 tablas, 151 políticas por empresa, 63 por sucursal, 30 libros append-only; usuario técnico por empresa |
+| Web (fase B) | `3-infrastructure/http` (único lugar con `fetch`, `VITE_API_URL`), pantalla de carga y error, disponibilidad Disponible / Últimas / Reservado / Agotado, «Reservar armado», página «Mi reserva» |
+| Escritorio (fase B) | Armador de PC con canal, contacto y vencimiento, Reservar / Liberar / Vender en caja / Publicar, «Reservado: n» en stock, catálogo y caja, tarjeta «Reservas web activas» |
+| Datos de prueba | Usuario técnico `tienda-web@techzone.example`, armados publicados, una reserva web activa y una vencida |
+
+```powershell
+git switch Inventario-V6
+powershell -ExecutionPolicy Bypass -File tools\bd_local.ps1 -Accion recrear              # base local con Tech Zone Gaming V6 (borra la anterior)
+powershell -ExecutionPolicy Bypass -File tools\publicar_escritorio.ps1                    # dist\M-INV-6.0.0-alpha.1-win-x64\M-INV.exe
+powershell -ExecutionPolicy Bypass -File tools\servidores_locales.ps1 -Accion iniciar    # SIN :5095 + nube :5080 + API :5090 con /storefront/v1
+cd "src\3. Presentation\MINV.WebCatalog"; npm install; npm run dev                      # la web en http://localhost:5173 (VITE_API_URL → :5090)
+dotnet test tests/MINV.Integration.Tests --filter Storefront                            # la API de tienda de punta a punta
+```
+
+Paso a paso (el recorrido web → escritorio → web, qué no hace, usuarios y problemas frecuentes):
+[`docs/deployment/inicio-rapido-v6.md`](docs/deployment/inicio-rapido-v6.md) · guía para todos:
+[`GUIA-DE-INICIO.md`](GUIA-DE-INICIO.md) §7 · despliegue en la nube: [`docs/deployment/despliegue-nube-v4.md`](docs/deployment/despliegue-nube-v4.md) §14.
+
+## M-INV V5 · rama `Inventario-V5` (5.0.0-alpha.1) · catálogo web (versión anterior)
+
+Construida sobre `Inventario-V4.2`. **`src/3. Presentation/MINV.WebCatalog`** (Vite 8 + React 19 + TypeScript + Tailwind 4):
+el catálogo web de Tech Zone Gaming con inicio, catálogo con filtros, ficha del producto y **«Armá tu PC»**, en
+arquitectura limpia (dominio → aplicación → presentación; infraestructura en memoria) y con datos de muestra generados
+desde el catálogo de la V4.2 (`npm run generar-catalogo`). Sin backend, sin base de datos, sin compras. Guía:
+[`docs/product/catalogo-web-v5.md`](docs/product/catalogo-web-v5.md) · `src/3. Presentation/MINV.WebCatalog/README.md`.
+
+```powershell
+cd "src\3. Presentation\MINV.WebCatalog"; npm install; npm run dev    # http://localhost:5173 · npm test · npm run build → dist/
+```
+
+## M-INV V4.2 · rama `Inventario-V4.2` (4.2.0-alpha.1) · edición Tecnología (versión anterior)
 
 Construida sobre `Inventario-V4.1`. M-INV pasa a ser el sistema de inventarios de una **tienda de tecnología y gaming**
 (componentes de PC, computadoras, monitores, periféricos, consolas PS4 y PS5, Xbox Series X y Series S, Nintendo Switch y
@@ -312,10 +376,14 @@ ZP-MINV-Platform/
 │   ├── v3-architecture-rules.md         Reglas A-01 a A-13 de la solución .NET (V3)
 │   ├── v4-architecture-rules.md         Reglas B-01 a B-17: multi-sucursal, nube, integraciones (V4)
 │   ├── v41-billing-rules.md             Reglas F-01 a F-17: facturación SIAT (V4.1)
-│   └── database-migration-guide.md      Migraciones de esquema y de datos (V2.1 → V3 → V4)
-├── CLAUDE.md · CHANGELOG.md · README.md
-├── deploy/                                    V4: docker-compose.yml, Dockerfiles de los servidores (V4.1: y del simulador del SIN), .env.example
+│   ├── v42-tech-rules.md                Reglas T-01 a T-10: edición Tecnología (V4.2)
+│   ├── v6-storefront-rules.md           Reglas S-01 a S-10: tienda web conectada (V6)
+│   └── database-migration-guide.md      Migraciones de esquema y de datos (V2.1 → V3 → V4 → V4.2)
+├── CLAUDE.md · CHANGELOG.md · README.md · GUIA-DE-INICIO.md
+├── deploy/                                    V4: docker-compose.yml, Dockerfiles de los servidores (V4.1: y del simulador del SIN; V6: y del catálogo web), .env.example
 ├── docs/
+│   ├── architecture/tienda-web-conectada-v6.md V6: diseño de la tienda web conectada (API pública, reservas, escritorio, web)
+│   ├── architecture/edicion-tecnologia-v4.2.md V4.2: diseño de la edición Tecnología (series, RMA, armador, fichas técnicas)
 │   ├── architecture/arquitectura-v4.md        Arquitectura V4 (sucursales, transferencias, nube, API, webhooks)
 │   ├── architecture/facturacion-siat-v4.1.md  V4.1: diseño de la facturación SIAT (modelo, estados, algoritmos, puertos)
 │   ├── billing/README.md                      V4.1: qué es la facturación, investigación del SIN, huecos por confirmar
@@ -323,7 +391,9 @@ ZP-MINV-Platform/
 │   ├── billing/investigacion-siat/            V4.1: normativa del SIN resumida y citada (especificaciones 00 a 08)
 │   ├── architecture/data-dictionary.md       Modelo V1.2
 │   ├── architecture/data-dictionary-v2.md    Modelo V2 (usuarios, captura, bitácoras, instantáneas)
-│   ├── database/ERD-MINV-V3.md                Modelo relacional V3, V4 y V4.1 (140 tablas)
+│   ├── database/ERD-MINV-V3.md                Modelo relacional V3 a V6 (153 tablas)
+│   ├── deployment/inicio-rapido-v6.md         V6: el algoritmo de la tienda web conectada (web → escritorio → web)
+│   ├── deployment/inicio-rapido-v4.2.md       V4.2: el algoritmo de la edición Tecnología
 │   ├── deployment/inicio-rapido-v4.1.md       V4.1: el algoritmo de la facturación con el simulador del SIN
 │   ├── deployment/inicio-rapido-v4.md         V4: paso a paso en un solo equipo (base local, nube simulada, API)
 │   ├── deployment/despliegue-nube-v4.md       V4: DigitalOcean, AWS RDS y Supabase, servidores, TLS, respaldos
@@ -331,12 +401,14 @@ ZP-MINV-Platform/
 │   ├── deployment/inicio-rapido.md            Paso a paso: demo, producción, uso diario, Power Automate
 │   ├── deployment/sharepoint-rbac-policies.md Matriz de roles, protección de rangos y publicación
 │   ├── integration/api-gateway-v1.md          V4: guía del integrador B2B (endpoints, errores, webhooks, firmas)
-│   └── product/                               Guía UX y capturas (v2/ = libro colaborativo, v3.1/ = escritorio)
-├── MINV.sln                             Solución .NET (V3 y V4)
+│   ├── integration/storefront-api-v1.md       V6: contrato de la API pública de tienda (/storefront/v1)
+│   ├── product/catalogo-web-v5.md             V5: el catálogo web (páginas, disponibilidad; nota de la conexión V6)
+│   └── product/                               Guía UX, guías del escritorio y capturas (v2/, v3.1/, v4/, v4.1/, v4.2/)
+├── MINV.sln                             Solución .NET (V3 a V6)
 ├── src/
-│   ├── 1. Core/                         MINV.Domain · MINV.Application (casos de uso, contrato RPC)
+│   ├── 1. Core/                         MINV.Domain · MINV.Application (casos de uso, contrato RPC, V6: Storefront)
 │   ├── 2. Infrastructure/               MINV.Infrastructure (EF Core, migraciones, servidores, webhooks) · MINV.Hardware
-│   ├── 3. Presentation/                 MINV.DesktopClient (M-INV.exe) · MINV.CloudServer (V4) · MINV.ApiGateway (V4)
+│   ├── 3. Presentation/                 MINV.DesktopClient (M-INV.exe) · MINV.CloudServer (V4) · MINV.ApiGateway (V4; V6: /storefront/v1) · MINV.WebCatalog (V5/V6: la web)
 │   ├── 4. Tools/                        MINV.Cli (minv) · MINV.SiatSimulator (V4.1: simulador del SIN)
 │   ├── office-scripts/                  Office Scripts (TypeScript) + lib/comun.ts (bloque compartido)
 │   ├── macros/                          VBA de la edición Plus V1.2
@@ -410,9 +482,15 @@ La protección de Excel evita errores, no ataques; la seguridad real es el permi
   en la nube, API Gateway B2B y webhooks; ver la sección M-INV V4.
 - **V4.1** (rama `Inventario-V4.1`, 4.1.0-alpha.1): facturación SIAT (Computarizada en Línea) con simulador del SIN;
   siguiente paso: confirmar el WSDL en el piloto del SIN y la autorización del sistema.
-- **V4.2** · En curso (rama `Inventario-V4.2`, 4.2.0-alpha.1): edición Tecnología para tiendas de computadoras,
-  componentes, consolas y videojuegos (series e IMEI, garantías y RMA, fichas técnicas, armador de PC y tema gaming); ver
-  la sección M-INV V4.2.
+- **V4.2** (rama `Inventario-V4.2`, 4.2.0-alpha.1): edición Tecnología para tiendas de computadoras, componentes,
+  consolas y videojuegos (series e IMEI, garantías y RMA, fichas técnicas, armador de PC y tema gaming); ver la sección
+  M-INV V4.2.
+- **V5** (rama `Inventario-V5`, 5.0.0-alpha.1): catálogo web «Armá tu PC» (Vite + React) con datos de muestra; ver la
+  sección M-INV V5.
+- **V6** · En curso (rama `Inventario-V6`, 6.0.0-alpha.1): tienda web conectada a la base de datos del escritorio (API
+  pública de tienda, reservas de armados con stock reservado, venta en caja que consume la reserva); la fase A (backend,
+  API, datos de prueba) está en la rama y la fase B (pantallas de la web y del escritorio) se integra; ver la sección
+  M-INV V6.
 
 ---
-© Z&P Software Fast Solutions · M-INV V4.2.0-alpha.1 edición Tecnología · V4.1.0-alpha.1 · V4.0.0-alpha.1 · V3.1.0-alpha.1 · V2.1.0 colaborativa · V1.2.0 local
+© Z&P Software Fast Solutions · M-INV V6.0.0-alpha.1 tienda web conectada · V5.0.0-alpha.1 catálogo web · V4.2.0-alpha.1 edición Tecnología · V4.1.0-alpha.1 · V4.0.0-alpha.1 · V3.1.0-alpha.1 · V2.1.0 colaborativa · V1.2.0 local

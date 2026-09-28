@@ -32,6 +32,21 @@ public sealed class StockLevelTests
     }
 
     [Fact]
+    public void V6_una_reserva_de_linea_de_armado_baja_el_disponible_y_se_libera_o_vence_como_las_demas()
+    {
+        var level = _t.Level(10);
+        var line = Guid.NewGuid();
+        var reservation = level.Reserve(4, _t.Now.AddHours(48), _t.Now, pcBuildLineId: line);
+        Assert.Equal((line, 6m, 4m), (reservation.PcBuildLineId, level.Available, level.QuantityReserved));
+        level.Release(reservation);
+        Assert.Equal((ReservationStatus.Released, 10m), (reservation.Status, level.Available));
+        var other = level.Reserve(2, _t.Now.AddHours(1), _t.Now, pcBuildLineId: Guid.NewGuid());
+        Assert.Equal("reservation.not_expired", Assert.Throws<DomainException>(() => level.Expire(other, _t.Now.AddMinutes(30))).Code);
+        level.Expire(other, _t.Now.AddHours(2));
+        Assert.Equal((ReservationStatus.Expired, 10m, 10m), (other.Status, level.Available, level.QuantityOnHand));
+    }
+
+    [Fact]
     public void Las_reservas_protegen_el_stock_frente_a_otras_salidas()
     {
         var level = _t.Level(10);

@@ -1,12 +1,14 @@
 // Resumen del armado: líneas por ranura (miniatura, nombre corto, cantidad, subtotal, quitar), faltantes esenciales con
-// enlace al paso, datos de referencia del catálogo, total con IVA incluido y las acciones de cierre.
+// enlace al paso, datos de referencia del catálogo, total con IVA incluido y las acciones de cierre («Reservar armado»).
 // Lo comparten el panel fijo de escritorio y la hoja inferior de móvil.
 
-import { ArrowRight, CircleAlert, Info, PcCase, Sparkles, Trash2 } from 'lucide-react';
+import { ArrowRight, CalendarClock, CircleAlert, Info, PcCase, Sparkles, Trash2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { BuildSummary } from '@/1-domain/builder/build';
 import type { SlotKey } from '@/1-domain/builder/types';
 import { ivaBreakdown } from '@/1-domain/catalog/money';
+import { reservedLabel } from '@/1-domain/catalog/stock';
+import { RESERVATION_HOURS } from '@/1-domain/storefront/types';
 import { ROUTES } from '@/4-presentation/app/routes';
 import { Badge } from '@/4-presentation/components/ui/Badge';
 import { Button } from '@/4-presentation/components/ui/Button';
@@ -23,13 +25,15 @@ export interface BuildSummaryPanelProps {
   onGoToStep: (slot: SlotKey) => void;
   onFinish: () => void;
   onPickPreset: () => void;
+  /** Hay armados sugeridos publicados (si no, el estado vacío no ofrece «Ver armados sugeridos»). */
+  hasPresets?: boolean;
   /** Muestra el título «Tu armado» (el panel de escritorio; la hoja de móvil ya tiene título propio). */
   withHeading?: boolean;
   /** Muestra el bloque de total y los botones (en la hoja de móvil van en el pie fijo). */
   withTotals?: boolean;
 }
 
-export function BuildSummaryPanel({ summary, onRemove, onGoToStep, onFinish, onPickPreset, withHeading = true, withTotals = true }: BuildSummaryPanelProps) {
+export function BuildSummaryPanel({ summary, onRemove, onGoToStep, onFinish, onPickPreset, hasPresets = true, withHeading = true, withTotals = true }: BuildSummaryPanelProps) {
   const { lines, count, total, savings, progress, missing } = summary;
   const filledSlots = summary.slots.filter((entry) => entry.lines.length > 0);
   const references = referenceData(lines);
@@ -44,10 +48,17 @@ export function BuildSummaryPanel({ summary, onRemove, onGoToStep, onFinish, onP
       )}
 
       {lines.length === 0 ? (
-        <EmptyState size="sm" icon={<PcCase />} title="Todavía no elegiste piezas" description="Abrí un paso y elegí una opción, o empezá desde un armado sugerido.">
-          <Button variant="accent" leftIcon={<Sparkles />} onClick={onPickPreset}>
-            Ver armados sugeridos
-          </Button>
+        <EmptyState
+          size="sm"
+          icon={<PcCase />}
+          title="Todavía no elegiste piezas"
+          description={hasPresets ? 'Abrí un paso y elegí una opción, o empezá desde un armado sugerido.' : 'Abrí un paso y elegí una opción.'}
+        >
+          {hasPresets && (
+            <Button variant="accent" leftIcon={<Sparkles />} onClick={onPickPreset}>
+              Ver armados sugeridos
+            </Button>
+          )}
         </EmptyState>
       ) : (
         <>
@@ -80,6 +91,12 @@ export function BuildSummaryPanel({ summary, onRemove, onGoToStep, onFinish, onP
                           {line.quantity > 1 && <span>{line.quantity} × {formatMoney(line.product.price)} · </span>}
                           <span className="font-semibold text-text">{formatMoney(line.product.price * line.quantity)}</span>
                         </p>
+                        {line.quantity > line.product.stock && (
+                          <p className="mt-0.5 text-xs font-semibold text-warning-text">
+                            {line.product.stock > 0 ? `Solo quedan ${line.product.stock} disponibles` : 'No queda disponible'}
+                            {reservedLabel(line.product) ? ` (${reservedLabel(line.product)})` : ''}.
+                          </p>
+                        )}
                       </div>
                       <IconButton label={`Quitar ${line.product.shortName} del armado`} icon={<Trash2 />} onClick={() => onRemove(line.product.sku)} />
                     </li>
@@ -126,7 +143,7 @@ export function BuildSummaryPanel({ summary, onRemove, onGoToStep, onFinish, onP
                   </div>
                 ))}
               </dl>
-              <p className="mt-2 text-xs text-text-faint">Tomados de la ficha de cada pieza. Este sitio no valida la compatibilidad entre componentes.</p>
+              <p className="mt-2 text-xs text-text-faint">Tomados de la ficha de cada pieza. La compatibilidad la revisa un técnico de la tienda al confirmar la reserva.</p>
             </div>
           )}
         </>
@@ -146,7 +163,7 @@ export interface SummaryTotalsProps {
   compact?: boolean;
 }
 
-/** Total en Bs, IVA incluido, «Finalizar armado» y «Seguir en el catálogo». */
+/** Total en Bs, IVA incluido, «Reservar armado» (V6: te lo guardamos 48 h en la tienda) y «Seguir en el catálogo». */
 export function SummaryTotals({ total, savings, count, onFinish, compact = false }: SummaryTotalsProps) {
   const breakdown = ivaBreakdown(total);
   return (
@@ -165,9 +182,15 @@ export function SummaryTotals({ total, savings, count, onFinish, compact = false
           </span>
         </p>
       </div>
+      {!compact && (
+        <p className="flex items-start gap-2 text-xs text-text-muted">
+          <CalendarClock aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-accent" />
+          <span>Te lo guardamos {RESERVATION_HOURS} h en la tienda; se confirma y paga en persona.</span>
+        </p>
+      )}
       <div className={compact ? 'flex gap-2' : 'flex flex-col gap-2'}>
         <Button variant="brand" fullWidth={!compact} className={compact ? 'flex-1' : undefined} rightIcon={<ArrowRight />} disabled={count === 0} onClick={onFinish}>
-          Finalizar armado
+          Reservar armado
         </Button>
         <Button to={ROUTES.catalog} variant="outline" fullWidth={!compact} className={compact ? 'max-sm:hidden' : undefined}>
           Seguir en el catálogo

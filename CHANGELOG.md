@@ -2,6 +2,150 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semántico.
 
+## [6.0.0-alpha.1 · Tienda web conectada] · 2026-09-27 · rama `Inventario-V6`
+
+Tema: el catálogo web de la V5 deja el mock y se conecta a **la misma base de datos en la nube que el escritorio** (Tech
+Zone Gaming, TECHZONE) a través de una **API pública de tienda** en el API Gateway (`/storefront/v1`, sin API Key). Lo que
+se vende en el escritorio deja de estar disponible en la web; lo que se **reserva** desde el armador de la web (o desde el
+escritorio) queda **EN RESERVA** para ambos hasta que se vende en caja, se libera o vence. Construida sobre `Inventario-V5`.
+**153 tablas en 10 esquemas** (1 nueva). Reglas S-01 a S-10: `.claude/v6-storefront-rules.md` · diseño:
+`docs/architecture/tienda-web-conectada-v6.md` · contrato de la API: `docs/integration/storefront-api-v1.md` · tablas:
+`docs/database/ERD-MINV-V3.md` §10 · paso a paso: `docs/deployment/inicio-rapido-v6.md` · para todos: `GUIA-DE-INICIO.md` §7.
+Estado: las **fases A** (dominio, aplicación, migración, API pública, datos de prueba, pruebas) **y B** (pantallas de la web
+y del escritorio) están fusionadas en la rama, y la **fase C** las verificó de punta a punta sobre una base temporal (ver
+«Verificado» más abajo).
+
+### Agregado (fase A · backend)
+
+- **Dominio**: `PcBuild` con canal (`Desktop`/`Web`), contacto (nombre y teléfono boliviano obligatorios en la web, correo y
+  notas), estado `Reserved` (`Quoted → Reserved → Sold | Cancelled`), `Reserve`, `ReleaseReservation` (con motivo; «Vencida» al
+  vencer), `MarkSold` desde reservado, `Publish`/`Unpublish` (armados sugeridos de la web), bitácora append-only
+  `PcBuildEvent` (`sales.pc_build_events`) de cada cambio y eventos de dominio `pcbuild.reserved`, `pcbuild.released`,
+  `pcbuild.sold` al outbox (webhooks). `StockReservation` con el tercer origen `PcBuildLineId` (arco caja | pedido | armado) y
+  `StockLevel.Fulfill` (vender un armado reservado consume la reserva: nunca se descuenta dos veces). Rol `TIENDA_WEB` y permisos
+  `storefront.read` / `storefront.reserve` (también Administrador y Gerencia).
+- **Aplicación** (`MINV.Application/Storefront`): `GetStorefrontCatalogQuery` (instantánea con la forma del mock de la V5:
+  categorías con ícono y conteo, marcas, productos con slug, ficha, precio, disponibilidad = existencias − reservado en la
+  sucursal de la tienda, popularidad por ventas de 90 días, etiquetas, descripción generada, armados publicados),
+  `GetStorefrontProductQuery`, `GetStorefrontProductImageQuery`, `GetStorefrontPresetsQuery`, `GetStorefrontReservationQuery`
+  (número + teléfono), `CreateStorefrontReservationCommand` (todo o nada, reintento optimista, `ARM-WEB-000001`, idempotente por
+  `Idempotency-Key` en `processed_requests`, 409 con el detalle de lo que falta), `CancelStorefrontReservationCommand`,
+  `ExpirePcBuildReservationsCommand` (sistema) y, para el escritorio, `ReservePcBuildCommand`, `ReleasePcBuildReservationCommand`,
+  `PublishPcBuildCommand`; `SellPcBuildCommand` vende armados reservados consumiendo la reserva; `CancelPcBuildCommand` libera;
+  `PcBuildRow`/`PcBuildDetail` con canal, contacto (teléfono y correo solo con `sales.pcbuild.manage`), reserva, publicación y
+  bitácora; tablero Tecnología con «reservas web activas» (cantidad y Bs).
+- **API Gateway**: esquema de autenticación `Storefront` (principal técnico `tienda-web` de `Minv:Storefront:TenantCode`, sucursal
+  `BranchCode`), grupo `/storefront/v1` con 7 rutas, límites por IP (300 lecturas/min, 10 reservas/min), CORS para
+  `AllowedOrigins`, caché HTTP de la imagen (ETag, 1 h) y de la instantánea (30 s), OpenAPI «Tienda web» y
+  `StorefrontReservationExpiryService` (cada 5 min cierra las reservas vencidas).
+- **Infraestructura**: migración `V6Storefront` (+ `.Sql.cs`: relleno del canal y de la bitácora, RLS y append-only de
+  `pc_build_events`, permisos, rol y usuario técnico por empresa, privilegios), `TenantProvisioner` crea el usuario técnico,
+  `scripts/db_init.sql` regenerado.
+- **Datos de prueba**: los 6 armados sugeridos del catálogo se publican en la web (la tienda muestra los de su sucursal: 3 en
+  CM); dos reservas web (una vencida y liberada por el trabajo de vencimiento, otra activa de hace unas horas) con contactos
+  ficticios `.example`; `usuarios-prueba.txt` menciona el usuario técnico (sin contraseña utilizable).
+- **Scripts**: `tools/servidores_locales.ps1` pasa la empresa y la sucursal de la tienda al gateway y muestra
+  `http://localhost:5090/storefront/v1/catalog`; `deploy/docker-compose.yml` con las variables `MINV_STOREFRONT_*` y
+  `webcatalog` construido con `VITE_API_URL` (`deploy/Dockerfile.webcatalog`).
+- **Pruebas**: dominio (reservas, contacto, publicación, bitácora, arco), infraestructura en memoria (flujo completo
+  reservar → stock reservado → vender consume → liberar/vencer devuelve, idempotencia, insuficiente, permisos) y PostgreSQL
+  (usuario técnico, CHECK y arco, append-only, RLS por sucursal), integración del gateway (catálogo, producto, imagen, CORS,
+  reservar, 409, consultar, cancelar, vencimiento, venta en caja, límites por IP).
+
+### Agregado (fase B · web)
+
+- Puertos `ICatalogSource` e `IReservationGateway` en `1-domain/ports`; tipos del contrato en `2-application/storefront`;
+  `3-infrastructure/http` (`HttpCatalogSource`, `HttpReservationGateway`, `api.ts`): el único lugar con `fetch`
+  (`src/architecture.test.ts`), base `VITE_API_URL` (por defecto `http://localhost:5090`; `VITE_API_URL=mock` usa los
+  `*.data.ts` de la V5); `InMemoryCatalogRepository` hidratado con la instantánea (imágenes absolutas hacia la API).
+- `CatalogProvider` con estados cargando (skeleton y logotipo), error («Reintentar») y listo; refresco al volver a la pestaña
+  y cada 60 s; la ficha consulta `GET /products/{slug}` al abrirse. Disponibilidad `disponible (n)`, `ultimas`, `reservado`,
+  `agotado` en tarjetas, filas, ficha, candidatos del armador y resumen; «Agregar al armado» solo con disponible; cantidad
+  máxima = disponible.
+- «Finalizar armado» → **«Reservar armado»**: formulario accesible (nombre, teléfono/WhatsApp con validación boliviana, correo
+  opcional, notas), aviso de vigencia, envío con `Idempotency-Key`, errores del contrato (409 marca las piezas y cuánto hay),
+  éxito con número, vencimiento, líneas y total, enlaces «Consultar mi reserva» y WhatsApp; página `/reserva/:numero`
+  (teléfono → estado; «Liberar mi reserva»). Armados sugeridos desde la API. Textos: la reserva se guarda en la tienda y se
+  confirma en persona. `.env.example`, `npm run build` con `.env.production`; `deploy/Dockerfile.webcatalog` con `ARG VITE_API_URL`.
+- Pruebas (vitest): mapeo DTO → dominio, fuentes HTTP con `fetch` simulado (éxito, 409, 429, red caída), `CatalogProvider`,
+  formulario de reserva, página de consulta; las de la V5 siguen con `VITE_API_URL=mock`.
+
+### Agregado (fase B · escritorio)
+
+- **Armador de PC › Cotizaciones**: columnas **Canal** (insignia «Web» con ícono), **Contacto** (nombre y teléfono; correo en el
+  detalle; solo con `sales.pcbuild.manage`, regla S-06), **Reservado hasta** (resaltado en ámbar si vence en menos de 6 h y en
+  rojo si ya venció) y **Web** (publicado); estado **Reservados**, filtro rápido **Reservas web** y tarjeta **Reservas web
+  activas** (cantidad, Bs y cuántas vencen pronto). Acciones según el estado y el permiso: **Reservar stock** (pide las horas,
+  48 por defecto; todo o nada), **Liberar reserva** (pide el motivo), **Vender en caja** (avisa que la venta consume la
+  reserva), **Publicar en la web** / **Quitar de la web**. Detalle de una reserva web: vigencia, contacto con **Copiar
+  teléfono**, notas del cliente y cada pieza con su disponibilidad en la sucursal.
+- **Stock, catálogo y caja**: «Reservado: n» y disponible = existencias − reservado (chip «Con reservas» y columna
+  **Reservado** en Stock, con la exportación a Excel; «n UND · reservado m» en el catálogo); la caja muestra «Disponible n
+  (reservado m)», marca la línea que supera lo disponible con lo reservado y avisa **Stock insuficiente** antes de cobrar; carga
+  también los armados **reservados** (web o escritorio) y la venta los cobra consumiendo la reserva (regla S-04).
+- **Inicio › Tecnología**: tarjeta **Reservas web activas** (cantidad y Bs) y enlace «Reservas web» que abren el armador con el
+  filtro puesto.
+- **Capturas y guía**: `docs/product/escritorio-v6.md` con las capturas 99 a 102 (`docs/product/capturas/v6`) que genera
+  `M-INV.exe --capturas` (`tools/build_v3.ps1 -Capturas`).
+- **Pruebas** (`tests/MINV.DesktopClient.Tests/StorefrontScreenTests`): la reserva web de la demostración en la lista, el
+  detalle y el tablero; reservar, publicar y liberar una cotización propia desde el ViewModel; la caja vende la reserva web
+  consumiéndola; stock, catálogo y caja con lo reservado y la caja que no cobra más que lo disponible.
+- **Aplicación** (mínimo, fuera del alcance del escritorio): `GetStockReservationsQuery` (`inventory.stock.view`): unidades
+  reservadas por SKU en el almacén de trabajo, para «Reservado: n» en stock, catálogo y caja.
+
+### Documentación
+
+- `docs/deployment/inicio-rapido-v6.md` (el algoritmo: base, escritorio, servidores, web y el recorrido web → escritorio →
+  web; qué no hace; problemas frecuentes), `GUIA-DE-INICIO.md` (ediciones 6 «Catálogo Web» y 7 «Tienda web conectada»,
+  cuenta técnica «Tienda web», usuarios y problemas), `docs/product/catalogo-web-v5.md` (el catálogo web de la V5 y su
+  conexión en la V6), `docs/architecture/tienda-web-conectada-v6.md` ajustado al código (configuración, principal técnico,
+  idempotencia en `iam.processed_requests`, `Expired`, casos de uso del escritorio, límites, pruebas),
+  `docs/deployment/despliegue-nube-v4.md` §14 (gateway con la tienda, `webcatalog`, CORS, TLS, variables),
+  `deploy/.env.example` (variables `MINV_STOREFRONT_*` y `MINV_WEB_API_URL` documentadas), `README.md`, `CLAUDE.md` y este
+  historial. Quién ve las cotizaciones en el escritorio: los roles con `sales.view` (Bodega y Consulta no; ven el stock con
+  lo reservado).
+
+### Verificado (fase C · punta a punta)
+
+- Sobre una base temporal (`minv migrate` + `minv datos-prueba` de 60 días con facturación + `minv verify`), con el simulador
+  del SIN, el servidor en la nube y el gateway en puertos propios y la web de Vite contra ese gateway: la web carga el catálogo
+  real (159 productos, imágenes desde la API); reservar un armado sugerido desde la web crea `ARM-WEB-…` y cada pieza queda
+  con `reserved` +1 y `available` −1 (disponible = existencias − reservado); el escritorio (RPC del servidor en la nube, como
+  un cliente de escritorio) la lista con `GetPcBuildsQuery(Reserved, Web)` con canal Web, contacto y «reservado hasta», y la
+  ficha del producto y `GetStockReservationsQuery` muestran lo reservado; `SellPcBuildCommand` desde una caja abierta factura
+  (`F-CM-…`) y **consume** la reserva (existencias −1, reservado −1, disponible igual: una sola salida); la web muestra la
+  pieza como «Última unidad» / «Agotado» y «Mi reserva» como **Vendida**; `ReservePcBuildCommand` sobre una cotización del
+  escritorio deja la pieza en «Reservado» en la web y `ReleasePcBuildReservationCommand` la devuelve; reservar más de lo
+  disponible responde `409 storefront.insufficient_stock` con `shortages[]` sin reservar nada (en la web marca la pieza y
+  ofrece «Ajustar a lo disponible»); una reserva vencida se muestra `Expired` sin cerrarse al leer y el trabajo del gateway
+  la cierra («Vencida», stock devuelto, fila `Expired` en la bitácora); repetir el `POST` con la misma `Idempotency-Key`
+  devuelve la misma reserva con `Idempotent-Replayed: true` (y `422 idempotency` con otro contenido); CORS solo para el
+  origen configurado y `429` al superar 10 reservas o 300 lecturas por minuto por IP.
+
+### Cambiado
+
+- `Directory.Build.props`, imágenes de `deploy/docker-compose.yml` y `package.json` de la web: **6.0.0-alpha.1**.
+- `SellPcBuildCommand` vende también armados **reservados** (consume la reserva); `CancelPcBuildCommand` libera la reserva de
+  un armado reservado; `GetPcBuildsQuery` filtra por canal; `PcBuildRow`, `PcBuildDetail` y `TechDashboardView` traen los
+  campos de la V6 (el teléfono y el correo solo con `sales.pcbuild.manage`).
+- `inventory.stock_reservations`: el arco de origen pasa de dos a tres (`pos_session_id`, `sales_order_line_id`,
+  `pc_build_line_id`); `iam.audit_logs.channel` admite `storefront`; ADMIN y GERENCIA reciben `storefront.read` y
+  `storefront.reserve`.
+- API Gateway: el limitador global por IP separa el presupuesto de `/storefront/v1` (300/min) del resto (120/min); OpenAPI
+  describe la tienda web; `tools/servidores_locales.ps1` recibe `-EmpresaTienda`, `-SucursalTienda` y `-OrigenTienda`.
+- `docs/database/ERD-MINV-V3.md` §10, `docs/integration/api-gateway-v1.md` §7.2 (eventos `pcbuild.*`) y las pruebas de
+  PostgreSQL (153 tablas, 151/63 políticas, 30 libros).
+
+### Límites conocidos
+
+- Sin pagos en línea ni cuentas de cliente: la reserva se confirma y cobra en la tienda; se consulta o libera con el número y
+  el teléfono.
+- La reserva es por cantidad (las series se eligen al vender en caja) y muestra el stock de **una** sucursal (la configurada).
+- La compatibilidad de las piezas se informa (`hasCompatibilityWarnings`), no bloquea.
+- Una reserva vencida se cierra en la pasada siguiente del trabajo del gateway (cada 5 min); hasta entonces la API la muestra
+  `Expired` y el stock sigue reservado.
+- La instantánea se calcula en cada petición (caché HTTP de 30 s): con catálogos muy grandes convendría materializarla.
+
 ## [5.0.0-alpha.1 · Catálogo Web] · 2026-09-27 · rama `Inventario-V5`
 
 Tema: **Catálogo Web M-INV (MINV.WebCatalog)**. El catálogo web ahora funciona de punta a punta, con un diseño renovado y responsivo, sin errores de consola.

@@ -91,7 +91,8 @@ public interface ICurrentUser
 
 /// <summary>
 /// V4 · Por dónde llegó la petición: <c>desktop</c> (escritorio con conexión directa), <c>cloud</c> (escritorio a través
-/// del servidor en la nube) o <c>api</c> (API Gateway B2B, con la API Key usada). Va en la auditoría.
+/// del servidor en la nube), <c>api</c> (API Gateway B2B, con la API Key usada) o, V6, <c>storefront</c> (tienda web pública).
+/// Va en la auditoría.
 /// </summary>
 public interface IRequestOrigin
 {
@@ -107,6 +108,9 @@ public static class RequestChannels
     public const string Desktop = "desktop";
     public const string Cloud = "cloud";
     public const string Api = "api";
+
+    /// <summary>V6 · Tienda web pública (principal técnico <c>tienda-web</c> del gateway, sin API Key).</summary>
+    public const string Storefront = "storefront";
 }
 
 /// <summary>

@@ -1,10 +1,11 @@
 // Prueba de arquitectura: las dependencias solo apuntan hacia adentro (1-domain ← 2-application ← 4-presentation) y la
-// infraestructura entra únicamente por el punto de composición `4-presentation/app/container.ts`.
-// Lee el código fuente de src/ (sin las pruebas) y revisa cada `import`.
+// infraestructura entra únicamente por el punto de composición `4-presentation/app/container.ts`. V6 (regla S-07): la
+// red vive SOLO en `3-infrastructure/http/api.ts` (único `fetch`); el resto de la web sigue sin red ni storage.
+// Lee el código fuente de src/ (sin las pruebas ni sus utilidades) y revisa cada `import`.
 
 import { describe, expect, it } from 'vitest';
 
-const SOURCES = import.meta.glob<string>(['./**/*.{ts,tsx}', '!./**/*.test.{ts,tsx}', '!./test-setup.ts'], {
+const SOURCES = import.meta.glob<string>(['./**/*.{ts,tsx}', '!./**/*.test.{ts,tsx}', '!./test-setup.ts', '!./test-utils.tsx'], {
   query: '?raw',
   import: 'default',
   eager: true,
@@ -61,15 +62,19 @@ describe('arquitectura limpia del catálogo web', () => {
     ).toEqual([]);
   });
 
-  it('3-infrastructure implementa el puerto del dominio sin tocar la aplicación ni la presentación', () => {
+  it('3-infrastructure implementa los puertos del dominio; de la aplicación solo conoce el contrato de la tienda (storefront)', () => {
     expect(
       violations(
         '3-infrastructure',
         (specifier) =>
           REACT_LIKE.test(specifier) ||
-          specifier.startsWith('@/2-application') ||
+          (specifier.startsWith('@/2-application') && !specifier.startsWith('@/2-application/storefront')) ||
           specifier.startsWith('@/4-presentation'),
       ),
+    ).toEqual([]);
+    // Y el contrato lo usa únicamente el adaptador HTTP (el mock de la V5 habla el dominio directamente).
+    expect(
+      violations('3-infrastructure', (specifier, path) => specifier.startsWith('@/2-application') && !path.startsWith('./3-infrastructure/http/')),
     ).toEqual([]);
   });
 
@@ -87,10 +92,26 @@ describe('arquitectura limpia del catálogo web', () => {
     expect(violations('shared', (specifier) => REACT_LIKE.test(specifier) || specifier.startsWith('@/'))).toEqual([]);
   });
 
-  it('nadie usa almacenamiento del navegador ni red (solo presentación, estado en memoria)', () => {
+  it('nadie usa almacenamiento del navegador (estado en memoria; regla S-07)', () => {
     const offenders = Object.entries(SOURCES)
-      .filter(([, source]) => /\b(localStorage|sessionStorage|indexedDB|fetch\(|XMLHttpRequest|WebSocket)\b/.test(source))
+      .filter(([, source]) => /\b(localStorage|sessionStorage|indexedDB|XMLHttpRequest|WebSocket)\b/.test(source))
       .map(([path]) => path);
     expect(offenders).toEqual([]);
+  });
+
+  it('la red (`fetch`) vive solo en 3-infrastructure/http/api.ts (regla S-07)', () => {
+    const offenders = Object.entries(SOURCES)
+      .filter(([, source]) => /\bfetch\(/.test(source))
+      .map(([path]) => path);
+    expect(offenders).toEqual(['./3-infrastructure/http/api.ts']);
+    // Los puertos de la V6 existen en el dominio y los implementa la infraestructura HTTP.
+    expect(Object.keys(SOURCES)).toEqual(
+      expect.arrayContaining([
+        './1-domain/ports/ICatalogSource.ts',
+        './1-domain/ports/IReservationGateway.ts',
+        './3-infrastructure/http/HttpCatalogSource.ts',
+        './3-infrastructure/http/HttpReservationGateway.ts',
+      ]),
+    );
   });
 });

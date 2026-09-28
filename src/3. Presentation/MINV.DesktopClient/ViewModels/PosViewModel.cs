@@ -50,7 +50,15 @@ public sealed class PosProduct(SellableProduct p, ImageSource? image) : Observab
         }
     }
 
-    public string AvailableText => IsOut ? "Agotado" : $"{Fmt.Qty(_available)} {Product.Unit}";
+    /// <summary>V6 · Con reservas: «Disponible 2 (reservado 1)»; lo reservado no se vende a otro cliente (regla S-03).</summary>
+    public string AvailableText => IsOut
+        ? Reserved > 0 ? $"Agotado · reservado {Fmt.Qty(Reserved)}" : "Agotado"
+        : Reserved > 0 ? $"Disponible {Fmt.Qty(_available)} (reservado {Fmt.Qty(Reserved)})" : $"{Fmt.Qty(_available)} {Product.Unit}";
+
+    /// <summary>V6 · Unidades reservadas por armados (web y escritorio) y reservas de caja en la sucursal.</summary>
+    public decimal Reserved { get; init; }
+
+    public bool HasReserved => Reserved > 0;
 
     public bool IsOut => _available <= 0;
 
@@ -83,13 +91,14 @@ public sealed class CartLine : ObservableObject
 
     private readonly decimal? _unitPrice;
 
-    public CartLine(PosProduct product, decimal quantity, Action changed, decimal? unitPrice = null, bool locked = false)
+    public CartLine(PosProduct product, decimal quantity, Action changed, decimal? unitPrice = null, bool locked = false, bool reserved = false)
     {
         Product = product;
         _quantity = quantity;
         _changed = changed;
         _unitPrice = unitPrice;
         IsLocked = locked;
+        IsReserved = reserved;
         Serials.CollectionChanged += (_, _) =>
         {
             if (IsSerialized && !IsLocked)
@@ -105,6 +114,10 @@ public sealed class CartLine : ObservableObject
 
     /// <summary>V4.2 · Línea de un armado cotizado: precio congelado, cantidad y descuento fijos.</summary>
     public bool IsLocked { get; }
+
+    /// <summary>V6 · Línea de un armado RESERVADO: sus unidades ya están apartadas (no cuentan en lo disponible), así que no
+    /// «supera lo disponible»; la venta consume la reserva (regla S-04).</summary>
+    public bool IsReserved { get; }
 
     public bool IsEditable => !IsLocked;
 
@@ -180,8 +193,13 @@ public sealed class CartLine : ObservableObject
 
     public string AmountText => Fmt.Money(Amount);
 
-    /// <summary>Guía visual (poka-yoke): la cantidad supera lo disponible. La venta la bloquea el dominio.</summary>
-    public bool ExceedsStock => _quantity > Product.Available;
+    /// <summary>Guía visual (poka-yoke): la cantidad supera lo disponible (existencias − reservado). La venta la bloquea el dominio.</summary>
+    public bool ExceedsStock => !IsReserved && _quantity > Product.Available;
+
+    /// <summary>V6 · Aviso claro cuando la cantidad supera lo disponible, con lo reservado si lo hay.</summary>
+    public string ExceedsStockText => Product.Reserved > 0
+        ? $"Supera lo disponible: hay {Fmt.Qty(Product.Available)} ({Fmt.Qty(Product.Reserved)} reservada{(Product.Reserved == 1 ? "" : "s")} para armados)"
+        : $"Supera lo disponible: hay {Fmt.Qty(Product.Available)}";
 
     public decimal Step => Product.Product.AllowsDecimals ? 0.5m : 1m;
 }
@@ -368,9 +386,16 @@ public sealed class PosViewModel : PageViewModel, IScannerTarget
     public string BuildTitle => _build is { } b ? $"Armado {b.Build.Number} · {b.Build.Name}" : string.Empty;
 
     public string BuildDetail => _build is { } b
-        ? $"Cotización vigente hasta el {Fmt.Date(b.Build.ValidUntil)} · precios congelados{(b.Build.Customer is { } c ? " · " + c : string.Empty)}" +
+        ? (b.Build.Status == PcBuildStatus.Reserved
+              ? $"Reserva{(b.Build.Channel == PcBuildChannel.Web ? " de la tienda web" : string.Empty)} vigente hasta el {Fmt.DateTime(b.Build.ReservedUntil!.Value)} · " +
+                "al cobrar se consume la reserva (el stock reservado sale una sola vez) · precios congelados"
+              : $"Cotización vigente hasta el {Fmt.Date(b.Build.ValidUntil)} · precios congelados") +
+          (b.Build.Customer is { } c ? " · " + c : b.Build.ContactName is { Length: > 0 } contact ? " · " + contact : string.Empty) +
           (b.Build.QuotedWithErrors ? " · cotizado con errores de compatibilidad aceptados" : string.Empty)
         : string.Empty;
+
+    /// <summary>V6 · El armado del carrito está reservado: la venta consume la reserva.</summary>
+    public bool IsReservedBuild => _build?.Build.Status == PcBuildStatus.Reserved;
 
     public ObservableCollection<CartLine> Cart { get; } = [];
 
@@ -643,7 +668,9 @@ public sealed class PosViewModel : PageViewModel, IScannerTarget
         var images = await App.Images.AllAsync(force);
         var inCart = Cart.GroupBy(l => l.Sku).ToDictionary(g => g.Key, g => g.First());
         _tech = await TechCatalog.LoadAsync(App);
-        _products = sellable.Select(p => new PosProduct(p, images.GetValueOrDefault(p.Sku)) { Tech = _tech.GetValueOrDefault(p.Sku) }).ToList();
+        var reserved = await ReservedStock.LoadAsync(App);   // V6 · «Disponible n (reservado m)» (regla S-08)
+        _products = sellable.Select(p => new PosProduct(p, images.GetValueOrDefault(p.Sku)) { Tech = _tech.GetValueOrDefault(p.Sku), Reserved = reserved.GetValueOrDefault(p.Sku) })
+            .ToList();
         Products = CollectionViewSource.GetDefaultView(_products);
         Products.Filter = Matches;
         OnPropertyChanged(nameof(Products));
@@ -902,10 +929,11 @@ public sealed class PosViewModel : PageViewModel, IScannerTarget
             App.Notify.Error("No se pudo cargar el armado", AppServices.Describe(ex));
             return;
         }
-        if (detail.Build.Status != PcBuildStatus.Quoted || detail.Build.IsExpired)
+        // V6 · También se cobra un armado RESERVADO (web o escritorio): la venta consume la reserva (regla S-04)
+        if (detail.Build.Status is not (PcBuildStatus.Quoted or PcBuildStatus.Reserved) || detail.Build.IsExpired)
         {
             App.Notify.Warning("El armado no se puede cobrar",
-                $"{detail.Build.Number} está {TechText.BuildStatus(detail.Build.Status, detail.Build.IsExpired).ToLower(Fmt.Culture)}: solo se cobran cotizaciones vigentes.");
+                $"{detail.Build.Number} está {TechText.BuildStatus(detail.Build.Status, detail.Build.IsExpired).ToLower(Fmt.Culture)}: solo se cobran cotizaciones y reservas vigentes.");
             return;
         }
         if (Cart.Count > 0 && _build is null
@@ -914,13 +942,14 @@ public sealed class PosViewModel : PageViewModel, IScannerTarget
         {
             return;
         }
+        var reserved = detail.Build.Status == PcBuildStatus.Reserved;
         Cart.Clear();
         foreach (var item in detail.QuotedItems)
         {
             var product = _products.FirstOrDefault(p => p.Sku.Equals(item.Sku, StringComparison.OrdinalIgnoreCase))
                           ?? new PosProduct(new SellableProduct(Guid.Empty, item.Sku, item.Name, string.Empty, "Armado", "UND", false, item.UnitPrice, item.Stock, []),
                               null) { Tech = _tech.GetValueOrDefault(item.Sku) };
-            Cart.Add(new CartLine(product, item.Quantity, Recalculate, item.UnitPrice, locked: true));
+            Cart.Add(new CartLine(product, item.Quantity, Recalculate, item.UnitPrice, locked: true, reserved: reserved));
         }
         Build = detail;
         if (detail.Build.Customer is { } name && Customers.FirstOrDefault(c => c.Name == name) is { } customer)
@@ -928,7 +957,8 @@ public sealed class PosViewModel : PageViewModel, IScannerTarget
             Customer = customer;
         }
         Recalculate();
-        App.Notify.Info($"Armado {detail.Build.Number} en el carrito", $"{detail.QuotedItems.Count} piezas a precio cotizado · {Fmt.Money(Total)}");
+        App.Notify.Info($"Armado {detail.Build.Number} en el carrito",
+            $"{detail.QuotedItems.Count} piezas a precio cotizado · {Fmt.Money(Total)}" + (reserved ? " · la venta consume la reserva (el stock reservado sale una sola vez)" : string.Empty));
         await EnsureBuildSerialsAsync(force: false);
     }
 
@@ -981,7 +1011,8 @@ public sealed class PosViewModel : PageViewModel, IScannerTarget
         IReadOnlyList<PcBuildRow> builds;
         try
         {
-            builds = (await App.SendAsync(new GetPcBuildsQuery(PcBuildStatus.Quoted))).Where(b => !b.IsExpired).ToList();
+            // V6 · También los armados reservados (web y escritorio): la venta consume la reserva (regla S-04)
+            builds = (await App.SendAsync(new GetPcBuildsQuery())).Where(b => b.Status is PcBuildStatus.Quoted or PcBuildStatus.Reserved && !b.IsExpired).ToList();
         }
         catch (Exception ex) when (AppServices.IsExpected(ex))
         {
@@ -993,7 +1024,7 @@ public sealed class PosViewModel : PageViewModel, IScannerTarget
             App.Notify.Info("Sin cotizaciones vigentes", "Arme y cotice una PC en «Armador de PC» para cobrarla aquí.");
             return;
         }
-        var dialog = new PickBuildDialog(builds);
+        var dialog = new PickBuildDialog(builds, App.Now);
         if (await App.Dialogs.ShowAsync(dialog) && dialog.Selected is { } row)
         {
             await LoadBuildAsync(row.Number);
@@ -1126,13 +1157,23 @@ public sealed class PosViewModel : PageViewModel, IScannerTarget
             App.Notify.Warning("Faltan series", $"{missing.Name}: {missing.SerialsNeeded}.");
             return;
         }
+        // V6 · Lo reservado para armados no se vende a otro cliente: aviso claro antes de cobrar (la validación que manda es la del
+        // dominio, que rechaza la salida sin stock disponible)
+        if (Cart.FirstOrDefault(l => l.ExceedsStock) is { } over)
+        {
+            App.Notify.Warning("Stock insuficiente", $"{over.Name}: pide {Fmt.Qty(over.Quantity)} y {over.ExceedsStockText.ToLower(Fmt.Culture)}. " +
+                                                     "Baje la cantidad o libere la reserva desde el Armador de PC.");
+            return;
+        }
         try
         {
             CheckoutResult result;
+            var consumedReservation = false;
             if (_build is { } build)
             {
                 var serials = Cart.Where(l => l.HasSerials).GroupBy(l => l.Sku)
                     .Select(g => new SkuSerials(g.Key, g.SelectMany(l => l.Serials).ToList())).ToList();
+                consumedReservation = build.Build.Status == PcBuildStatus.Reserved;
                 result = await App.SendAsync(new SellPcBuildCommand(build.Build.Number, _method.Code, serials, cash, NeedsReference ? _reference.Trim() : null,
                     buyer, card, _customer.Code));
                 Build = null;
@@ -1145,7 +1186,8 @@ public sealed class PosViewModel : PageViewModel, IScannerTarget
             CardNumber = string.Empty;
             LastSale = result;
             App.Notify.Success($"Venta {result.InvoiceNumber} cobrada",
-                result.Change > 0 ? $"Total {Fmt.Money(result.Total)} · entregue vuelto de {Fmt.Money(result.Change)}" : $"Total {Fmt.Money(result.Total)}");
+                (result.Change > 0 ? $"Total {Fmt.Money(result.Total)} · entregue vuelto de {Fmt.Money(result.Change)}" : $"Total {Fmt.Money(result.Total)}")
+                + (consumedReservation ? " · reserva consumida: el stock reservado salió con la venta" : string.Empty));
             Cart.Clear();
             CashReceived = string.Empty;
             Reference = string.Empty;
@@ -1329,14 +1371,15 @@ public sealed class PickBuildDialog : FormDialog
 {
     private PcBuildItem? _selected;
 
-    public PickBuildDialog(IReadOnlyList<PcBuildRow> builds)
+    public PickBuildDialog(IReadOnlyList<PcBuildRow> builds, DateTimeOffset now)
         : base("Cobrar un armado cotizado", "Cargar en el carrito", Glyphs.Monitor, width: 620)
     {
-        Builds = builds.Select(b => new PcBuildItem(b)).ToList();
+        Builds = builds.Select(b => new PcBuildItem(b, now)).ToList();
         _selected = Builds.FirstOrDefault();
     }
 
-    public override string? Subtitle => "Cotizaciones vigentes del armador de PC: se cobran a sus precios congelados, con las series de cada pieza.";
+    public override string? Subtitle => "Cotizaciones y reservas vigentes del armador de PC: se cobran a sus precios congelados, con las series de cada pieza " +
+                                        "(la venta de una reserva la consume).";
 
     public IReadOnlyList<PcBuildItem> Builds { get; }
 

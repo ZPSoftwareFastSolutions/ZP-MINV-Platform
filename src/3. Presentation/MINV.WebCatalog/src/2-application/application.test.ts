@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { slotForProduct } from '@/1-domain/builder/slots';
 import { roundMoney } from '@/1-domain/catalog/money';
+import { MOCK_CATALOG } from '@/3-infrastructure/data/mockCatalog';
 import { InMemoryCatalogRepository } from '@/3-infrastructure/InMemoryCatalogRepository';
 import { normalizeText } from '@/shared/text';
 import { createCatalogUseCases } from './index';
 
-const useCases = createCatalogUseCases(new InMemoryCatalogRepository());
+const useCases = createCatalogUseCases(new InMemoryCatalogRepository(MOCK_CATALOG));
 
 describe('casos de uso del catálogo', () => {
   it('expone el árbol, las raíces, las categorías por slug y la ruta', () => {

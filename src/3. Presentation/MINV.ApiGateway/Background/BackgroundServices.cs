@@ -1,4 +1,8 @@
+using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using MINV.ApiGateway.Security;
+using MINV.Application.Storefront;
 using MINV.Infrastructure.Integration;
 using MINV.Infrastructure.Persistence;
 
@@ -55,5 +59,47 @@ public sealed class ReportingRefreshService(IServiceScopeFactory scopes, IConfig
             }
             await Task.Delay(every, stoppingToken);
         }
+    }
+}
+
+/// <summary>
+/// V6 · Cierra las reservas de armados vencidas cada pocos minutos (regla S-04: una reserva vencida nunca se cierra «al leer»):
+/// corre como el principal técnico de la tienda (misma tubería de MediatR: permisos y auditoría) y ejecuta
+/// <see cref="ExpirePcBuildReservationsCommand"/>, que devuelve el stock y deja el armado anulado con motivo «Vencida».
+/// </summary>
+public sealed class StorefrontReservationExpiryService(IServiceScopeFactory scopes, IOptionsMonitor<StorefrontSettings> settings,
+    ILogger<StorefrontReservationExpiryService> log) : BackgroundService
+{
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            var every = TimeSpan.FromMinutes(Math.Clamp(settings.CurrentValue.ExpiryMinutes, 1, 60));
+            try
+            {
+                var closed = await RunOnceAsync(stoppingToken);
+                if (closed > 0)
+                {
+                    log.LogInformation("Tienda web: {Count} reserva(s) de armados vencida(s) cerradas; el stock volvió a estar disponible", closed);
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                log.LogError(ex, "Falla del vencimiento de reservas de la tienda web");
+            }
+            await Task.Delay(every, stoppingToken);
+        }
+    }
+
+    /// <summary>Una pasada (también la usan las pruebas): -1 si la tienda no está configurada.</summary>
+    public async Task<int> RunOnceAsync(CancellationToken ct)
+    {
+        using var scope = scopes.CreateScope();
+        var principal = await scope.ServiceProvider.GetRequiredService<StorefrontAuthenticator>().AuthenticateAsync(ct);
+        if (principal is null)
+        {
+            return -1;
+        }
+        return await scope.ServiceProvider.GetRequiredService<ISender>().Send(new ExpirePcBuildReservationsCommand(), ct);
     }
 }

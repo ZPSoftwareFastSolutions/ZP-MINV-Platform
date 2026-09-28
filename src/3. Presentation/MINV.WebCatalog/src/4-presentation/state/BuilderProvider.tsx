@@ -1,9 +1,11 @@
 // Estado del armado «Armá tu PC» en memoria (Context + useReducer con el reductor puro del dominio).
-// No persiste en ningún almacenamiento: al recargar la página el armado vuelve a estar vacío (alcance de la V5).
+// No persiste en ningún almacenamiento: al recargar la página el armado vuelve a estar vacío; lo que sí persiste es la
+// RESERVA en la tienda (V6), que se hace desde el armador y vacía el armado. Cada vez que llega una instantánea nueva
+// del catálogo, las piezas del armado se sincronizan con su versión fresca (precio y disponibilidad).
 // El estado, las acciones y el cajón viajan en contextos separados (BuilderContext.ts): abrir «Mi armado» no vuelve a
 // dibujar las tarjetas de la grilla, que solo leen las acciones y el estado.
 
-import { useCallback, useMemo, useReducer, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useState, type ReactNode } from 'react';
 import { EMPTY_BUILD, buildReducer, isInBuild, summarizeBuild } from '@/1-domain/builder/build';
 import { slotByKey, slotForProduct } from '@/1-domain/builder/slots';
 import { useServices } from '@/4-presentation/hooks/useServices';
@@ -21,6 +23,11 @@ export function BuilderProvider({ children }: { children: ReactNode }) {
 
   const openDrawer = useCallback(() => setDrawerOpen(true), []);
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
+
+  // Instantánea nueva (refresco cada 60 s o al volver a la pestaña): las piezas elegidas toman su precio y stock frescos.
+  useEffect(() => {
+    dispatch({ type: 'sync', lookup: (sku) => catalog.getProductBySku(sku) });
+  }, [catalog]);
 
   const add = useCallback<BuildActionsApi['add']>(
     (product, slotKey, quantity, options) => {

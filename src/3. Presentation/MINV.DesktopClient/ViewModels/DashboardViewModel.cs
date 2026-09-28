@@ -106,6 +106,11 @@ public sealed class DashboardViewModel : PageViewModel
 
     public KpiCard BuildsKpi { get; } = new("Armados vendidos · 30 días", Glyphs.Monitor, "Success", "SuccessSoft");
 
+    /// <summary>V6 · Reservas hechas desde la tienda web todavía vigentes (cantidad y Bs); abre el armador filtrado.</summary>
+    public KpiCard WebReservationsKpi { get; } = new("Reservas web activas", Glyphs.Globe, "Brand", "BrandSoft");
+
+    public RelayCommand GoWebReservations => new(() => App.Navigator.Navigate("armador", PcBuilderFilter.WebReservations));
+
     public BulkObservableCollection<TechBarItem> SalesByCategory { get; } = [];
 
     public BulkObservableCollection<ChartSegment> PlatformSegments { get; } = [];
@@ -143,6 +148,9 @@ public sealed class DashboardViewModel : PageViewModel
             QuotesKpi.Detail = Fmt.Money(t.QuotesValue) + " por cobrar";
             BuildsKpi.Value = t.BuildsSold.ToString("N0", Fmt.Culture);
             BuildsKpi.Detail = Fmt.Money(t.BuildsSoldValue);
+            // V6 · Reservas web vigentes: cantidad y total reservado (el clic abre el armador con el filtro «Reservas web»)
+            WebReservationsKpi.Value = t.WebReservationsActive.ToString("N0", Fmt.Culture);
+            WebReservationsKpi.Detail = t.WebReservationsActive == 0 ? "Ninguna reserva vigente" : $"{Fmt.Money(t.WebReservationsValue)} reservados · ver en el armador";
             SalesByCategory.ReplaceAll(Bars(t.SalesByCategory, money: true));
             var platformTotal = t.SalesByPlatform.Sum(p => p.Amount);
             PlatformSegments.ReplaceAll(t.SalesByPlatform.Select((p, i) => new ChartSegment(p.Name, (double)p.Amount, TechPalette[i % TechPalette.Length])));

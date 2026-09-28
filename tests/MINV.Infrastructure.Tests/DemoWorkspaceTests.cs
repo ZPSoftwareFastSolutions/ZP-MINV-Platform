@@ -63,7 +63,8 @@ public sealed class DemoWorkspaceTests
         Assert.Equal("Tech Zone Gaming S.R.L.", demo.CompanyName);
         Assert.Equal(RoleCodes.Admin, demo.Users[0].RoleCode);
         Assert.Equal(DemoWorkspace.AdminEmail, demo.Users[0].Email);
-        Assert.Equal(RoleCodes.All.Select(r => r.Code).Order(), demo.Users.Select(u => u.RoleCode).Order());   // un acceso por rol
+        // un acceso por rol (V6: el usuario técnico TIENDA_WEB no tiene contraseña de prueba: no está entre los accesos)
+        Assert.Equal(RoleCodes.All.Where(r => r.Code != RoleCodes.Storefront).Select(r => r.Code).Order(), demo.Users.Select(u => u.RoleCode).Order());
         Assert.Equal(159, demo.Seed.Products);
         Assert.Equal(["CM", "CB", "SC"], demo.Seed.Branches);
         Assert.True(demo.Seed.Tickets > 30, $"Solo {demo.Seed.Tickets} ventas");
@@ -95,7 +96,7 @@ public sealed class DemoWorkspaceTests
             Assert.NotEmpty(bySku);
             Assert.All(bySku, r => Assert.Contains(recent[0].Sku, r.Sku + " " + r.Serial, StringComparison.OrdinalIgnoreCase));
             Assert.NotEmpty(await mediator.Send(new GetWarrantyClaimsQuery()));
-            Assert.Equal(8, (await mediator.Send(new GetPcBuildsQuery())).Count);
+            Assert.Equal(8, (await mediator.Send(new GetPcBuildsQuery(Channel: MINV.Domain.Sales.PcBuildChannel.Desktop))).Count);   // V6: + 2 reservas web aparte
         }
 
         // Cada usuario de la demostración entra con su rol (la interfaz se adapta a sus permisos)

@@ -9,6 +9,7 @@ using MINV.ApiGateway.Endpoints;
 using MINV.ApiGateway.Security;
 using MINV.Application;
 using MINV.Application.Remote;
+using MINV.Application.Storefront;
 using MINV.Domain.Integration;
 using MINV.Infrastructure;
 using MINV.Infrastructure.Hosting;
@@ -18,6 +19,8 @@ namespace MINV.ApiGateway;
 /// <summary>
 /// V4 · Armado del API Gateway B2B (e-commerce, ERP). Variables: <c>MINV_DB</c> (rol minv_server), <c>MINV_INTEGRATION_KEYS</c>
 /// (claves maestras de los secretos de webhooks) y <c>ASPNETCORE_URLS</c>. <c>--Minv:Storage=memoria</c> para pruebas.
+/// V6 · API pública de tienda <c>/storefront/v1</c> (sin llave; principal técnico de <c>Minv:Storefront:TenantCode</c>, CORS para
+/// <c>Minv:Storefront:AllowedOrigins</c>, límites por IP propios) y trabajo de vencimiento de reservas cada 5 minutos.
 /// </summary>
 public static class ApiGatewayApp
 {
@@ -38,25 +41,58 @@ public static class ApiGatewayApp
             builder.Services.AddHostedService<ReportingRefreshService>();
         }
 
+        // V6 · Tienda web pública: configuración, principal técnico, vigencia de las reservas y trabajo de vencimiento
+        var storefront = builder.Configuration.GetSection(StorefrontSettings.Section).Get<StorefrontSettings>() ?? new StorefrontSettings();
+        builder.Services.Configure<StorefrontSettings>(builder.Configuration.GetSection(StorefrontSettings.Section));
+        builder.Services.AddScoped<StorefrontAuthenticator>();
+        builder.Services.AddSingleton(new StorefrontOptions(storefront.ReservationHours));
+        if (storefront.IsConfigured)
+        {
+            builder.Services.AddHostedService<StorefrontReservationExpiryService>();
+        }
+        builder.Services.AddCors(options => options.AddPolicy(StorefrontEndpoints.CorsPolicy, policy => policy
+            .WithOrigins(storefront.AllowedOrigins.Where(o => !string.IsNullOrWhiteSpace(o)).Select(o => o.Trim().TrimEnd('/')).ToArray())
+            .WithMethods("GET", "POST", "OPTIONS").AllowAnyHeader()
+            .WithExposedHeaders("ETag", "Idempotent-Replayed", "Location", "Cache-Control")));
+
         builder.Services.AddAuthentication(ApiKeyAuthenticationHandler.SchemeName)
-            .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>(ApiKeyAuthenticationHandler.SchemeName, null);
+            .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>(ApiKeyAuthenticationHandler.SchemeName, null)
+            .AddScheme<AuthenticationSchemeOptions, StorefrontAuthenticationHandler>(StorefrontAuthenticationHandler.SchemeName, null);
         builder.Services.AddAuthorization(options =>
         {
             foreach (var (code, _, _) in ApiScopes.All)
             {
                 options.AddPolicy(code, p => p.RequireAuthenticatedUser().RequireClaim(ApiKeyAuthenticationHandler.ScopeClaim, code));
             }
+            // V6 · Las rutas de la tienda se autentican SOLO con el esquema Storefront (principal técnico, sin llave)
+            options.AddPolicy(StorefrontAuthenticationHandler.PolicyName, p => p.AddAuthenticationSchemes(StorefrontAuthenticationHandler.SchemeName)
+                .RequireAuthenticatedUser().RequireClaim(StorefrontAuthenticationHandler.ChannelClaim, Application.Abstractions.RequestChannels.Storefront));
         });
+        var reads = Math.Max(1, storefront.ReadsPerMinute);
+        var reserves = Math.Max(1, storefront.ReservationsPerMinute);
         builder.Services.AddRateLimiter(options =>
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-            // Antes de autenticar: 120 peticiones por minuto por IP (frena el barrido de llaves)
-            options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(http => RateLimitPartition.GetFixedWindowLimiter(
-                http.Connection.RemoteIpAddress?.ToString() ?? "?", _ => new FixedWindowRateLimiterOptions { PermitLimit = 120, Window = TimeSpan.FromMinutes(1) }));
+            // Antes de autenticar: 120 peticiones por minuto por IP (frena el barrido de llaves); la tienda web tiene su propio
+            // presupuesto por IP (300 lecturas por minuto, regla S-05)
+            options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(http =>
+            {
+                var ip = http.Connection.RemoteIpAddress?.ToString() ?? "?";
+                return http.Request.Path.StartsWithSegments(StorefrontEndpoints.Prefix)
+                    ? RateLimitPartition.GetFixedWindowLimiter("sf:" + ip, _ => new FixedWindowRateLimiterOptions { PermitLimit = reads, Window = TimeSpan.FromMinutes(1) })
+                    : RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions { PermitLimit = 120, Window = TimeSpan.FromMinutes(1) });
+            });
             // Por llave (el prefijo público del token; el limitador corre ANTES de autenticar): ráfaga de 100 y 10 por segundo
             options.AddPolicy("api-key", http => RateLimitPartition.GetTokenBucketLimiter(
                 KeyPartition(http) ?? http.Connection.RemoteIpAddress?.ToString() ?? "?",
                 _ => new TokenBucketRateLimiterOptions { TokenLimit = 100, TokensPerPeriod = 10, ReplenishmentPeriod = TimeSpan.FromSeconds(1), QueueLimit = 0 }));
+            // V6 · Tienda web: lecturas y reservas por minuto y por IP
+            options.AddPolicy(StorefrontEndpoints.ReadPolicy, http => RateLimitPartition.GetFixedWindowLimiter(
+                "sf-read:" + (http.Connection.RemoteIpAddress?.ToString() ?? "?"),
+                _ => new FixedWindowRateLimiterOptions { PermitLimit = reads, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+            options.AddPolicy(StorefrontEndpoints.ReservePolicy, http => RateLimitPartition.GetFixedWindowLimiter(
+                "sf-reserve:" + (http.Connection.RemoteIpAddress?.ToString() ?? "?"),
+                _ => new FixedWindowRateLimiterOptions { PermitLimit = reserves, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
         });
         builder.Services.ConfigureHttpJsonOptions(o =>
         {
@@ -72,7 +108,8 @@ public static class ApiGatewayApp
                 Title = "M-INV API Gateway",
                 Version = "v1",
                 Description = "API B2B de M-INV para e-commerce y ERP: catálogo, stock por sucursal, pedidos idempotentes, transferencias y webhooks firmados " +
-                              "(cabecera X-MINV-Signature: t=<unix>,v1=<HMAC-SHA256 hex de \"t.cuerpo\">).",
+                              "(cabecera X-MINV-Signature: t=<unix>,v1=<HMAC-SHA256 hex de \"t.cuerpo\"). V6: API pública de tienda /storefront/v1 " +
+                              "(sin llave: catálogo, disponibilidad, imágenes, armados sugeridos y reservas de armados; contrato en docs/integration/storefront-api-v1.md).",
             });
             o.AddSecurityDefinition("ApiKey", new OpenApiSecurityScheme
             {
@@ -93,6 +130,24 @@ public static class ApiGatewayApp
         app.UseExceptionHandler(errors => errors.Run(async http =>
         {
             var exception = http.Features.Get<IExceptionHandlerFeature>()?.Error;
+            if (exception is StorefrontStockException stock)
+            {
+                // V6 · Falta stock para reservar: 409 con qué piezas y cuánto hay (regla S-03)
+                http.Response.StatusCode = StatusCodes.Status409Conflict;
+                await Results.Problem(new Microsoft.AspNetCore.Mvc.ProblemDetails
+                {
+                    Status = StatusCodes.Status409Conflict,
+                    Title = "insufficient_stock",
+                    Detail = stock.Message,
+                    Type = "https://minv.example/errores/storefront.insufficient_stock",
+                    Extensions =
+                    {
+                        ["code"] = StorefrontStockException.ErrorCode,
+                        ["shortages"] = stock.Shortages.Select(s => new { sku = s.Sku, name = s.Name, requested = s.Requested, available = s.Available }).ToList(),
+                    },
+                }).ExecuteAsync(http);
+                return;
+            }
             var error = exception is BadHttpRequestException bad
                 ? new RpcError(RpcErrorKinds.Validation, bad.Message)
                 : RpcCatalog.ToError(exception ?? new InvalidOperationException());
@@ -106,6 +161,7 @@ public static class ApiGatewayApp
                 Extensions = { ["errors"] = error.Errors, ["code"] = error.Code },
             }).ExecuteAsync(http);
         }));
+        app.UseCors();
         app.UseRateLimiter();
         app.UseAuthentication();
         app.UseAuthorization();
@@ -118,6 +174,7 @@ public static class ApiGatewayApp
         });
         app.MapGet("/health", () => Results.Ok(new { status = "ok", product = "M-INV API Gateway", version = ServerHosting.Version })).AllowAnonymous();
         V1Endpoints.Map(app);
+        StorefrontEndpoints.Map(app);
         return app;
     }
 

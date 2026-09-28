@@ -378,6 +378,18 @@ internal static class Cli
         }
         sb.AppendLine();
         sb.AppendLine("Son contraseñas de PRUEBA generadas al azar para esta base local: no las use en producción.");
+        if (r.StorefrontUser is { } storefront)
+        {
+            // V6 · Usuario técnico de la tienda web: sin contraseña utilizable (el API Gateway lo autentica por configuración)
+            sb.AppendLine();
+            sb.AppendLine($"Tienda web: usuario técnico {storefront} (rol Tienda web) SIN contraseña utilizable: el API Gateway lo usa por " +
+                          $"configuración (Minv:Storefront:TenantCode={r.TenantCode}) para /storefront/v1; no sirve para iniciar sesión en el escritorio.");
+            if (r.Tech is { } tech)
+            {
+                sb.AppendLine($"Tienda web: {tech.PcBuildsPublished} armados publicados, {tech.WebReservationsActive} reserva(s) web activa(s) y " +
+                              $"{tech.WebReservationsExpired} vencida(s) (ver Armador de PC › Cotizaciones, canal Web).");
+            }
+        }
         return sb.ToString();
     }
 

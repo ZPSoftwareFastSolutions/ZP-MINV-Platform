@@ -296,6 +296,11 @@ public static class IntegrationEvents
     public const string FiscalDocumentValidated = "fiscal.document.validated";
     public const string FiscalDocumentVoided = "fiscal.document.voided";
 
+    // V6 · Tienda web conectada: reservas de armados
+    public const string PcBuildReserved = "pcbuild.reserved";
+    public const string PcBuildReleased = "pcbuild.released";
+    public const string PcBuildSold = "pcbuild.sold";
+
     public static readonly IReadOnlyList<(string Code, string Description)> All =
     [
         (SaleCompleted, "Venta cobrada (POS o e-commerce)"),
@@ -307,5 +312,8 @@ public static class IntegrationEvents
         (SaleReturned, "Devolución de mercadería de un cliente (con nota crédito-débito si estaba facturada)"),
         (FiscalDocumentValidated, "Factura o nota crédito-débito válida en el SIN (SIAT)"),
         (FiscalDocumentVoided, "Factura o nota crédito-débito anulada en el SIN (SIAT)"),
+        (PcBuildReserved, "Armado de PC reservado: el stock de sus piezas quedó reservado (tienda web o escritorio)"),
+        (PcBuildReleased, "Reserva de un armado liberada o vencida: el stock volvió a estar disponible"),
+        (PcBuildSold, "Armado de PC vendido en la caja (si estaba reservado, la reserva se consumió)"),
     ];
 }

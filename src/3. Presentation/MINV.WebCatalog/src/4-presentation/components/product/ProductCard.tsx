@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { isBuildable } from '@/1-domain/builder/slots';
 import { isOnSale } from '@/1-domain/catalog/money';
 import { savingLabel } from '@/4-presentation/i18n/priceLabels';
-import { isAvailable } from '@/1-domain/catalog/stock';
+import { isAvailable, unavailableLabel } from '@/1-domain/catalog/stock';
 import type { Product } from '@/1-domain/catalog/types';
 import { ROUTES } from '@/4-presentation/app/routes';
 import { Badge } from '@/4-presentation/components/ui/Badge';
@@ -79,11 +79,11 @@ export function ProductCard({ product, priority = false, showCategory = true, cl
             fullWidth
             disabled={!available}
             leftIcon={inBuild ? <Check /> : <Plus />}
-            aria-label={available ? `${inBuild ? 'En tu armado, agregar otra vez' : 'Agregar al armado'}: ${product.shortName}` : `Agotado: ${product.shortName}`}
+            aria-label={available ? `${inBuild ? 'En tu armado, agregar otra vez' : 'Agregar al armado'}: ${product.shortName}` : `${unavailableLabel(product)}: ${product.shortName}`}
             onClick={() => add(product)}
             className="relative z-10"
           >
-            {!available ? 'Agotado' : inBuild ? 'En tu armado' : 'Agregar al armado'}
+            {!available ? unavailableLabel(product) : inBuild ? 'En tu armado' : 'Agregar al armado'}
           </Button>
         ) : (
           <Button to={detail} variant="outline" fullWidth rightIcon={<ArrowRight />} className="relative z-10">

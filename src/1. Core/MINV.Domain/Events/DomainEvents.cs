@@ -84,3 +84,30 @@ public sealed record SaleReturnedEvent(string ReturnNumber, string InvoiceNumber
 {
     public override string EventType => IntegrationEvents.SaleReturned;
 }
+
+/// <summary>V6 · Línea de un armado en un evento (variante, ranura, cantidad y precio cotizado; nunca datos del contacto).</summary>
+public sealed record PcBuildEventLine(Guid VariantId, string Slot, int Quantity, decimal QuotedUnitPrice);
+
+/// <summary>V6 · Un armado (cotización) reservó el stock de sus piezas (desde la tienda web o el escritorio).</summary>
+public sealed record PcBuildReservedEvent(Guid PcBuildId, string Number, Guid BranchIdOfBuild, string Channel, decimal Total,
+    DateTimeOffset ReservedUntil, IReadOnlyList<PcBuildEventLine> Lines, DateTimeOffset OccurredAt)
+    : DomainEvent(OccurredAt, BranchIdOfBuild)
+{
+    public override string EventType => IntegrationEvents.PcBuildReserved;
+}
+
+/// <summary>V6 · La reserva de un armado se liberó (el cliente desistió, el vendedor la liberó o venció): el stock volvió.</summary>
+public sealed record PcBuildReleasedEvent(Guid PcBuildId, string Number, Guid BranchIdOfBuild, string Channel, decimal Total, string Reason,
+    bool Expired, IReadOnlyList<PcBuildEventLine> Lines, DateTimeOffset OccurredAt)
+    : DomainEvent(OccurredAt, BranchIdOfBuild)
+{
+    public override string EventType => IntegrationEvents.PcBuildReleased;
+}
+
+/// <summary>V6 · Un armado se vendió en la caja (si estaba reservado, la reserva se consumió).</summary>
+public sealed record PcBuildSoldEvent(Guid PcBuildId, string Number, Guid BranchIdOfBuild, string Channel, decimal Total, Guid InvoiceId,
+    bool WasReserved, IReadOnlyList<PcBuildEventLine> Lines, DateTimeOffset OccurredAt)
+    : DomainEvent(OccurredAt, BranchIdOfBuild)
+{
+    public override string EventType => IntegrationEvents.PcBuildSold;
+}

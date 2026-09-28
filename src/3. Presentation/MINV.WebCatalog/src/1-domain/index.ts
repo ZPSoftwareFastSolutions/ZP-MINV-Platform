@@ -2,7 +2,10 @@
 
 export type * from './catalog/types';
 export type * from './builder/types';
+export type * from './storefront/types';
 export type { ICatalogRepository } from './ports/ICatalogRepository';
+export type { ICatalogSource } from './ports/ICatalogSource';
+export type { IReservationGateway } from './ports/IReservationGateway';
 
 export * from './catalog/money';
 export * from './catalog/categories';
@@ -10,3 +13,6 @@ export * from './catalog/products';
 export * from './catalog/stock';
 export * from './builder/slots';
 export * from './builder/build';
+export { RESERVATION_HOURS, RESERVATION_LIMITS, isReservationActive } from './storefront/types';
+export * from './storefront/errors';
+export * from './storefront/contact';

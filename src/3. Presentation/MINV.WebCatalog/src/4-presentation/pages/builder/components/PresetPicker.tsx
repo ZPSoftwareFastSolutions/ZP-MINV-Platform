@@ -1,4 +1,4 @@
-// Selector modal de armados sugeridos: los seis armados con nivel, piezas clave y total; cargar uno reemplaza el armado.
+// Selector modal de armados sugeridos: los armados publicados con nivel, piezas clave y total; cargar uno reemplaza el armado.
 
 import type { PresetDetail } from '@/2-application';
 import { BuilderDialog } from './BuilderDialog';
@@ -28,6 +28,7 @@ export function PresetPicker({ open, onClose, presets, currentCount, onLoad, fal
           : 'Elegí un punto de partida y después cambiá las piezas que quieras.'
       }
     >
+      {presets.length === 0 && <p className="text-sm text-text-muted">La tienda todavía no publicó armados sugeridos.</p>}
       <ul className="space-y-3" aria-label="Armados sugeridos">
         {presets.map((detail) => (
           <PresetCard

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { ROUTES } from '@/4-presentation/app/routes';
 import { Container } from '@/4-presentation/components/ui/Container';
 import { useServices } from '@/4-presentation/hooks/useServices';
+import { useStore } from '@/4-presentation/hooks/useStore';
 import { STORE } from '@/shared/constants';
 import { Logo } from './Logo';
 
@@ -22,8 +23,10 @@ const SOCIAL = [
 ] as const;
 
 export function Footer() {
-  const { catalog } = useServices();
+  const { catalog, generatedAt } = useServices();
+  const { company, branch } = useStore();
   const roots = catalog.getRootCategories();
+  const branches = company.branches.map((item) => item.name).join(' · ');
 
   return (
     <footer className="mt-16 border-t border-border bg-surface/60">
@@ -47,7 +50,7 @@ export function Footer() {
               </li>
               <li className="flex items-start gap-2">
                 <Globe aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-accent" />
-                <span>Sucursales en {STORE.branches.join(', ')}</span>
+                <span>{company.branches.length > 1 ? `Sucursales: ${branches}` : branch.name}</span>
               </li>
             </ul>
           </div>
@@ -69,6 +72,11 @@ export function Footer() {
                   Armá tu PC
                 </Link>
               </li>
+              <li>
+                <Link to={ROUTES.reservations} className={LINK + ' font-semibold text-accent'}>
+                  Consultar mi reserva
+                </Link>
+              </li>
             </ul>
           </nav>
 
@@ -78,7 +86,8 @@ export function Footer() {
               <li className="flex items-start gap-2">
                 <Truck aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-accent" />
                 <span>
-                  <span className="font-medium text-text">Envíos</span> a todo el país en 24 a 72 horas hábiles; retiro sin costo en sucursal.
+                  <span className="font-medium text-text">Reservas</span> desde el armador: te guardamos las piezas 48 horas en {branch.name} y las
+                  confirmás y pagás en la tienda.
                 </span>
               </li>
               <li className="flex items-start gap-2">
@@ -143,7 +152,8 @@ export function Footer() {
           </ul>
         </div>
         <p className="mt-6 text-xs text-text-faint">
-          © {STORE.year} {STORE.legalName} · Sitio de demostración: los precios y el stock son datos de prueba.
+          © {STORE.year} {company.name} · Precios en Bs con IVA incluido y disponibilidad de {branch.name}, actualizados a las{' '}
+          {new Intl.DateTimeFormat('es-BO', { hour: '2-digit', minute: '2-digit' }).format(generatedAt)}.
         </p>
       </Container>
     </footer>

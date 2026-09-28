@@ -1,4 +1,4 @@
-import { Cpu, Menu, PcCase, Search, X } from 'lucide-react';
+import { Cpu, Menu, PcCase, Search, TicketCheck, X } from 'lucide-react';
 import { useId, useState } from 'react';
 import { ROUTES } from '@/4-presentation/app/routes';
 import { Button } from '@/4-presentation/components/ui/Button';
@@ -49,6 +49,9 @@ export function Header() {
             badge={count}
             onClick={openDrawer}
           />
+          <Button to={ROUTES.reservations} variant="ghost" leftIcon={<TicketCheck />} className="max-lg:hidden" aria-label="Consultar mi reserva">
+            Mi reserva
+          </Button>
         </div>
       </Container>
       {searchOpen && (

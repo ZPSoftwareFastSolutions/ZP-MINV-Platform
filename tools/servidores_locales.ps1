@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
-    M-INV V4/V4.1 - Simula la nube en este equipo: simulador del SIN (facturacion), servidor en la nube (escritorio) y
-    API Gateway (integraciones B2B).
+    M-INV V4/V4.1/V6 - Simula la nube en este equipo: simulador del SIN (facturacion), servidor en la nube (escritorio) y
+    API Gateway (integraciones B2B y, V6, la API publica de la tienda web /storefront/v1).
 
 .DESCRIPTION
     Acciones (-Accion):
@@ -14,7 +14,9 @@
                   MINV.CloudServer   en http://localhost:5080  (el escritorio en modo "Nube" se conecta aqui). V4.1: corre
                                                                 el trabajo automatico de la facturacion (envia las facturas
                                                                 pendientes, recupera los cortes, pide el CUFD de cada dia).
-                  MINV.ApiGateway    en http://localhost:5090  (API B2B: /v1/..., documentacion en /docs)
+                  MINV.ApiGateway    en http://localhost:5090  (API B2B: /v1/..., documentacion en /docs; V6: tienda web
+                                                                /storefront/v1 de la empresa -EmpresaTienda, TECHZONE, sucursal
+                                                                -SucursalTienda, CM, para el catalogo web en http://localhost:5173)
                 contra la base LOCAL (tools\bd_local.ps1) con el rol minv_server, que NO puede saltarse la seguridad
                 por filas. Lee las claves de %LOCALAPPDATA%\M-INV\credenciales-bd-local.txt y claves-integracion.txt.
       detener   Detiene los tres (el simulador guarda su estado en el archivo antes de cerrarse en cada operacion).
@@ -37,6 +39,9 @@ param(
     [int]$PuertoApi = 5090,
     [int]$PuertoSiat = 5095,
     [int]$PuertoBd = 5432,
+    [string]$EmpresaTienda = 'TECHZONE',
+    [string]$SucursalTienda = 'CM',
+    [string]$OrigenTienda = 'http://localhost:5173',
     [switch]$SinSimulador
 )
 $ErrorActionPreference = 'Stop'
@@ -148,9 +153,14 @@ function Iniciar {
     $env:MINV_DB = 'Host=localhost;Port=' + $PuertoBd + ';Database=minv;Username=minv_server;Password=' + $claveServer
     $env:MINV_INTEGRATION_KEYS = $llaves
     $lista += Arrancar 'src\3. Presentation' 'MINV.CloudServer' $PuertoNube 'servidor-nube.log'
+    # V6 - La tienda web publica del gateway: empresa, sucursal y origen del catalogo web (Vite) por variables de entorno
+    $env:Minv__Storefront__TenantCode = $EmpresaTienda
+    $env:Minv__Storefront__BranchCode = $SucursalTienda
+    $env:Minv__Storefront__AllowedOrigins__0 = $OrigenTienda
     $lista += Arrancar 'src\3. Presentation' 'MINV.ApiGateway' $PuertoApi 'api-gateway.log'
     Set-Content -Path $pids -Value $lista -Encoding ASCII
     Remove-Item Env:\MINV_DB, Env:\MINV_INTEGRATION_KEYS, Env:\ASPNETCORE_URLS -ErrorAction SilentlyContinue
+    Remove-Item Env:\Minv__Storefront__TenantCode, Env:\Minv__Storefront__BranchCode, Env:\Minv__Storefront__AllowedOrigins__0 -ErrorAction SilentlyContinue
     for ($i = 0; $i -lt 30; $i++) {
         Start-Sleep -Seconds 1
         if ((Salud ('http://localhost:' + $PuertoNube + '/api/v1/health')) -and (Salud ('http://localhost:' + $PuertoApi + '/health'))) { break }
@@ -162,6 +172,8 @@ function Iniciar {
     Write-Output ''
     Write-Output ('Escritorio: abra M-INV.exe, elija "Nube" y use el servidor http://localhost:' + $PuertoNube)
     Write-Output ('API B2B:    documentacion en http://localhost:' + $PuertoApi + '/docs')
+    Write-Output ('Tienda web: http://localhost:' + $PuertoApi + '/storefront/v1/catalog  (empresa ' + $EmpresaTienda + ', sucursal ' + $SucursalTienda + '; sin llave)')
+    Write-Output ('            catalogo web (Vite): VITE_API_URL=http://localhost:' + $PuertoApi + '  ->  npm run dev  en src\3. Presentation\MINV.WebCatalog (' + $OrigenTienda + ')')
     if ($token) {
         Write-Output ('            curl.exe -H "Authorization: Bearer <MINV_API_KEY de ' + $claves + '>" http://localhost:' + $PuertoApi + '/v1/catalog?pageSize=5')
     }

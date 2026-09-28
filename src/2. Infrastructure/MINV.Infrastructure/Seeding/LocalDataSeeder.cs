@@ -64,13 +64,17 @@ public sealed record SeedUser(string RoleCode, string RoleName, string Name, str
 /// <summary>V4.2 · Resumen de la edición Tecnología de la empresa de prueba: fichas técnicas, series e IMEI, casos RMA,
 /// armados de PC y devoluciones.</summary>
 public sealed record SeedTech(int Categories, int SpecDefinitions, int SpecValues, int Brands, int SerializedProducts, int Serials, int SerialsInStock,
-    int WarrantyClaims, IReadOnlyList<string> ClaimStates, int PcBuilds, int PcBuildsSold, int PcBuildsIncompatible, int Returns);
+    int WarrantyClaims, IReadOnlyList<string> ClaimStates, int PcBuilds, int PcBuildsSold, int PcBuildsIncompatible, int Returns,
+    int PcBuildsPublished = 0, int WebReservationsActive = 0, int WebReservationsExpired = 0);
 
 /// <summary>Resultado de la carga. V4.1: <paramref name="Billing"/> resume la facturación (null si se cargó sin ella). V4.2:
 /// <paramref name="Tech"/> resume series, RMA y armados.</summary>
+/// <para>V6: <paramref name="StorefrontUser"/> es el correo del usuario técnico de la tienda web (rol TIENDA_WEB, sin
+/// contraseña utilizable: el API Gateway lo autentica por configuración).</para>
 public sealed record SeedResult(string TenantCode, string CompanyName, IReadOnlyList<SeedUser> Users, int Products, int Suppliers, int Customers,
     int Tickets, int PurchaseOrders, int Movements, int JournalEntries, DateOnly From, DateOnly To, IReadOnlyList<string> Branches, int Transfers,
-    int ExternalOrders, string ApiKeyName, string ApiKeyToken, string? WebhookSecret, SeedBilling? Billing = null, SeedTech? Tech = null)
+    int ExternalOrders, string ApiKeyName, string ApiKeyToken, string? WebhookSecret, SeedBilling? Billing = null, SeedTech? Tech = null,
+    string? StorefrontUser = null)
 {
     // El token de la API Key y el secreto del webhook se muestran una sola vez (regla B-11): nunca en ToString
     public override string ToString() => $"SeedResult {TenantCode} · {Products} productos · {Tickets} ventas · {From:dd/MM/yyyy} a {To:dd/MM/yyyy}";
@@ -750,6 +754,11 @@ public sealed partial class LocalDataSeeder(IServiceProvider services, DemoClock
             transfers++;
         }
 
+        // V6 · Tienda web conectada: dos reservas web (una vencida y liberada por el trabajo de vencimiento, otra activa de hace
+        // unas horas) sobre el stock de la casa matriz, con contactos ficticios .example
+        var (webActive, webExpired) = await WebReservationsAsync(admin, today, realNow, At, log, ct);
+        await _stock.RefreshAsync(ct);
+
         // V4 · Webhook de la tienda (solo si este equipo tiene la clave maestra de integraciones)
         string? webhookSecret = null;
         try
@@ -779,10 +788,11 @@ public sealed partial class LocalDataSeeder(IServiceProvider services, DemoClock
             Orders = await db.PurchaseOrders.CountAsync(ct),
             Customers = await db.Set<Customer>().CountAsync(ct),   // V4.1: más los compradores eventuales facturados
         };
-        var techSummary = await tech.SummaryAsync();
+        var techSummary = (await tech.SummaryAsync()) with { WebReservationsActive = webActive, WebReservationsExpired = webExpired };
         log($"Listo: {stats.Movements} movimientos, {stats.Orders} órdenes de compra, {transfers} transferencias, {webOrders} pedidos web y " +
             $"{stats.Journal} asientos contables · {techSummary.Serials} series e IMEI ({techSummary.SerialsInStock} en stock), " +
-            $"{techSummary.WarrantyClaims} casos RMA, {techSummary.PcBuilds} armados ({techSummary.PcBuildsSold} vendidos).");
+            $"{techSummary.WarrantyClaims} casos RMA, {techSummary.PcBuilds} armados ({techSummary.PcBuildsSold} vendidos, " +
+            $"{techSummary.PcBuildsPublished} publicados en la web, {webActive} reserva(s) web activa(s) y {webExpired} vencida(s)).");
         // El día simulado de «hoy» empieza a las 10:00 aunque la carga corra de madrugada: si el reloj simulado quedó adelante
         // de la hora real, vuelve a la hora real (lo que se registre después en este proceso no queda «en el futuro»)
         if (o.ResetClock && clock.UtcNow > DateTimeOffset.UtcNow)
@@ -791,7 +801,7 @@ public sealed partial class LocalDataSeeder(IServiceProvider services, DemoClock
         }
         return new SeedResult(o.TenantCode, o.CompanyName, users, _catalog.Products.Count, _catalog.Suppliers.Count, stats.Customers, tickets,
             stats.Orders, stats.Movements, stats.Journal, start, today, [BranchMain, BranchCochabamba, BranchSantaCruz], transfers, webOrders, apiKey.Name,
-            apiKey.Token, webhookSecret, billed, techSummary);
+            apiKey.Token, webhookSecret, billed, techSummary, TenantProvisioner.StorefrontEmail(o.TenantCode, users[0].Email));
     }
 
     // ---------------------------------------------------------------------------------------------- catálogo del rubro

@@ -159,6 +159,8 @@ public static class TechText
         PcBuildStatus.Draft => "Borrador",
         PcBuildStatus.Quoted when expired => "Cotización vencida",
         PcBuildStatus.Quoted => "Cotizado",
+        PcBuildStatus.Reserved when expired => "Reserva vencida",   // V6
+        PcBuildStatus.Reserved => "Reservado",
         PcBuildStatus.Sold => "Vendido",
         _ => "Anulado",
     };
@@ -168,6 +170,8 @@ public static class TechText
         PcBuildStatus.Draft => "StatusInactive",
         PcBuildStatus.Quoted when expired => "Warning",
         PcBuildStatus.Quoted => "Info",
+        PcBuildStatus.Reserved when expired => "Warning",
+        PcBuildStatus.Reserved => "Brand",
         PcBuildStatus.Sold => "Success",
         _ => "Danger",
     };
@@ -226,6 +230,29 @@ public static class TechText
         SpecDataType.Option => "Opción",
         _ => "Texto",
     }) + (multi ? " (varios valores)" : string.Empty);
+}
+
+/// <summary>V6 · Unidades reservadas por SKU en el almacén de trabajo (reservas de armados web y del escritorio, reservas de
+/// caja): stock, catálogo y caja muestran «Reservado: n» y disponible = existencias − reservado (regla S-08).</summary>
+public static class ReservedStock
+{
+    /// <summary>Reservado por SKU (vacío si la sesión no puede leer el stock o la lectura falla: las pantallas siguen).</summary>
+    public static async Task<IReadOnlyDictionary<string, decimal>> LoadAsync(AppServices app)
+    {
+        try
+        {
+            var rows = await app.SendAsync(new MINV.Application.Inventory.Queries.GetStockReservationsQuery());
+            return rows.ToDictionary(r => r.Sku, r => r.Reserved, StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (AppServices.IsExpected(ex))
+        {
+            System.Diagnostics.Trace.TraceWarning("M-INV · stock reservado: {0}", ex.Message);
+            return new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    /// <summary>«Reservado: 3».</summary>
+    public static string Badge(decimal reserved) => $"Reservado: {Fmt.Qty(reserved)}";
 }
 
 /// <summary>V4.2 · Catálogo técnico por SKU (serie o IMEI, garantía, plataformas) para las pantallas que lo necesitan.</summary>

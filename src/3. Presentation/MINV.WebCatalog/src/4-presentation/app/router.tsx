@@ -5,9 +5,10 @@ import { CatalogPage } from '@/4-presentation/pages/catalog/CatalogPage';
 import { HomePage } from '@/4-presentation/pages/home/HomePage';
 import { NotFoundPage } from '@/4-presentation/pages/NotFoundPage';
 import { ProductPage } from '@/4-presentation/pages/product/ProductPage';
+import { ReservationPage } from '@/4-presentation/pages/reservation/ReservationPage';
 import { RouteErrorPage } from '@/4-presentation/pages/RouteErrorPage';
 
-/** Rutas del catálogo: «/», «/catalogo», «/catalogo/:categoria», «/producto/:slug», «/arma-tu-pc» y 404. */
+/** Rutas del catálogo: «/», «/catalogo», «/catalogo/:categoria», «/producto/:slug», «/arma-tu-pc», «/reserva[/:numero]» y 404. */
 export const router = createBrowserRouter([
   {
     path: '/',
@@ -19,6 +20,8 @@ export const router = createBrowserRouter([
       { path: 'catalogo/:categoria', element: <CatalogPage /> },
       { path: 'producto/:slug', element: <ProductPage /> },
       { path: 'arma-tu-pc', element: <BuilderPage /> },
+      { path: 'reserva', element: <ReservationPage /> },
+      { path: 'reserva/:numero', element: <ReservationPage /> },
       { path: '*', element: <NotFoundPage /> },
     ],
   },

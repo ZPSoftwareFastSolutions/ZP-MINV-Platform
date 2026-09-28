@@ -50,6 +50,19 @@ public sealed class TenantProvisioner(MinvWriteDbContext db, ITenantContext tena
     public const string WarehouseCode = "ALM01";
     public const string DefaultBinSuffix = "GENERAL";
 
+    /// <summary>V6 · Usuario técnico de la tienda web (rol TIENDA_WEB): <c>tienda-web@&lt;dominio del administrador&gt;</c>.</summary>
+    public const string StorefrontUserLocalPart = "tienda-web";
+
+    public const string StorefrontUserName = "Tienda web";
+
+    /// <summary>Correo del usuario técnico de la tienda con el dominio del administrador (o <c>&lt;empresa&gt;.local</c>).</summary>
+    public static string StorefrontEmail(string tenantCode, string adminEmail)
+    {
+        var at = adminEmail.IndexOf('@', StringComparison.Ordinal);
+        var domain = at >= 0 && at < adminEmail.Length - 1 ? adminEmail[(at + 1)..].Trim().ToLowerInvariant() : tenantCode.ToLowerInvariant() + ".local";
+        return $"{StorefrontUserLocalPart}@{domain}";
+    }
+
     /// <summary>Unidades de la V2.1 (tools/demo_data.py: UNIDADES).</summary>
     public static readonly IReadOnlyList<(string Code, string Name, bool Decimals, string Description)> DefaultUnits =
     [
@@ -127,6 +140,14 @@ public sealed class TenantProvisioner(MinvWriteDbContext db, ITenantContext tena
         db.Add(new UserCredential(id, admin.Id, hasher.Hash(r.AdminPassword), hasher.Algorithm, hasher.Iterations, now, mustChangePassword: false));
         db.Add(new UserRole(id, admin.Id, roles[RoleCodes.Admin].Id));
         db.Add(new BranchUser(id, branch.Id, admin.Id));
+        // V6 · Usuario técnico de la tienda web (regla S-02): rol TIENDA_WEB en la casa matriz, con una contraseña aleatoria
+        // que no se guarda ni se muestra (nunca inicia sesión en el escritorio: el gateway lo autentica por configuración)
+        var storefront = new User(id, StorefrontEmail(code, r.AdminEmail), StorefrontUserName);
+        db.Add(storefront);
+        db.Add(new UserCredential(id, storefront.Id, hasher.Hash(Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(24))),
+            hasher.Algorithm, hasher.Iterations, now, mustChangePassword: false));
+        db.Add(new UserRole(id, storefront.Id, roles[RoleCodes.Storefront].Id));
+        db.Add(new BranchUser(id, branch.Id, storefront.Id));
 
         // Catálogos base
         var units = DefaultUnits.ToDictionary(u => u.Code, u => new UnitOfMeasure(id, u.Code, u.Name, u.Decimals, u.Description));

@@ -50,8 +50,12 @@ export interface Product {
   price: number;
   /** Precio de lista tachado cuando el producto está en oferta (solo presentación). */
   listPrice: number | null;
+  /** URL de la imagen (absoluta hacia la API en la V6; vacía si el producto no tiene imagen). */
   image: string;
+  /** Disponible = existencias − reservado en la sucursal de la tienda (nunca negativo). */
   stock: number;
+  /** Unidades reservadas (reservas web y del escritorio): explica por qué lo disponible baja sin ventas. */
+  reserved: number;
   condition: Condition;
   warrantyMonths: number;
   serialized: boolean;

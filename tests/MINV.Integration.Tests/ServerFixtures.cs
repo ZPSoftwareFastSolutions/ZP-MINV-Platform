@@ -25,13 +25,28 @@ public abstract class SeededServer : IAsyncLifetime
 
     protected abstract WebApplication Build(string[] args);
 
+    /// <summary>Argumentos adicionales de una prueba (p. ej. límites bajos de la tienda web).</summary>
+    protected virtual string[] ExtraArgs => [];
+
+    /// <summary>Empresa de prueba de la instancia (NUBE, 4 días).</summary>
+    protected virtual SeedOptions Options => new("NUBE", Days: 4, Seed: 11);
+
     public async Task InitializeAsync()
     {
-        App = Build(["--urls", "http://127.0.0.1:0", "--Minv:Storage", "memoria", "--Minv:Webhooks:Enabled", "false",
-            "--Minv:Webhooks:AllowPrivateTargets", "true", "--Minv:LoginsPerMinute", "1000", "--Minv:Siat:Background", "false", "--Logging:LogLevel:Default", "Warning"]);
+        // V6 · La tienda web pública del gateway atiende a la empresa NUBE desde la casa matriz (CM) y admite el origen del catálogo web
+        string[] args =
+        [
+            "--urls", "http://127.0.0.1:0", "--Minv:Storage", "memoria", "--Minv:Webhooks:Enabled", "false",
+            "--Minv:Webhooks:AllowPrivateTargets", "true", "--Minv:LoginsPerMinute", "1000", "--Minv:Siat:Background", "false", "--Logging:LogLevel:Default", "Warning",
+            "--Minv:Storefront:TenantCode", "NUBE", "--Minv:Storefront:BranchCode", "CM", "--Minv:Storefront:AllowedOrigins:0", "http://localhost:5173",
+            "--Minv:Storefront:ExpiryMinutes", "60",
+            // Las pruebas de la tienda hacen muchas reservas seguidas desde la misma IP; el límite se prueba aparte (StorefrontLimitsFixture)
+            "--Minv:Storefront:ReservationsPerMinute", "1000",
+        ];
+        App = Build([.. args, .. ExtraArgs]);
         await App.StartAsync();
         BaseAddress = new Uri(App.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.First());
-        Seed = await App.Services.GetRequiredService<LocalDataSeeder>().SeedAsync(new SeedOptions("NUBE", Days: 4, Seed: 11), _ => { });
+        Seed = await App.Services.GetRequiredService<LocalDataSeeder>().SeedAsync(Options, _ => { });
     }
 
     public HttpClient CreateClient() => new() { BaseAddress = BaseAddress };

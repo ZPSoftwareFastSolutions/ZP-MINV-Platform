@@ -511,7 +511,8 @@ public sealed class ScreenshotRunner(ClientHost host, ClientSettings settings, T
     /// V4.2 · Armador de PC, series e IMEI, garantías y RMA, catálogo técnico, caja con series y sección Tecnología del
     /// tablero (81 en adelante). Tolerante a datos vacíos: con una empresa sin productos serializados, cotizaciones o casos
     /// RMA se capturan las pantallas con sus estados vacíos (no se inventan datos); con la empresa de prueba de la edición
-    /// (o una base local con ella) cada pantalla se muestra con un ejemplo real elegido de sus datos.
+    /// (o una base local con ella) cada pantalla se muestra con un ejemplo real elegido de sus datos. V6 (99 a 102): las
+    /// reservas de la tienda web en el armador (lista filtrada y detalle) y el stock con unidades reservadas.
     /// </summary>
     private async Task CaptureTechAsync(SessionHandle admin, SessionHandle? cashier)
     {
@@ -657,6 +658,31 @@ public sealed class ScreenshotRunner(ClientHost host, ClientSettings settings, T
             await proforma;
         }
 
+        // V6 · Reservas web: la lista con el filtro «Reservas web» (canal, contacto, reservado hasta) y el detalle de una reserva
+        // (contacto con «Copiar teléfono», notas del cliente, piezas con su disponibilidad). Con una empresa sin reservas web la lista
+        // muestra su estado vacío y no hay detalle.
+        builder.IsQuotesTab = true;
+        builder.StatusFilter = builder.Statuses[0];
+        builder.OnlyWebReservations = true;
+        await SettleAsync(600);
+        await CaptureAsync(window, "99-armador-reservas-web.png");
+        var webReservation = builder.Builds.Cast<PcBuildItem>().FirstOrDefault(b => b.IsWeb && b.IsReservationActive)
+                             ?? builder.Builds.Cast<PcBuildItem>().FirstOrDefault(b => b.IsWeb);
+        builder.OnlyWebReservations = false;
+        if (webReservation is not null)
+        {
+            await builder.OpenBuildAsync(webReservation.Number);
+            await TryWaitAsync(() => !builder.IsLoadingCandidates, 10000);
+            shell.App.Notify.Items.Clear();
+            await SettleAsync(900);
+            await CaptureAsync(window, "100-armador-reserva-web-detalle.png");
+            theme.Apply(_other, save: false);
+            await SettleAsync(500);
+            await CaptureAsync(window, Other("102-oscuro-armador-reserva-web-detalle.png"));
+            theme.Apply(_base, save: false);
+        }
+        builder.IsBuildTab = true;
+
         // Caja: una cotización vigente de su sucursal cargada con «Desde armado» (precios cotizados y series de cada pieza)
         if (quote is { CanSell: true } && quote.Row.BranchCode == branch && pos.IsOpen)
         {
@@ -685,6 +711,19 @@ public sealed class ScreenshotRunner(ClientHost host, ClientSettings settings, T
             pos.IsBuyerExpanded = true;
         }
         posWindow.Close();
+
+        // V6 · Stock con unidades reservadas: el chip «Con reservas» (si hay) y la insignia «Reservado: n» de cada producto
+        // (disponible = existencias − reservado, regla S-03)
+        await GoAsync(shell, "stock");
+        var stockPage = (StockViewModel)shell.Current;
+        stockPage.IsGallery = true;
+        if (stockPage.Filters.FirstOrDefault(f => ReferenceEquals(f.Value, StockViewModel.ReservedFilter)) is { } reservedChip)
+        {
+            stockPage.SelectFilter.Execute(reservedChip);
+        }
+        await WaitImagesAsync(shell);
+        await CaptureAsync(window, "101-stock-con-reservado.png");
+        stockPage.SelectFilter.Execute(stockPage.Filters[0]);
 
         // Series e IMEI: las unidades vendidas (con su venta y su garantía en la lista) y la primera con su trazabilidad
         await GoAsync(shell, "series");

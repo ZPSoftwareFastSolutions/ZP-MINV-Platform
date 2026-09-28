@@ -4,6 +4,7 @@ using MINV.Application.Billing;
 using MINV.Application.Inventory.PhysicalCounts;
 using MINV.Application.Inventory.Queries;
 using MINV.Application.Sales;
+using MINV.Application.Storefront;
 using MINV.Application.Tech;
 using MINV.Domain.Catalog;
 using MINV.Domain.Common;
@@ -45,6 +46,83 @@ public sealed partial class LocalDataSeeder
         public string? Number { get; set; }
 
         public SoldUnit? Unit { get; set; }
+    }
+
+    /// <summary>Contactos ficticios de las reservas web (dominios .example, teléfonos bolivianos de prueba).</summary>
+    private static readonly (string Name, string Phone, string Email, string Notes)[] WebContacts =
+    [
+        ("Valentina Aguirre", "+591 71234567", "valentina.aguirre@correo.example", "Paso a recoger el sábado por la mañana; ¿pueden dejarla armada y probada?"),
+        ("Mateo Condori", "76543210", "mateo.condori@correo.example", "Consulta: ¿aceptan pago con QR al retirar?"),
+    ];
+
+    /// <summary>
+    /// V6 · Reservas web de la empresa de prueba (regla S-09) con el MISMO caso de uso que usa la tienda
+    /// (<see cref="CreateStorefrontReservationCommand"/>, sesión del administrador en la casa matriz): una reserva vencida hace
+    /// unos días (el trabajo de vencimiento la libera: queda anulada con motivo «Vencida» y el stock volvió) y otra activa de hace
+    /// unas horas (el escritorio la ve reservada y puede venderla en caja o liberarla). Las piezas salen del primer armado
+    /// publicado que tenga stock disponible en la casa matriz; si no alcanza, se informa y se sigue.
+    /// </summary>
+    private async Task<(int Active, int Expired)> WebReservationsAsync(SignedIn admin, DateOnly today, DateTimeOffset realNow, Action<DateOnly, int, int> at,
+        Action<string> log, CancellationToken ct)
+    {
+        var restore = clock.UtcNow;
+        var presets = await admin.Send(new GetStorefrontPresetsQuery(), ct);
+        var active = 0;
+        var expired = 0;
+        try
+        {
+            // Se intenta con cada armado publicado (del más barato al más caro) hasta conseguir UNA reserva vencida y UNA
+            // activa: las ventas del período pueden dejar sin stock a un armado, y entonces se pasa al siguiente.
+            var candidates = presets.Where(p => p.Available).OrderBy(p => p.Total).ToList();
+            var next = 0;
+            for (var i = 0; i < WebContacts.Length && next < candidates.Count; i++)
+            {
+                var contact = WebContacts[i];
+                var isExpired = i == 0;
+                // La vencida se reservó hace 4 días a las 11:20 (48 h de vigencia: venció hace 2); la activa, hoy a las 09:40 o,
+                // si la carga corre antes de las 10:00, ayer a las 18:30 (nunca en el futuro respecto de la hora real).
+                var earlyToday = realNow.TimeOfDay < new TimeSpan(10, 0, 0);
+                var day = isExpired ? today.AddDays(-4) : earlyToday ? today.AddDays(-1) : today;
+                at(day, isExpired ? 11 : earlyToday ? 18 : 9, isExpired ? 20 : earlyToday ? 30 : 40);
+                var done = false;
+                while (!done && next < candidates.Count)
+                {
+                    var preset = candidates[next++];
+                    var lines = preset.Lines.Select(l => new StorefrontReservationLineInput(l.Sku, l.Quantity, l.Slot)).ToList();
+                    try
+                    {
+                        var result = await admin.Send(new CreateStorefrontReservationCommand(lines, new StorefrontContactInput(contact.Name, contact.Phone, contact.Email),
+                            contact.Notes, $"datos-prueba-{preset.Number}-{i}", preset.Name), ct);
+                        log($"… {day:dd/MM/yyyy}: reserva web {result.Reservation.Number} de {contact.Name} ({preset.Name}) por Bs {result.Reservation.Total:N2}, " +
+                            $"vence el {result.Reservation.ReservedUntil:dd/MM/yyyy HH:mm}.");
+                        if (isExpired)
+                        {
+                            expired++;
+                        }
+                        else
+                        {
+                            active++;
+                        }
+                        done = true;
+                    }
+                    catch (DomainException ex)
+                    {
+                        log($"… {day:dd/MM/yyyy}: la reserva web de {contact.Name} con «{preset.Name}» no se registró ({ex.Message}); se prueba con el siguiente armado.");
+                    }
+                }
+            }
+        }
+        finally
+        {
+            clock.StartAt(restore);
+        }
+        if (expired > 0)
+        {
+            // El trabajo en segundo plano del gateway (cada 5 min) cierra las reservas vencidas: aquí lo hace la carga
+            var closed = await admin.Send(new ExpirePcBuildReservationsCommand(), ct);
+            log($"… hoy: el vencimiento de reservas cerró {closed} reserva(s) web vencida(s) (el stock volvió a estar disponible).");
+        }
+        return (active, expired);
     }
 
     /// <summary>
@@ -130,6 +208,9 @@ public sealed partial class LocalDataSeeder
 
         /// <summary>Armados cobrados en la caja.</summary>
         public int BuildsSold { get; private set; }
+
+        /// <summary>V6 · Armados publicados como sugeridos en la tienda web.</summary>
+        public int BuildsPublished { get; private set; }
 
         public static bool IsBuildTag(string tag) => tag.StartsWith(BuildTagPrefix, StringComparison.Ordinal);
 
@@ -297,7 +378,7 @@ public sealed partial class LocalDataSeeder
                 await _db.SerialNumbers.CountAsync(s => s.Status == SerialNumberStatus.InStock, _ct), claims.Count,
                 claims.GroupBy(c => c).OrderBy(g => g.Key).Select(g => $"{g.Key}: {g.Count()}").ToList(), builds.Count,
                 builds.Count(b => b.Status == PcBuildStatus.Sold), tech.Builds.Count(b => b.MarkedIncompatible),
-                await _db.Set<SalesReturn>().CountAsync(_ct));
+                await _db.Set<SalesReturn>().CountAsync(_ct), await _db.PcBuilds.CountAsync(b => b.PublishedToWeb, _ct));
         }
 
         // ============================================================================================ garantías
@@ -515,6 +596,13 @@ public sealed partial class LocalDataSeeder
                 }
                 _log($"… {day:dd/MM/yyyy}: armado {row.Number} «{build.Name}» {(draft ? "guardado en borrador" : "cotizado")} por Bs {row.Total:N2}" +
                      $"{(row.IsCompatible ? string.Empty : " (incompatible: " + (draft ? "pendiente de corregir)" : "cotizado con la confirmación del vendedor)"))}.");
+                // V6 · Los armados sugeridos del catálogo (compatibles y cotizados; los de prueba de incompatibilidad no) se publican en
+                // la tienda web (regla S-09)
+                if (!draft && !build.MarkedIncompatible && !build.Name.StartsWith("PRUEBA", StringComparison.OrdinalIgnoreCase))
+                {
+                    await _teams[build.Branch].Seller.Send(new PublishPcBuildCommand(row.Number), _ct);
+                    BuildsPublished++;
+                }
                 return row.Number;
             }
             catch (DomainException ex)

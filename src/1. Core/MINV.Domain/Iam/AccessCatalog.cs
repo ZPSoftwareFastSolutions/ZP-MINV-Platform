@@ -10,10 +10,13 @@ public static class RoleCodes
     public const string Cashier = "CAJERO";
     public const string Management = "GERENCIA";
 
+    /// <summary>V6 · Usuario técnico de la tienda web (principal de las rutas públicas <c>/storefront/v1</c>, regla S-02).</summary>
+    public const string Storefront = "TIENDA_WEB";
+
     public static readonly IReadOnlyList<(string Code, string Name)> All =
     [
         (Admin, "Administrador"), (Warehouse, "Bodega"), (Sales, "Ventas"), (ReadOnly, "Consulta"),
-        (Cashier, "Cajero"), (Management, "Gerencia"),
+        (Cashier, "Cajero"), (Management, "Gerencia"), (Storefront, "Tienda web"),
     ];
 }
 
@@ -56,6 +59,10 @@ public static class PermissionCodes
     public const string ServiceManage = "service.rma.manage";
     public const string PcBuildManage = "sales.pcbuild.manage";
 
+    // V6 · Tienda web conectada (catálogo público y reservas de armados)
+    public const string StorefrontRead = "storefront.read";
+    public const string StorefrontReserve = "storefront.reserve";
+
     public static readonly IReadOnlyList<(string Code, string Description)> All =
     [
         (CatalogManage, "Crear y modificar productos, categorías, unidades y proveedores"),
@@ -87,12 +94,15 @@ public static class PermissionCodes
         (ServiceOpen, "Abrir casos de garantía (RMA) al recibir un equipo del cliente"),
         (ServiceManage, "Garantías y RMA: diagnosticar, enviar al proveedor, reponer con otra unidad y entregar equipos"),
         (PcBuildManage, "Armador de PC: armar, cotizar y anular armados (cotizaciones con precio congelado)"),
+        (StorefrontRead, "Tienda web: leer el catálogo público (productos, precios, disponibilidad, imágenes y armados sugeridos)"),
+        (StorefrontReserve, "Tienda web: reservar armados con reserva de stock y consultar o cancelar una reserva con su teléfono"),
     ];
 
     /// <summary>Matriz rol → permisos (RBAC por defecto de un tenant nuevo). V3.1: cada rol suma las funciones de su
     /// puesto (ventas y caja venden y atienden clientes, bodega compra y ve reportes, gerencia aprueba y contabiliza).
     /// V4.2: bodega lleva series, fichas técnicas y RMA; ventas y caja arman PC, consultan series y abren RMA; gerencia
-    /// todo lo de la edición Tecnología; consulta solo lee series y casos.</summary>
+    /// todo lo de la edición Tecnología; consulta solo lee series y casos. V6: administración y gerencia también leen y
+    /// reservan por la tienda web; TIENDA_WEB (usuario técnico) solo eso más la consulta de stock.</summary>
     public static IReadOnlyList<string> ForRole(string roleCode) => roleCode switch
     {
         RoleCodes.Admin => All.Select(p => p.Code).ToList(),
@@ -104,8 +114,9 @@ public static class PermissionCodes
             ServiceOpen, PcBuildManage],
         RoleCodes.Management => [StockView, AuditView, AccountingManage, ReportsView, SalesView, PurchasingManage, BranchesAll,
             TransfersManage, BillingView, BillingVoid, BillingContingency, SpecsManage, SerialsView, SerialsManage, ServiceOpen, ServiceManage,
-            PcBuildManage],
+            PcBuildManage, StorefrontRead, StorefrontReserve],
         RoleCodes.ReadOnly => [StockView, ReportsView, BillingView, SerialsView],
+        RoleCodes.Storefront => [StorefrontRead, StorefrontReserve, StockView],
         _ => [],
     };
 }

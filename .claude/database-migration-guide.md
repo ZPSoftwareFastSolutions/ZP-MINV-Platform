@@ -343,3 +343,38 @@ SELECT count(*) FROM inventory.v_conservation_breaches;                   -- 0
 La prueba `V42TechPostgresTests.V42_la_migracion_rellena_las_series_existentes_y_su_guardia_las_protege` (con
 `MINV_TEST_PG`) migra una base en la V4.1 con series a la V4.2, comprueba el relleno, los datos agregados y la reversa, y
 que la guardia detiene la migración con una serie repetida en dos lotes.
+
+## 10. Migrar una base V4.2 (o V5) a la V6 (`V6Storefront`)
+
+La V5 no tocó la base: una base V4.2 migra directo. `V6Storefront` (`20260927173304_V6Storefront.cs` + `.Sql.cs`) agrega
+`sales.pc_build_events`, 9 columnas a `sales.pc_builds` (`channel`, contacto, reserva, `cancel_reason`, `published_to_web`),
+`inventory.stock_reservations.pc_build_line_id` (tercer origen del arco) y el canal `storefront` en `iam.audit_logs`. Su SQL
+propio sigue la regla B-15: relleno de `channel = 'Desktop'` con verificación y retiro del valor provisional, bitácora
+reconstruida de los armados existentes (`Created` y, si aplica, `Quoted`, `Sold` o `Cancelled`) ANTES del trigger
+append-only, RLS por descubrimiento y `branch_isolation` RESTRICTIVA en la tabla nueva, permisos `storefront.read` y
+`storefront.reserve` con su matriz, rol `TIENDA_WEB` y el usuario técnico `tienda-web@<dominio>` por empresa, y los
+privilegios de `minv_app` y `minv_server`. Listas nuevas: `NewTablesV6`, `BranchTablesV6`, `AppendOnlyTablesV6`
+(`ModelTests.Las_listas_de_las_migraciones_coinciden_con_el_modelo` las vigila).
+
+```powershell
+dotnet run --project "src/4. Tools/MINV.Cli" -- migrate --conexion "<cadena del rol dueño>"
+```
+
+Verificación en una copia:
+
+```sql
+SELECT count(*) FROM information_schema.tables WHERE table_type = 'BASE TABLE'
+  AND table_schema IN ('iam','catalog','warehouse','inventory','purchasing','sales','accounting','integration','billing','service')
+  AND table_name <> '__ef_migrations_history';                            -- 153
+SELECT count(*) FROM pg_policies WHERE policyname = 'tenant_isolation';   -- 151
+SELECT count(*) FROM pg_policies WHERE policyname = 'branch_isolation';   -- 63
+SELECT count(*) FROM pg_trigger  WHERE tgname = 'trg_append_only';        -- 30
+SELECT count(*) FROM sales.pc_builds WHERE channel NOT IN ('Desktop', 'Web');   -- 0
+SELECT count(*) FROM iam.users u JOIN iam.user_roles ur ON ur.user_id = u.id JOIN iam.roles r ON r.id = ur.role_id
+ WHERE r.code = 'TIENDA_WEB';                                             -- una por empresa
+```
+
+Reversa (`Down`): libera las reservas de armados (el reservado vuelve a las existencias), anula los armados reservados,
+despublica, quita permisos, matriz y rol, y desactiva el usuario técnico (sus filas de auditoría lo referencian). Después
+de migrar configure el gateway (`Minv:Storefront:TenantCode`) y, si la tienda no atiende desde la casa matriz,
+`Minv:Storefront:BranchCode`.

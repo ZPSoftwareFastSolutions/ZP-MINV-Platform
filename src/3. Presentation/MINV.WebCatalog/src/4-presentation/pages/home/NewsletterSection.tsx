@@ -89,7 +89,7 @@ export function NewsletterSection() {
               </p>
             ) : (
               <p id={hintId} className="mt-2 text-xs text-text-faint">
-                Podés darte de baja cuando quieras. Sitio de demostración: no se envía ningún dato.
+                Podés darte de baja cuando quieras. El boletín todavía no está conectado: no se envía ningún dato.
               </p>
             )}
             {subscribed && (

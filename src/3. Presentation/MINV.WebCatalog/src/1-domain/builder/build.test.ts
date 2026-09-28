@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { PRODUCTS } from '@/3-infrastructure/data/catalog.data';
 import { CATEGORIES } from '@/3-infrastructure/data/categories.data';
+import { MOCK_CATALOG } from '@/3-infrastructure/data/mockCatalog';
 import {
   EMPTY_BUILD,
   buildCount,
@@ -14,6 +14,8 @@ import {
 } from './build';
 import { BUILD_SLOTS, REQUIRED_SLOTS, isBuildable, slotForCategory, slotForProduct } from './slots';
 
+/** Productos del mock ya como `Product` (con `reserved`). */
+const PRODUCTS = MOCK_CATALOG.products;
 const bySku = (sku: string) => PRODUCTS.find((product) => product.sku === sku)!;
 const cpu = bySku('CPU-AMD-7600');
 const cpu2 = bySku('CPU-AMD-5600');

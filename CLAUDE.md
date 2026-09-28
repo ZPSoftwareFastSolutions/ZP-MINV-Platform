@@ -3,7 +3,32 @@
 M-INV es el sistema de inventarios B2B de Z&P Software Fast Solutions: libros de Excel arquitectados como aplicación
 transaccional inmutable (CQRS, append-only), preparados para migrar a SQL/.NET.
 
-Versión en desarrollo: **4.2.0-alpha.1** en la rama `Inventario-V4.2` (sobre `Inventario-V4.1`): **edición
+Versión en desarrollo: **6.0.0-alpha.1** en la rama `Inventario-V6` (sobre `Inventario-V5`): **tienda web conectada**. El
+catálogo web de la V5 (`src/3. Presentation/MINV.WebCatalog`, Vite + React) deja el mock y consume la **API pública de tienda**
+del API Gateway (`/storefront/v1`, sin API Key: principal técnico `tienda-web` del rol `TIENDA_WEB` de la empresa
+`Minv:Storefront:TenantCode`, sucursal `BranchCode`, CORS `AllowedOrigins`, 300 lecturas y 10 reservas por minuto por IP)
+sobre la MISMA base en la nube del escritorio: instantánea del catálogo (categorías, marcas, productos con ficha, precio,
+disponibilidad = existencias − reservado, imágenes, armados publicados), **reservas de armados** (`PcBuild` canal `Web`,
+estado `Reserved`, contacto, `ARM-WEB-000001`, 48 h, una `StockReservation` por línea —tercer origen del arco—, idempotentes
+por `Idempotency-Key`, 409 `storefront.insufficient_stock`), consulta y cancelación con el teléfono, vencimiento en segundo
+plano (`StorefrontReservationExpiryService`), venta en caja que **consume** la reserva y bitácora append-only
+`sales.pc_build_events`. Migración `V6Storefront`: **153 tablas en 10 esquemas**. Reglas: `.claude/v6-storefront-rules.md`
+(S-01…S-10); diseño: `docs/architecture/tienda-web-conectada-v6.md`; contrato: `docs/integration/storefront-api-v1.md`;
+tablas: `docs/database/ERD-MINV-V3.md` §10. Fase B (fusionada y verificada de punta a punta en la fase C): la web consume la API solo desde
+`3-infrastructure/http` (`VITE_API_URL`, por defecto `http://localhost:5090`; `VITE_API_URL=mock` usa los datos de la V5;
+`.env.example`; `deploy/Dockerfile.webcatalog` con `ARG VITE_API_URL`) con estados de carga y error, disponibilidad
+Disponible / Últimas / Reservado / Agotado, «Reservar armado» y la página «Mi reserva»; el escritorio muestra canal,
+contacto y vencimiento en Armador de PC › Cotizaciones con Reservar / Liberar / Vender en caja / Publicar, «Reservado: n» en
+stock, catálogo y caja y la tarjeta «Reservas web activas» (`docs/product/escritorio-v6.md`). Paso a paso:
+`docs/deployment/inicio-rapido-v6.md`; guía para todos: `GUIA-DE-INICIO.md` §7.
+
+Versión anterior: **5.0.0-alpha.1** en la rama `Inventario-V5` (sobre `Inventario-V4.2`): **catálogo web**
+`src/3. Presentation/MINV.WebCatalog` (Vite 8 + React 19 + TypeScript + Tailwind 4, arquitectura limpia con
+`1-domain`/`2-application`/`3-infrastructure`/`4-presentation`, `src/architecture.test.ts` vigila las capas y que nadie use
+red ni storage): inicio, catálogo con filtros, ficha del producto y «Armá tu PC» sobre datos de muestra generados con
+`tools/generar_catalogo_web.py` (`npm run generar-catalogo`). Guía: `docs/product/catalogo-web-v5.md`.
+
+Versión anterior: **4.2.0-alpha.1** en la rama `Inventario-V4.2` (sobre `Inventario-V4.1`): **edición
 Tecnología**, M-INV EXCLUSIVO para tiendas de computadoras, componentes, periféricos, consolas (PS4 y PS5, Xbox Series X
 y Series S, Nintendo Switch y Switch 2), videojuegos, accesorios, redes y software, **con datos y no con código a
 medida**: fichas técnicas tipadas por categoría (herencia, facetas, plataformas y condición como especificaciones de
@@ -64,10 +89,17 @@ rama `Inventario-V1.2`). Idioma del producto y la documentación: español.
 @.claude/v4-architecture-rules.md
 @.claude/v41-billing-rules.md
 @.claude/v42-tech-rules.md
+@.claude/v6-storefront-rules.md
 
 ## Comandos
 
 ```powershell
+powershell -ExecutionPolicy Bypass -File tools\servidores_locales.ps1 -Accion iniciar   # V6: + tienda web http://localhost:5090/storefront/v1/catalog (-EmpresaTienda TECHZONE -SucursalTienda CM -OrigenTienda http://localhost:5173)
+dotnet run --project "src/3. Presentation/MINV.ApiGateway" -- --urls http://localhost:5090 --Minv:Storefront:TenantCode TECHZONE   # V6: gateway con la tienda web (también Minv__Storefront__* por variables de entorno)
+dotnet test tests/MINV.Integration.Tests --filter Storefront                    # V6: API pública de tienda de punta a punta (Kestrel + base en memoria)
+cd "src\3. Presentation\MINV.WebCatalog"; npm install; npm run dev              # V5/V6: la web en http://localhost:5173 (V6: VITE_API_URL, por defecto http://localhost:5090; =mock usa los datos de la V5; npm test · typecheck · lint · build)
+dotnet run --project "src/4. Tools/MINV.Cli" -- migrate --conexion "…"           # V6: base existente de la V4.2/V5 → migración V6Storefront sin recrear (rol minv_owner)
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build   # V6: servidores + webcatalog (MINV_STOREFRONT_TENANT/BRANCH/ORIGIN/HOURS, MINV_WEB_API_URL)
 powershell -ExecutionPolicy Bypass -File tools\bd_local.ps1 -Accion recrear     # V4.2: base local con Tech Zone Gaming (TECHZONE): 60 días, series, RMA, armados y facturación (~2 min de carga)
 dotnet run --project "src/4. Tools/MINV.Cli" -- datos-prueba --conexion "…"      # V4.2: empresa TECHZONE por defecto (--codigo, --dias 60, --semilla 2026)
 dotnet run --project "src/4. Tools/MINV.Cli" -- verify --codigo TECHZONE --conexion "…"   # V4.2: además, series en stock = stock (v_serial_breaches)
@@ -112,6 +144,14 @@ variables); los Office Scripts, TypeScript sin `any` ni sintaxis no borrable.
 
 ## Documentación
 
+- V6: tienda web conectada: el algoritmo paso a paso `docs/deployment/inicio-rapido-v6.md` · guía para todos
+  `GUIA-DE-INICIO.md` §7 · diseño `docs/architecture/tienda-web-conectada-v6.md` · reglas S-01 a S-10
+  `.claude/v6-storefront-rules.md` · contrato de la API pública `docs/integration/storefront-api-v1.md` · eventos
+  `pcbuild.*` `docs/integration/api-gateway-v1.md` §7.2 · tablas `docs/database/ERD-MINV-V3.md` §10 · nube (gateway con la
+  tienda, `webcatalog`, CORS, TLS) `docs/deployment/despliegue-nube-v4.md` §14 · escritorio `docs/product/escritorio-v6.md`
+  (capturas 99 a 102 en `docs/product/capturas/v6`, generadas con `tools\build_v3.ps1 -Capturas`) · historial `CHANGELOG.md`
+- V5: catálogo web: `docs/product/catalogo-web-v5.md` (páginas, disponibilidad, arquitectura, nota de la conexión V6) ·
+  `src/3. Presentation/MINV.WebCatalog/README.md` (variables, modo mock, pruebas)
 - V4.2: edición Tecnología: el algoritmo paso a paso `docs/deployment/inicio-rapido-v4.2.md` · diseño (modelo,
   ciclo de vida de la serie, RMA, armador, factura, decisiones y límites) `docs/architecture/edicion-tecnologia-v4.2.md` ·
   reglas T-01 a T-10 `.claude/v42-tech-rules.md` · interfaz `docs/product/escritorio-v4.2.md` (capturas en

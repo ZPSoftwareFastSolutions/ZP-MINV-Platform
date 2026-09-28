@@ -1,9 +1,11 @@
 import { MapPin, MessageCircle, ShieldCheck, Truck } from 'lucide-react';
 import { Container } from '@/4-presentation/components/ui/Container';
+import { useStore } from '@/4-presentation/hooks/useStore';
 import { STORE } from '@/shared/constants';
 
-/** Franja superior fina: envíos, garantía, WhatsApp y sucursales (datos de ejemplo). */
+/** Franja superior fina: envíos, garantía, WhatsApp y las sucursales de la empresa (de la instantánea). */
 export function TopBar() {
+  const { company } = useStore();
   return (
     <div className="border-b border-border/60 bg-surface/70 text-xs text-text-muted">
       <Container className="flex h-9 items-center justify-between gap-4">
@@ -31,8 +33,8 @@ export function TopBar() {
           </li>
           <li className="flex items-center gap-1.5">
             <MapPin aria-hidden="true" className="size-4 text-accent" />
-            <span className="hidden lg:inline">{STORE.branches.join(' · ')}</span>
-            <span className="lg:hidden">{STORE.branches.length} sucursales</span>
+            <span className="hidden lg:inline">{company.branches.map((branch) => branch.name).join(' · ')}</span>
+            <span className="lg:hidden">{company.branches.length === 1 ? '1 sucursal' : `${company.branches.length} sucursales`}</span>
           </li>
         </ul>
       </Container>

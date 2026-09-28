@@ -1,7 +1,7 @@
 // Archivo GENERADO por tools/generar_catalogo_web.py a partir del catálogo de tecnología de la V4.2. No editar a mano.
-import type { Product } from '@/1-domain/catalog/types';
+import type { MockProduct } from './mockTypes';
 
-export const PRODUCTS: Product[] = [
+export const PRODUCTS: MockProduct[] = [
   {
     "sku": "ALMC-SDK-MSDEX-256",
     "slug": "almc-sdk-msdex-256",

@@ -5,6 +5,7 @@ import type { BuildLine, BuildSlot, SlotKey } from '@/1-domain/builder/types';
 import type { CategoryNode } from '@/1-domain/catalog/categories';
 import type { Brand, Category, Product } from '@/1-domain/catalog/types';
 import type { ICatalogRepository } from '@/1-domain/ports/ICatalogRepository';
+import type { StoreInfo } from '@/1-domain/storefront/types';
 import * as builder from './builder/queries';
 import { getCategoryFilterTree } from './catalog/filterTree';
 import * as catalog from './catalog/queries';
@@ -20,8 +21,12 @@ import type {
 } from './catalog/types';
 
 export type * from './catalog/types';
+export type { ReservationUseCases, ReserveBuildInput } from './storefront/reservations';
+export { createReservationUseCases, newIdempotencyKey } from './storefront/reservations';
 
 export interface CatalogUseCases {
+  /** Empresa y sucursal de la tienda (la disponibilidad y el retiro son de esa sucursal). */
+  getStore(): StoreInfo;
   getCategoryTree(): CategoryNode[];
   getCategories(): readonly Category[];
   getRootCategories(): Category[];
@@ -54,6 +59,7 @@ export interface CatalogUseCases {
 
 export function createCatalogUseCases(repo: ICatalogRepository): CatalogUseCases {
   return {
+    getStore: () => repo.getStore(),
     getCategoryTree: () => catalog.getCategoryTree(repo),
     getCategories: () => repo.getCategories(),
     getRootCategories: () => catalog.getRootCategories(repo),

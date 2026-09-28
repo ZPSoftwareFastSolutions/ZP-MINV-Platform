@@ -3,6 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Product } from '@/1-domain/catalog/types';
 import { createCatalogUseCases } from '@/2-application';
+import { MOCK_CATALOG } from '@/3-infrastructure/data/mockCatalog';
 import { InMemoryCatalogRepository } from '@/3-infrastructure/InMemoryCatalogRepository';
 import {
   PLATFORM_FILTERS,
@@ -16,7 +17,7 @@ import {
   productPlatforms,
 } from './homeSelectors';
 
-const catalog = createCatalogUseCases(new InMemoryCatalogRepository());
+const catalog = createCatalogUseCases(new InMemoryCatalogRepository(MOCK_CATALOG));
 
 function filter(id: string) {
   return PLATFORM_FILTERS.find((candidate) => candidate.id === id);
@@ -32,10 +33,8 @@ describe('selectores de la portada', () => {
   });
 
   it('completa el hero con destacados cuando una categoría no tiene stock', () => {
-    const products = new InMemoryCatalogRepository()
-      .getProducts()
-      .map((product): Product => (product.category === 'GPU' ? { ...product, stock: 0 } : product));
-    const hero = pickHeroProducts(createCatalogUseCases(new InMemoryCatalogRepository({ products })));
+    const products = MOCK_CATALOG.products.map((product): Product => (product.category === 'GPU' ? { ...product, stock: 0 } : product));
+    const hero = pickHeroProducts(createCatalogUseCases(new InMemoryCatalogRepository({ ...MOCK_CATALOG, products })));
     expect(hero).toHaveLength(3);
     expect(hero.some((product) => product.category === 'GPU')).toBe(false);
   });

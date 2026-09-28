@@ -3,7 +3,8 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vitest/config';
 
-// Catálogo web de Tech Zone Gaming (V5): solo frontend, se publica como sitio estático (vite build → dist/).
+// Catálogo web de Tech Zone Gaming (V6): frontend estático (vite build → dist/) que consume la API pública de tienda del
+// API Gateway (VITE_API_URL; «mock» usa los datos embebidos de la V5 sin red).
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {

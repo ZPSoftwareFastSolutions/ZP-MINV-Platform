@@ -11125,3 +11125,412 @@ BEGIN
 END $EF$;
 COMMIT;
 
+START TRANSACTION;
+
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    ALTER TABLE inventory.stock_reservations DROP CONSTRAINT ck_stock_reservations_origen;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    ALTER TABLE sales.pc_builds DROP CONSTRAINT ck_pc_builds_cotizacion;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    ALTER TABLE sales.pc_builds DROP CONSTRAINT ck_pc_builds_estado;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    ALTER TABLE iam.audit_logs DROP CONSTRAINT ck_audit_logs_canal;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    ALTER TABLE inventory.stock_reservations ADD pc_build_line_id uuid;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    ALTER TABLE sales.pc_builds ADD cancel_reason character varying(250);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    ALTER TABLE sales.pc_builds ADD channel character varying(10) NOT NULL DEFAULT '';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    ALTER TABLE sales.pc_builds ADD contact_email character varying(254);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    ALTER TABLE sales.pc_builds ADD contact_name character varying(120);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    ALTER TABLE sales.pc_builds ADD contact_phone character varying(30);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    ALTER TABLE sales.pc_builds ADD notes character varying(500);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    ALTER TABLE sales.pc_builds ADD published_to_web boolean NOT NULL DEFAULT FALSE;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    ALTER TABLE sales.pc_builds ADD reserved_at timestamp with time zone;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    ALTER TABLE sales.pc_builds ADD reserved_until timestamp with time zone;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    CREATE TABLE sales.pc_build_events (
+        id uuid NOT NULL,
+        branch_id uuid NOT NULL,
+        pc_build_id uuid NOT NULL,
+        action character varying(20) NOT NULL,
+        status character varying(20) NOT NULL,
+        user_id uuid NOT NULL,
+        occurred_at timestamp with time zone NOT NULL,
+        detail character varying(250) NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_pc_build_events PRIMARY KEY (id),
+        CONSTRAINT ak_pc_build_events_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id),
+        CONSTRAINT ak_pc_build_events_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_pc_build_events_accion CHECK (action IN ('Created', 'Quoted', 'Reserved', 'Released', 'Expired', 'Sold', 'Cancelled', 'Published', 'Unpublished')),
+        CONSTRAINT ck_pc_build_events_estado CHECK (status IN ('Draft', 'Quoted', 'Reserved', 'Sold', 'Cancelled')),
+        CONSTRAINT fk_pc_build_events_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_pc_build_events_tenant_id_branch_id_pc_build_id FOREIGN KEY (tenant_id, branch_id, pc_build_id) REFERENCES sales.pc_builds (tenant_id, branch_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_pc_build_events_tenant_id_user_id FOREIGN KEY (tenant_id, user_id) REFERENCES iam.users (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    CREATE INDEX ix_stock_reservations_pc_build_line_id_status ON inventory.stock_reservations (pc_build_line_id, status) WHERE pc_build_line_id IS NOT NULL;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    CREATE INDEX ix_stock_reservations_tenant_id_branch_id_pc_build_line_id ON inventory.stock_reservations (tenant_id, branch_id, pc_build_line_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    ALTER TABLE inventory.stock_reservations ADD CONSTRAINT ck_stock_reservations_origen CHECK (num_nonnulls(pos_session_id, sales_order_line_id, pc_build_line_id) <= 1);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    CREATE INDEX ix_pc_builds_tenant_id_published_to_web ON sales.pc_builds (tenant_id, published_to_web) WHERE published_to_web;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    CREATE INDEX ix_pc_builds_tenant_id_reserved_until ON sales.pc_builds (tenant_id, reserved_until) WHERE status = 'Reserved';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    UPDATE sales.pc_builds SET channel = 'Desktop' WHERE channel = '';
+    ALTER TABLE sales.pc_builds ALTER COLUMN channel DROP DEFAULT;
+    DO $$
+    DECLARE n bigint;
+    BEGIN
+        SELECT count(*) INTO n FROM sales.pc_builds WHERE channel NOT IN ('Desktop', 'Web');
+        IF n > 0 THEN
+            RAISE EXCEPTION 'M-INV V6: % armados quedaron sin canal', n;
+        END IF;
+    END;
+    $$;
+    INSERT INTO sales.pc_build_events (id, tenant_id, branch_id, pc_build_id, action, status, user_id, occurred_at, detail, created_at, created_by)
+    SELECT gen_random_uuid(), b.tenant_id, b.branch_id, b.id, 'Created', 'Draft', b.created_by_user_id, b.created_at, 'Historial reconstruido al migrar a la V6', now(),
+           b.created_by_user_id
+    FROM sales.pc_builds b
+    WHERE NOT EXISTS (SELECT 1 FROM sales.pc_build_events e WHERE e.pc_build_id = b.id);
+    INSERT INTO sales.pc_build_events (id, tenant_id, branch_id, pc_build_id, action, status, user_id, occurred_at, detail, created_at, created_by)
+    SELECT gen_random_uuid(), b.tenant_id, b.branch_id, b.id, 'Quoted', 'Quoted', b.created_by_user_id, b.quoted_at, 'Historial reconstruido al migrar a la V6', now(),
+           b.created_by_user_id
+    FROM sales.pc_builds b
+    WHERE b.quoted_at IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM sales.pc_build_events e WHERE e.pc_build_id = b.id AND e.action = 'Quoted');
+    INSERT INTO sales.pc_build_events (id, tenant_id, branch_id, pc_build_id, action, status, user_id, occurred_at, detail, created_at, created_by)
+    SELECT gen_random_uuid(), b.tenant_id, b.branch_id, b.id, b.status, b.status, b.created_by_user_id,
+           greatest(coalesce(b.updated_at, b.created_at), coalesce(b.quoted_at, b.created_at)), 'Historial reconstruido al migrar a la V6', now(), b.created_by_user_id
+    FROM sales.pc_builds b
+    WHERE b.status IN ('Sold', 'Cancelled')
+      AND NOT EXISTS (SELECT 1 FROM sales.pc_build_events e WHERE e.pc_build_id = b.id AND e.action = b.status);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    ALTER TABLE sales.pc_builds ADD CONSTRAINT ck_pc_builds_canal CHECK (channel IN ('Desktop', 'Web'));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    ALTER TABLE sales.pc_builds ADD CONSTRAINT ck_pc_builds_contacto CHECK (channel <> 'Web' OR (contact_name IS NOT NULL AND contact_phone IS NOT NULL));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    ALTER TABLE sales.pc_builds ADD CONSTRAINT ck_pc_builds_cotizacion CHECK (status NOT IN ('Quoted', 'Reserved') OR quoted_at IS NOT NULL);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    ALTER TABLE sales.pc_builds ADD CONSTRAINT ck_pc_builds_estado CHECK (status IN ('Draft', 'Quoted', 'Reserved', 'Sold', 'Cancelled'));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    ALTER TABLE sales.pc_builds ADD CONSTRAINT ck_pc_builds_publicado CHECK (NOT published_to_web OR (channel = 'Desktop' AND status IN ('Quoted', 'Reserved', 'Sold')));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    ALTER TABLE sales.pc_builds ADD CONSTRAINT ck_pc_builds_reserva CHECK (status <> 'Reserved' OR (reserved_at IS NOT NULL AND reserved_until IS NOT NULL));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    ALTER TABLE iam.audit_logs ADD CONSTRAINT ck_audit_logs_canal CHECK (channel IS NULL OR channel IN ('desktop', 'cloud', 'api', 'storefront'));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    CREATE INDEX ix_pc_build_events_pc_build_id_occurred_at ON sales.pc_build_events (pc_build_id, occurred_at);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    CREATE INDEX ix_pc_build_events_tenant_id_branch_id_pc_build_id ON sales.pc_build_events (tenant_id, branch_id, pc_build_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    CREATE INDEX ix_pc_build_events_tenant_id_user_id ON sales.pc_build_events (tenant_id, user_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    ALTER TABLE inventory.stock_reservations ADD CONSTRAINT fk_stock_reservations_tenant_id_branch_id_pc_build_line_id FOREIGN KEY (tenant_id, branch_id, pc_build_line_id) REFERENCES sales.pc_build_lines (tenant_id, branch_id, id) ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    CREATE TRIGGER trg_append_only BEFORE UPDATE OR DELETE ON sales.pc_build_events
+        FOR EACH ROW EXECUTE FUNCTION iam.minv_append_only();
+    CREATE TRIGGER trg_append_only_truncate BEFORE TRUNCATE ON sales.pc_build_events
+        FOR EACH STATEMENT EXECUTE FUNCTION iam.minv_append_only();
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    DO $$
+    DECLARE r record;
+    BEGIN
+        FOR r IN
+            SELECT c.table_schema, c.table_name
+            FROM information_schema.columns c
+            JOIN information_schema.tables t
+              ON t.table_schema = c.table_schema AND t.table_name = c.table_name AND t.table_type = 'BASE TABLE'
+            WHERE c.column_name = 'tenant_id' AND c.table_schema IN ('iam', 'catalog', 'warehouse', 'inventory', 'purchasing', 'sales', 'accounting', 'integration', 'billing', 'service')
+              AND NOT EXISTS (SELECT 1 FROM pg_policies p
+                              WHERE p.schemaname = c.table_schema AND p.tablename = c.table_name AND p.policyname = 'tenant_isolation')
+        LOOP
+            EXECUTE format('ALTER TABLE %I.%I ENABLE ROW LEVEL SECURITY', r.table_schema, r.table_name);
+            EXECUTE format('CREATE POLICY tenant_isolation ON %I.%I USING (tenant_id = iam.current_tenant_id()) '
+                           'WITH CHECK (tenant_id = iam.current_tenant_id())', r.table_schema, r.table_name);
+        END LOOP;
+    END;
+    $$;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    CREATE POLICY branch_isolation ON sales.pc_build_events AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    INSERT INTO iam.permissions (id, tenant_id, code, description)
+    SELECT gen_random_uuid(), t.id, p.code, p.description
+    FROM iam.tenants t
+    CROSS JOIN (VALUES ('storefront.read', 'Tienda web: leer el catálogo público (productos, precios, disponibilidad, imágenes y armados sugeridos)'), ('storefront.reserve', 'Tienda web: reservar armados con reserva de stock y consultar o cancelar una reserva con su teléfono')) AS p(code, description)
+    WHERE NOT EXISTS (SELECT 1 FROM iam.permissions x WHERE x.tenant_id = t.id AND x.code = p.code);
+
+    INSERT INTO iam.roles (id, tenant_id, code, name, is_system)
+    SELECT gen_random_uuid(), t.id, 'TIENDA_WEB', 'Tienda web', true
+    FROM iam.tenants t
+    WHERE NOT EXISTS (SELECT 1 FROM iam.roles x WHERE x.tenant_id = t.id AND x.code = 'TIENDA_WEB');
+
+    INSERT INTO iam.role_permissions (tenant_id, role_id, permission_id)
+    SELECT r.tenant_id, r.id, p.id
+    FROM iam.roles r
+    JOIN (VALUES ('ADMIN', 'storefront.read'), ('ADMIN', 'storefront.reserve'), ('GERENCIA', 'storefront.read'), ('GERENCIA', 'storefront.reserve'), ('TIENDA_WEB', 'storefront.read'), ('TIENDA_WEB', 'storefront.reserve'), ('TIENDA_WEB', 'inventory.stock.view')) AS m(role_code, permission_code) ON m.role_code = r.code
+    JOIN iam.permissions p ON p.tenant_id = r.tenant_id AND p.code = m.permission_code
+    WHERE NOT EXISTS (SELECT 1 FROM iam.role_permissions x WHERE x.role_id = r.id AND x.permission_id = p.id);
+
+    -- Usuario técnico tienda-web@<dominio del administrador> (o <empresa>.local) en cada empresa que aún no lo tiene
+    INSERT INTO iam.users (id, tenant_id, email, display_name, is_active)
+    SELECT gen_random_uuid(), t.id,
+           'tienda-web@' || coalesce(
+               (SELECT split_part(u.email, '@', 2) FROM iam.users u
+                JOIN iam.user_roles ur ON ur.user_id = u.id AND ur.tenant_id = u.tenant_id
+                JOIN iam.roles r ON r.id = ur.role_id AND r.code = 'ADMIN'
+                WHERE u.tenant_id = t.id AND position('@' in u.email) > 0
+                ORDER BY u.created_at LIMIT 1),
+               lower(t.code) || '.local'),
+           'Tienda web', true
+    FROM iam.tenants t
+    WHERE NOT EXISTS (SELECT 1 FROM iam.users u JOIN iam.user_roles ur ON ur.user_id = u.id JOIN iam.roles r ON r.id = ur.role_id
+                      WHERE u.tenant_id = t.id AND r.code = 'TIENDA_WEB')
+      AND NOT EXISTS (SELECT 1 FROM iam.users u WHERE u.tenant_id = t.id AND u.email LIKE 'tienda-web@%');
+
+    -- Credencial inutilizable (hash aleatorio: ninguna contraseña la produce), rol y casa matriz
+    INSERT INTO iam.user_credentials (user_id, tenant_id, password_hash, algorithm, iterations, changed_at, must_change_password, failed_attempts)
+    SELECT u.id, u.tenant_id,
+           encode(sha256(convert_to(gen_random_uuid()::text, 'UTF8')), 'base64') || ':' || encode(sha256(convert_to(gen_random_uuid()::text, 'UTF8')), 'base64'),
+           'PBKDF2-SHA256', 600000, now(), false, 0
+    FROM iam.users u
+    WHERE u.email LIKE 'tienda-web@%' AND u.display_name = 'Tienda web'
+      AND NOT EXISTS (SELECT 1 FROM iam.user_credentials c WHERE c.user_id = u.id);
+
+    INSERT INTO iam.user_roles (tenant_id, user_id, role_id)
+    SELECT u.tenant_id, u.id, r.id
+    FROM iam.users u
+    JOIN iam.roles r ON r.tenant_id = u.tenant_id AND r.code = 'TIENDA_WEB'
+    WHERE u.email LIKE 'tienda-web@%' AND u.display_name = 'Tienda web'
+      AND NOT EXISTS (SELECT 1 FROM iam.user_roles x WHERE x.user_id = u.id);
+
+    INSERT INTO warehouse.branch_users (tenant_id, branch_id, user_id)
+    SELECT u.tenant_id,
+           coalesce((SELECT w.branch_id FROM iam.tenant_configs c JOIN warehouse.warehouses w ON w.id = c.default_warehouse_id
+                     WHERE c.tenant_id = u.tenant_id LIMIT 1),
+                    (SELECT b.id FROM warehouse.branches b WHERE b.tenant_id = u.tenant_id ORDER BY b.code LIMIT 1)),
+           u.id
+    FROM iam.users u
+    JOIN iam.user_roles ur ON ur.user_id = u.id
+    JOIN iam.roles r ON r.id = ur.role_id AND r.code = 'TIENDA_WEB'
+    WHERE NOT EXISTS (SELECT 1 FROM warehouse.branch_users x WHERE x.user_id = u.id)
+      AND EXISTS (SELECT 1 FROM warehouse.branches b WHERE b.tenant_id = u.tenant_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    DO $$
+    DECLARE r text;
+    BEGIN
+        FOREACH r IN ARRAY ARRAY['minv_app', 'minv_server'] LOOP
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
+                EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON sales.pc_build_events TO %I', r);
+                EXECUTE format('REVOKE UPDATE, DELETE, TRUNCATE ON sales.pc_build_events FROM %I', r);
+            END IF;
+        END LOOP;
+    END;
+    $$;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260927173304_V6Storefront') THEN
+    INSERT INTO iam.__ef_migrations_history ("MigrationId", "ProductVersion")
+    VALUES ('20260927173304_V6Storefront', '8.0.31');
+    END IF;
+END $EF$;
+COMMIT;
+

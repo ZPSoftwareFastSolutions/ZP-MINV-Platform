@@ -1,14 +1,14 @@
-// Implementación del puerto ICatalogRepository sobre el mock generado (*.data.ts). Sin red ni almacenamiento.
+// Implementación del puerto ICatalogRepository en memoria. Se hidrata con una instantánea (la de la API de tienda, o la
+// del mock de la V5): índices por SKU y por slug para las consultas síncronas de los casos de uso. Sin red ni
+// almacenamiento.
 
 import type { BuildPreset } from '@/1-domain/builder/types';
 import type { Brand, Category, Product } from '@/1-domain/catalog/types';
 import type { ICatalogRepository } from '@/1-domain/ports/ICatalogRepository';
-import { BRANDS } from './data/brands.data';
-import { PRODUCTS } from './data/catalog.data';
-import { CATEGORIES } from './data/categories.data';
-import { PRESETS } from './data/presets.data';
+import type { CatalogSnapshot, StoreInfo } from '@/1-domain/storefront/types';
 
 export interface InMemoryCatalogData {
+  store: StoreInfo;
   categories: readonly Category[];
   brands: readonly Brand[];
   products: readonly Product[];
@@ -16,6 +16,7 @@ export interface InMemoryCatalogData {
 }
 
 export class InMemoryCatalogRepository implements ICatalogRepository {
+  private readonly store: StoreInfo;
   private readonly categories: readonly Category[];
   private readonly brands: readonly Brand[];
   private readonly products: readonly Product[];
@@ -23,13 +24,29 @@ export class InMemoryCatalogRepository implements ICatalogRepository {
   private readonly bySku: ReadonlyMap<string, Product>;
   private readonly bySlug: ReadonlyMap<string, Product>;
 
-  constructor(data: Partial<InMemoryCatalogData> = {}) {
-    this.categories = data.categories ?? CATEGORIES;
-    this.brands = data.brands ?? BRANDS;
-    this.products = data.products ?? PRODUCTS;
-    this.presets = data.presets ?? PRESETS;
+  constructor(data: InMemoryCatalogData) {
+    this.store = data.store;
+    this.categories = data.categories;
+    this.brands = data.brands;
+    this.products = data.products;
+    this.presets = data.presets;
     this.bySku = new Map(this.products.map((product) => [product.sku, product]));
     this.bySlug = new Map(this.products.map((product) => [product.slug, product]));
+  }
+
+  /** Repositorio hidratado con la instantánea de la tienda (ICatalogSource.load()). */
+  static fromSnapshot(snapshot: CatalogSnapshot): InMemoryCatalogRepository {
+    return new InMemoryCatalogRepository({
+      store: snapshot.store,
+      categories: snapshot.categories,
+      brands: snapshot.brands,
+      products: snapshot.products,
+      presets: snapshot.presets,
+    });
+  }
+
+  getStore(): StoreInfo {
+    return this.store;
   }
 
   getCategories(): readonly Category[] {

@@ -6,8 +6,10 @@ using MINV.Application.Billing;
 using MINV.Application.Common;
 using MINV.Application.Inventory;
 using MINV.Application.Sales;
+using MINV.Application.Storefront;
 using MINV.Domain.Catalog;
 using MINV.Domain.Common;
+using MINV.Domain.Iam;
 using MINV.Domain.Inventory;
 using MINV.Domain.Sales;
 using MINV.Domain.Warehousing;
@@ -108,8 +110,9 @@ internal sealed class PcParts(IMinvDbContext db)
     }
 }
 
-/// <summary>V4.2 · Filas de los armados (compatibilidad evaluada con las fichas vigentes).</summary>
-internal sealed class PcBuildViews(IMinvDbContext db, IClock clock)
+/// <summary>V4.2 · Filas de los armados (compatibilidad evaluada con las fichas vigentes). V6: canal, contacto (teléfono y correo
+/// solo con <c>sales.pcbuild.manage</c>, regla S-06), reserva, publicación y unidades reservadas.</summary>
+internal sealed class PcBuildViews(IMinvDbContext db, IClock clock, ICurrentUser? user = null)
 {
     public async Task<IReadOnlyList<PcBuildRow>> RowsAsync(IReadOnlyList<PcBuild> builds, CancellationToken ct)
     {
@@ -120,6 +123,14 @@ internal sealed class PcBuildViews(IMinvDbContext db, IClock clock)
         var customers = await db.Set<Customer>().Where(c => customerIds.Contains(c.Id)).ToDictionaryAsync(c => c.Id, c => c.Name, ct);
         var invoiceIds = builds.Where(b => b.InvoiceId is not null).Select(b => b.InvoiceId!.Value).ToList();
         var invoices = await db.Set<Invoice>().Where(i => invoiceIds.Contains(i.Id)).ToDictionaryAsync(i => i.Id, i => i.Number, ct);
+        var lineIds = builds.Where(b => b.Status == PcBuildStatus.Reserved).SelectMany(b => b.Lines.Select(l => l.Id)).ToList();
+        var reserved = lineIds.Count == 0
+            ? new Dictionary<Guid, decimal>()
+            : (await db.Set<StockReservation>().AsNoTracking()
+                .Where(r => r.PcBuildLineId != null && lineIds.Contains(r.PcBuildLineId.Value) && r.Status == ReservationStatus.Active)
+                .Select(r => new { LineId = r.PcBuildLineId!.Value, r.Quantity }).ToListAsync(ct))
+            .GroupBy(r => r.LineId).ToDictionary(g => g.Key, g => g.Sum(r => r.Quantity));
+        var showContact = user?.HasPermission(PermissionCodes.PcBuildManage) == true;
         var parts = new PcParts(db);
         var result = new List<PcBuildRow>(builds.Count);
         foreach (var b in builds)
@@ -128,7 +139,9 @@ internal sealed class PcBuildViews(IMinvDbContext db, IClock clock)
             var compatible = PcCompatibility.Check(resolved.Select(p => p.Component).ToList()).IsCompatible;
             result.Add(new PcBuildRow(b.Id, b.Number, b.Name, branches.GetValueOrDefault(b.BranchId, "?"),
                 b.CustomerId is { } c ? customers.GetValueOrDefault(c) : null, b.Status, b.ValidUntil, b.IsExpiredOn(today), b.Total, b.Lines.Count,
-                compatible, b.CreatedAt, b.InvoiceId is { } i ? invoices.GetValueOrDefault(i) : null, b.QuotedWithErrors));
+                compatible, b.CreatedAt, b.InvoiceId is { } i ? invoices.GetValueOrDefault(i) : null, b.QuotedWithErrors,
+                b.Channel, b.ContactName, showContact ? b.ContactPhone : null, showContact ? b.ContactEmail : null, b.ReservedUntil, b.PublishedToWeb,
+                b.CancelReason, b.Notes, b.Lines.Sum(l => reserved.GetValueOrDefault(l.Id))));
         }
         return result;
     }
@@ -220,7 +233,7 @@ public sealed class SavePcBuildHandler(IMinvDbContext db, ICurrentUser user, ICl
             {
                 var build = await SaveAsync(request, userId, ct);
                 await db.SaveChangesAsync(ct);
-                return await new PcBuildViews(db, clock).RowAsync(build, ct);
+                return await new PcBuildViews(db, clock, user).RowAsync(build, ct);
             }
             catch (ConcurrencyConflictException) when (attempt < 3)
             {
@@ -270,13 +283,14 @@ public sealed class SavePcBuildHandler(IMinvDbContext db, ICurrentUser user, ICl
         }
         if (request.Quote)
         {
-            build.Quote(today.AddDays(request.ValidDays), today, PcCompatibility.Check(parts.Select(p => p.Component).ToList()), request.AcceptIncompatible, now);
+            build.Quote(today.AddDays(request.ValidDays), today, PcCompatibility.Check(parts.Select(p => p.Component).ToList()), request.AcceptIncompatible, now,
+                userId);
         }
         return build;
     }
 }
 
-public sealed class GetPcBuildsHandler(IMinvDbContext db, IClock clock) : IRequestHandler<GetPcBuildsQuery, IReadOnlyList<PcBuildRow>>
+public sealed class GetPcBuildsHandler(IMinvDbContext db, IClock clock, ICurrentUser user) : IRequestHandler<GetPcBuildsQuery, IReadOnlyList<PcBuildRow>>
 {
     public async Task<IReadOnlyList<PcBuildRow>> Handle(GetPcBuildsQuery request, CancellationToken ct)
     {
@@ -285,33 +299,159 @@ public sealed class GetPcBuildsHandler(IMinvDbContext db, IClock clock) : IReque
         {
             query = query.Where(b => b.Status == status);
         }
-        return await new PcBuildViews(db, clock).RowsAsync(await query.OrderByDescending(b => b.CreatedAt).Take(500).ToListAsync(ct), ct);
+        if (request.Channel is { } channel)
+        {
+            query = query.Where(b => b.Channel == channel);
+        }
+        return await new PcBuildViews(db, clock, user).RowsAsync(await query.OrderByDescending(b => b.CreatedAt).Take(500).ToListAsync(ct), ct);
     }
 }
 
-public sealed class GetPcBuildHandler(IMinvDbContext db, IClock clock) : IRequestHandler<GetPcBuildQuery, PcBuildDetail>
+public sealed class GetPcBuildHandler(IMinvDbContext db, IClock clock, ICurrentUser user) : IRequestHandler<GetPcBuildQuery, PcBuildDetail>
 {
     public async Task<PcBuildDetail> Handle(GetPcBuildQuery request, CancellationToken ct)
     {
         var number = request.Number.Trim().ToUpperInvariant();
-        var build = await db.Set<PcBuild>().AsNoTracking().Include(b => b.Lines).FirstOrDefaultAsync(b => b.Number == number, ct)
+        var build = await db.Set<PcBuild>().AsNoTracking().Include(b => b.Lines).Include(b => b.History).FirstOrDefaultAsync(b => b.Number == number, ct)
                     ?? throw new NotFoundException($"El armado {number} no existe o es de otra sucursal.");
         var (parts, quoted) = await new PcParts(db).OfBuildAsync(build, ct);
-        return new PcBuildDetail(await new PcBuildViews(db, clock).RowAsync(build, ct), PcParts.Check(parts),
-            parts.Select((p, i) => PcParts.View(p, quoted[i])).ToList());
+        var userIds = build.History.Select(e => e.UserId).Distinct().ToList();
+        var users = await db.Set<User>().Where(u => userIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.DisplayName, ct);
+        var history = build.History.OrderBy(e => e.OccurredAt).ThenBy(e => e.Id)
+            .Select(e => new PcBuildEventView(e.OccurredAt, e.Action, e.Status, e.Detail, users.GetValueOrDefault(e.UserId, "?"))).ToList();
+        return new PcBuildDetail(await new PcBuildViews(db, clock, user).RowAsync(build, ct), PcParts.Check(parts),
+            parts.Select((p, i) => PcParts.View(p, quoted[i])).ToList(), history);
     }
 }
 
-public sealed class CancelPcBuildHandler(IMinvDbContext db) : IRequestHandler<CancelPcBuildCommand, string>
+/// <summary>Anula el armado. V6: si estaba reservado libera la reserva (el stock vuelve) en la misma transacción.</summary>
+public sealed class CancelPcBuildHandler(IMinvDbContext db, ICurrentUser user, IClock clock) : IRequestHandler<CancelPcBuildCommand, string>
 {
     public async Task<string> Handle(CancelPcBuildCommand request, CancellationToken ct)
     {
+        var userId = user.UserId ?? throw new AccessDeniedException("Inicie sesión.");
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                var number = request.Number.Trim().ToUpperInvariant();
+                var build = await db.Set<PcBuild>().Include(b => b.Lines).FirstOrDefaultAsync(b => b.Number == number, ct)
+                            ?? throw new NotFoundException($"El armado {number} no existe o es de otra sucursal.");
+                var now = clock.UtcNow;
+                if (build.Status == PcBuildStatus.Reserved)
+                {
+                    await PcBuildStock.ReleaseAsync(db, build, ct);
+                    build.ReleaseReservation(request.Reason?.Trim() is { Length: > 0 } reason ? reason : "Anulado por el vendedor", now, userId);
+                }
+                else
+                {
+                    build.Cancel(userId, now, request.Reason);
+                }
+                await db.SaveChangesAsync(ct);
+                return $"✔ Armado {build.Number} anulado.";
+            }
+            catch (ConcurrencyConflictException) when (attempt < 3)
+            {
+                db.ClearTracking();
+            }
+        }
+    }
+}
+
+/// <summary>V6 · Reserva el stock de una cotización del escritorio (todo o nada, misma transacción, regla S-03).</summary>
+public sealed class ReservePcBuildValidator : AbstractValidator<ReservePcBuildCommand>
+{
+    public ReservePcBuildValidator()
+    {
+        RuleFor(x => x.Number).NotEmpty().WithMessage("Indique el armado.");
+        RuleFor(x => x.Hours).InclusiveBetween(1, 24 * 30).WithMessage("La reserva dura de 1 hora a 30 días.");
+    }
+}
+
+public sealed class ReservePcBuildHandler(IMinvDbContext db, ICurrentUser user, IClock clock) : IRequestHandler<ReservePcBuildCommand, PcBuildRow>
+{
+    public async Task<PcBuildRow> Handle(ReservePcBuildCommand request, CancellationToken ct)
+    {
+        var userId = user.UserId ?? throw new AccessDeniedException("Inicie sesión.");
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                var number = request.Number.Trim().ToUpperInvariant();
+                var build = await db.Set<PcBuild>().Include(b => b.Lines).FirstOrDefaultAsync(b => b.Number == number, ct)
+                            ?? throw new NotFoundException($"El armado {number} no existe o es de otra sucursal.");
+                var config = await new InventoryLookups(db).ConfigAsync(ct);
+                var today = clock.TodayIn(config.TimeZoneId);
+                var now = clock.UtcNow;
+                var until = now.AddHours(request.Hours);
+                build.Reserve(now, until, today, userId);
+                await PcBuildStock.ReserveAsync(db, build, now, until, ct);
+                await db.SaveChangesAsync(ct);
+                return await new PcBuildViews(db, clock, user).RowAsync(build, ct);
+            }
+            catch (ConcurrencyConflictException) when (attempt < 3)
+            {
+                db.ClearTracking();
+            }
+        }
+    }
+}
+
+public sealed class ReleasePcBuildReservationValidator : AbstractValidator<ReleasePcBuildReservationCommand>
+{
+    public ReleasePcBuildReservationValidator()
+    {
+        RuleFor(x => x.Number).NotEmpty().WithMessage("Indique el armado.");
+        RuleFor(x => x.Reason).NotEmpty().WithMessage("Indique el motivo de la liberación.").MaximumLength(250);
+    }
+}
+
+/// <summary>V6 · Libera la reserva (el stock vuelve; el armado queda anulado con su motivo).</summary>
+public sealed class ReleasePcBuildReservationHandler(IMinvDbContext db, ICurrentUser user, IClock clock)
+    : IRequestHandler<ReleasePcBuildReservationCommand, PcBuildRow>
+{
+    public async Task<PcBuildRow> Handle(ReleasePcBuildReservationCommand request, CancellationToken ct)
+    {
+        var userId = user.UserId ?? throw new AccessDeniedException("Inicie sesión.");
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                var number = request.Number.Trim().ToUpperInvariant();
+                var build = await db.Set<PcBuild>().Include(b => b.Lines).FirstOrDefaultAsync(b => b.Number == number, ct)
+                            ?? throw new NotFoundException($"El armado {number} no existe o es de otra sucursal.");
+                await PcBuildStock.ReleaseAsync(db, build, ct);
+                build.ReleaseReservation(request.Reason, clock.UtcNow, userId);
+                await db.SaveChangesAsync(ct);
+                return await new PcBuildViews(db, clock, user).RowAsync(build, ct);
+            }
+            catch (ConcurrencyConflictException) when (attempt < 3)
+            {
+                db.ClearTracking();
+            }
+        }
+    }
+}
+
+/// <summary>V6 · Publica o retira un armado sugerido de la tienda web.</summary>
+public sealed class PublishPcBuildHandler(IMinvDbContext db, ICurrentUser user, IClock clock) : IRequestHandler<PublishPcBuildCommand, PcBuildRow>
+{
+    public async Task<PcBuildRow> Handle(PublishPcBuildCommand request, CancellationToken ct)
+    {
+        var userId = user.UserId ?? throw new AccessDeniedException("Inicie sesión.");
         var number = request.Number.Trim().ToUpperInvariant();
-        var build = await db.Set<PcBuild>().FirstOrDefaultAsync(b => b.Number == number, ct)
+        var build = await db.Set<PcBuild>().Include(b => b.Lines).FirstOrDefaultAsync(b => b.Number == number, ct)
                     ?? throw new NotFoundException($"El armado {number} no existe o es de otra sucursal.");
-        build.Cancel();
+        if (request.Published)
+        {
+            build.Publish(userId, clock.UtcNow);
+        }
+        else
+        {
+            build.Unpublish(userId, clock.UtcNow);
+        }
         await db.SaveChangesAsync(ct);
-        return $"✔ Armado {build.Number} anulado.";
+        return await new PcBuildViews(db, clock, user).RowAsync(build, ct);
     }
 }
 
@@ -358,8 +498,14 @@ public sealed class SellPcBuildHandler(IMinvDbContext db, ICurrentUser user, ICl
         var config = await new InventoryLookups(db).ConfigAsync(ct);
         var today = clock.TodayIn(config.TimeZoneId);
         Guard.That(build.Status != PcBuildStatus.Draft, "pcbuild.not_quoted", $"El armado {build.Number} está en borrador: cotícelo antes de venderlo.");
-        Guard.That(build.Status == PcBuildStatus.Quoted, "pcbuild.state", $"El armado {build.Number} está {PcBuild.Describe(build.Status)}: ya no se puede vender.");
+        Guard.That(build.Status is PcBuildStatus.Quoted or PcBuildStatus.Reserved, "pcbuild.state",
+            $"El armado {build.Number} está {PcBuild.Describe(build.Status)}: ya no se puede vender.");
         Guard.That(!build.IsExpiredOn(today), "pcbuild.expired", $"La cotización {build.Number} venció el {build.ValidUntil:dd/MM/yyyy}: cotícela de nuevo.");
+        // V6 · Un armado reservado se vende CONSUMIENDO sus reservas (regla S-04): la venta registra la salida una sola vez
+        if (build.Status == PcBuildStatus.Reserved)
+        {
+            await PcBuildStock.FulfillAsync(db, build, ct);
+        }
         var session = await db.Set<PosSession>().Where(s => s.Status == PosSessionStatus.Open && s.OpenedByUserId == userId)
                           .OrderByDescending(s => s.OpenedAt).FirstOrDefaultAsync(ct)
                       ?? throw new DomainException("pos.closed", "Abra un turno de caja antes de cobrar.");
@@ -395,7 +541,7 @@ public sealed class SellPcBuildHandler(IMinvDbContext db, ICurrentUser user, ICl
         var sale = await SaleWriter.SellAsync(db, clock, userId, new SaleOrigin(session.BranchId, register.WarehouseId, session.Id, SaleChannels.Pos, register.Id),
             customerCode, request.PaymentMethodCode, lines, request.CashReceived, request.PaymentReference,
             new SaleFiscal(serializer, BillingLookups.UserCode(user), request.Buyer, request.CardNumber), ct, prices);
-        build.MarkSold(sale.Invoice.Id, today);
+        build.MarkSold(sale.Invoice.Id, today, userId, clock.UtcNow);
         return sale.Result;
     }
 }

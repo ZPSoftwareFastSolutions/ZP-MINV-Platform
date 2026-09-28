@@ -1,7 +1,7 @@
 // Menú móvil en un cajón izquierdo: accesos rápidos, categorías en acordeón y contacto. Se cierra al navegar.
 
 import clsx from 'clsx';
-import { BadgePercent, ChevronDown, Cpu, MessageCircle, Phone, Sparkles } from 'lucide-react';
+import { BadgePercent, ChevronDown, Cpu, MessageCircle, Phone, Sparkles, TicketCheck } from 'lucide-react';
 import { useState } from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import type { CategoryNode } from '@/1-domain/catalog/categories';
@@ -84,6 +84,10 @@ export function MobileMenu({ open, onClose }: { open: boolean; onClose: () => vo
               Ofertas
             </Link>
           </div>
+          <Link to={ROUTES.reservations} className={clsx(LINK, LINK_IDLE, 'justify-center border border-border text-sm')}>
+            <TicketCheck aria-hidden="true" className="size-4 text-accent" />
+            Consultar mi reserva
+          </Link>
         </div>
 
         <nav aria-label="Categorías">

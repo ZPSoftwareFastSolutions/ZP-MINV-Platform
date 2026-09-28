@@ -1,24 +1,35 @@
 // Cabecera del armador: título, progreso de las piezas esenciales y acciones (armado sugerido, vaciar con confirmación
 // inline e imprimir el resumen). El foco acompaña a la confirmación: al pedir «Vaciar» pasa a «No» (la opción segura)
 // y al resolverla vuelve a «Vaciar» o, si el armado quedó vacío, al botón de armados sugeridos.
+// V6: explica que el armado se RESERVA en la tienda (48 h) y, después de reservar, recuerda el número con su enlace.
 
-import { Printer, Sparkles, Trash2 } from 'lucide-react';
+import { Printer, Sparkles, TicketCheck, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { BuildSummary } from '@/1-domain/builder/build';
 import type { SlotKey } from '@/1-domain/builder/types';
+import { RESERVATION_HOURS, type Reservation } from '@/1-domain/storefront/types';
+import { ROUTES } from '@/4-presentation/app/routes';
 import { Button } from '@/4-presentation/components/ui/Button';
 import { formatMoney, pluralize } from '@/shared/format';
 import { BuildProgress } from './BuildProgress';
 
 export interface BuilderHeaderProps {
   summary: BuildSummary;
+  /** Sucursal de la tienda donde se guarda y retira la reserva (de la instantánea). */
+  branchName: string;
+  /** Sin armados publicados, el botón «Empezar desde un armado sugerido» no se ofrece. */
+  hasPresets: boolean;
+  /** Hay algo que imprimir: piezas en el armado o la última reserva aceptada. */
+  canPrint: boolean;
+  /** Última reserva aceptada por la tienda en esta visita (el armado ya quedó vacío). */
+  lastReservation: Reservation | null;
   onPickPreset: () => void;
   onClear: () => void;
   onPrint: () => void;
   onGoToStep: (slot: SlotKey) => void;
 }
 
-export function BuilderHeader({ summary, onPickPreset, onClear, onPrint, onGoToStep }: BuilderHeaderProps) {
+export function BuilderHeader({ summary, branchName, hasPresets, canPrint, lastReservation, onPickPreset, onClear, onPrint, onGoToStep }: BuilderHeaderProps) {
   const [confirmClear, setConfirmClear] = useState(false);
   const presetRef = useRef<HTMLButtonElement>(null);
   const clearRef = useRef<HTMLButtonElement>(null);
@@ -46,15 +57,18 @@ export function BuilderHeader({ summary, onPickPreset, onClear, onPrint, onGoToS
             Armá tu <span className="text-gradient-brand">PC</span>
           </h1>
           <p className="mt-3 text-base text-text-muted">
-            Elegí una pieza por paso y mirá el total al instante. Podés empezar desde cero o cargar uno de nuestros armados sugeridos y
-            ajustarlo a tu gusto. Es una demostración: nada se guarda ni se compra.
+            Elegí una pieza por paso y mirá el total al instante. Podés empezar desde cero o cargar un armado sugerido y ajustarlo a tu gusto. Cuando
+            esté listo, <span className="font-semibold text-text">reservalo</span>: te lo guardamos {RESERVATION_HOURS} horas en {branchName} y lo
+            confirmás y pagás en la tienda.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-          <Button ref={presetRef} variant="brand" leftIcon={<Sparkles aria-hidden="true" />} onClick={onPickPreset}>
-            Empezar desde un armado sugerido
-          </Button>
-          <Button variant="outline" leftIcon={<Printer />} disabled={empty} onClick={onPrint} title="Abre el diálogo de impresión del navegador">
+          {hasPresets && (
+            <Button ref={presetRef} variant="brand" leftIcon={<Sparkles aria-hidden="true" />} onClick={onPickPreset}>
+              Empezar desde un armado sugerido
+            </Button>
+          )}
+          <Button variant="outline" leftIcon={<Printer />} disabled={!canPrint} onClick={onPrint} title="Abre el diálogo de impresión del navegador">
             Imprimir resumen
           </Button>
           {confirmClear ? (
@@ -80,6 +94,21 @@ export function BuilderHeader({ summary, onPickPreset, onClear, onPrint, onGoToS
           )}
         </div>
       </div>
+
+      {lastReservation && empty && (
+        <div className="mt-6 flex flex-col gap-3 rounded-card border border-success/40 bg-success-soft p-4 text-sm sm:flex-row sm:items-center sm:justify-between" role="status">
+          <p className="flex items-start gap-2 text-text">
+            <TicketCheck aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-success" />
+            <span>
+              Tu último armado quedó reservado como <span className="font-semibold">{lastReservation.number}</span>. Podés armar otro o consultar su estado
+              cuando quieras.
+            </span>
+          </p>
+          <Button to={ROUTES.reservation(lastReservation.number)} variant="outline" className="shrink-0">
+            Consultar mi reserva
+          </Button>
+        </div>
+      )}
 
       <div className="mt-8 rounded-card border border-border bg-surface p-4 shadow-card sm:p-5">
         <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
@@ -114,7 +143,7 @@ export function BuilderHeader({ summary, onPickPreset, onClear, onPrint, onGoToS
             </ul>
           </div>
         ) : (
-          <p className="mt-4 text-sm font-medium text-success-text">Tu armado tiene todas las piezas esenciales. Sumá extras o finalizalo cuando quieras.</p>
+          <p className="mt-4 text-sm font-medium text-success-text">Tu armado tiene todas las piezas esenciales. Sumá extras o reservalo cuando quieras.</p>
         )}
       </div>
     </header>

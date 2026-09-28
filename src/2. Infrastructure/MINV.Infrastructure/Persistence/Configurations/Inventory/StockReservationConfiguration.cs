@@ -12,7 +12,8 @@ internal sealed class StockReservationConfiguration : IEntityTypeConfiguration<S
         builder.ToTable("stock_reservations", Schemas.Inventory, t =>
         {
             t.HasCheckConstraint("ck_stock_reservations_cantidad", "quantity > 0");
-            t.HasCheckConstraint("ck_stock_reservations_origen", "num_nonnulls(pos_session_id, sales_order_line_id) <= 1");
+            // V6 · Arco de origen: caja | línea de pedido | línea de armado (a lo sumo uno)
+            t.HasCheckConstraint("ck_stock_reservations_origen", "num_nonnulls(pos_session_id, sales_order_line_id, pc_build_line_id) <= 1");
         });
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Quantity).HasPrecision(18, 6);
@@ -29,6 +30,11 @@ internal sealed class StockReservationConfiguration : IEntityTypeConfiguration<S
             .HasForeignKey(x => new { x.TenantId, x.BranchId, x.SalesOrderLineId })
             .HasPrincipalKey(p => new { p.TenantId, p.BranchId, p.Id })
             .OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<PcBuildLine>().WithMany()
+            .HasForeignKey(x => new { x.TenantId, x.BranchId, x.PcBuildLineId })
+            .HasPrincipalKey(p => new { p.TenantId, p.BranchId, p.Id })
+            .OnDelete(DeleteBehavior.Restrict);
         builder.HasIndex(x => new { x.StockLevelId, x.Status });
+        builder.HasIndex(x => new { x.PcBuildLineId, x.Status }).HasFilter("pc_build_line_id IS NOT NULL");
     }
 }

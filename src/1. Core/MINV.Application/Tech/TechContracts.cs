@@ -245,8 +245,16 @@ public sealed record PcBuildCandidate(string Sku, string Name, string? Brand, de
 public sealed record GetPcBuildCandidatesQuery(PcSlot Slot, IReadOnlyList<PcBuildItemInput> Current, string? Text = null, bool OnlyInStock = false,
     string? CategoryCode = null) : IRequest<IReadOnlyList<PcBuildCandidate>>;
 
+/// <summary>Fila de un armado. V6: canal (escritorio o web), contacto (teléfono y correo solo para quien tiene
+/// <c>sales.pcbuild.manage</c>, regla S-06), reserva vigente hasta, publicado en la web, motivo del cierre y unidades reservadas.</summary>
 public sealed record PcBuildRow(Guid Id, string Number, string Name, string BranchCode, string? Customer, PcBuildStatus Status, DateOnly ValidUntil,
-    bool IsExpired, decimal Total, int Items, bool IsCompatible, DateTimeOffset CreatedAt, string? InvoiceNumber, bool QuotedWithErrors = false);
+    bool IsExpired, decimal Total, int Items, bool IsCompatible, DateTimeOffset CreatedAt, string? InvoiceNumber, bool QuotedWithErrors = false,
+    PcBuildChannel Channel = PcBuildChannel.Desktop, string? ContactName = null, string? ContactPhone = null, string? ContactEmail = null,
+    DateTimeOffset? ReservedUntil = null, bool PublishedToWeb = false, string? CancelReason = null, string? Notes = null, decimal Reserved = 0)
+{
+    /// <summary>V6 · Reserva vigente (reservado y no vencido a <paramref name="now"/>).</summary>
+    public bool IsReservationActive(DateTimeOffset now) => Status == PcBuildStatus.Reserved && ReservedUntil is { } until && until > now;
+}
 
 /// <summary>Guarda el armado (nuevo en la sucursal activa o un borrador existente) con los precios de la lista vigente; con
 /// Quote = true lo emite como cotización con vigencia de <see cref="ValidDays"/> días (precios congelados). Un armado con
@@ -258,18 +266,46 @@ public sealed record SavePcBuildCommand(Guid? Id, string Name, string? CustomerC
     public object AuditDetails => new { Id, Name, CustomerCode, Items, Quote, ValidDays, AcceptIncompatible };
 }
 
+/// <summary>Armados de las sucursales visibles (los 500 más recientes), por estado y, V6, por canal (web o escritorio).</summary>
 [RequiresPermission(PermissionCodes.SalesView)]
-public sealed record GetPcBuildsQuery(PcBuildStatus? Status = null) : IRequest<IReadOnlyList<PcBuildRow>>;
+public sealed record GetPcBuildsQuery(PcBuildStatus? Status = null, PcBuildChannel? Channel = null) : IRequest<IReadOnlyList<PcBuildRow>>;
 
-public sealed record PcBuildDetail(PcBuildRow Build, PcBuildCheckView Check, IReadOnlyList<PcBuildItemView> QuotedItems);
+/// <summary>V6 · Fila de la bitácora del armado.</summary>
+public sealed record PcBuildEventView(DateTimeOffset OccurredAt, PcBuildEventAction Action, PcBuildStatus Status, string Detail, string User);
+
+public sealed record PcBuildDetail(PcBuildRow Build, PcBuildCheckView Check, IReadOnlyList<PcBuildItemView> QuotedItems,
+    IReadOnlyList<PcBuildEventView>? History = null);
 
 [RequiresPermission(PermissionCodes.SalesView)]
 public sealed record GetPcBuildQuery(string Number) : IRequest<PcBuildDetail>;
 
+/// <summary>Anula un borrador o una cotización. V6: un armado reservado se anula liberando su reserva (el stock vuelve).</summary>
 [RequiresPermission(PermissionCodes.PcBuildManage)]
-public sealed record CancelPcBuildCommand(string Number) : IRequest<string>, IAuditableRequest
+public sealed record CancelPcBuildCommand(string Number, string? Reason = null) : IRequest<string>, IAuditableRequest
 {
-    public object AuditDetails => new { Number };
+    public object AuditDetails => new { Number, Reason };
+}
+
+/// <summary>V6 · Reserva el stock de una cotización vigente del escritorio por <see cref="Hours"/> horas (regla S-03): una
+/// reserva por línea en la sucursal del armado, todo o nada (si falta stock informa qué piezas y cuánto hay).</summary>
+[RequiresPermission(PermissionCodes.PcBuildManage)]
+public sealed record ReservePcBuildCommand(string Number, int Hours = 48) : IRequest<PcBuildRow>, IAuditableRequest
+{
+    public object AuditDetails => new { Number, Hours };
+}
+
+/// <summary>V6 · Libera la reserva de un armado (web o escritorio): pasa a Anulado con motivo y el stock vuelve.</summary>
+[RequiresPermission(PermissionCodes.PcBuildManage)]
+public sealed record ReleasePcBuildReservationCommand(string Number, string Reason) : IRequest<PcBuildRow>, IAuditableRequest
+{
+    public object AuditDetails => new { Number, Reason };
+}
+
+/// <summary>V6 · Publica (o retira) un armado del escritorio como armado sugerido en la tienda web.</summary>
+[RequiresPermission(PermissionCodes.PcBuildManage)]
+public sealed record PublishPcBuildCommand(string Number, bool Published = true) : IRequest<PcBuildRow>, IAuditableRequest
+{
+    public object AuditDetails => new { Number, Published };
 }
 
 /// <summary>
@@ -300,10 +336,13 @@ public sealed record NamedAmount(string Name, decimal Amount, decimal Quantity);
 
 public sealed record NamedCount(string Name, int Count);
 
+/// <summary>V6: <paramref name="WebReservationsActive"/> y <paramref name="WebReservationsValue"/> son las reservas web vigentes
+/// (armados del canal Web reservados y no vencidos) y su total en Bs.</summary>
 public sealed record TechDashboardView(IReadOnlyList<NamedAmount> SalesByCategory, IReadOnlyList<NamedAmount> SalesByPlatform,
     IReadOnlyList<NamedAmount> TopGpus, IReadOnlyList<NamedAmount> TopConsoles, IReadOnlyList<NamedCount> OpenClaimsByStatus,
     IReadOnlyList<NamedCount> SerialsInStockByCategory, int SerialsInStock, int OpenClaims, int ClaimsOutOfWarranty, int QuotesOpen,
-    decimal QuotesValue, int BuildsSold, decimal BuildsSoldValue, int SerializedWithoutSerials);
+    decimal QuotesValue, int BuildsSold, decimal BuildsSoldValue, int SerializedWithoutSerials, int WebReservationsActive = 0,
+    decimal WebReservationsValue = 0);
 
 /// <summary>Indicadores de la tienda de tecnología de los últimos <see cref="Days"/> días en las sucursales visibles: ventas
 /// por categoría raíz y por plataforma, lo más vendido de las categorías de tarjetas de video y de consolas, casos RMA

@@ -12,7 +12,7 @@ internal sealed class AuditLogConfiguration : IEntityTypeConfiguration<AuditLog>
     {
         builder.ToTable("audit_logs", Schemas.Iam, t =>
         {
-            t.HasCheckConstraint("ck_audit_logs_canal", "channel IS NULL OR channel IN ('desktop', 'cloud', 'api')");
+            t.HasCheckConstraint("ck_audit_logs_canal", "channel IS NULL OR channel IN ('desktop', 'cloud', 'api', 'storefront')");
         });
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Action).HasMaxLength(100);

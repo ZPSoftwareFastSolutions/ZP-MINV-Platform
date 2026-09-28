@@ -224,9 +224,18 @@ curl -s "$MINV_API/v1/events" -H "Authorization: Bearer $MINV_KEY"
   { "code": "purchase.received", "description": "Mercadería recibida de un proveedor" },
   { "code": "transfer.dispatched", "description": "Transferencia despachada: la mercadería sale del origen y queda en tránsito" },
   { "code": "transfer.received", "description": "Transferencia recibida en la sucursal destino" },
-  { "code": "transfer.discrepancy", "description": "Faltante registrado al recibir una transferencia" }
+  { "code": "transfer.discrepancy", "description": "Faltante registrado al recibir una transferencia" },
+  { "code": "sale.returned", "description": "Devolución de mercadería de un cliente (con nota crédito-débito si estaba facturada)" },
+  { "code": "fiscal.document.validated", "description": "Factura o nota crédito-débito válida en el SIN (SIAT)" },
+  { "code": "fiscal.document.voided", "description": "Factura o nota crédito-débito anulada en el SIN (SIAT)" },
+  { "code": "pcbuild.reserved", "description": "Armado de PC reservado: el stock de sus piezas quedó reservado (tienda web o escritorio)" },
+  { "code": "pcbuild.released", "description": "Reserva de un armado liberada o vencida: el stock volvió a estar disponible" },
+  { "code": "pcbuild.sold", "description": "Armado de PC vendido en la caja (si estaba reservado, la reserva se consumió)" }
 ]
 ```
+
+> V6 · La **API pública de tienda** (`/storefront/v1`: catálogo, disponibilidad, imágenes, armados sugeridos y reservas de
+> armados, SIN API Key) tiene su propio contrato: `docs/integration/storefront-api-v1.md`.
 
 ### 6.2 Stock
 
@@ -817,6 +826,63 @@ Cuerpo (sobre común):
   "eventType": "transfer.discrepancy",
   "occurredAt": "2026-09-23T12:40:00+00:00",
   "branchId": "01926b3e-7a11-7f55-8a02-3c1d9e4f2b02"
+}
+```
+
+**`pcbuild.reserved`** · V6 · un armado (cotización) reservó el stock de sus piezas; `channel` = `Web` (tienda web) o `Desktop`
+(escritorio). Las líneas identifican la pieza por `variantId` (el SKU está en `GET /v1/catalog`); nunca viajan datos del
+contacto del cliente:
+
+```json
+{
+  "pcBuildId": "01927a10-4c2e-7b3f-9a1d-2e3f4a5b6c7d",
+  "number": "ARM-WEB-000003",
+  "branchIdOfBuild": "01926b3e-7a10-7c2e-9d41-5b0f2a8e1c01",
+  "channel": "Web",
+  "total": 6842.00,
+  "reservedUntil": "2026-09-29T14:05:12.55+00:00",
+  "lines": [ { "variantId": "01926b3f-0001-7000-8000-00000000f0a1", "slot": "Cpu", "quantity": 1, "quotedUnitPrice": 1399.00 } ],
+  "eventType": "pcbuild.reserved",
+  "occurredAt": "2026-09-27T14:05:12.55+00:00",
+  "branchId": "01926b3e-7a10-7c2e-9d41-5b0f2a8e1c01"
+}
+```
+
+**`pcbuild.released`** · V6 · la reserva se liberó (el cliente desistió, el vendedor la liberó o venció: `expired` = true) y el
+stock volvió a estar disponible:
+
+```json
+{
+  "pcBuildId": "01927a10-4c2e-7b3f-9a1d-2e3f4a5b6c7d",
+  "number": "ARM-WEB-000003",
+  "branchIdOfBuild": "01926b3e-7a10-7c2e-9d41-5b0f2a8e1c01",
+  "channel": "Web",
+  "total": 6842.00,
+  "reason": "Vencida",
+  "expired": true,
+  "lines": [ { "variantId": "01926b3f-0001-7000-8000-00000000f0a1", "slot": "Cpu", "quantity": 1, "quotedUnitPrice": 1399.00 } ],
+  "eventType": "pcbuild.released",
+  "occurredAt": "2026-09-29T14:10:00+00:00",
+  "branchId": "01926b3e-7a10-7c2e-9d41-5b0f2a8e1c01"
+}
+```
+
+**`pcbuild.sold`** · V6 · el armado se vendió en la caja (`wasReserved` = true si consumió una reserva; `sale.completed` viaja
+aparte con la venta):
+
+```json
+{
+  "pcBuildId": "01927a10-4c2e-7b3f-9a1d-2e3f4a5b6c7d",
+  "number": "ARM-WEB-000003",
+  "branchIdOfBuild": "01926b3e-7a10-7c2e-9d41-5b0f2a8e1c01",
+  "channel": "Web",
+  "total": 6842.00,
+  "invoiceId": "01927a11-0d2e-7f10-8a2b-3c4d5e6f7a8b",
+  "wasReserved": true,
+  "lines": [ { "variantId": "01926b3f-0001-7000-8000-00000000f0a1", "slot": "Cpu", "quantity": 1, "quotedUnitPrice": 1399.00 } ],
+  "eventType": "pcbuild.sold",
+  "occurredAt": "2026-09-28T16:20:31+00:00",
+  "branchId": "01926b3e-7a10-7c2e-9d41-5b0f2a8e1c01"
 }
 ```
 

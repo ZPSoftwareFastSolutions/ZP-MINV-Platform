@@ -5,7 +5,7 @@ import clsx from 'clsx';
 import { ArrowRight, Check, Plus } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { isBuildable } from '@/1-domain/builder/slots';
-import { isAvailable } from '@/1-domain/catalog/stock';
+import { isAvailable, unavailableLabel } from '@/1-domain/catalog/stock';
 import type { Product } from '@/1-domain/catalog/types';
 import { ROUTES } from '@/4-presentation/app/routes';
 import { ProductBadges } from '@/4-presentation/components/product/ProductBadges';
@@ -89,11 +89,11 @@ export function ProductRow({ product, priority = false, className }: ProductRowP
               variant={inBuild ? 'subtle' : 'primary'}
               disabled={!available}
               leftIcon={inBuild ? <Check /> : <Plus />}
-              aria-label={available ? `${inBuild ? 'En tu armado, agregar otra vez' : 'Agregar al armado'}: ${product.shortName}` : `Agotado: ${product.shortName}`}
+              aria-label={available ? `${inBuild ? 'En tu armado, agregar otra vez' : 'Agregar al armado'}: ${product.shortName}` : `${unavailableLabel(product)}: ${product.shortName}`}
               onClick={() => add(product)}
               className="relative z-10 w-full sm:w-auto md:w-full"
             >
-              {!available ? 'Agotado' : inBuild ? 'En tu armado' : 'Agregar al armado'}
+              {!available ? unavailableLabel(product) : inBuild ? 'En tu armado' : 'Agregar al armado'}
             </Button>
           ) : (
             <Button to={detail} variant="outline" rightIcon={<ArrowRight />} className="relative z-10 w-full sm:w-auto md:w-full">

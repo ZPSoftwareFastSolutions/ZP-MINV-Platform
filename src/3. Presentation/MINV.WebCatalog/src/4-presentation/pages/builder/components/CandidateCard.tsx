@@ -1,12 +1,13 @@
-// Tarjeta compacta de un candidato a una ranura: imagen, nombre, 2-3 especificaciones clave, precio, stock y la acción
-// («Elegir»/«Quitar» en ranuras simples; «Agregar» + cantidad en las múltiples).
+// Tarjeta compacta de un candidato a una ranura: imagen, nombre, 2-3 especificaciones clave, precio, disponibilidad y la
+// acción («Elegir»/«Quitar» en ranuras simples; «Agregar» + cantidad en las múltiples, con lo disponible como tope).
 
 import clsx from 'clsx';
 import { Check, Plus, Trash2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import { maxQuantityFor } from '@/1-domain/builder/build';
 import type { BuildSlot } from '@/1-domain/builder/types';
-import { isAvailable } from '@/1-domain/catalog/stock';
+import { isAvailable, unavailableLabel } from '@/1-domain/catalog/stock';
 import type { Product } from '@/1-domain/catalog/types';
 import { ROUTES } from '@/4-presentation/app/routes';
 import { ProductBadges } from '@/4-presentation/components/product/ProductBadges';
@@ -37,14 +38,14 @@ export function CandidateCard({ product, slot, quantity, onChoose, onRemove, onQ
   let action: ReactNode;
   if (!available && !selected) {
     action = (
-      <Button variant="subtle" disabled fullWidth aria-label={`Agotado: ${product.shortName}`}>
-        Agotado
+      <Button variant="subtle" disabled fullWidth aria-label={`${unavailableLabel(product)}: ${product.shortName}`}>
+        {unavailableLabel(product)}
       </Button>
     );
   } else if (slot.multiple) {
     action = selected ? (
       <div className="flex items-center gap-2 sm:justify-end">
-        <QuantityStepper value={quantity} onChange={(next) => onQuantity(product.sku, next)} label={`Cantidad de ${product.shortName}`} />
+        <QuantityStepper value={quantity} max={maxQuantityFor(product)} onChange={(next) => onQuantity(product.sku, next)} label={`Cantidad de ${product.shortName}`} />
         <IconButton variant="subtle" label={`Quitar ${product.shortName} del armado`} icon={<Trash2 />} onClick={() => onRemove(product.sku)} />
       </div>
     ) : (

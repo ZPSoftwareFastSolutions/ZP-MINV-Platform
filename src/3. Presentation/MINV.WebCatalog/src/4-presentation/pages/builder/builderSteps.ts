@@ -1,6 +1,6 @@
 // Reglas de presentación del armador «Armá tu PC» (sin React): qué especificaciones resumir por ranura, cuál es el
-// siguiente paso, los datos de referencia del catálogo y el número ficticio del resumen final.
-// Nada de aquí valida compatibilidad: solo elige qué mostrar y en qué orden.
+// siguiente paso y los datos de referencia del catálogo. Desde la V6 el número del armado lo da la tienda al reservar
+// (`ARM-WEB-000001`): aquí ya no se inventa ninguno. Nada de aquí valida compatibilidad: solo elige qué mostrar y en qué orden.
 
 import { BUILD_SLOTS } from '@/1-domain/builder/slots';
 import type { BuildLine, BuildSlot, PresetTier, SlotKey } from '@/1-domain/builder/types';
@@ -128,16 +128,6 @@ export function presetKeyLines(lines: readonly BuildLine[], limit = 3): BuildLin
     if (picked.length === limit) break;
   }
   return picked;
-}
-
-/** Número ficticio del resumen («ARM-WEB-000123»): solo vive en memoria y no representa ninguna compra. */
-export function formatBuildNumber(sequence: number): string {
-  const digits = Math.max(1, Math.min(999999, Math.trunc(Math.abs(sequence))));
-  return `ARM-WEB-${String(digits).padStart(6, '0')}`;
-}
-
-export function randomBuildNumber(random: () => number = Math.random): string {
-  return formatBuildNumber(1 + Math.floor(random() * 999999));
 }
 
 /** Fecha larga en español de Bolivia («26 de septiembre de 2026»). */

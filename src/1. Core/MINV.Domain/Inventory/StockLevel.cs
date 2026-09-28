@@ -78,9 +78,10 @@ public sealed class StockLevel : Entity, IConcurrencyAware, IAggregateRoot, IBra
         }
     }
 
-    /// <summary>Reserva stock (carrito del POS o pedido): baja el disponible sin mover la existencia.</summary>
+    /// <summary>Reserva stock (carrito del POS, pedido o, V6, línea de un armado reservado): baja el disponible sin mover la
+    /// existencia.</summary>
     public StockReservation Reserve(decimal quantity, DateTimeOffset expiresAt, DateTimeOffset now,
-        Guid? posSessionId = null, Guid? salesOrderLineId = null)
+        Guid? posSessionId = null, Guid? salesOrderLineId = null, Guid? pcBuildLineId = null)
     {
         var q = Quantities.Round6(Guard.Positive(quantity, "La cantidad a reservar"));
         Guard.That(expiresAt > now, "reservation.expiry", "La reserva debe vencer en el futuro.");
@@ -88,8 +89,22 @@ public sealed class StockLevel : Entity, IConcurrencyAware, IAggregateRoot, IBra
         {
             throw new InsufficientStockException(Available, q);
         }
+        // La reserva se construye ANTES de tocar la existencia: si sus guardas la rechazan (arco de origen), nada cambia
+        var reservation = new StockReservation(TenantId, BranchId, Id, q, expiresAt, posSessionId, salesOrderLineId, pcBuildLineId);
         QuantityReserved = Quantities.Round6(QuantityReserved + q);
-        return new StockReservation(TenantId, BranchId, Id, q, expiresAt, posSessionId, salesOrderLineId);
+        return reservation;
+    }
+
+    /// <summary>
+    /// V6 · Cumple una reserva SIN registrar la salida aquí: la marca consumida y libera la cantidad reservada para que la
+    /// venta que la cobra (los casos de uso normales de venta, con sus series y su factura) registre el movimiento de salida
+    /// una sola vez (regla S-04: vender un armado reservado consume la reserva; nunca descuenta dos veces).
+    /// </summary>
+    public void Fulfill(StockReservation reservation)
+    {
+        EnsureOwn(reservation);
+        reservation.MarkConsumed();
+        QuantityReserved = Quantities.Round6(QuantityReserved - reservation.Quantity);
     }
 
     public void Release(StockReservation reservation)

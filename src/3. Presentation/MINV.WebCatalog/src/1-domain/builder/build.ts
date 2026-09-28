@@ -1,5 +1,6 @@
 // Estado del armado de PC: reductor puro (sin React) y cálculos derivados (total, piezas, progreso, faltantes).
-// Todo vive en memoria: no persiste ni valida compatibilidad (solo presentación).
+// Todo vive en memoria: no persiste ni valida compatibilidad. Desde la V6 el armado se RESERVA en la tienda
+// (2-application/storefront); aquí solo se acota la cantidad de cada pieza a lo disponible.
 
 import type { Product } from '@/1-domain/catalog/types';
 import { roundMoney, savingAmount, sumMoney } from '@/1-domain/catalog/money';
@@ -20,7 +21,9 @@ export type BuildAction =
   | { type: 'remove'; sku: string }
   | { type: 'setQuantity'; sku: string; quantity: number }
   | { type: 'clear' }
-  | { type: 'loadPreset'; lines: readonly BuildLine[] };
+  | { type: 'loadPreset'; lines: readonly BuildLine[] }
+  /** Reemplaza cada pieza por su versión fresca del catálogo (precio y disponibilidad); quita las que ya no existen. */
+  | { type: 'sync'; lookup: (sku: string) => Product | undefined };
 
 /** Unidades máximas que admite una pieza en el armado: el tope general acotado por su stock (al menos 1). */
 export function maxQuantityFor(product: Pick<Product, 'stock'>): number {
@@ -77,6 +80,21 @@ export function buildReducer(state: BuildState, action: BuildAction): BuildState
       return EMPTY_BUILD;
     case 'loadPreset':
       return { lines: sortLines(action.lines.map((line) => ({ ...line, quantity: Math.max(1, clampQuantity(line.quantity, line.product)) }))) };
+    case 'sync': {
+      let changed = false;
+      const lines: BuildLine[] = [];
+      for (const line of state.lines) {
+        const fresh = action.lookup(line.product.sku);
+        if (!fresh) {
+          changed = true;
+          continue;
+        }
+        const quantity = Math.max(1, clampQuantity(line.quantity, fresh));
+        if (fresh !== line.product || quantity !== line.quantity) changed = true;
+        lines.push(fresh === line.product && quantity === line.quantity ? line : { ...line, product: fresh, quantity });
+      }
+      return changed ? { lines } : state;
+    }
     default:
       return state;
   }

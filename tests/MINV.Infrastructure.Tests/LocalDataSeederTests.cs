@@ -97,7 +97,9 @@ public sealed class LocalDataSeederTests
         var (sp, result) = await SeedAsync();
         Assert.Equal("Tech Zone Gaming S.R.L.", result.CompanyName);
         Assert.Equal(12, result.Users.Count);   // administrador + 11 usuarios repartidos en 3 sucursales
-        Assert.All(RoleCodes.All, r => Assert.Contains(result.Users, u => u.RoleCode == r.Code));
+        // V6 · TIENDA_WEB es el usuario técnico de la tienda web: sin contraseña de prueba (no está en la lista de usuarios)
+        Assert.All(RoleCodes.All.Where(r => r.Code != RoleCodes.Storefront), r => Assert.Contains(result.Users, u => u.RoleCode == r.Code));
+        Assert.Equal("tienda-web@techzone.example", result.StorefrontUser);
         Assert.All(result.Users, u => Assert.Matches(@"^[A-Za-z]+-\d{4}$", u.Password));
         Assert.All(result.Users, u => Assert.EndsWith("@techzone.example", u.Email, StringComparison.Ordinal));
         Assert.All(result.Users, u => Assert.DoesNotContain(u.Password, u.ToString(), StringComparison.Ordinal));
@@ -149,16 +151,19 @@ public sealed class LocalDataSeederTests
             Assert.Contains(orders, o => o.Status == PurchaseOrderStatus.Draft);
             Assert.Equal(8, (await m.Send(new GetSuppliersQuery())).Count);
             Assert.True((await m.Send(new GetCustomersQuery())).Customers.Count >= 31);   // 30 del catálogo + CF (+ compradores facturados)
-            Assert.Equal(12, (await m.Send(new GetUsersQuery())).Count);
+            Assert.Equal(13, (await m.Send(new GetUsersQuery())).Count);   // V6: + el usuario técnico de la tienda web
         }
 
-        // El cajero tiene su caja abierta hoy y productos para vender
+        // El cajero tiene su caja abierta hoy (los domingos la tienda no abre: la carga no deja turnos ese día) y productos para vender
         var cashier = result.Users.First(u => u.RoleCode == RoleCodes.Cashier);
         var (cs, cm) = await SignInAsync(sp, cashier);
         using (cs)
         {
             var state = await cm.Send(new GetPosStateQuery());
-            Assert.NotNull(state.Session);
+            if (result.To.DayOfWeek != DayOfWeek.Sunday)
+            {
+                Assert.NotNull(state.Session);
+            }
             Assert.Equal(159, (await cm.Send(new GetSellableProductsQuery())).Count);
         }
     }
@@ -387,6 +392,11 @@ public sealed class LocalDataSeederTests
         var (cs, cm) = await SignInAsync(sp, cashierCb);
         using (cs)
         {
+            if ((await cm.Send(new GetPosStateQuery())).Session is null)
+            {
+                // Los domingos la tienda no abre (la carga no deja turnos abiertos ese día): el cajero abre su caja para la prueba
+                await cm.Send(new OpenPosSessionCommand($"{LocalDataSeeder.BranchCochabamba}-CAJA1", 500m));
+            }
             var fiscal = await cm.Send(new GetPosFiscalStateQuery());
             Assert.True(fiscal.BillingEnabled && fiscal.Ready, fiscal.Message);
             var product = (await cm.Send(new GetSellableProductsQuery())).First(p => p.Available >= 2 && !TechSeedCatalog.Current.Product(p.Sku).TracksSerials);

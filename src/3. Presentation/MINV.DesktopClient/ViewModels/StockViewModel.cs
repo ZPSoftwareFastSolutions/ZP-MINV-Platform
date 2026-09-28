@@ -17,6 +17,9 @@ namespace MINV.DesktopClient.ViewModels;
 public sealed class StockViewModel : PageViewModel
 {
     private const string AllCategories = "Todas las categorías";
+
+    /// <summary>V6 · Valor del chip «Con reservas» (los demás chips llevan un <see cref="StockStatusCode"/>).</summary>
+    public static readonly object ReservedFilter = new();
     private readonly DispatcherTimer _debounce = new() { Interval = TimeSpan.FromMilliseconds(180) };
     private List<StockItem> _items = [];
     private string _search = string.Empty;
@@ -131,7 +134,8 @@ public sealed class StockViewModel : PageViewModel
         var view = await App.Data.ProjectionAsync(force);
         var rows = view.Result.Stock;
         var images = await App.Images.AllAsync(force);
-        _items = rows.Select(r => new StockItem(r) { Image = images.GetValueOrDefault(r.Sku) }).ToList();
+        var reserved = await ReservedStock.LoadAsync(App);   // V6 · reservado por producto (regla S-08)
+        _items = rows.Select(r => new StockItem(r) { Image = images.GetValueOrDefault(r.Sku), Reserved = reserved.GetValueOrDefault(r.Sku) }).ToList();
         Rows = CollectionViewSource.GetDefaultView(_items);
         Rows.Filter = Matches;
         OnPropertyChanged(nameof(Rows));
@@ -149,6 +153,11 @@ public sealed class StockViewModel : PageViewModel
             {
                 chips.Add(new FilterChip(Fmt.StatusName(status), status, n, Fmt.StatusBrushKey(status)));
             }
+        }
+        // V6 · Productos con unidades reservadas (armados web y del escritorio)
+        if (_items.Count(i => i.HasReserved) is var withReservations and > 0)
+        {
+            chips.Add(new FilterChip("Con reservas", ReservedFilter, withReservations, "Brand"));
         }
         Filters.ReplaceAll(chips);
         _statusFilter = chips.FirstOrDefault(c => Equals(c.Value, previous)) ?? chips[0];
@@ -188,6 +197,10 @@ public sealed class StockViewModel : PageViewModel
         {
             return false;
         }
+        if (ReferenceEquals(_statusFilter?.Value, ReservedFilter) && !r.HasReserved)
+        {
+            return false;
+        }
         if (_category != AllCategories && r.Category != _category)
         {
             return false;
@@ -215,11 +228,11 @@ public sealed class StockViewModel : PageViewModel
         {
             return;
         }
-        Csv.Write(path, ["SKU", "Producto", "Categoría", "Proveedor", "Unidad", "Stock", "Mínimo", "Máximo", "Estado", "Salidas 30 d",
+        Csv.Write(path, ["SKU", "Producto", "Categoría", "Proveedor", "Unidad", "Stock", "Reservado", "Disponible", "Mínimo", "Máximo", "Estado", "Salidas 30 d",
                 "Cobertura (días)", "Costo unitario", "Valor", "Último movimiento"],
             rows.Select(r => new object?[]
             {
-                r.Sku, r.Name, r.Category, r.Supplier, r.Unit, r.Row.Stock, r.Row.Minimum, r.Row.Maximum, StockRules.Label(r.Status),
+                r.Sku, r.Name, r.Category, r.Supplier, r.Unit, r.Row.Stock, r.Reserved, r.Available, r.Row.Minimum, r.Row.Maximum, StockRules.Label(r.Status),
                 r.Row.Sales30Days, r.Row.CoverageDays, r.Row.UnitCost, r.Row.InventoryValue, r.Row.LastMovement,
             }));
         App.Notify.Success("Stock exportado", $"{rows.Count} filas en {System.IO.Path.GetFileName(path)}");

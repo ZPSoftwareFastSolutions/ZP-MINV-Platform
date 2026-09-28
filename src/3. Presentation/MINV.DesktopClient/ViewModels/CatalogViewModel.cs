@@ -54,7 +54,16 @@ public sealed class CatalogProduct(CatalogItem item, StockRow? stock, ImageSourc
 
     public decimal Stock => stock?.Stock ?? 0;
 
-    public string StockText => $"{Fmt.Qty(Stock)} {Item.Unit}";
+    /// <summary>V6 · Unidades reservadas (armados web y del escritorio); disponible = existencias − reservado (regla S-08).</summary>
+    public decimal Reserved { get; init; }
+
+    public bool HasReserved => Reserved > 0;
+
+    public string ReservedText => ReservedStock.Badge(Reserved);
+
+    public string StockText => Reserved > 0 ? $"{Fmt.Qty(Stock)} {Item.Unit} · reservado {Fmt.Qty(Reserved)}" : $"{Fmt.Qty(Stock)} {Item.Unit}";
+
+    public string AvailableText => $"Disponible {Fmt.Qty(Math.Max(0, Stock - Reserved))} {Item.Unit}";
 
     public StockStatusCode Status => stock?.Status ?? (Item.IsActive ? StockStatusCode.OutOfStock : StockStatusCode.Inactive);
 
@@ -305,9 +314,11 @@ public sealed class CatalogViewModel : PageViewModel
         var stock = projection.Result.Stock.ToDictionary(s => s.Sku, StringComparer.OrdinalIgnoreCase);
         var images = await App.Images.AllAsync(force);
         _tech = await TechCatalog.LoadAsync(App);
+        var reserved = await ReservedStock.LoadAsync(App);   // V6 · reservado por producto (regla S-08)
         _items = catalog.Select(c => new CatalogProduct(c, stock.GetValueOrDefault(c.Sku), images.GetValueOrDefault(c.Sku), _taxRate, _vatOnInvoicedAmount)
         {
             Tech = _tech.GetValueOrDefault(c.Sku),
+            Reserved = reserved.GetValueOrDefault(c.Sku),
         }).ToList();
         Rows = CollectionViewSource.GetDefaultView(_items);
         Rows.Filter = Matches;

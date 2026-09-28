@@ -90,18 +90,21 @@ public sealed class GetTechDashboardHandler(IMinvDbContext db, IClock clock) : I
                        + serialCounts.Keys.Count(k => !stock.Any(s => s.BranchId == k.BranchId && s.VariantId == k.VariantId));
 
         // Armados: cotizaciones vigentes y vendidos en el período
-        var builds = await db.Set<PcBuild>().Include(b => b.Lines).Where(b => b.Status == PcBuildStatus.Quoted || b.Status == PcBuildStatus.Sold)
-            .ToListAsync(ct);
+        var builds = await db.Set<PcBuild>().Include(b => b.Lines)
+            .Where(b => b.Status == PcBuildStatus.Quoted || b.Status == PcBuildStatus.Sold || b.Status == PcBuildStatus.Reserved).ToListAsync(ct);
+        // V6 · Reservas web vigentes (reservadas y no vencidas): cantidad y total en Bs
+        var now = clock.UtcNow;
+        var webReservations = builds.Where(b => b.Status == PcBuildStatus.Reserved && b.Channel == PcBuildChannel.Web && !b.IsReservationExpired(now)).ToList();
         var soldInvoices = builds.Where(b => b.InvoiceId is not null).Select(b => b.InvoiceId!.Value).ToList();
         var inPeriod = (await (from i in db.Set<Invoice>()
                                join o in db.Set<SalesOrder>() on i.SalesOrderId equals o.Id
                                where soldInvoices.Contains(i.Id) && o.OrderDate >= start && o.OrderDate <= today
                                select i.Id).ToListAsync(ct)).ToHashSet();
-        var quotes = builds.Where(b => b.Status == PcBuildStatus.Quoted && !b.IsExpiredOn(today)).ToList();
+        var quotes = builds.Where(b => b.Status is PcBuildStatus.Quoted or PcBuildStatus.Reserved && !b.IsExpiredOn(today)).ToList();
         var sold = builds.Where(b => b.Status == PcBuildStatus.Sold && inPeriod.Contains(b.InvoiceId!.Value)).ToList();
 
         return new TechDashboardView(byCategory, byPlatform, await TopOfAsync(request.GpuCategoryCode), await TopOfAsync(request.ConsoleCategoryCode),
             claimsByStatus, serialsByCategory, inStock.Count, claims.Count, claims.Count(c => !c.IsInWarranty), quotes.Count, quotes.Sum(b => b.Total),
-            sold.Count, sold.Sum(b => b.Total), breaches);
+            sold.Count, sold.Sum(b => b.Total), breaches, webReservations.Count, webReservations.Sum(b => b.Total));
     }
 }
