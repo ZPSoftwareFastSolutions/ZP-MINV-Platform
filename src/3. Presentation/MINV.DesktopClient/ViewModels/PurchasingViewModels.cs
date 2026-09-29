@@ -674,6 +674,8 @@ public sealed class SupplierItem(SupplierRow r)
     public string PurchasedText => Row.Purchased > 0 ? Fmt.Money(Row.Purchased) : "—";
 
     public bool IsActive => Row.IsActive;
+
+    public string StateText => Row.IsActive ? "Activo" : "Inactivo";
 }
 
 /// <summary>Proveedores: datos de contacto, días de entrega (combo), productos, órdenes abiertas y lo comprado. V7: filtros por

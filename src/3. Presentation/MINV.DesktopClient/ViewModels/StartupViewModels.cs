@@ -355,7 +355,9 @@ public sealed class LoginViewModel : ObservableObject
         try
         {
             _demo = await Task.Run(() => _host.PrepareDemoAsync());
-            DemoUsers.ReplaceAll(_demo.Users.Select(u => new DemoUserOption(u.Email, u.DisplayName, u.RoleCode, u.RoleName, Describe(u.RoleCode))));
+            // V7 · Las cuentas de clientes de la tienda web (rol «Cliente web») no entran al escritorio: no se ofrecen como acceso
+            DemoUsers.ReplaceAll(_demo.Users.Where(u => u.RoleCode is not (RoleCodes.Customer or RoleCodes.Storefront))
+                .Select(u => new DemoUserOption(u.Email, u.DisplayName, u.RoleCode, u.RoleName, Describe(u.RoleCode))));
             OnPropertiesChanged(nameof(DemoCompany), nameof(DemoSummary));
             DemoStatus = string.Empty;
         }

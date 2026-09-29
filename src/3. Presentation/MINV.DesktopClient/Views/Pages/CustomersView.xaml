@@ -17,7 +17,8 @@
 
         <DockPanel Grid.ColumnSpan="2" Margin="0,0,0,14">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                <Button Content="Exportar" c:Ui.Icon="{x:Static c:Glyphs.Download}" Command="{Binding Export}" Margin="0,0,8,0" />
+                <Button Content="Exportar CSV" c:Ui.Icon="{x:Static c:Glyphs.Download}" Command="{Binding Export}" Margin="0,0,8,0"
+                        ToolTip="Los clientes que muestra la lista, con sus filtros, en un archivo para Excel" />
                 <Button Style="{StaticResource PrimaryButton}" Content="Nuevo cliente" c:Ui.Icon="{x:Static c:Glyphs.Add}" Command="{Binding New}" Margin="0,0,8,0"
                         Visibility="{Binding CanEdit, Converter={StaticResource Visible}}" />
                 <Button Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Refresh}" Command="{Binding Refresh}" ToolTip="Actualizar (F5)" />
@@ -39,9 +40,18 @@
             <TextBlock DockPanel.Dock="Right" Text="{Binding Summary}" Style="{StaticResource Caption}" VerticalAlignment="Center" />
             <WrapPanel>
                 <TextBox Width="300" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}" c:Ui.Icon="{x:Static c:Glyphs.Search}"
-                         c:Ui.Placeholder="Buscar por nombre, código, NIT, correo o teléfono" Margin="0,0,10,0" />
-                <ComboBox Width="230" ItemsSource="{Binding Categories}" SelectedItem="{Binding Category}" ToolTip="Categoría" Margin="0,0,10,0" />
-                <ComboBox Width="200" ItemsSource="{Binding Sorts}" SelectedItem="{Binding Sort}" ToolTip="Ordenar por" />
+                         c:Ui.Placeholder="Buscar por nombre, código, NIT, correo o teléfono" Margin="0,0,10,8" AutomationProperties.Name="Buscar" />
+                <ComboBox Width="230" ItemsSource="{Binding Categories}" SelectedItem="{Binding Category}" ToolTip="Categoría" Margin="0,0,10,8"
+                          AutomationProperties.Name="Categoría" />
+                <!-- V7 · Estado y compras en listas desplegables -->
+                <ComboBox Width="180" ItemsSource="{Binding States}" SelectedItem="{Binding State}" ToolTip="Estado" Margin="0,0,10,8"
+                          AutomationProperties.Name="Estado" />
+                <ComboBox Width="180" ItemsSource="{Binding BuyerFilters}" SelectedItem="{Binding Buyers}" ToolTip="Compras" Margin="0,0,10,8"
+                          AutomationProperties.Name="Compras" />
+                <ComboBox Width="200" ItemsSource="{Binding Sorts}" SelectedItem="{Binding Sort}" ToolTip="Ordenar por" Margin="0,0,10,8"
+                          AutomationProperties.Name="Ordenar por" />
+                <Button Style="{StaticResource GhostButton}" Content="Limpiar filtros" c:Ui.Icon="{x:Static c:Glyphs.ClearFilter}" Command="{Binding ClearFilters}"
+                        Margin="0,0,10,8" Visibility="{Binding HasFilters, Converter={StaticResource Visible}}" />
             </WrapPanel>
         </DockPanel>
 

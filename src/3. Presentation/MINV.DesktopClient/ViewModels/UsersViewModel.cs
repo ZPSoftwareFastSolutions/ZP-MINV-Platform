@@ -32,6 +32,34 @@ public sealed class UserItem(UserRow r)
     public string LastAccessText => Row.LastAccess is { } t ? t.ToLocalTime().ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture) : "Nunca ingresó";
 
     public static string RoleName(string code) => RoleCodes.All.FirstOrDefault(r => r.Code == code).Name ?? code;
+
+    /// <summary>V7 · Cuenta de un cliente de la tienda web (su único rol es «Cliente web»): la crea el cliente al registrarse.</summary>
+    public bool IsCustomer => RoleCodes.IsCustomerOnly(Row.Roles);
+
+    /// <summary>V7 · Usuario técnico de la tienda web (rol «Tienda web»): lo usa el servidor, no una persona.</summary>
+    public bool IsTechnical => Row.Roles.Contains(RoleCodes.Storefront);
+
+    /// <summary>V7 · Personal de la empresa (se edita y se le restablece la contraseña desde aquí).</summary>
+    public bool IsStaff => !IsCustomer && !IsTechnical;
+
+    public UserKind Kind => IsCustomer ? UserKind.Customer : IsTechnical ? UserKind.Technical : UserKind.Staff;
+
+    public string KindText => Kind switch
+    {
+        UserKind.Customer => "Cliente web",
+        UserKind.Technical => "Cuenta técnica",
+        _ => "Personal",
+    };
+
+    public string BranchesText => Row.BranchCodes.Count == 0 ? "—" : string.Join(", ", Row.BranchCodes);
+}
+
+/// <summary>V7 · Tipo de cuenta de la pantalla Usuarios.</summary>
+public enum UserKind
+{
+    Staff,
+    Customer,
+    Technical,
 }
 
 /// <summary>Rol con sus permisos marcados (matriz de solo lectura: la define el aprovisionamiento).</summary>
@@ -55,6 +83,10 @@ public sealed class UsersViewModel : PageViewModel
     private string _tab = "users";
     private string _search = string.Empty;
     private Choice<string?> _role = AllRoles;
+    private Choice<UserKind?> _kind;
+    private Choice<string?> _state;
+    private Choice<string?> _branch;
+    private string _summary = string.Empty;
     private UserEditor? _editor;
     private IReadOnlyList<RoleCard> _roles = [];
     private CompanySettings? _company;
@@ -65,17 +97,61 @@ public sealed class UsersViewModel : PageViewModel
     {
         Rows = CollectionViewSource.GetDefaultView(_items);
         RoleFilters = [AllRoles, .. RoleCodes.All.Select(r => new Choice<string?>(r.Name, r.Code))];
+        // V7 · Tipo de cuenta: el personal por defecto (los clientes de la tienda web y la cuenta técnica aparte, antes estaba todo mezclado)
+        Kinds = [new("Todas las cuentas", null), new("Personal", UserKind.Staff), new("Clientes web", UserKind.Customer),
+            new("Cuenta técnica de la tienda", UserKind.Technical)];
+        _kind = Kinds[1];
+        States = [new("Todos los estados", null), new("Activos", "active"), new("Inactivos", "inactive"), new("Bloqueados", "locked"),
+            new("Deben cambiar la clave", "change")];
+        _state = States[0];
+        Branches.ReplaceAll([new Choice<string?>("Todas las sucursales", null)]);
+        _branch = Branches[0];
         Margins = [.. new[] { 0.10m, 0.15m, 0.20m, 0.25m, 0.30m, 0.40m, 0.50m }.Select(m => new Choice<decimal>($"{m:P0} sobre el mínimo", m))];
         DaysOptions = [.. new[] { 15, 30, 45, 60, 90, 120, 180 }.Select(d => new Choice<int>($"{d} días", d))];
         New = new RelayCommand(() => Editor = new UserEditor(this, App, null));
-        Edit = new RelayCommand<UserItem>(u => Editor = new UserEditor(this, App, u));
-        ResetPassword = new AsyncRelayCommand<UserItem>(ResetPasswordAsync);
+        // V7 · Solo el personal se edita o recibe una contraseña temporal desde aquí (las cuentas de clientes las maneja la tienda web y la
+        // cuenta técnica la usa el servidor: cambiarle el rol o la clave rompía la tienda)
+        Edit = new RelayCommand<UserItem>(u => Editor = new UserEditor(this, App, u), u => u.IsStaff);
+        ResetPassword = new AsyncRelayCommand<UserItem>(ResetPasswordAsync, u => !u.IsTechnical);
         SaveCompany = new AsyncRelayCommand(SaveCompanyAsync, () => _margin is not null && _days is not null);
+        Export = new RelayCommand(() => App.ExportCsv(App.CsvName("usuarios"), "Usuarios", ExportTable()), () => _items.Count > 0);
+        ClearFilters = new RelayCommand(() =>
+        {
+            _search = string.Empty;
+            _role = AllRoles;
+            _kind = Kinds[1];
+            _state = States[0];
+            _branch = Branches[0];
+            OnPropertiesChanged(nameof(Search), nameof(Role), nameof(Kind), nameof(State), nameof(Branch));
+            ApplyFilter();
+        }, () => HasFilters);
     }
 
     public ICollectionView Rows { get; private set; }
 
     public IReadOnlyList<Choice<string?>> RoleFilters { get; }
+
+    /// <summary>V7 · Tipo de cuenta: personal, clientes de la tienda web o la cuenta técnica.</summary>
+    public IReadOnlyList<Choice<UserKind?>> Kinds { get; }
+
+    public IReadOnlyList<Choice<string?>> States { get; }
+
+    public BulkObservableCollection<Choice<string?>> Branches { get; } = [];
+
+    public Choice<UserKind?> Kind { get => _kind; set { if (Set(ref _kind, value ?? Kinds[1])) { ApplyFilter(); } } }
+
+    public Choice<string?> State { get => _state; set { if (Set(ref _state, value ?? States[0])) { ApplyFilter(); } } }
+
+    public Choice<string?> Branch { get => _branch; set { if (Set(ref _branch, value ?? Branches[0])) { ApplyFilter(); } } }
+
+    /// <summary>Hay un filtro distinto del de siempre (el personal, sin búsqueda).</summary>
+    public bool HasFilters => _search.Trim().Length > 0 || _role.Value is not null || _kind != Kinds[1] || _state.Value is not null || _branch.Value is not null;
+
+    public string Summary { get => _summary; private set => Set(ref _summary, value); }
+
+    public RelayCommand Export { get; }
+
+    public RelayCommand ClearFilters { get; }
 
     public IReadOnlyList<Choice<decimal>> Margins { get; }
 
@@ -99,11 +175,11 @@ public sealed class UsersViewModel : PageViewModel
 
     public bool IsCompany { get => _tab == "company"; set { if (value) { Tab = "company"; } } }
 
-    public string Search { get => _search; set { if (Set(ref _search, value ?? string.Empty)) { Rows.Refresh(); } } }
+    public string Search { get => _search; set { if (Set(ref _search, value ?? string.Empty)) { ApplyFilter(); } } }
 
-    public Choice<string?> Role { get => _role; set { if (Set(ref _role, value ?? AllRoles)) { Rows.Refresh(); } } }
+    public Choice<string?> Role { get => _role; set { if (Set(ref _role, value ?? AllRoles)) { ApplyFilter(); } } }
 
-    public KpiCard UsersKpi { get; } = new("Usuarios activos", Glyphs.People);
+    public KpiCard UsersKpi { get; } = new("Personal activo", Glyphs.People);
 
     public KpiCard RolesKpi { get; } = new("Roles", Glyphs.Shield, "Info", "InfoSoft");
 
@@ -146,17 +222,22 @@ public sealed class UsersViewModel : PageViewModel
         var users = await App.SendAsync(new GetUsersQuery());
         _items = users.Select(u => new UserItem(u)).OrderBy(u => RoleOrder(u.RoleCode)).ThenBy(u => u.Name, StringComparer.Create(Fmt.Culture, true)).ToList();
         Rows = CollectionViewSource.GetDefaultView(_items);
-        Rows.Filter = o => o is UserItem u && (_role.Value is not { } r || u.Row.Roles.Contains(r))
-                                           && (_search.Trim().Length == 0
-                                               || u.Email.Contains(_search.Trim(), StringComparison.OrdinalIgnoreCase)
-                                               || Fmt.Culture.CompareInfo.IndexOf(u.Name, _search.Trim(), CompareOptions.IgnoreCase | CompareOptions.IgnoreNonSpace) >= 0);
+        Rows.Filter = Matches;
         OnPropertyChanged(nameof(Rows));
+        Branches.ReplaceAll(FilterChoices.Of("Todas las sucursales", _items.SelectMany(i => i.Row.BranchCodes)));
+        _branch = FilterChoices.Keep(Branches, _branch);
+        OnPropertyChanged(nameof(Branch));
+        // V7 · Los indicadores cuentan al PERSONAL (los clientes de la tienda web y la cuenta técnica se informan aparte)
+        var staff = _items.Where(i => i.IsStaff).ToList();
         var today = DateOnly.FromDateTime(App.Now.ToLocalTime().DateTime);
-        UsersKpi.Value = _items.Count(i => i.Row.IsActive).ToString("N0", Fmt.Culture);
-        UsersKpi.Detail = $"{_items.Count} registrados";
-        LockedKpi.Value = _items.Count(i => i.Row.IsLocked).ToString("N0", Fmt.Culture);
+        UsersKpi.Value = staff.Count(i => i.Row.IsActive).ToString("N0", Fmt.Culture);
+        var customers = _items.Count(i => i.IsCustomer);
+        UsersKpi.Detail = $"{staff.Count} del personal · {customers} cliente{(customers == 1 ? "" : "s")} web";
+        LockedKpi.Value = staff.Count(i => i.Row.IsLocked).ToString("N0", Fmt.Culture);
         LockedKpi.Detail = "Por intentos fallidos";
-        TodayKpi.Value = _items.Count(i => i.Row.LastAccess is { } t && DateOnly.FromDateTime(t.ToLocalTime().DateTime) == today).ToString("N0", Fmt.Culture);
+        TodayKpi.Value = staff.Count(i => i.Row.LastAccess is { } t && DateOnly.FromDateTime(t.ToLocalTime().DateTime) == today).ToString("N0", Fmt.Culture);
+        TodayKpi.Detail = "Del personal";
+        ApplyFilter();
 
         var roles = await App.SendAsync(new GetRolesQuery());
         Roles = roles.Roles.OrderBy(r => RoleOrder(r.Code)).Select(r => new RoleCard(r.Code, r.Name, r.Users,
@@ -177,6 +258,44 @@ public sealed class UsersViewModel : PageViewModel
         Editor = null;
         await LoadAsync(force: true);
     }
+
+    private bool Matches(object o)
+    {
+        if (o is not UserItem u)
+        {
+            return false;
+        }
+        if ((_role.Value is { } r && !u.Row.Roles.Contains(r)) || (_kind.Value is { } kind && u.Kind != kind)
+            || (_branch.Value is { } branch && !u.Row.BranchCodes.Contains(branch)))
+        {
+            return false;
+        }
+        var stateOk = _state.Value switch
+        {
+            "active" => u.Row.IsActive,
+            "inactive" => !u.Row.IsActive,
+            "locked" => u.Row.IsLocked,
+            "change" => u.Row.MustChangePassword,
+            _ => true,
+        };
+        var q = _search.Trim();
+        return stateOk && (q.Length == 0 || u.Email.Contains(q, StringComparison.OrdinalIgnoreCase) || FilterChoices.Contains(u.Name, q));
+    }
+
+    private void ApplyFilter()
+    {
+        Rows.Refresh();
+        var visible = Rows.Cast<object>().Count();
+        Summary = visible == _items.Count ? $"{_items.Count} cuentas" : $"{visible} de {_items.Count} cuentas";
+        OnPropertyChanged(nameof(HasFilters));
+        System.Windows.Input.CommandManager.InvalidateRequerySuggested();
+    }
+
+    /// <summary>V7 · Lo que se exporta: las cuentas visibles con sus filtros (sin contraseñas: nunca salen de la base).</summary>
+    public CsvTable ExportTable() => CsvTable.Of(
+        ["Nombre", "Correo", "Tipo", "Rol", "Sucursales", "Estado", "Último ingreso"],
+        Rows.Cast<UserItem>(),
+        u => [u.Name, u.Email, u.KindText, u.RoleText, u.BranchesText, u.StatusText, u.Row.LastAccess]);
 
     private static int RoleOrder(string code) => RoleCodes.All.Select((r, i) => (r.Code, i)).FirstOrDefault(x => x.Code == code).i;
 
@@ -231,7 +350,10 @@ public sealed class UserEditor : ObservableObject
         _originalEmail = user?.Email;
         _email = user?.Email ?? string.Empty;
         _name = user?.Name ?? string.Empty;
-        Roles = [.. RoleCodes.All.Select(r => new Choice<string>($"{r.Name} · {Describe(r.Code)}", r.Code))];
+        // V7 · El alta y la edición son del PERSONAL: sin «Cliente web» (lo crea el cliente al registrarse en la tienda) ni «Tienda web»
+        // (el usuario técnico del servidor); un usuario así quedaba sin cliente ni cuenta, o dejaba de funcionar la tienda
+        Roles = [.. RoleCodes.All.Where(r => r.Code is not (RoleCodes.Customer or RoleCodes.Storefront))
+            .Select(r => new Choice<string>(Describe(r.Code) is { Length: > 0 } what ? $"{r.Name} · {what}" : r.Name, r.Code))];
         _role = Roles.FirstOrDefault(r => r.Value == user?.RoleCode) ?? Roles.FirstOrDefault(r => r.Value == RoleCodes.Sales);
         _isActive = user?.Row.IsActive ?? true;
         if (user is null)

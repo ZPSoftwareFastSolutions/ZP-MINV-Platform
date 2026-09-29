@@ -20,7 +20,8 @@
                         <RadioButton Style="{StaticResource Segment}" Content="Tabla" c:Ui.Icon="{x:Static c:Glyphs.Menu}" IsChecked="{Binding IsList}" GroupName="stockView" />
                     </StackPanel>
                 </Border>
-                <Button Content="Exportar a Excel" c:Ui.Icon="{x:Static c:Glyphs.Download}" Command="{Binding Export}" Margin="0,0,8,0" />
+                <Button Content="Exportar CSV" c:Ui.Icon="{x:Static c:Glyphs.Download}" Command="{Binding Export}" Margin="0,0,8,0"
+                        ToolTip="Los productos que muestra la lista, con sus filtros, en un archivo para Excel" />
                 <Button Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Refresh}" Command="{Binding Refresh}" ToolTip="Actualizar (F5)" />
             </StackPanel>
             <StackPanel>
@@ -79,12 +80,19 @@
 
         <!-- Búsqueda y filtros -->
         <StackPanel Grid.Row="2">
-            <DockPanel Margin="0,0,0,12">
+            <DockPanel Margin="0,0,0,4">
                 <TextBlock DockPanel.Dock="Right" Text="{Binding Summary}" Style="{StaticResource Caption}" VerticalAlignment="Center" />
-                <TextBox Width="380" HorizontalAlignment="Left" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}"
-                         c:Ui.Icon="{x:Static c:Glyphs.Search}" c:Ui.Placeholder="Buscar por SKU, nombre o proveedor" />
-                <ComboBox Width="230" Margin="10,0,0,0" HorizontalAlignment="Left" ItemsSource="{Binding Categories}"
-                          SelectedItem="{Binding Category}" />
+                <WrapPanel>
+                    <TextBox Width="340" Margin="0,0,10,8" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}"
+                             c:Ui.Icon="{x:Static c:Glyphs.Search}" c:Ui.Placeholder="Buscar por SKU, nombre o proveedor" AutomationProperties.Name="Buscar" />
+                    <ComboBox Width="230" Margin="0,0,10,8" ItemsSource="{Binding Categories}" SelectedItem="{Binding Category}" ToolTip="Categoría"
+                              AutomationProperties.Name="Categoría" />
+                    <!-- V7 · Proveedor en una lista desplegable -->
+                    <ComboBox Width="230" Margin="0,0,10,8" ItemsSource="{Binding Suppliers}" SelectedItem="{Binding Supplier}" ToolTip="Proveedor"
+                              AutomationProperties.Name="Proveedor" />
+                    <Button Style="{StaticResource GhostButton}" Content="Limpiar filtros" c:Ui.Icon="{x:Static c:Glyphs.ClearFilter}" Command="{Binding ClearFilters}"
+                            Margin="0,0,10,8" Visibility="{Binding HasFilters, Converter={StaticResource Visible}}" />
+                </WrapPanel>
             </DockPanel>
             <ItemsControl ItemsSource="{Binding Filters}" ItemTemplate="{StaticResource FilterChipTemplate}"
                           ItemsPanel="{StaticResource WrapPanelTemplate}" Focusable="False" Margin="0,0,0,6" />
@@ -227,16 +235,18 @@
                         </DataGridTemplateColumn>
                     </DataGrid.Columns>
                 </DataGrid>
-                <ContentControl Style="{StaticResource EmptyState}" Tag="{x:Static c:Glyphs.Search}"
-                                Visibility="{Binding IsEmpty, Converter={StaticResource Visible}}">
-                    <StackPanel>
-                        <TextBlock Text="Ningún producto coincide con la búsqueda" FontWeight="SemiBold" HorizontalAlignment="Center"
-                                   Foreground="{DynamicResource TextPrimary}" />
-                        <Button Style="{StaticResource LinkButton}" Content="Limpiar la búsqueda" HorizontalAlignment="Center" Margin="0,8,0,0"
-                                Command="{Binding ClearSearch}" />
-                    </StackPanel>
-                </ContentControl>
             </Grid>
         </Border>
+
+        <!-- V7 · Estado vacío en la galería y en la tabla (antes solo en la tabla: en la galería, la vista por defecto, quedaba en blanco) -->
+        <ContentControl Grid.Row="3" Style="{StaticResource EmptyState}" Tag="{x:Static c:Glyphs.Search}"
+                        Visibility="{Binding IsEmpty, Converter={StaticResource Visible}}">
+            <StackPanel>
+                <TextBlock Text="Ningún producto coincide con los filtros" FontWeight="SemiBold" HorizontalAlignment="Center"
+                           Foreground="{DynamicResource TextPrimary}" />
+                <Button Style="{StaticResource LinkButton}" Content="Limpiar filtros" HorizontalAlignment="Center" Margin="0,8,0,0"
+                        Command="{Binding ClearSearch}" />
+            </StackPanel>
+        </ContentControl>
     </Grid>
 </UserControl>

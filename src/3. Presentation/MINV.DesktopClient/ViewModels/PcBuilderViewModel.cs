@@ -85,7 +85,11 @@ public sealed class PcPartItem : ObservableObject
 
     public string StockText => Stock <= 0 ? "Sin stock en la sucursal" : $"Stock {Fmt.Qty(Stock)}";
 
-    public bool ExceedsStock => _quantity > Stock;
+    /// <summary>V7 · El aviso de stock solo vale mientras se arma (un armado cotizado, reservado o vendido ya descontó o apartó sus
+    /// piezas: sus propias unidades reservadas no son «falta de stock»).</summary>
+    public bool IsEditable { get; set; } = true;
+
+    public bool ExceedsStock => IsEditable && _quantity > Stock;
 
     public RelayCommand Increase { get; }
 
@@ -226,7 +230,14 @@ public sealed class PcBuildItem(PcBuildRow row, DateTimeOffset now)
         ? (Row.IsExpired ? $"Venció el {Fmt.Date(Row.ValidUntil)}" : $"Vigente hasta {Fmt.Date(Row.ValidUntil)}")
         : Row.InvoiceNumber is { } i ? $"Venta {i}" : "—";
 
-    public string ItemsText => Row.Items == 1 ? "1 pieza" : $"{Row.Items} piezas";
+    /// <summary>V7 · Carrito (RES-…) o armado de PC (ARM-…).</summary>
+    public bool IsCart => Row.Kind == PcBuildKind.Cart;
+
+    public string KindText => IsCart ? "Reserva de compra" : "Armado de PC";
+
+    public string ItemsText => IsCart
+        ? (Row.Items == 1 ? "1 producto" : $"{Row.Items} productos")
+        : (Row.Items == 1 ? "1 pieza" : $"{Row.Items} piezas");
 
     public string CompatibilityText => Row.IsCompatible ? "Compatible" : Row.QuotedWithErrors ? "Con errores aceptados" : "Con errores";
 
@@ -546,7 +557,7 @@ public sealed class PcBuilderViewModel : PageViewModel
                     nameof(IsWebReservation), nameof(HasContact), nameof(ContactName),
                     nameof(ContactPhone), nameof(HasContactPhone), nameof(ContactPhoneText), nameof(ContactEmail), nameof(HasContactEmail), nameof(ContactNotes),
                     nameof(HasContactNotes), nameof(ReservationText), nameof(ReservationBrush), nameof(ReservationSoftBrush), nameof(HasReservationLines),
-                    nameof(IsPublished));
+                    nameof(IsPublished), nameof(ShowReservation));
                 System.Windows.Input.CommandManager.InvalidateRequerySuggested();
             }
         }
@@ -585,8 +596,10 @@ public sealed class PcBuilderViewModel : PageViewModel
 
     public bool CanRelease => CanManage && _current is { Status: PcBuildStatus.Reserved };
 
-    /// <summary>Solo los armados del escritorio se publican (los de la web son reservas de clientes, regla del dominio).</summary>
-    public bool CanPublish => CanManage && _current is { Channel: PcBuildChannel.Desktop, Status: PcBuildStatus.Quoted or PcBuildStatus.Reserved or PcBuildStatus.Sold };
+    /// <summary>Solo los armados del escritorio se publican (los de la web son reservas de clientes, regla del dominio). V7: un
+    /// carrito nunca se publica (el dominio lo rechaza con pcbuild.publish_kind: el botón ni se muestra).</summary>
+    public bool CanPublish => CanManage && _current is { Kind: PcBuildKind.Build, Channel: PcBuildChannel.Desktop,
+        Status: PcBuildStatus.Quoted or PcBuildStatus.Reserved or PcBuildStatus.Sold };
 
     public bool CanCancel => CanManage && _current is { Status: PcBuildStatus.Draft or PcBuildStatus.Quoted };
 
@@ -647,7 +660,11 @@ public sealed class PcBuilderViewModel : PageViewModel
     /// <summary>Piezas del armado abierto con su disponibilidad en la sucursal (detalle de una reserva).</summary>
     public BulkObservableCollection<PcReservationLine> ReservationLines { get; } = [];
 
-    public bool HasReservationLines => HasContact && ReservationLines.Count > 0;
+    /// <summary>V7 · El bloque de la reserva (vencimiento, contacto y piezas) se muestra también en una reserva hecha en el escritorio,
+    /// que no tiene contacto (antes solo aparecía con el contacto de la tienda web).</summary>
+    public bool ShowReservation => HasContact || _current?.Status == PcBuildStatus.Reserved;
+
+    public bool HasReservationLines => ShowReservation && ReservationLines.Count > 0;
 
     public string Name { get => _name; set => Set(ref _name, value ?? string.Empty); }
 
@@ -682,8 +699,9 @@ public sealed class PcBuilderViewModel : PageViewModel
 
     public KpiCard DraftKpi { get; } = new("Borradores", Glyphs.Clipboard, "Warning", "WarningSoft");
 
-    /// <summary>V6 · Reservas hechas desde la tienda web todavía vigentes (cantidad y total en Bs).</summary>
-    public KpiCard WebKpi { get; } = new("Reservas web activas", Glyphs.Globe, "Brand", "BrandSoft");
+    /// <summary>V6 · Reservas hechas desde la tienda web todavía vigentes (cantidad y total en Bs). V7: solo armados (los carritos se
+    /// ven en la pantalla Reservas).</summary>
+    public KpiCard WebKpi { get; } = new("Armados reservados en la web", Glyphs.Globe, "Brand", "BrandSoft");
 
     public RelayCommand<PcSlotItem> SelectSlot { get; }
 
@@ -722,7 +740,8 @@ public sealed class PcBuilderViewModel : PageViewModel
     {
         if (parameter is PcBuilderFilter.WebReservations)
         {
-            StatusFilter = Statuses[0];
+            // V7 · Las reservadas (vigentes o por cerrar), como cuenta la tarjeta; antes mostraba también las vendidas y anuladas
+            StatusFilter = Statuses.First(s => s.Value == PcBuildStatus.Reserved);
             OnlyWebReservations = true;
             Tab = "quotes";
         }
@@ -755,7 +774,8 @@ public sealed class PcBuilderViewModel : PageViewModel
 
     private async Task LoadBuildsAsync()
     {
-        var rows = await App.SendAsync(new GetPcBuildsQuery());
+        // V7 · Solo armados de PC: los carritos (RES-…) se atienden en la pantalla Reservas (el armador los mostraba como armados)
+        var rows = await App.SendAsync(new GetPcBuildsQuery(Kind: PcBuildKind.Build));
         var now = App.Now;
         _builds = rows.Select(r => new PcBuildItem(r, now)).ToList();
         Builds = CollectionViewSource.GetDefaultView(_builds);
@@ -1016,7 +1036,7 @@ public sealed class PcBuilderViewModel : PageViewModel
                 var place = item.Slot ?? PcSlot.Peripheral;
                 var slot = AllSlots.First(s => s.Slot == place);
                 slot.Parts.Add(new PcPartItem(place, item.Sku, item.Name, item.UnitPrice, item.Stock, item.KeySpecs, _images.GetValueOrDefault(item.Sku),
-                    item.Quantity, slot.IsMulti, () => _ = RecheckAsync()));
+                    item.Quantity, slot.IsMulti, () => _ = RecheckAsync()) { IsEditable = !frozen });
             }
             // V6 · Detalle de una reserva: cada pieza con lo que hay disponible ADEMÁS de lo reservado (regla S-03)
             ReservationLines.ReplaceAll(items.Select(i => new PcReservationLine(i, detail.Build.Status == PcBuildStatus.Reserved)));
@@ -1147,7 +1167,9 @@ public sealed class PcBuilderViewModel : PageViewModel
         {
             App.Notify.Success("Armado anulado", build.Number);
             await LoadBuildsAsync();
-            Current = _builds.FirstOrDefault(b => b.Number == build.Number)?.Row;
+            // V7 · Se vuelve a abrir el armado anulado (si no estaba entre los 500 de la lista, la pantalla quedaba como «Armado nuevo»
+            // con sus piezas editables)
+            await OpenBuildAsync(build.Number);
         }
     }
 

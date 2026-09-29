@@ -100,8 +100,10 @@ public sealed class GetTechDashboardHandler(IMinvDbContext db, IClock clock) : I
                                join o in db.Set<SalesOrder>() on i.SalesOrderId equals o.Id
                                where soldInvoices.Contains(i.Id) && o.OrderDate >= start && o.OrderDate <= today
                                select i.Id).ToListAsync(ct)).ToHashSet();
-        var quotes = builds.Where(b => b.Status is PcBuildStatus.Quoted or PcBuildStatus.Reserved && !b.IsExpiredOn(today)).ToList();
-        var sold = builds.Where(b => b.Status == PcBuildStatus.Sold && inPeriod.Contains(b.InvoiceId!.Value)).ToList();
+        // V7 · «Armados cotizados» y «armados vendidos» cuentan solo ARMADOS de PC: los carritos (reservas de compra) no son armados
+        // (antes entraban en las dos tarjetas); las reservas web sí cuentan carritos y armados
+        var quotes = builds.Where(b => b.Kind == PcBuildKind.Build && b.Status is PcBuildStatus.Quoted or PcBuildStatus.Reserved && !b.IsExpiredOn(today)).ToList();
+        var sold = builds.Where(b => b.Kind == PcBuildKind.Build && b.Status == PcBuildStatus.Sold && inPeriod.Contains(b.InvoiceId!.Value)).ToList();
 
         return new TechDashboardView(byCategory, byPlatform, await TopOfAsync(request.GpuCategoryCode), await TopOfAsync(request.ConsoleCategoryCode),
             claimsByStatus, serialsByCategory, inStock.Count, claims.Count, claims.Count(c => !c.IsInWarranty), quotes.Count, quotes.Sum(b => b.Total),

@@ -17,6 +17,7 @@ namespace MINV.DesktopClient.ViewModels;
 public sealed class StockViewModel : PageViewModel
 {
     private const string AllCategories = "Todas las categorías";
+    private static readonly Choice<string?> AllSuppliers = new("Todos los proveedores", null);
 
     /// <summary>V6 · Valor del chip «Con reservas» (los demás chips llevan un <see cref="StockStatusCode"/>).</summary>
     public static readonly object ReservedFilter = new();
@@ -24,7 +25,9 @@ public sealed class StockViewModel : PageViewModel
     private List<StockItem> _items = [];
     private string _search = string.Empty;
     private FilterChip? _statusFilter;
+    private object? _pendingStatus;
     private string _category = AllCategories;
+    private Choice<string?> _supplier = AllSuppliers;
     private string _summary = string.Empty;
     private int _visible;
     private bool _isGallery = true;
@@ -49,7 +52,45 @@ public sealed class StockViewModel : PageViewModel
         OpenProduct = new RelayCommand<StockItem>(i => app.Navigator.OpenProduct(i.Sku));
         RegisterFor = new RelayCommand<StockItem>(i => app.Navigator.Navigate("registro", new MovementPrefill(i.Sku, null)));
         Export = new RelayCommand(ExportCsv, () => _items.Count > 0);
-        ClearSearch = new RelayCommand(() => Search = string.Empty);
+        // V7 · «Limpiar filtros» vuelve a todo (antes «Limpiar la búsqueda» solo borraba el texto y la lista seguía vacía por el chip o la
+        // categoría)
+        ClearSearch = new RelayCommand(ClearAllFilters);
+        ClearFilters = new RelayCommand(ClearAllFilters, () => HasFilters);
+        Suppliers.ReplaceAll([AllSuppliers]);
+    }
+
+    /// <summary>V7 · Proveedores de los productos (lista desplegable).</summary>
+    public BulkObservableCollection<Choice<string?>> Suppliers { get; } = [];
+
+    public Choice<string?> Supplier
+    {
+        get => _supplier;
+        set
+        {
+            if (Set(ref _supplier, value ?? AllSuppliers))
+            {
+                ApplyFilter();
+            }
+        }
+    }
+
+    public bool HasFilters => _search.Trim().Length > 0 || _category != AllCategories || _supplier.Value is not null
+                              || (_statusFilter is not null && Filters.Count > 0 && !ReferenceEquals(_statusFilter, Filters[0]));
+
+    public RelayCommand ClearFilters { get; }
+
+    private void ClearAllFilters()
+    {
+        _search = string.Empty;
+        _category = AllCategories;
+        _supplier = AllSuppliers;
+        foreach (var chip in Filters)
+        {
+            chip.IsSelected = ReferenceEquals(chip, Filters[0]);
+        }
+        _statusFilter = Filters.FirstOrDefault();
+        OnPropertiesChanged(nameof(Search), nameof(Category), nameof(Supplier));
+        ApplyFilter();
     }
 
     /// <summary>Vista filtrable y ordenable (la tabla virtualiza: solo dibuja las filas visibles).</summary>
@@ -140,7 +181,9 @@ public sealed class StockViewModel : PageViewModel
         Rows.Filter = Matches;
         OnPropertyChanged(nameof(Rows));
 
-        var previous = _statusFilter?.Value;
+        // V7 · El estado pedido desde otra pantalla (la leyenda del inicio) antes de la primera carga se perdía: se guarda y se aplica aquí
+        var previous = _pendingStatus ?? _statusFilter?.Value;
+        _pendingStatus = null;
         var chips = new List<FilterChip> { new("Todos", null, rows.Count) };
         foreach (var status in new[]
                  {
@@ -168,6 +211,9 @@ public sealed class StockViewModel : PageViewModel
             _category = AllCategories;
         }
         OnPropertyChanged(nameof(Category));
+        Suppliers.ReplaceAll(FilterChoices.Of(AllSuppliers.Label, rows.Select(r => r.Supplier)));
+        _supplier = FilterChoices.Keep(Suppliers, _supplier);
+        OnPropertyChanged(nameof(Supplier));
 
         TotalValueText = Fmt.Money(rows.Sum(r => r.InventoryValue));
         ProductsText = $"{rows.Count(r => r.IsActive)} activos de {rows.Count}";
@@ -181,9 +227,18 @@ public sealed class StockViewModel : PageViewModel
 
     public override void OnNavigatedTo(object? parameter)
     {
-        if (parameter is StockStatusCode status && Filters.FirstOrDefault(f => Equals(f.Value, status)) is { } chip)
+        if (parameter is not StockStatusCode status)
+        {
+            return;
+        }
+        if (Filters.FirstOrDefault(f => Equals(f.Value, status)) is { } chip)
         {
             SelectFilter.Execute(chip);
+        }
+        else
+        {
+            // Primera visita: los chips todavía no existen; se aplica al terminar de cargar
+            _pendingStatus = status;
         }
     }
 
@@ -205,6 +260,10 @@ public sealed class StockViewModel : PageViewModel
         {
             return false;
         }
+        if (_supplier.Value is { } supplier && !string.Equals(r.Supplier, supplier, StringComparison.CurrentCultureIgnoreCase))
+        {
+            return false;
+        }
         var q = _search.Trim();
         return q.Length == 0
                || r.Sku.Contains(q, StringComparison.OrdinalIgnoreCase)
@@ -217,7 +276,8 @@ public sealed class StockViewModel : PageViewModel
         Rows.Refresh();
         VisibleCount = Rows.Cast<object>().Count();
         Summary = VisibleCount == _items.Count ? $"{_items.Count} productos" : $"{VisibleCount} de {_items.Count} productos";
-        OnPropertyChanged(nameof(IsEmpty));
+        OnPropertiesChanged(nameof(IsEmpty), nameof(HasFilters));
+        System.Windows.Input.CommandManager.InvalidateRequerySuggested();
     }
 
     /// <summary>V7 · Lo que se exporta: las filas visibles con sus filtros (formato único de <see cref="CsvExport"/>).</summary>

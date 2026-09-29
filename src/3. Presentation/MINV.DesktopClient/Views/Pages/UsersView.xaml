@@ -33,20 +33,38 @@
             <ContentControl Content="{Binding TodayKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
         </UniformGrid>
 
-        <DockPanel Grid.Row="2" Margin="0,0,0,12">
-            <Border Background="{DynamicResource SurfaceHover}" CornerRadius="10" Padding="2" DockPanel.Dock="Left">
-                <StackPanel Orientation="Horizontal">
-                    <RadioButton Style="{StaticResource Segment}" Content="Usuarios" c:Ui.Icon="{x:Static c:Glyphs.People}" IsChecked="{Binding IsUsers}" GroupName="usersTab" />
-                    <RadioButton Style="{StaticResource Segment}" Content="Roles y funciones" c:Ui.Icon="{x:Static c:Glyphs.Shield}" IsChecked="{Binding IsRoles}" GroupName="usersTab" />
-                    <RadioButton Style="{StaticResource Segment}" Content="Empresa" c:Ui.Icon="{x:Static c:Glyphs.Briefcase}" IsChecked="{Binding IsCompany}" GroupName="usersTab" />
+        <StackPanel Grid.Row="2" Margin="0,0,0,4">
+            <DockPanel Margin="0,0,0,10">
+                <Border Background="{DynamicResource SurfaceHover}" CornerRadius="10" Padding="2" DockPanel.Dock="Left">
+                    <StackPanel Orientation="Horizontal">
+                        <RadioButton Style="{StaticResource Segment}" Content="Usuarios" c:Ui.Icon="{x:Static c:Glyphs.People}" IsChecked="{Binding IsUsers}" GroupName="usersTab" />
+                        <RadioButton Style="{StaticResource Segment}" Content="Roles y funciones" c:Ui.Icon="{x:Static c:Glyphs.Shield}" IsChecked="{Binding IsRoles}" GroupName="usersTab" />
+                        <RadioButton Style="{StaticResource Segment}" Content="Empresa" c:Ui.Icon="{x:Static c:Glyphs.Briefcase}" IsChecked="{Binding IsCompany}" GroupName="usersTab" />
+                    </StackPanel>
+                </Border>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center"
+                            Visibility="{Binding IsUsers, Converter={StaticResource Visible}}">
+                    <TextBlock Text="{Binding Summary}" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,12,0" />
+                    <Button Content="Exportar CSV" c:Ui.Icon="{x:Static c:Glyphs.Download}" Command="{Binding Export}"
+                            ToolTip="Las cuentas que muestra la lista, con sus filtros, en un archivo para Excel (sin contraseñas)" />
                 </StackPanel>
-            </Border>
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Visibility="{Binding IsUsers, Converter={StaticResource Visible}}">
-                <TextBox Width="260" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}" c:Ui.Icon="{x:Static c:Glyphs.Search}"
-                         c:Ui.Placeholder="Buscar nombre o correo" Margin="0,0,10,0" />
-                <ComboBox Width="190" ItemsSource="{Binding RoleFilters}" SelectedItem="{Binding Role}" ToolTip="Rol" />
-            </StackPanel>
-        </DockPanel>
+            </DockPanel>
+            <!-- V7 · Filtros en listas desplegables: tipo de cuenta (personal por defecto), rol, estado y sucursal -->
+            <WrapPanel Visibility="{Binding IsUsers, Converter={StaticResource Visible}}">
+                <TextBox Width="260" Margin="0,0,10,8" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}" c:Ui.Icon="{x:Static c:Glyphs.Search}"
+                         c:Ui.Placeholder="Buscar nombre o correo" AutomationProperties.Name="Buscar" />
+                <ComboBox Width="200" Margin="0,0,10,8" ItemsSource="{Binding Kinds}" SelectedItem="{Binding Kind}" ToolTip="Tipo de cuenta"
+                          AutomationProperties.Name="Tipo de cuenta" />
+                <ComboBox Width="190" Margin="0,0,10,8" ItemsSource="{Binding RoleFilters}" SelectedItem="{Binding Role}" ToolTip="Rol"
+                          AutomationProperties.Name="Rol" />
+                <ComboBox Width="190" Margin="0,0,10,8" ItemsSource="{Binding States}" SelectedItem="{Binding State}" ToolTip="Estado"
+                          AutomationProperties.Name="Estado" />
+                <ComboBox Width="180" Margin="0,0,10,8" ItemsSource="{Binding Branches}" SelectedItem="{Binding Branch}" ToolTip="Sucursal"
+                          AutomationProperties.Name="Sucursal" />
+                <Button Style="{StaticResource GhostButton}" Content="Limpiar filtros" c:Ui.Icon="{x:Static c:Glyphs.ClearFilter}" Command="{Binding ClearFilters}"
+                        Margin="0,0,10,8" Visibility="{Binding HasFilters, Converter={StaticResource Visible}}" />
+            </WrapPanel>
+        </StackPanel>
 
         <!-- ========================================================================== usuarios -->
         <Border Grid.Row="3" Style="{StaticResource CardFlat}" Padding="4,2,4,4" Visibility="{Binding IsUsers, Converter={StaticResource Visible}}">
@@ -85,15 +103,19 @@
                             </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
+                    <DataGridTextColumn Header="TIPO" Binding="{Binding KindText}" Width="120" ElementStyle="{StaticResource CellText}" />
+                    <DataGridTextColumn Header="SUCURSALES" Binding="{Binding BranchesText}" Width="110" ElementStyle="{StaticResource CellText}" />
                     <DataGridTextColumn Header="ÚLTIMO INGRESO" Binding="{Binding LastAccessText}" Width="150" SortMemberPath="Row.LastAccess" ElementStyle="{StaticResource CellText}" />
                     <DataGridTemplateColumn Width="96" CanUserSort="False">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate DataType="{x:Type vm:UserItem}">
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                                     <Button Style="{StaticResource IconButton}" Width="32" Height="32" Content="{x:Static c:Glyphs.Key}" ToolTip="Restablecer la contraseña"
-                                            Command="{Binding DataContext.ResetPassword, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
+                                            Command="{Binding DataContext.ResetPassword, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"
+                                            Visibility="{Binding IsTechnical, Converter={StaticResource Hidden}}" />
                                     <Button Style="{StaticResource IconButton}" Width="32" Height="32" Content="{x:Static c:Glyphs.Settings}" ToolTip="Editar"
-                                            Command="{Binding DataContext.Edit, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
+                                            Command="{Binding DataContext.Edit, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"
+                                            Visibility="{Binding IsStaff, Converter={StaticResource Visible}}" />
                                 </StackPanel>
                             </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>
