@@ -6,6 +6,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { WebApiError } from '@/1-domain/auth/errors';
+import { permissionName } from '@/4-presentation/app/contract';
 import type { RpcSendOptions } from '@/1-domain/ports/IRpcGateway';
 import type { WebRpc } from '@/4-presentation/app/container';
 import { renderPanel, signedInWeb, webWith } from '@/test-utils';
@@ -149,17 +150,17 @@ describe('useRpcCommand', () => {
     await renderPanel(<CommandProbe />, { web: await servicesWith(script.rpc) });
     fireEvent.click(screen.getByRole('button', { name: 'Enviar' }));
     expect(await screen.findByText('No tiene permiso para esta operación')).toBeInTheDocument();
-    expect(screen.getByText('Falta el permiso «Armador de PC y reservas: armar, cotizar, reservar y anular». Pida al administrador que se lo asigne.')).toBeInTheDocument();
-    expect(text('error')).toContain('«Armador de PC y reservas: armar, cotizar, reservar y anular»');
+    expect(screen.getByText(`Falta el permiso «${permissionName('sales.pcbuild.manage')}». Pida al administrador que se lo asigne.`)).toBeInTheDocument();
+    expect(text('error')).toContain(`«${permissionName('sales.pcbuild.manage')}»`);
   });
 
   it('si el servidor no lo nombra, usa los permisos que el contrato declara para la operación', async () => {
     const script = scriptedRpc([new WebApiError({ kind: 'access_denied', status: 403, message: 'Acceso denegado.' })]);
     await renderPanel(<CommandProbe operation="CreateMyReservationCommand" />, { web: await servicesWith(script.rpc) });
     fireEvent.click(screen.getByRole('button', { name: 'Enviar' }));
-    expect(await screen.findByText('Falta el permiso «Cuenta de cliente: reservar con los datos de la cuenta». Pida al administrador que se lo asigne.')).toBeInTheDocument();
+    expect(await screen.findByText(`Falta el permiso «${permissionName('account.reserve')}». Pida al administrador que se lo asigne.`)).toBeInTheDocument();
     expect(text('error')).toBe(
-      'No tiene permiso para esta operación. Falta el permiso «Cuenta de cliente: reservar con los datos de la cuenta». Pida al administrador que se lo asigne.',
+      `No tiene permiso para esta operación. Falta el permiso «${permissionName('account.reserve')}». Pida al administrador que se lo asigne.`,
     );
   });
 
@@ -219,7 +220,7 @@ describe('permisos para mostrar u ocultar', () => {
     expect(screen.queryByText('Nunca para el personal de muestra')).not.toBeInTheDocument();
     const denied = screen.getByRole('alert');
     expect(within(denied).getByText('No tiene permiso para ver esto')).toBeInTheDocument();
-    expect(denied).toHaveTextContent('Falta el permiso «Cuenta de cliente: mis datos y mis reservas».');
+    expect(denied).toHaveTextContent(`Falta el permiso «${permissionName('account.manage')}».`);
     expect(screen.getByText('Visible con uno de los dos')).toBeInTheDocument();
     expect(screen.queryByText('Oculto por la operación')).not.toBeInTheDocument();
   });

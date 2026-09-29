@@ -49,7 +49,7 @@ src/4-presentation/panel/
 |---|---|
 | `modules/<su-módulo>/` | Usted. |
 | `registry/`, `shell/`, `kit/`, `hooks/`, `lib/` | Nadie desde un módulo (P-09). Si le falta algo, pídalo: se agrega para todos. |
-| `3-infrastructure/http/contract.generated.ts` | Solo si su operación todavía no está en el contrato provisional (ver §5.4). |
+| `3-infrastructure/http/contract.generated.ts` | Nadie a mano: lo genera `minv contrato-web` desde el servidor (ver §5.3). |
 | `app/routeTable.tsx`, `PanelRoot.tsx` | Nadie: los módulos se registran solos. |
 
 Para ver los componentes funcionando: `npm run dev` con `VITE_API_URL=mock` (PowerShell:
@@ -274,63 +274,23 @@ Al LEER, escriba código que funcione aunque el generado sea más o menos estric
   anote variables con un tipo más estrecho que el del contrato.
 - Trate siempre el nulo (`fila.userName ?? fila.userEmail ?? 'Sistema'`).
 
-### 5.3 Provisional hoy, generado mañana
+### 5.3 El contrato es GENERADO (regla P-07)
 
-`src/3-infrastructure/http/contract.generated.ts` es PROVISIONAL: lo escribió el equipo de la web con las operaciones
-que ya usa. En unas horas se reemplaza ENTERO por el que genera `minv contrato-web` desde `RpcCatalog` (TODAS las
-operaciones, sus tipos, permisos y módulos). Qué pasa entonces:
+`src/3-infrastructure/http/contract.generated.ts` lo genera `minv contrato-web` desde `RpcCatalog` del servidor: trae
+TODAS las operaciones (192), sus tipos exactos, permisos, módulos comerciales y si una sesión de cliente puede usarlas.
+Una prueba del servidor falla si queda desactualizado. Por eso:
 
-- Su código no cambia si usa el nombre de la operación y los tipos derivados (§5.1) y solo importa del adaptador.
-- `npm run typecheck` puede marcar diferencias reales (un campo que en el servidor admite nulo, un parámetro
-  obligatorio, un nombre distinto): se corrige SU módulo, no el contrato.
-- Si el generado nombra distinto una lista o una operación, se ajusta SOLO `3-infrastructure/http/contract.ts`.
+- NO lo edite a mano (ni agregue operaciones): se regenera y se pierde.
+- Use el nombre corto de la operación y los tipos derivados (§5.1) SOLO a través del adaptador.
+- Si `typecheck` marca una diferencia (un campo que admite nulo, un parámetro obligatorio), corrija SU módulo.
+- Los nombres visibles de los permisos salen de `PERMISSION_LIST` / `permissionName(code)`: nunca los escriba a mano en
+  el código ni en las pruebas (cambian si cambia la descripción en el servidor).
 
-### 5.4 Si su operación todavía no está en el provisional
+### 5.4 Si una operación que necesita NO está en el contrato
 
-1. Busque la clase en `src/1. Core/MINV.Application` (la consulta o el comando, su respuesta y sus atributos
-   `[RequiresPermission]` y `[RequiresModule]`; es comando si implementa `IAuditableRequest`).
-2. Agréguela a `src/3-infrastructure/http/contract.generated.ts`, en un bloque con el nombre de su módulo (así diez
-   personas no se pisan), copiando la forma del ejemplo:
-
-```ts
-// ---------------------------------------------------------------------------------------------------- actividad y usuarios (MINV.Application.Iam)
-/** Resultado de una operación auditada (enumeración `AuditOutcome`, viaja como texto). */
-export type AuditOutcome = 'Succeeded' | 'Rejected' | 'Failed';
-
-/** `GetActivityQuery(int Take = 200)`: la actividad más reciente (el servidor acota `take` entre 1 y 5000). */
-export interface GetActivityQuery {
-  take?: number;
-}
-
-/** `ActivityRow`: una fila de la auditoría (quién hizo qué, cuándo y con qué resultado). */
-export interface ActivityRow {
-  occurredAt: string;
-  userEmail: string | null;
-  userName: string | null;
-  action: string;
-  outcome: AuditOutcome;
-  details: string | null;
-}
-```
-
-   y su entrada en `RpcOperations` y en `RPC_META` (nombre completo con el espacio de nombres, si es comando, permisos
-   y módulos EXACTOS del C#: de ahí salen `canRun` y el aviso «Falta el permiso …»):
-
-```ts
-  GetActivityQuery: { request: GetActivityQuery; response: ActivityRow[] };
-  ResetUserPasswordCommand: { request: ResetUserPasswordCommand; response: boolean };
-```
-
-```ts
-  GetActivityQuery: { type: 'MINV.Application.Iam.GetActivityQuery', command: false, permissions: ['iam.audit.view'], modules: [], customer: false },
-  ResetUserPasswordCommand: { type: 'MINV.Application.Iam.ResetUserPasswordCommand', command: true, permissions: ['iam.users.manage'], modules: [], customer: false },
-```
-
-3. Nada más: no toque `contract.ts` (ya reexporta todos los tipos) ni declare nada en su módulo. Cuando llegue el
-   generado, su bloque desaparece con el reemplazo y su módulo sigue compilando (o `typecheck` le dice qué ajustar).
-4. Opcional: para verla con datos en `VITE_API_URL=mock`, agregue un `case` en `execute` de
-   `src/3-infrastructure/data/mockWeb.ts` (como `GetActivityQuery` → `activityOf`). Para las PRUEBAS no hace falta:
-   simule la respuesta en la prueba (§11).
+Entonces no existe en el servidor (o no es pública). NO la invente en la web: anótela en «Pendientes» de su informe con
+lo que haría falta (nombre sugerido, parámetros, respuesta, permiso) y resuelva la pantalla con las operaciones que sí
+existen. El equipo del servidor la agrega y regenera el contrato.
 
 ### 5.5 Consultas: `useRpcQuery`
 
@@ -1074,7 +1034,7 @@ atiende hoy: la cuenta del cliente, `SelectBranchCommand`, `ChangePasswordComman
   dice qué corregir; en `npm run dev` el panel también lo avisa arriba.
 - **«No tiene acceso a esta pantalla».** La sesión no cumple `permissions` del módulo o de esa ruta. El aviso nombra el
   permiso que falta.
-- **`typecheck` dice que la operación no existe.** Todavía no está en el contrato provisional: §5.4.
+- **`typecheck` dice que la operación no existe.** No está en el servidor: §5.4.
 - **¿Filtro en el servidor o en la página?** Si la operación tiene el parámetro (fechas, sucursal, estado…), en el
   pedido de `useRpcQuery`; si no, en un `useMemo` sobre las filas. Una lista enorme se pide acotada (como `take`).
 - **¿Dónde pongo los estados de mis documentos?** `defineStatuses({ … })` en un archivo del módulo; úselos en la tabla

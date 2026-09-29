@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { WebApiError } from '@/1-domain/auth/errors';
+import { permissionName } from '@/4-presentation/app/contract';
 import { CommandAttempt, describePanelError, missingPermissions, permissionsInMessage, stableKey } from './rpc';
 import { clampPage, formatCellValue, matchesSearch, nextSort, pageCountOf, paginate, rangeText, sortRows } from './table';
 
@@ -121,7 +122,7 @@ describe('ayudas del RPC', () => {
     const denied = new WebApiError({ kind: 'access_denied', status: 403, message: 'Acceso denegado.' });
     expect(missingPermissions(denied, { operation: 'CreateMyReservationCommand', granted: [] })).toEqual(['account.reserve']);
     expect(missingPermissions(denied, { operation: 'CreateMyReservationCommand', granted: ['account.reserve'] })).toEqual([]);
-    expect(describePanelError(denied, { operation: 'CreateMyReservationCommand', granted: [] })).toContain('«Cuenta de cliente: reservar con los datos de la cuenta»');
+    expect(describePanelError(denied, { operation: 'CreateMyReservationCommand', granted: [] })).toContain(`«${permissionName('account.reserve')}»`);
     // Otro rechazo (sucursal, módulo): el mensaje del servidor tal cual.
     expect(describePanelError(new WebApiError({ kind: 'access_denied', message: 'La sucursal elegida no está entre las suyas.' }))).toBe('La sucursal elegida no está entre las suyas.');
   });
