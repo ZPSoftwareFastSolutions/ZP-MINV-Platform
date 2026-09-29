@@ -149,12 +149,13 @@ export function ReservationsPage() {
 
   const [releasing, setReleasing] = useState<ReleaseTarget | null>(null);
   const [resending, setResending] = useState<ResendTarget | null>(null);
-  const [creating, setCreating] = useState(() => canCreate && searchParams.get(NEW_PARAM) !== null);
+  const [creating, setCreating] = useState(false);
 
-  // «Nueva reserva en mostrador» del tablero llega como `?nueva=1`: abre el formulario y se quita de la dirección.
+  // «Nueva reserva en mostrador» del tablero llega como `?nueva=1`: el formulario se abre al dibujar y un efecto quita el
+  // parámetro de la dirección (así «Atrás» o recargar no lo vuelven a abrir).
+  if (canCreate && searchParams.get(NEW_PARAM) !== null && !creating) setCreating(true);
   useEffect(() => {
     if (searchParams.get(NEW_PARAM) === null) return;
-    if (canCreate) setCreating(true);
     setSearchParams(
       (current) => {
         const next = new URLSearchParams(current);
@@ -163,7 +164,7 @@ export function ReservationsPage() {
       },
       { replace: true },
     );
-  }, [searchParams, setSearchParams, canCreate]);
+  }, [searchParams, setSearchParams]);
 
   const openDetail = (item: ReservationItem) => setDetail({ number: item.row.number, open: true });
   const closeDetail = () => setDetail((current) => (current?.open ? { ...current, open: false } : current));

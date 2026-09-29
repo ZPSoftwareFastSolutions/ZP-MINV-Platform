@@ -183,7 +183,7 @@ export function NewReservationDialog({ open, onClose, onCreated }: NewReservatio
                       </p>
                       {short && (
                         <p className="mt-1 text-xs text-warning-text">
-                          Hay {formatQuantity(line.available)} disponible{line.available === 1 ? '' : 's'}: si no alcanza, el servidor no reserva nada.
+                          Hay {formatQuantity(line.available)} disponible{line.available === 1 ? '' : 's'}: si no alcanza, no se reserva nada.
                         </p>
                       )}
                     </div>

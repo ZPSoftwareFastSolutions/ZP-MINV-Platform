@@ -1,0 +1,120 @@
+/*
+  Módulo «Armador de PC» · impresión de la COTIZACIÓN (vista imprimible del navegador).
+  La cotización imprimible (.minv-cotizacion-print) vive fuera de la página (portal en <body>) y está oculta en pantalla.
+  Solo al pulsar «Imprimir cotización» la pantalla pone <html data-print="cotizacion">, llama a window.print() y lo quita al
+  terminar: así Ctrl+P desde cualquier otra pantalla sigue imprimiendo la página normal. Papel: texto negro sobre blanco
+  (los colores del medio impreso, no los del tema), como la vista imprimible de «Armá tu PC» de la tienda.
+*/
+
+.minv-cotizacion-print {
+  display: none;
+}
+
+@media print {
+  html[data-print='cotizacion'] body > :not(.minv-cotizacion-print) {
+    display: none !important;
+  }
+
+  html[data-print='cotizacion'] body::before {
+    content: none;
+  }
+
+  html[data-print='cotizacion'],
+  html[data-print='cotizacion'] body {
+    background: white;
+    color: black;
+    color-scheme: light;
+  }
+
+  html[data-print='cotizacion'] .minv-cotizacion-print {
+    display: block;
+    padding: 0;
+    font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+    font-size: 11pt;
+    line-height: 1.4;
+    color: black;
+  }
+
+  .minv-cotizacion-print h1,
+  .minv-cotizacion-print h2 {
+    color: black;
+    font-family: 'Space Grotesk', 'Inter', ui-sans-serif, system-ui, sans-serif;
+    margin: 0;
+  }
+
+  .minv-cotizacion-print h1 {
+    font-size: 18pt;
+  }
+
+  .minv-cotizacion-print h2 {
+    font-size: 12pt;
+    margin-top: 14pt;
+  }
+
+  .minv-cotizacion-print p {
+    margin: 0;
+  }
+
+  .minv-cotizacion-print__header {
+    display: flex;
+    justify-content: space-between;
+    gap: 24pt;
+    padding-bottom: 10pt;
+    margin-bottom: 10pt;
+    border-bottom: 1.5pt solid black;
+  }
+
+  .minv-cotizacion-print__meta {
+    text-align: right;
+  }
+
+  .minv-cotizacion-print table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 10pt;
+  }
+
+  .minv-cotizacion-print th,
+  .minv-cotizacion-print td {
+    padding: 4pt 6pt;
+    border-bottom: 0.5pt solid rgb(0 0 0 / 0.3);
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .minv-cotizacion-print thead th {
+    border-bottom: 1pt solid black;
+    font-size: 8.5pt;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .minv-cotizacion-print tfoot th,
+  .minv-cotizacion-print tfoot td {
+    border-bottom: none;
+    font-size: 12pt;
+    font-weight: 700;
+  }
+
+  .minv-cotizacion-print__num {
+    text-align: right !important;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .minv-cotizacion-print ul {
+    margin: 6pt 0 0;
+    padding-left: 16pt;
+  }
+
+  .minv-cotizacion-print__note {
+    margin-top: 12pt;
+    font-size: 9pt;
+    color: rgb(0 0 0 / 0.7);
+  }
+
+  .minv-cotizacion-print tr,
+  .minv-cotizacion-print li {
+    break-inside: avoid;
+  }
+}
