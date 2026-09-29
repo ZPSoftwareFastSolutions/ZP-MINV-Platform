@@ -11,6 +11,35 @@ public sealed record Choice<T>(string Label, T Value)
     public override string ToString() => Label;
 }
 
+/// <summary>
+/// V7 · Listas desplegables de los filtros de las pantallas: la primera opción es «Todos …» (valor null) y el resto sale de los
+/// datos que se muestran (sin repetir, en orden alfabético). Al recargar se conserva lo elegido si sigue existiendo.
+/// </summary>
+public static class FilterChoices
+{
+    private static readonly StringComparer Alphabetic = StringComparer.Create(Fmt.Culture, CompareOptions.IgnoreCase);
+
+    /// <summary>«Todas las categorías», «Accesorios», «Consolas»… (textos vacíos fuera).</summary>
+    public static IReadOnlyList<Choice<string?>> Of(string allLabel, IEnumerable<string?> values) =>
+    [
+        new(allLabel, null),
+        .. values.Where(v => !string.IsNullOrWhiteSpace(v)).Select(v => v!.Trim()).Distinct(StringComparer.CurrentCultureIgnoreCase)
+            .Order(Alphabetic).Select(v => new Choice<string?>(v, v)),
+    ];
+
+    /// <summary>La opción con el mismo valor que <paramref name="current"/> en la lista nueva; si ya no existe, la primera («Todos»).</summary>
+    public static Choice<T> Keep<T>(IReadOnlyList<Choice<T>> options, Choice<T>? current) =>
+        options.FirstOrDefault(o => current is not null && EqualityComparer<T>.Default.Equals(o.Value, current.Value)) ?? options[0];
+
+    /// <summary>¿El texto contiene lo buscado sin importar mayúsculas ni tildes?</summary>
+    public static bool Contains(string? text, string query) =>
+        !string.IsNullOrEmpty(text) && Fmt.Culture.CompareInfo.IndexOf(text, query, CompareOptions.IgnoreCase | CompareOptions.IgnoreNonSpace) >= 0;
+
+    /// <summary>Períodos del combo de fechas con «Todas las fechas» primero (valor null).</summary>
+    public static IReadOnlyList<Choice<PeriodOption?>> Periods(DateOnly today, string allLabel = "Todas las fechas") =>
+        [new(allLabel, null), .. PeriodOption.Presets(today).Select(p => new Choice<PeriodOption?>(p.Label, p))];
+}
+
 /// <summary>Período de consulta (reportes, ventas, contabilidad) elegido de un combo.</summary>
 public sealed record PeriodOption(string Label, DateOnly From, DateOnly To)
 {

@@ -268,6 +268,9 @@ public static class ClientServices
         services.AddScoped<PcBuilderViewModel>();
         services.AddScoped<SerialsViewModel>();
         services.AddScoped<WarrantyClaimsViewModel>();
+        // V7 · Reservas (carritos y armados de la web y del mostrador) y cola de correos de confirmación
+        services.AddScoped<ReservationsViewModel>();
+        services.AddScoped<MailQueueViewModel>();
         return services;
     }
 }

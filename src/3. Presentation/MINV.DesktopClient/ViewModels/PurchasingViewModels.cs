@@ -82,9 +82,12 @@ public sealed class PurchaseOrdersViewModel : PageViewModel
 {
     private static readonly Choice<PurchaseOrderStatus?> AllStatuses = new("Todos los estados", null);
     private static readonly Choice<string?> AllSuppliers = new("Todos los proveedores", null);
+    private readonly DispatcherTimer _debounce = new() { Interval = TimeSpan.FromMilliseconds(180) };
     private List<PurchaseOrderItem> _items = [];
     private Choice<PurchaseOrderStatus?> _status = AllStatuses;
     private Choice<string?> _supplier = AllSuppliers;
+    private Choice<PeriodOption?> _period;
+    private string _search = string.Empty;
     private PurchaseOrderItem? _selected;
     private PurchaseOrderDetail? _detail;
     private PurchaseOrderEditor? _editor;
@@ -98,13 +101,29 @@ public sealed class PurchaseOrdersViewModel : PageViewModel
             new("Recibidas en parte", PurchaseOrderStatus.PartiallyReceived), new("Recibidas", PurchaseOrderStatus.Received),
             new("Anuladas", PurchaseOrderStatus.Cancelled),
         ];
+        Periods.ReplaceAll(FilterChoices.Periods(DateOnly.FromDateTime(app.Now.ToLocalTime().DateTime)));
+        _period = Periods[0];
         Rows = CollectionViewSource.GetDefaultView(_items);
+        _debounce.Tick += (_, _) =>
+        {
+            _debounce.Stop();
+            ApplyFilter();
+        };
         New = new AsyncRelayCommand(OpenEditorAsync, () => CanManage);
         FromSuggestion = new AsyncRelayCommand(FromSuggestionAsync, () => CanManage);
         Approve = new AsyncRelayCommand(ApproveAsync, () => CanManage && _selected?.Status == PurchaseOrderStatus.Draft);
         Receive = new AsyncRelayCommand(ReceiveAsync, () => CanReceive && _selected?.Status is PurchaseOrderStatus.Approved or PurchaseOrderStatus.PartiallyReceived);
         Cancel = new AsyncRelayCommand(CancelAsync, () => CanManage && _selected?.Status is PurchaseOrderStatus.Draft or PurchaseOrderStatus.Approved);
         Export = new RelayCommand(ExportCsv, () => _items.Count > 0);
+        ClearFilters = new RelayCommand(() =>
+        {
+            _search = string.Empty;
+            _status = AllStatuses;
+            _supplier = AllSuppliers;
+            _period = Periods[0];
+            OnPropertiesChanged(nameof(Search), nameof(Status), nameof(Supplier), nameof(Period));
+            ApplyFilter();
+        }, () => HasFilters);
     }
 
     public ICollectionView Rows { get; private set; }
@@ -112,6 +131,9 @@ public sealed class PurchaseOrdersViewModel : PageViewModel
     public IReadOnlyList<Choice<PurchaseOrderStatus?>> Statuses { get; }
 
     public BulkObservableCollection<Choice<string?>> Suppliers { get; } = [];
+
+    /// <summary>V7 · Período por la fecha del pedido.</summary>
+    public BulkObservableCollection<Choice<PeriodOption?>> Periods { get; } = [];
 
     public bool CanManage => App.Session.Can(PermissionCodes.PurchasingManage);
 
@@ -121,13 +143,35 @@ public sealed class PurchaseOrdersViewModel : PageViewModel
 
     public Choice<string?> Supplier { get => _supplier; set { if (Set(ref _supplier, value ?? AllSuppliers)) { ApplyFilter(); } } }
 
+    public Choice<PeriodOption?> Period { get => _period; set { if (Set(ref _period, value ?? Periods[0])) { ApplyFilter(); } } }
+
+    /// <summary>V7 · Búsqueda por número, proveedor o notas.</summary>
+    public string Search
+    {
+        get => _search;
+        set
+        {
+            if (Set(ref _search, value ?? string.Empty))
+            {
+                _debounce.Stop();
+                _debounce.Start();
+            }
+        }
+    }
+
+    public bool HasFilters => _search.Trim().Length > 0 || _status.Value is not null || _supplier.Value is not null || _period.Value is not null;
+
+    public RelayCommand ClearFilters { get; }
+
     public string Summary { get => _summary; private set => Set(ref _summary, value); }
 
     public KpiCard DraftKpi { get; } = new("Borradores", Glyphs.Clipboard, "Warning", "WarningSoft");
 
     public KpiCard PendingKpi { get; } = new("Por recibir", Glyphs.Clock, "Info", "InfoSoft");
 
-    public KpiCard ReceivedKpi { get; } = new("Recibido este mes", Glyphs.CheckCircle, "Success", "SuccessSoft");
+    // V7 · La fila no trae la fecha de recepción: el indicador cuenta las órdenes PEDIDAS este mes que ya se recibieron (antes decía
+    // «Recibido este mes», que no era lo que calculaba)
+    public KpiCard ReceivedKpi { get; } = new("Pedidas este mes y recibidas", Glyphs.CheckCircle, "Success", "SuccessSoft");
 
     public KpiCard SuppliersKpi { get; } = new("Proveedores con órdenes", Glyphs.Briefcase);
 
@@ -194,7 +238,9 @@ public sealed class PurchaseOrdersViewModel : PageViewModel
         var selected = _selected?.Row.Id;
         _items = rows.Select(r => new PurchaseOrderItem(r)).ToList();
         Rows = CollectionViewSource.GetDefaultView(_items);
-        Rows.Filter = o => o is PurchaseOrderItem p && (_status.Value is not { } s || p.Status == s) && (_supplier.Value is not { } c || p.Row.SupplierCode == c);
+        Rows.Filter = Matches;
+        // V7 · Lo más reciente arriba en todas las sucursales (el número lleva la sucursal: ordenar por él agrupaba por sucursal)
+        Rows.SortDescriptions.Add(new SortDescription(nameof(PurchaseOrderItem.OrderDate), ListSortDirection.Descending));
         Rows.SortDescriptions.Add(new SortDescription(nameof(PurchaseOrderItem.Number), ListSortDirection.Descending));
         OnPropertyChanged(nameof(Rows));
         var supplier = _supplier.Value;
@@ -226,8 +272,32 @@ public sealed class PurchaseOrdersViewModel : PageViewModel
     internal async Task AfterSaveAsync(PurchaseOrderRow created)
     {
         Editor = null;
+        App.Data.Invalidate();   // V7 · Proveedores y el pedido sugerido cuentan las órdenes abiertas
         await LoadAsync(force: true);
         Selected = _items.FirstOrDefault(i => i.Row.Id == created.Id);
+    }
+
+    private bool Matches(object o)
+    {
+        if (o is not PurchaseOrderItem p)
+        {
+            return false;
+        }
+        if (_status.Value is { } s && p.Status != s)
+        {
+            return false;
+        }
+        if (_supplier.Value is { } c && p.Row.SupplierCode != c)
+        {
+            return false;
+        }
+        if (_period.Value is { } period && (p.OrderDate < period.From || p.OrderDate > period.To))
+        {
+            return false;
+        }
+        var q = _search.Trim();
+        return q.Length == 0 || p.Number.Contains(q, StringComparison.OrdinalIgnoreCase) || FilterChoices.Contains(p.Supplier, q)
+               || FilterChoices.Contains(p.Row.Notes, q);
     }
 
     private void ApplyFilter()
@@ -235,19 +305,25 @@ public sealed class PurchaseOrdersViewModel : PageViewModel
         Rows.Refresh();
         var visible = Rows.Cast<object>().Count();
         Summary = visible == _items.Count ? $"{_items.Count} órdenes" : $"{visible} de {_items.Count} órdenes";
-        OnPropertyChanged(nameof(IsEmpty));
+        OnPropertiesChanged(nameof(IsEmpty), nameof(HasFilters));
+        System.Windows.Input.CommandManager.InvalidateRequerySuggested();
     }
 
     private async Task LoadDetailAsync()
     {
+        // V7 · Sin mostrar el detalle de la orden anterior mientras se lee la nueva
+        Detail = null;
         if (_selected is not { } order)
         {
-            Detail = null;
             return;
         }
         try
         {
-            Detail = await App.SendAsync(new GetPurchaseOrderQuery(order.Row.Id));
+            var detail = await App.SendAsync(new GetPurchaseOrderQuery(order.Row.Id));
+            if (ReferenceEquals(order, _selected))
+            {
+                Detail = detail;
+            }
         }
         catch (Exception ex) when (AppServices.IsExpected(ex))
         {
@@ -284,6 +360,7 @@ public sealed class PurchaseOrdersViewModel : PageViewModel
         {
             var numbers = await App.SendAsync(new CreateSuggestedPurchaseOrdersCommand());
             App.Notify.Success($"{numbers.Count} órdenes creadas en borrador", string.Join(", ", numbers));
+            App.Data.Invalidate();
             await LoadAsync(force: true);
         }
         catch (Exception ex) when (AppServices.IsExpected(ex))
@@ -303,6 +380,7 @@ public sealed class PurchaseOrdersViewModel : PageViewModel
         if (await RunAsync(() => App.SendAsync(new ApprovePurchaseOrderCommand(order.Row.Id)), "No se pudo aprobar"))
         {
             App.Notify.Success("Orden aprobada", order.Number);
+            App.Data.Invalidate();
             await LoadAsync(force: true);
         }
     }
@@ -385,22 +463,18 @@ public sealed class PurchaseOrdersViewModel : PageViewModel
         if (await RunAsync(() => App.SendAsync(new CancelPurchaseOrderCommand(order.Row.Id)), "No se pudo anular"))
         {
             App.Notify.Success("Orden anulada", order.Number);
+            App.Data.Invalidate();
             await LoadAsync(force: true);
         }
     }
 
-    private void ExportCsv()
-    {
-        var rows = Rows.Cast<PurchaseOrderItem>().ToList();
-        var path = FileDialogs.SaveCsv($"ordenes-compra-{DateTime.Now:yyyyMMdd}.csv");
-        if (path is null)
-        {
-            return;
-        }
-        Csv.Write(path, ["Número", "Proveedor", "Fecha", "Entrega esperada", "Estado", "Líneas", "Total", "Recibido", "Notas"],
-            rows.Select(r => new object?[] { r.Number, r.Supplier, r.Row.OrderDate, r.Row.ExpectedDate, r.StatusText, r.Lines, r.Total, r.Row.ReceivedPercent, r.Row.Notes }));
-        App.Notify.Success("Órdenes exportadas", $"{rows.Count} filas en {Path.GetFileName(path)}");
-    }
+    /// <summary>V7 · Lo que se exporta: las órdenes visibles con sus filtros.</summary>
+    public CsvTable ExportTable() => CsvTable.Of(
+        ["Número", "Proveedor", "Fecha", "Entrega esperada", "Estado", "Líneas", "Total", "Recibido (%)", "Notas"],
+        Rows.Cast<PurchaseOrderItem>(),
+        r => [r.Number, r.Supplier, r.Row.OrderDate, r.Row.ExpectedDate, r.StatusText, r.Lines, r.Total, r.Row.ReceivedPercent, r.Row.Notes]);
+
+    private void ExportCsv() => App.ExportCsv(App.CsvName("ordenes-compra"), "Órdenes de compra", ExportTable());
 }
 
 /// <summary>Línea de una orden nueva (cantidad y costo editables).</summary>
@@ -602,24 +676,60 @@ public sealed class SupplierItem(SupplierRow r)
     public bool IsActive => Row.IsActive;
 }
 
-/// <summary>Proveedores: datos de contacto, días de entrega (combo), productos, órdenes abiertas y lo comprado.</summary>
+/// <summary>Proveedores: datos de contacto, días de entrega (combo), productos, órdenes abiertas y lo comprado. V7: filtros por
+/// estado y órdenes abiertas en listas desplegables, búsqueda también por código y NIT, «Limpiar filtros» y «Exportar CSV».</summary>
 public sealed class SuppliersViewModel : PageViewModel
 {
     private List<SupplierItem> _items = [];
     private string _search = string.Empty;
     private SupplierEditor? _editor;
+    private Choice<bool?> _state;
+    private Choice<bool?> _orders;
+    private string _summary = string.Empty;
+    private int _visible;
 
     public SuppliersViewModel(AppServices app) : base(app, "proveedores", "Proveedores", "Contactos, plazos de entrega y compras", Glyphs.Briefcase)
     {
+        States = [new("Activos e inactivos", null), new("Solo activos", true), new("Solo inactivos", false)];
+        OrderFilters = [new("Con y sin órdenes abiertas", null), new("Con órdenes abiertas", true), new("Sin órdenes abiertas", false)];
+        _state = States[0];
+        _orders = OrderFilters[0];
         Rows = CollectionViewSource.GetDefaultView(_items);
         New = new RelayCommand(() => Editor = new SupplierEditor(this, App, null), () => CanEdit);
         Edit = new RelayCommand<SupplierItem>(s => Editor = new SupplierEditor(this, App, s.Row), _ => CanEdit);
         NewOrder = new RelayCommand(() => app.Navigator.Navigate("compras"));
+        Export = new RelayCommand(() => App.ExportCsv(App.CsvName("proveedores"), "Proveedores", ExportTable()), () => _items.Count > 0);
+        ClearFilters = new RelayCommand(() =>
+        {
+            _search = string.Empty;
+            _state = States[0];
+            _orders = OrderFilters[0];
+            OnPropertiesChanged(nameof(Search), nameof(State), nameof(Orders));
+            ApplyFilter();
+        }, () => HasFilters);
     }
 
     public ICollectionView Rows { get; private set; }
 
     public bool CanEdit => App.Session.Can(PermissionCodes.PurchasingManage);
+
+    public IReadOnlyList<Choice<bool?>> States { get; }
+
+    public IReadOnlyList<Choice<bool?>> OrderFilters { get; }
+
+    public Choice<bool?> State { get => _state; set { if (Set(ref _state, value ?? States[0])) { ApplyFilter(); } } }
+
+    public Choice<bool?> Orders { get => _orders; set { if (Set(ref _orders, value ?? OrderFilters[0])) { ApplyFilter(); } } }
+
+    public bool HasFilters => _search.Trim().Length > 0 || _state.Value is not null || _orders.Value is not null;
+
+    public string Summary { get => _summary; private set => Set(ref _summary, value); }
+
+    public bool IsEmpty => HasLoaded && _visible == 0;
+
+    public RelayCommand Export { get; }
+
+    public RelayCommand ClearFilters { get; }
 
     public string Search
     {
@@ -628,10 +738,44 @@ public sealed class SuppliersViewModel : PageViewModel
         {
             if (Set(ref _search, value ?? string.Empty))
             {
-                Rows.Refresh();
+                ApplyFilter();
             }
         }
     }
+
+    private bool Matches(object o)
+    {
+        if (o is not SupplierItem s)
+        {
+            return false;
+        }
+        if (_state.Value is { } active && s.IsActive != active)
+        {
+            return false;
+        }
+        if (_orders.Value is { } open && (s.OpenOrders > 0) != open)
+        {
+            return false;
+        }
+        var q = _search.Trim();
+        return q.Length == 0 || s.Code.Contains(q, StringComparison.OrdinalIgnoreCase) || FilterChoices.Contains(s.Name, q) || FilterChoices.Contains(s.Contact, q)
+               || (s.Row.TaxId?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false);
+    }
+
+    private void ApplyFilter()
+    {
+        Rows.Refresh();
+        _visible = Rows.Cast<object>().Count();
+        Summary = _visible == _items.Count ? $"{_items.Count} proveedores" : $"{_visible} de {_items.Count} proveedores";
+        OnPropertiesChanged(nameof(IsEmpty), nameof(HasFilters));
+        System.Windows.Input.CommandManager.InvalidateRequerySuggested();
+    }
+
+    /// <summary>V7 · Lo que se exporta: los proveedores visibles con sus filtros.</summary>
+    public CsvTable ExportTable() => CsvTable.Of(
+        ["Código", "Proveedor", "NIT", "Contacto", "Teléfono", "Correo", "Días de entrega", "Productos", "Órdenes abiertas", "Comprado", "Activo"],
+        Rows.Cast<SupplierItem>(),
+        s => [s.Code, s.Name, s.Row.TaxId, s.Row.Contact, s.Row.Phone, s.Row.Email, s.Row.LeadTimeDays, s.Products, s.OpenOrders, s.Purchased, s.IsActive]);
 
     public KpiCard SuppliersKpi { get; } = new("Proveedores activos", Glyphs.Briefcase);
 
@@ -666,10 +810,9 @@ public sealed class SuppliersViewModel : PageViewModel
         var rows = await App.SendAsync(new GetSuppliersQuery());
         _items = rows.Select(r => new SupplierItem(r)).OrderBy(r => r.Name, StringComparer.Create(Fmt.Culture, true)).ToList();
         Rows = CollectionViewSource.GetDefaultView(_items);
-        Rows.Filter = o => o is SupplierItem s && (_search.Trim().Length == 0
-                                                   || Fmt.Culture.CompareInfo.IndexOf(s.Name, _search.Trim(), CompareOptions.IgnoreCase | CompareOptions.IgnoreNonSpace) >= 0
-                                                   || Fmt.Culture.CompareInfo.IndexOf(s.Contact, _search.Trim(), CompareOptions.IgnoreCase | CompareOptions.IgnoreNonSpace) >= 0);
+        Rows.Filter = Matches;
         OnPropertyChanged(nameof(Rows));
+        ApplyFilter();
         var active = _items.Where(i => i.IsActive).ToList();
         SuppliersKpi.Value = active.Count.ToString("N0", Fmt.Culture);
         SuppliersKpi.Detail = $"{_items.Sum(i => i.Products)} productos asignados";
@@ -686,6 +829,7 @@ public sealed class SuppliersViewModel : PageViewModel
     internal async Task AfterSaveAsync()
     {
         Editor = null;
+        App.Data.Invalidate();   // V7 · Compras y el catálogo muestran el proveedor (nombre y plazo) al volver
         await LoadAsync(force: true);
     }
 }

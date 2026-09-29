@@ -77,6 +77,10 @@ public static class Glyphs
     public const string Transfer = "";
     public const string Link = "";
 
+    // V7 · Secciones plegables del inicio («Ver … ^») y limpiar filtros
+    public const string ChevronUp = "";
+    public const string ClearFilter = "";
+
     // V4.1 · Facturación SIAT (documento fiscal, QR, fuera de línea, sincronizar, XML, deshacer, encendido, calculadora)
     public const string Invoice = "";
     public const string Qr = "";

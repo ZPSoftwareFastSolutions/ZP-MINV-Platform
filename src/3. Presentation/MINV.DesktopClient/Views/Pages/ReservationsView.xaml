@@ -1,0 +1,363 @@
+<UserControl x:Class="MINV.DesktopClient.Views.Pages.ReservationsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:MINV.DesktopClient.Controls"
+             xmlns:vm="clr-namespace:MINV.DesktopClient.ViewModels">
+    <!-- V7 · Reservas: carritos (RES-…) y armados (ARM-…) reservados de la tienda web y del mostrador -->
+    <Grid Margin="28,6,28,24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Encabezado y acciones de la pantalla -->
+        <DockPanel Margin="0,0,0,12">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button Style="{StaticResource PrimaryButton}" Content="Nueva reserva en mostrador" c:Ui.Icon="{x:Static c:Glyphs.Add}" Command="{Binding NewReservation}"
+                        Margin="0,0,8,0" Visibility="{Binding CanManage, Converter={StaticResource Visible}}" c:Ui.IsBusy="{Binding NewReservation.IsRunning}"
+                        ToolTip="Aparta productos para un cliente que pasa a pagar después (el stock queda reservado)" />
+                <Button Content="Exportar CSV" c:Ui.Icon="{x:Static c:Glyphs.Download}" Command="{Binding Export}" Margin="0,0,8,0"
+                        ToolTip="Las reservas que muestra la lista, con sus filtros, en un archivo para Excel" />
+                <Button Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Refresh}" Command="{Binding Refresh}" ToolTip="Actualizar (F5)" />
+            </StackPanel>
+            <StackPanel>
+                <TextBlock Text="{Binding Title}" Style="{StaticResource H1}" />
+                <TextBlock Text="{Binding Subtitle}" Style="{StaticResource Caption}" FontSize="13" Margin="0,4,0,0" />
+            </StackPanel>
+        </DockPanel>
+
+        <!-- Indicadores -->
+        <UniformGrid Grid.Row="1" Columns="4" Margin="-6,0,-6,8">
+            <ContentControl Content="{Binding ActiveKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+            <ContentControl Content="{Binding DueKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+            <ContentControl Content="{Binding WebKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+            <ContentControl Content="{Binding MailKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+        </UniformGrid>
+
+        <!-- Filtros con listas desplegables -->
+        <DockPanel Grid.Row="2" Margin="0,0,0,10">
+            <TextBlock DockPanel.Dock="Right" Text="{Binding Summary}" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="10,0,0,0" />
+            <WrapPanel>
+                <TextBox Width="280" Margin="0,0,8,8" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}" c:Ui.Icon="{x:Static c:Glyphs.Search}"
+                         c:Ui.Placeholder="Número, cliente, teléfono, correo o CI/NIT" AutomationProperties.Name="Buscar una reserva" />
+                <ComboBox Width="160" Margin="0,0,8,8" ItemsSource="{Binding Kinds}" SelectedItem="{Binding Kind}" ToolTip="Tipo: compra (carrito) o armado de PC"
+                          AutomationProperties.Name="Tipo" />
+                <ComboBox Width="160" Margin="0,0,8,8" ItemsSource="{Binding Channels}" SelectedItem="{Binding Channel}" ToolTip="Canal: tienda web o mostrador"
+                          AutomationProperties.Name="Canal" />
+                <ComboBox Width="180" Margin="0,0,8,8" ItemsSource="{Binding States}" SelectedItem="{Binding State}" AutomationProperties.Name="Estado" />
+                <ComboBox Width="180" Margin="0,0,8,8" ItemsSource="{Binding Dues}" SelectedItem="{Binding Due}" ToolTip="Por el vencimiento de la reserva"
+                          AutomationProperties.Name="Vence" />
+                <ComboBox Width="170" Margin="0,0,8,8" ItemsSource="{Binding Branches}" SelectedItem="{Binding Branch}" AutomationProperties.Name="Sucursal"
+                          Visibility="{Binding HasBranches, Converter={StaticResource Visible}}" />
+                <ComboBox Width="170" Margin="0,0,8,8" ItemsSource="{Binding Periods}" SelectedItem="{Binding Period}" ToolTip="Por la fecha en que se hizo la reserva"
+                          AutomationProperties.Name="Fechas" />
+                <Button Style="{StaticResource GhostButton}" Content="Limpiar filtros" c:Ui.Icon="{x:Static c:Glyphs.ClearFilter}" Command="{Binding ClearFilters}"
+                        Margin="0,0,8,8" Visibility="{Binding HasFilters, Converter={StaticResource Visible}}" />
+            </WrapPanel>
+        </DockPanel>
+
+        <Grid Grid.Row="3">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Lista -->
+            <Border Style="{StaticResource CardFlat}" Padding="4,2,4,4">
+                <Grid>
+                    <DataGrid ItemsSource="{Binding Rows}" SelectedItem="{Binding Selected}" RowHeight="56">
+                        <DataGrid.Columns>
+                            <DataGridTemplateColumn Header="NÚMERO" Width="136" SortMemberPath="Number" CanUserSort="True">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate DataType="{x:Type vm:ReservationItem}">
+                                        <Border Style="{StaticResource Pill}" Background="{DynamicResource BrandSoft}">
+                                            <TextBlock Text="{Binding Number}" Style="{StaticResource Mono}" Foreground="{DynamicResource BrandText}" FontWeight="SemiBold" />
+                                        </Border>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="TIPO" Width="98" SortMemberPath="KindText" CanUserSort="True">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate DataType="{x:Type vm:ReservationItem}">
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <TextBlock Style="{StaticResource Icon}" Text="{Binding KindGlyph}" FontSize="12" Foreground="{DynamicResource TextMuted}" Margin="0,0,6,0" />
+                                            <TextBlock Text="{Binding KindText}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="CANAL" Width="112" SortMemberPath="ChannelText" CanUserSort="True">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate DataType="{x:Type vm:ReservationItem}">
+                                        <Grid VerticalAlignment="Center">
+                                            <Border Style="{StaticResource Badge}" Visibility="{Binding IsWeb, Converter={StaticResource Visible}}"
+                                                    ToolTip="Reserva hecha por el cliente en la tienda web">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Globe}" FontSize="10" Margin="0,0,5,0" VerticalAlignment="Center" />
+                                                    <TextBlock Text="Web" />
+                                                </StackPanel>
+                                            </Border>
+                                            <TextBlock Text="{Binding ChannelText}" Style="{StaticResource Caption}" FontSize="12" VerticalAlignment="Center"
+                                                       Visibility="{Binding IsWeb, Converter={StaticResource Hidden}}" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="CLIENTE" Width="*" MinWidth="170" SortMemberPath="Customer" CanUserSort="True">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate DataType="{x:Type vm:ReservationItem}">
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Customer}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip="{Binding Customer}" />
+                                            <TextBlock Text="{Binding CustomerDetail}" Style="{StaticResource Caption}" FontSize="11.5" TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="TELÉFONO" Binding="{Binding PhoneText}" Width="118" SortMemberPath="Phone" ElementStyle="{StaticResource CellText}" />
+                            <DataGridTextColumn Header="TOTAL" Binding="{Binding TotalText}" Width="112" SortMemberPath="Total"
+                                                HeaderStyle="{StaticResource HeaderRight}" ElementStyle="{StaticResource CellRight}" />
+                            <DataGridTemplateColumn Header="RESERVADO HASTA" Width="170" SortMemberPath="ReservedUntilSort" CanUserSort="True">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate DataType="{x:Type vm:ReservationItem}">
+                                        <StackPanel VerticalAlignment="Center">
+                                            <DockPanel>
+                                                <TextBlock DockPanel.Dock="Left" Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Warning}" FontSize="11" Margin="0,0,5,0"
+                                                           c:Ui.BrushKey="{Binding ReservedUntilBrush}" Visibility="{Binding IsUrgent, Converter={StaticResource Visible}}" />
+                                                <TextBlock Text="{Binding ReservedUntilText}" FontSize="12.5" c:Ui.BrushKey="{Binding ReservedUntilBrush}" />
+                                            </DockPanel>
+                                            <TextBlock Text="{Binding ReservedUntilDetail}" Style="{StaticResource Caption}" FontSize="11" TextTrimming="CharacterEllipsis"
+                                                       ToolTip="{Binding ReservedUntilDetail}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="ESTADO" Width="148" SortMemberPath="StatusText" CanUserSort="True">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate DataType="{x:Type vm:ReservationItem}">
+                                        <Border Style="{StaticResource StatusPill}" c:Ui.BrushKey="{Binding StatusSoftBrush}">
+                                            <TextBlock Text="{Binding StatusText}" FontSize="11" FontWeight="SemiBold" c:Ui.BrushKey="{Binding StatusBrush}" />
+                                        </Border>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="CORREO" Width="112" SortMemberPath="MailText" CanUserSort="True">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate DataType="{x:Type vm:ReservationItem}">
+                                        <Border Style="{StaticResource StatusPill}" c:Ui.BrushKey="{Binding MailSoftBrush}" ToolTip="{Binding MailTooltip}">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Mail}" FontSize="10" Margin="0,0,5,0" c:Ui.BrushKey="{Binding MailBrush}" />
+                                                <TextBlock Text="{Binding MailText}" FontSize="11" FontWeight="SemiBold" c:Ui.BrushKey="{Binding MailBrush}" />
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <ContentControl Style="{StaticResource EmptyState}" Tag="{x:Static c:Glyphs.Clock}" Visibility="{Binding NoReservations, Converter={StaticResource Visible}}">
+                        <StackPanel>
+                            <TextBlock Text="Todavía no hay reservas" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" HorizontalAlignment="Center" />
+                            <TextBlock Text="Las reservas de la tienda web aparecen aquí; para apartar productos a un cliente use «Nueva reserva en mostrador»."
+                                       Style="{StaticResource Caption}" HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center" MaxWidth="420" Margin="0,4,0,0" />
+                        </StackPanel>
+                    </ContentControl>
+                    <ContentControl Style="{StaticResource EmptyState}" Tag="{x:Static c:Glyphs.Search}" Visibility="{Binding NoMatches, Converter={StaticResource Visible}}">
+                        <StackPanel>
+                            <TextBlock Text="Ninguna reserva coincide con los filtros" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" HorizontalAlignment="Center" />
+                            <Button Style="{StaticResource LinkButton}" Content="Limpiar filtros" HorizontalAlignment="Center" Margin="0,8,0,0" Command="{Binding ClearFilters}" />
+                        </StackPanel>
+                    </ContentControl>
+                </Grid>
+            </Border>
+
+            <!-- Detalle de la reserva elegida -->
+            <Border Grid.Column="1" Style="{StaticResource EditorPanel}" Width="410" Visibility="{Binding HasSelection, Converter={StaticResource Visible}}">
+                <DockPanel>
+                    <DockPanel DockPanel.Dock="Top" Margin="18,16,10,8">
+                        <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Close}" Command="{Binding CloseDetail}"
+                                ToolTip="Cerrar el detalle" VerticalAlignment="Top" />
+                        <StackPanel>
+                            <TextBlock Text="{Binding Selected.Number}" Style="{StaticResource H2}" FontFamily="{StaticResource MonoFont}" />
+                            <WrapPanel Margin="0,6,0,0">
+                                <Border Style="{StaticResource StatusPill}" c:Ui.BrushKey="{Binding Selected.StatusSoftBrush}" Margin="0,0,6,4">
+                                    <TextBlock Text="{Binding Selected.StatusText}" FontSize="11" FontWeight="SemiBold" c:Ui.BrushKey="{Binding Selected.StatusBrush}" />
+                                </Border>
+                                <Border Style="{StaticResource PlatformBadge}" Margin="0,0,6,4">
+                                    <TextBlock Text="{Binding Selected.KindText}" />
+                                </Border>
+                                <Border Style="{StaticResource PlatformBadge}" Margin="0,0,6,4">
+                                    <TextBlock Text="{Binding Selected.ChannelText}" />
+                                </Border>
+                                <Border Style="{StaticResource PlatformBadge}" Margin="0,0,6,4" ToolTip="Sucursal de la reserva">
+                                    <TextBlock Text="{Binding Selected.BranchCode}" />
+                                </Border>
+                            </WrapPanel>
+                        </StackPanel>
+                    </DockPanel>
+
+                    <!-- Acciones -->
+                    <StackPanel DockPanel.Dock="Top" Margin="18,0,18,8">
+                        <WrapPanel>
+                            <Button Style="{StaticResource PrimaryButton}" Content="Vender en caja" c:Ui.Icon="{x:Static c:Glyphs.Cart}" Command="{Binding SellInPos}"
+                                    Margin="0,0,8,8" ToolTip="La caja carga la reserva a sus precios; al cobrar se consume la reserva" />
+                            <Button Style="{StaticResource DangerButton}" Content="Liberar" c:Ui.Icon="{x:Static c:Glyphs.Undo}" Command="{Binding Release}"
+                                    Margin="0,0,8,8" c:Ui.IsBusy="{Binding Release.IsRunning}" ToolTip="El stock vuelve a estar disponible (pide el motivo)" />
+                            <Button Content="Reenviar correo" c:Ui.Icon="{x:Static c:Glyphs.Mail}" Command="{Binding ResendMail}" Margin="0,0,8,8"
+                                    c:Ui.IsBusy="{Binding ResendMail.IsRunning}" ToolTip="Vuelve a enviar la confirmación (a su correo o a otro)" />
+                            <Button Style="{StaticResource SoftButton}" Content="Copiar teléfono" c:Ui.Icon="{x:Static c:Glyphs.Copy}" Command="{Binding CopyPhone}"
+                                    Margin="0,0,8,8" ToolTip="Para llamar o escribir por WhatsApp" />
+                        </WrapPanel>
+                        <TextBlock Text="{Binding SellHint}" Style="{StaticResource Caption}" TextWrapping="Wrap" Visibility="{Binding SellHint, Converter={StaticResource HasValue}}" />
+                    </StackPanel>
+
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="18,0,18,16">
+                        <StackPanel>
+                            <c:ProgressRing Width="22" Height="22" HorizontalAlignment="Left" Margin="0,4,0,8" Visibility="{Binding IsLoadingDetail, Converter={StaticResource Visible}}" />
+
+                            <!-- Vencimiento -->
+                            <Border Style="{StaticResource Panel}" Padding="12,10">
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Left" Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Clock}" FontSize="14" Margin="0,2,10,0" VerticalAlignment="Top"
+                                               c:Ui.BrushKey="{Binding Selected.ReservedUntilBrush}" />
+                                    <StackPanel>
+                                        <TextBlock FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}">
+                                            <Run Text="Reservado hasta" /> <Run Text="{Binding Selected.ReservedUntilText, Mode=OneWay}" />
+                                        </TextBlock>
+                                        <TextBlock Text="{Binding Selected.ReservedUntilDetail}" Style="{StaticResource Caption}" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </DockPanel>
+                            </Border>
+
+                            <!-- Cliente y contacto -->
+                            <TextBlock Text="CLIENTE" Style="{StaticResource Overline}" Margin="0,14,0,6" />
+                            <Border Style="{StaticResource Panel}" Padding="12,10">
+                                <StackPanel>
+                                    <DockPanel>
+                                        <TextBlock DockPanel.Dock="Left" Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Person}" FontSize="13" Margin="0,2,8,0"
+                                                   VerticalAlignment="Top" Foreground="{DynamicResource BrandText}" />
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Selected.Customer}" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" TextWrapping="Wrap" />
+                                            <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap">
+                                                <Run Text="Recoge:" /> <Run Text="{Binding Selected.Row.ContactName, Mode=OneWay}" />
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </DockPanel>
+                                    <DockPanel Margin="0,6,0,0">
+                                        <TextBlock DockPanel.Dock="Left" Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Phone}" FontSize="12" Margin="0,2,8,0"
+                                                   VerticalAlignment="Top" Foreground="{DynamicResource TextMuted}" />
+                                        <TextBlock Text="{Binding Selected.PhoneText}" Style="{StaticResource Mono}" FontSize="12.5" Foreground="{DynamicResource TextPrimary}" />
+                                    </DockPanel>
+                                    <DockPanel Margin="0,4,0,0" Visibility="{Binding Selected.HasEmail, Converter={StaticResource Visible}}">
+                                        <TextBlock DockPanel.Dock="Left" Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Mail}" FontSize="12" Margin="0,2,8,0"
+                                                   VerticalAlignment="Top" Foreground="{DynamicResource TextMuted}" />
+                                        <TextBlock Text="{Binding Selected.Email}" Style="{StaticResource Caption}" FontSize="12" TextWrapping="Wrap" />
+                                    </DockPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Datos para la factura -->
+                            <TextBlock Text="DATOS PARA LA FACTURA" Style="{StaticResource Overline}" Margin="0,14,0,6" />
+                            <Border Style="{StaticResource Panel}" Padding="12,10">
+                                <StackPanel>
+                                    <StackPanel Visibility="{Binding Selected.HasBuyer, Converter={StaticResource Visible}}">
+                                        <TextBlock Text="{Binding Selected.BuyerDocumentText}" Style="{StaticResource Mono}" FontSize="12.5" Foreground="{DynamicResource TextPrimary}" />
+                                        <TextBlock Text="{Binding Selected.BuyerNameText}" Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap" Margin="0,2,0,0" />
+                                        <TextBlock Text="La caja los precarga al cobrar si el cajero no los cambia." Style="{StaticResource Caption}" FontSize="11.5"
+                                                   TextWrapping="Wrap" Margin="0,4,0,0" />
+                                    </StackPanel>
+                                    <TextBlock Text="Sin datos de factura: la caja los pide al cobrar." Style="{StaticResource Caption}" TextWrapping="Wrap"
+                                               Visibility="{Binding Selected.HasBuyer, Converter={StaticResource Hidden}}" />
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Notas del cliente -->
+                            <StackPanel Visibility="{Binding Selected.Row.Notes, Converter={StaticResource HasValue}}">
+                                <TextBlock Text="NOTAS" Style="{StaticResource Overline}" Margin="0,14,0,6" />
+                                <Border Background="{DynamicResource SurfaceHover}" CornerRadius="8" Padding="10,7">
+                                    <TextBlock Text="{Binding Selected.Row.Notes}" FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondary}" />
+                                </Border>
+                            </StackPanel>
+
+                            <!-- Productos -->
+                            <DockPanel Margin="0,14,0,6">
+                                <TextBlock DockPanel.Dock="Right" Text="{Binding Selected.TotalText}" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" />
+                                <TextBlock Text="PRODUCTOS" Style="{StaticResource Overline}" />
+                            </DockPanel>
+                            <ItemsControl ItemsSource="{Binding Lines}" Focusable="False">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:ReservationLineItem}">
+                                        <DockPanel Margin="0,3">
+                                            <StackPanel DockPanel.Dock="Right" HorizontalAlignment="Right" Margin="8,0,0,0">
+                                                <TextBlock Text="{Binding SubtotalText}" FontWeight="SemiBold" HorizontalAlignment="Right" FontSize="12" />
+                                                <TextBlock Style="{StaticResource Caption}" FontSize="11" HorizontalAlignment="Right">
+                                                    <Run Text="{Binding QuantityText, Mode=OneWay}" /> <Run Text="{Binding UnitPriceText, Mode=OneWay}" />
+                                                </TextBlock>
+                                            </StackPanel>
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Name}" FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondary}" />
+                                                <TextBlock Style="{StaticResource Caption}" FontSize="11">
+                                                    <Run Text="{Binding SlotText, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding Sku, Mode=OneWay}" />
+                                                </TextBlock>
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <!-- Bitácora -->
+                            <TextBlock Text="BITÁCORA" Style="{StaticResource Overline}" Margin="0,14,0,6" />
+                            <ItemsControl ItemsSource="{Binding History}" Focusable="False">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:ReservationEventItem}">
+                                        <DockPanel Margin="0,3">
+                                            <Ellipse DockPanel.Dock="Left" Width="8" Height="8" Margin="0,5,10,0" VerticalAlignment="Top" c:Ui.BrushKey="{Binding ActionBrush}" />
+                                            <StackPanel>
+                                                <TextBlock FontSize="12" TextWrapping="Wrap">
+                                                    <Run Text="{Binding ActionText, Mode=OneWay}" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" />
+                                                    <Run Text="·" Foreground="{DynamicResource TextMuted}" />
+                                                    <Run Text="{Binding WhenText, Mode=OneWay}" Foreground="{DynamicResource TextMuted}" />
+                                                </TextBlock>
+                                                <TextBlock Style="{StaticResource Caption}" FontSize="11.5" TextWrapping="Wrap">
+                                                    <Run Text="{Binding Detail, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding User, Mode=OneWay}" />
+                                                </TextBlock>
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <!-- Correos de confirmación -->
+                            <TextBlock Text="CORREOS DE CONFIRMACIÓN" Style="{StaticResource Overline}" Margin="0,14,0,6" />
+                            <ItemsControl ItemsSource="{Binding Mails}" Focusable="False">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:ReservationMailItem}">
+                                        <Border Style="{StaticResource Panel}" Padding="10,8" Margin="0,0,0,6">
+                                            <StackPanel>
+                                                <DockPanel>
+                                                    <Border DockPanel.Dock="Right" Style="{StaticResource StatusPill}" c:Ui.BrushKey="{Binding StatusSoftBrush}">
+                                                        <TextBlock Text="{Binding StatusText}" FontSize="11" FontWeight="SemiBold" c:Ui.BrushKey="{Binding StatusBrush}" />
+                                                    </Border>
+                                                    <TextBlock Text="{Binding Recipient}" FontSize="12" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource TextPrimary}"
+                                                               ToolTip="{Binding Recipient}" VerticalAlignment="Center" />
+                                                </DockPanel>
+                                                <TextBlock Style="{StaticResource Caption}" FontSize="11" Margin="0,3,0,0">
+                                                    <Run Text="{Binding RequestedText, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding AttemptsText, Mode=OneWay}" />
+                                                </TextBlock>
+                                                <TextBlock Text="{Binding Detail}" Style="{StaticResource Caption}" FontSize="11" TextWrapping="Wrap"
+                                                           Visibility="{Binding HasDetail, Converter={StaticResource Visible}}" />
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Text="Esta reserva no tiene correos de confirmación." Style="{StaticResource Caption}"
+                                       Visibility="{Binding HasMails, Converter={StaticResource Hidden}}" />
+                        </StackPanel>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>

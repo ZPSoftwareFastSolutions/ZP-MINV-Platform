@@ -135,6 +135,10 @@ public sealed class DialogService : ObservableObject
     private DialogRequest? _current;
     private FormDialog? _form;
 
+    /// <summary>V7 · Dónde guardar un CSV (recibe el nombre sugerido; null = cancelado). Por defecto, el cuadro de Windows; las
+    /// pruebas lo reemplazan por una carpeta temporal.</summary>
+    public Func<string, string?> AskCsvPath { get; set; } = FileDialogs.SaveCsv;
+
     public DialogRequest? Current
     {
         get => _current;

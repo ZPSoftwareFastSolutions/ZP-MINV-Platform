@@ -91,6 +91,11 @@ public sealed class CatalogProduct(CatalogItem item, StockRow? stock, ImageSourc
     public string KeySpecs => Tech?.KeySpecs ?? string.Empty;
 
     public bool HasKeySpecs => KeySpecs.Length > 0;
+
+    /// <summary>V7 · Marca (de la ficha técnica; vacía si el producto no tiene ficha).</summary>
+    public string Brand => Tech?.Brand ?? string.Empty;
+
+    public decimal Available => Math.Max(0, Stock - Reserved);
 }
 
 /// <summary>
@@ -101,10 +106,14 @@ public sealed class CatalogProduct(CatalogItem item, StockRow? stock, ImageSourc
 public sealed class CatalogViewModel : PageViewModel
 {
     private static readonly Choice<string?> AllCategories = new("Todas las categorías", null);
+    private static readonly Choice<string?> AllSuppliers = new("Todos los proveedores", null);
+    private static readonly Choice<string?> AllBrands = new("Todas las marcas", null);
     private readonly DispatcherTimer _debounce = new() { Interval = TimeSpan.FromMilliseconds(180) };
     private List<CatalogProduct> _items = [];
     private string _search = string.Empty;
     private Choice<string?> _category = AllCategories;
+    private Choice<string?> _supplier = AllSuppliers;
+    private Choice<string?> _brand = AllBrands;
     private Choice<string> _state;
     private Choice<string> _sort;
     private bool _isGallery = true;
@@ -162,12 +171,69 @@ public sealed class CatalogViewModel : PageViewModel
         });
         ManageSpecs = new AsyncRelayCommand(ManageSpecsAsync, () => CanManageSpecs);
         Export = new RelayCommand(ExportCsv, () => _items.Count > 0);
+        // V7 · Volver a los filtros de siempre (activos, todas las categorías, proveedores y marcas, sin búsqueda ni facetas)
+        ClearFilters = new RelayCommand(() =>
+        {
+            _search = string.Empty;
+            _supplier = AllSuppliers;
+            _brand = AllBrands;
+            _state = States[1];
+            OnPropertiesChanged(nameof(Search), nameof(Supplier), nameof(Brand), nameof(State));
+            foreach (var facet in Facets)
+            {
+                facet.Reset();
+            }
+            _matched = null;
+            SelectPlatformChip(null);
+            Category = AllCategories;
+            ApplyFilter();
+        }, () => HasFilters);
+        Suppliers.ReplaceAll([AllSuppliers]);
+        Brands.ReplaceAll([AllBrands]);
         App.Images.Changed += (_, _) => _ = LoadAsync(force: false);
     }
 
     public ICollectionView Rows { get; private set; }
 
     public BulkObservableCollection<Choice<string?>> Categories { get; } = [];
+
+    /// <summary>V7 · Proveedores de los productos (lista desplegable).</summary>
+    public BulkObservableCollection<Choice<string?>> Suppliers { get; } = [];
+
+    /// <summary>V7 · Marcas de las fichas técnicas (lista desplegable; solo si hay alguna).</summary>
+    public BulkObservableCollection<Choice<string?>> Brands { get; } = [];
+
+    public bool HasBrands => Brands.Count > 1;
+
+    public Choice<string?> Supplier
+    {
+        get => _supplier;
+        set
+        {
+            if (Set(ref _supplier, value ?? AllSuppliers))
+            {
+                ApplyFilter();
+            }
+        }
+    }
+
+    public Choice<string?> Brand
+    {
+        get => _brand;
+        set
+        {
+            if (Set(ref _brand, value ?? AllBrands))
+            {
+                ApplyFilter();
+            }
+        }
+    }
+
+    /// <summary>V7 · Hay algún filtro distinto del de siempre (activos, sin búsqueda).</summary>
+    public bool HasFilters => _search.Trim().Length > 0 || _category.Value is not null || _supplier.Value is not null || _brand.Value is not null
+                              || _state != States[1] || HasTechFilters;
+
+    public RelayCommand ClearFilters { get; }
 
     public IReadOnlyList<Choice<string>> States { get; }
 
@@ -330,6 +396,13 @@ public sealed class CatalogViewModel : PageViewModel
             _items.Count(i => i.Item.CategoryCode == c.Code) is var own and > 0 ? new Choice<string?>($"{c.Name} ({own})", c.Code) : new Choice<string?>(c.Name, c.Code))));
         _category = Categories.FirstOrDefault(c => c.Value == previous) ?? AllCategories;
         OnPropertyChanged(nameof(Category));
+        // V7 · Proveedores y marcas en listas desplegables (de los productos que se muestran)
+        Suppliers.ReplaceAll([AllSuppliers, .. _items.Where(i => i.Item.SupplierCode is not null).GroupBy(i => i.Item.SupplierCode!, StringComparer.OrdinalIgnoreCase)
+            .Select(g => new Choice<string?>(g.First().Supplier, g.Key)).OrderBy(c => c.Label, StringComparer.Create(Fmt.Culture, true))]);
+        _supplier = FilterChoices.Keep(Suppliers, _supplier);
+        Brands.ReplaceAll(FilterChoices.Of(AllBrands.Label, _items.Select(i => i.Brand)));
+        _brand = FilterChoices.Keep(Brands, _brand);
+        OnPropertiesChanged(nameof(Supplier), nameof(Brand), nameof(HasBrands));
 
         var active = _items.Where(i => i.IsActive).ToList();
         ProductsKpi.Value = $"{active.Count} activos";
@@ -516,12 +589,21 @@ public sealed class CatalogViewModel : PageViewModel
         {
             return false;
         }
+        if (_supplier.Value is { } supplier && !string.Equals(p.Item.SupplierCode, supplier, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+        if (_brand.Value is { } brand && !string.Equals(p.Brand, brand, StringComparison.CurrentCultureIgnoreCase))
+        {
+            return false;
+        }
         var ok = _state.Value switch
         {
             "active" => p.IsActive,
             "inactive" => !p.IsActive,
             "noimage" => !p.HasImage,
-            "alert" => p.IsActive && p.Status is StockStatusCode.OutOfStock or StockStatusCode.Critical or StockStatusCode.Low,
+            // V7 · Las mismas alertas de la pantalla Alertas (también inconsistentes y sobrestock, StockRules.AlertOrder)
+            "alert" => p.IsActive && StockRules.IsAlert(p.Status),
             "lowmargin" => p.LowMargin,
             _ => true,
         };
@@ -573,26 +655,19 @@ public sealed class CatalogViewModel : PageViewModel
         Rows.Refresh();
         _visible = Rows.Cast<object>().Count();
         Summary = _visible == _items.Count ? $"{_items.Count} productos" : $"{_visible} de {_items.Count} productos";
-        OnPropertyChanged(nameof(IsEmpty));
+        OnPropertiesChanged(nameof(IsEmpty), nameof(HasFilters));
+        System.Windows.Input.CommandManager.InvalidateRequerySuggested();
     }
 
-    private void ExportCsv()
-    {
-        var rows = Rows.Cast<CatalogProduct>().ToList();
-        var path = FileDialogs.SaveCsv($"catalogo-{DateTime.Now:yyyyMMdd-HHmm}.csv");
-        if (path is null)
-        {
-            return;
-        }
-        Csv.Write(path, ["SKU", "Producto", "Categoría", "Unidad", "Proveedor", "Costo", "Precio (IVA incl.)", "Margen", "Mínimo", "Máximo",
-                "Stock", "Posición", "Código de barras", "Activo", "Imagen"],
-            rows.Select(r => new object?[]
-            {
-                r.Sku, r.Name, r.Category, r.Unit, r.Supplier, r.Item.UnitCost, r.Item.SalePrice, decimal.Round(r.Margin, 4), r.Item.Minimum,
-                r.Item.Maximum, r.Stock, r.Item.BinCode, r.Item.Barcode, r.IsActive ? "SÍ" : "NO", r.HasImage ? "SÍ" : "NO",
-            }));
-        App.Notify.Success("Catálogo exportado", $"{rows.Count} productos en {Path.GetFileName(path)}");
-    }
+    /// <summary>V7 · Lo que se exporta: los productos visibles con sus filtros (con marca, reservado y disponible).</summary>
+    public CsvTable ExportTable() => CsvTable.Of(
+        ["SKU", "Producto", "Categoría", "Marca", "Unidad", "Proveedor", "Costo", "Precio (IVA incl.)", "Margen", "Mínimo", "Máximo", "Stock", "Reservado",
+            "Disponible", "Posición", "Código de barras", "Activo", "Imagen"],
+        Rows.Cast<CatalogProduct>(),
+        r => [r.Sku, r.Name, r.Category, r.Brand, r.Unit, r.Supplier, r.Item.UnitCost, r.Item.SalePrice, decimal.Round(r.Margin, 4), r.Item.Minimum,
+            r.Item.Maximum, r.Stock, r.Reserved, r.Available, r.Item.BinCode, r.Item.Barcode, r.IsActive, r.HasImage]);
+
+    private void ExportCsv() => App.ExportCsv(App.CsvName("catalogo"), "Catálogo", ExportTable());
 }
 
 /// <summary>Formulario de alta o edición de un producto (combos para todo lo que viene de una lista).</summary>

@@ -220,21 +220,13 @@ public sealed class StockViewModel : PageViewModel
         OnPropertyChanged(nameof(IsEmpty));
     }
 
-    private void ExportCsv()
-    {
-        var rows = Rows.Cast<StockItem>().ToList();
-        var path = FileDialogs.SaveCsv($"stock-{App.Session.Workspace.WarehouseCode}-{DateTime.Now:yyyyMMdd-HHmm}.csv");
-        if (path is null)
-        {
-            return;
-        }
-        Csv.Write(path, ["SKU", "Producto", "Categoría", "Proveedor", "Unidad", "Stock", "Reservado", "Disponible", "Mínimo", "Máximo", "Estado", "Salidas 30 d",
-                "Cobertura (días)", "Costo unitario", "Valor", "Último movimiento"],
-            rows.Select(r => new object?[]
-            {
-                r.Sku, r.Name, r.Category, r.Supplier, r.Unit, r.Row.Stock, r.Reserved, r.Available, r.Row.Minimum, r.Row.Maximum, StockRules.Label(r.Status),
-                r.Row.Sales30Days, r.Row.CoverageDays, r.Row.UnitCost, r.Row.InventoryValue, r.Row.LastMovement,
-            }));
-        App.Notify.Success("Stock exportado", $"{rows.Count} filas en {System.IO.Path.GetFileName(path)}");
-    }
+    /// <summary>V7 · Lo que se exporta: las filas visibles con sus filtros (formato único de <see cref="CsvExport"/>).</summary>
+    public CsvTable ExportTable() => CsvTable.Of(
+        ["SKU", "Producto", "Categoría", "Proveedor", "Unidad", "Stock", "Reservado", "Disponible", "Mínimo", "Máximo", "Estado", "Salidas 30 d",
+            "Cobertura (días)", "Costo unitario", "Valor", "Último movimiento"],
+        Rows.Cast<StockItem>(),
+        r => [r.Sku, r.Name, r.Category, r.Supplier, r.Unit, r.Row.Stock, r.Reserved, r.Available, r.Row.Minimum, r.Row.Maximum, StockRules.Label(r.Status),
+            r.Row.Sales30Days, r.Row.CoverageDays, r.Row.UnitCost, r.Row.InventoryValue, r.Row.LastMovement]);
+
+    private void ExportCsv() => App.ExportCsv(App.CsvName($"stock-{App.Session.Workspace.WarehouseCode}"), "Stock", ExportTable());
 }

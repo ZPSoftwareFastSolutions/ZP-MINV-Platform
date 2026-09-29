@@ -13,6 +13,8 @@
                 <ResourceDictionary Source="Views/BillingForms.xaml" />
                 <!-- V4.2 · Edición Tecnología: series e IMEI, especificaciones, casos RMA y cotizaciones del armador -->
                 <ResourceDictionary Source="Views/TechForms.xaml" />
+                <!-- V7 · Reservas: formulario de la reserva en mostrador -->
+                <ResourceDictionary Source="Views/ReservationForms.xaml" />
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
     </Application.Resources>

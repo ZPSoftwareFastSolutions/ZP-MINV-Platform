@@ -458,23 +458,16 @@ public sealed class AccountingViewModel : PageViewModel
         }
     }
 
-    private void ExportCsv()
-    {
-        var path = FileDialogs.SaveCsv(_tab == "accounts" ? $"plan-de-cuentas-{DateTime.Now:yyyyMMdd}.csv" : $"libro-diario-{_period?.From:yyyyMMdd}-{_period?.To:yyyyMMdd}.csv");
-        if (path is null)
-        {
-            return;
-        }
-        if (_tab == "accounts")
-        {
-            Csv.Write(path, ["Código", "Cuenta", "Tipo", "Nivel", "Imputable", "Debe", "Haber", "Saldo"],
-                _accounts.Select(a => new object?[] { a.Code, a.Name, a.TypeText, a.Row.Level, a.Row.IsPostable ? "SÍ" : "NO", a.Row.Debit, a.Row.Credit, a.Row.Balance }));
-        }
-        else
-        {
-            Csv.Write(path, ["Asiento", "Fecha", "Descripción", "Cuenta", "Nombre", "Debe", "Haber", "Glosa"],
-                _journal.SelectMany(j => j.Lines.Select(l => new object?[] { j.Number, j.Row.Date, j.Description, l.AccountCode, l.AccountName, l.Debit, l.Credit, l.Memo })));
-        }
-        App.Notify.Success("Exportado", Path.GetFileName(path));
-    }
+    /// <summary>V7 · Lo que se exporta: el plan de cuentas o el libro diario TAL COMO SE VEN (con el tipo, el origen y la búsqueda
+    /// elegidos; antes se exportaba todo aunque la lista estuviera filtrada).</summary>
+    public CsvTable ExportTable() => _tab == "accounts"
+        ? CsvTable.Of(["Código", "Cuenta", "Tipo", "Nivel", "Imputable", "Debe", "Haber", "Saldo"], Accounts,
+            a => [a.Code, a.Name, a.TypeText, a.Row.Level, a.Row.IsPostable, a.Row.Debit, a.Row.Credit, a.Row.Balance])
+        : new CsvTable(["Asiento", "Fecha", "Descripción", "Cuenta", "Nombre", "Debe", "Haber", "Glosa"],
+            Journal.SelectMany(j => j.Lines.Select(l => new object?[] { j.Number, j.Row.Date, j.Description, l.AccountCode, l.AccountName, l.Debit, l.Credit, l.Memo }))
+                .ToList());
+
+    private void ExportCsv() => App.ExportCsv(
+        _tab == "accounts" ? App.CsvName("plan-de-cuentas") : $"libro-diario-{_period?.From:yyyyMMdd}-{_period?.To:yyyyMMdd}.csv",
+        _tab == "accounts" ? "Plan de cuentas" : "Libro diario", ExportTable());
 }
