@@ -6,7 +6,7 @@
 
 import { formatQuantity, roundTo } from '@/4-presentation/panel/lib';
 import { productBySku, serialNoun, type CajaProduct } from './products';
-import type { BuildDetailData, BuildRowData, SerialKindData } from './types';
+import type { BuildDetailData, BuildRowData, SerialKindData, TechProductData } from './types';
 
 /** Una línea de la venta. */
 export interface CajaLine {
@@ -101,11 +101,16 @@ export function buildLines(detail: BuildDetailData, infoOf: (sku: string) => Lin
   });
 }
 
-/** Qué sabe la caja de un SKU con la lista de productos (null si no está a la venta). */
-export function lineInfoFrom(products: readonly CajaProduct[]): (sku: string) => LineInfo | null {
+/**
+ * Qué sabe la caja de un SKU: de la lista de productos a la venta o, si no está (por ejemplo, ya no tiene precio en la
+ * lista vigente), de la ficha técnica. null si no se sabe nada.
+ */
+export function lineInfoFrom(products: readonly CajaProduct[], tech: readonly TechProductData[] = []): (sku: string) => LineInfo | null {
   return (sku) => {
     const product = productBySku(products, sku);
-    return product ? { unit: product.unit, allowsDecimals: product.allowsDecimals, serialized: product.serialized, serialKind: product.serialKind } : null;
+    if (product) return { unit: product.unit, allowsDecimals: product.allowsDecimals, serialized: product.serialized, serialKind: product.serialKind };
+    const row = tech.find((item) => item.sku.toUpperCase() === sku.trim().toUpperCase());
+    return row ? { unit: 'UND', allowsDecimals: false, serialized: row.trackSerials, serialKind: row.serialKind } : null;
   };
 }
 

@@ -72,10 +72,10 @@ export function cardDigits(text: string): string {
   return text.replace(/\D/g, '');
 }
 
-/** Montos redondos para «recibe con…»: los siguientes múltiplos de 10, 20, 50, 100 y 200 (hasta 3). */
+/** Billetes redondos para «recibe con…»: el siguiente múltiplo de 20, 50, 100 y 200 por ENCIMA del total (hasta 3). */
 export function cashSuggestions(total: number): number[] {
   if (!(total > 0)) return [];
-  const values = [10, 20, 50, 100, 200].map((step) => Math.ceil(roundTo(total, 2) / step) * step).filter((value) => value > total);
+  const values = [20, 50, 100, 200].map((step) => Math.floor(roundTo(total, 2) / step) * step + step);
   return [...new Set(values)].sort((a, b) => a - b).slice(0, 3);
 }
 

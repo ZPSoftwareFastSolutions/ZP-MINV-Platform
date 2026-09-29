@@ -1,0 +1,50 @@
+/*
+  Módulo «Caja» · impresión del comprobante («Imprimir comprobante»: la vista imprimible del navegador).
+  La vista imprimible (.caja-impresion) se agrega al final de <body> SOLO mientras se imprime y la página pone
+  <html data-imprimir="caja">: así Ctrl+P desde cualquier otra pantalla sigue imprimiendo la página normal (el mismo
+  mecanismo que la cotización de «Armá tu PC»). Papel: texto negro sobre blanco (colores del medio impreso, no del tema).
+*/
+
+.caja-impresion {
+  display: none;
+}
+
+@media print {
+  html[data-imprimir='caja'] body > :not(.caja-impresion) {
+    display: none !important;
+  }
+
+  html[data-imprimir='caja'] body::before,
+  html[data-imprimir='caja'] body::after {
+    content: none;
+  }
+
+  html[data-imprimir='caja'],
+  html[data-imprimir='caja'] body {
+    background: white;
+    color: black;
+    color-scheme: light;
+  }
+
+  html[data-imprimir='caja'] .caja-impresion {
+    display: block;
+    max-width: 80mm;
+    margin: 0 auto;
+    font-family: ui-sans-serif, system-ui, sans-serif;
+    font-size: 9.5pt;
+    line-height: 1.35;
+    color: black;
+  }
+
+  html[data-imprimir='caja'] .caja-impresion * {
+    color: black !important;
+    background: transparent !important;
+    border-color: rgb(0 0 0 / 0.35) !important;
+    box-shadow: none !important;
+  }
+
+  html[data-imprimir='caja'] .caja-impresion li,
+  html[data-imprimir='caja'] .caja-impresion tr {
+    break-inside: avoid;
+  }
+}
