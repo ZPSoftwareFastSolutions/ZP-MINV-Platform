@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using MINV.Application.Iam;
 using MINV.DesktopClient.Services;
 using MINV.DesktopClient.ViewModels;
@@ -93,12 +93,12 @@ public sealed class FormatTests
         var path = Path.Combine(Path.GetTempPath(), $"minv-prueba-{Guid.NewGuid():N}.csv");
         try
         {
-            Csv.Write(path, ["Producto", "Cantidad", "Nota"],
+            CsvExport.Write(path, new CsvTable(["Producto", "Cantidad", "Nota"],
             [
                 ["Cable HDMI «2.1»; caja", 2.5m, "=HYPERLINK(\"http://x\")"],
                 ["Teclado mecánico", -5m, "+SUMA(A1)"],
                 ["Mouse \"pro\"", 10, "-texto"],
-            ]);
+            ]));
             var bytes = File.ReadAllBytes(path);
             Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF }, bytes[..3]);   // UTF-8 con BOM: Excel respeta los acentos
             var lines = File.ReadAllLines(path);
@@ -114,5 +114,36 @@ public sealed class FormatTests
         {
             File.Delete(path);
         }
+    }
+
+    [Theory]
+    [InlineData("=1+1", "'=1+1")]
+    [InlineData("+54 70012345", "'+54 70012345")]
+    [InlineData("-5", "'-5")]
+    [InlineData("@SUMA(A1)", "'@SUMA(A1)")]
+    [InlineData("\tcmd", "'\tcmd")]
+    [InlineData("＝HYPERLINK()", "'＝HYPERLINK()")]
+    [InlineData("＠x", "'＠x")]
+    [InlineData("Teclado", "Teclado")]
+    [InlineData("a;b", "\"a;b\"")]
+    [InlineData("", "")]
+    public void V7_el_CSV_neutraliza_los_textos_que_empiezan_como_formula(string text, string expected) =>
+        Assert.Equal(expected, CsvExport.Cell(text));
+
+    [Fact]
+    public void V7_el_CSV_escribe_numeros_fechas_y_si_no_en_espanol_con_punto_y_coma()
+    {
+        var instant = new DateTimeOffset(2026, 9, 29, 18, 5, 0, TimeSpan.Zero);
+        var table = CsvTable.Of(["Producto", "Precio", "Cantidad", "Activo", "Vence", "Registrado", "Nota"],
+            new[] { ("Monitor 27\"", 1234.5m, -3, true, new DateOnly(2026, 10, 2), (DateTimeOffset?)instant, (string?)null) },
+            r => [r.Item1, r.Item2, r.Item3, r.Item4, r.Item5, r.Item6, r.Item7]);
+        var text = CsvExport.Text(table);
+        var lines = text.Split("\r\n");
+        Assert.Equal("Producto;Precio;Cantidad;Activo;Vence;Registrado;Nota", lines[0]);
+        Assert.Equal($"\"Monitor 27\"\"\";{1234.5m.ToString("0.######", Fmt.Culture)};-3;Sí;02/10/2026;{instant.ToLocalTime():dd/MM/yyyy HH:mm};", lines[1]);
+        Assert.Equal(string.Empty, lines[2]);   // termina con salto de línea de Windows
+        var bytes = CsvExport.Bytes(table);
+        Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF }, bytes[..3]);
+        Assert.Equal(1, table.Count);
     }
 }

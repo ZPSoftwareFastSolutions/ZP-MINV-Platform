@@ -147,7 +147,7 @@ public sealed class BranchesViewModel : PageViewModel
         }
         catch (AccessDeniedException ex)
         {
-            ReportNote = "Ventas por sucursal no disponibles: " + ex.Message;
+            ReportNote = "Ventas por sucursal no disponibles: " + AppServices.Describe(ex);
         }
         var total = report?.TotalRevenue ?? 0;
         Cards.ReplaceAll(branches.Select(b =>
@@ -209,8 +209,9 @@ public sealed class BranchesViewModel : PageViewModel
             var users = await App.SendAsync(new GetUsersQuery());
             var branches = await App.SendAsync(new GetBranchesQuery());
             Editor = null;
-            Assign = new UserBranchesEditor(this, App, users.Where(u => u.IsActive)
-                .Select(u => new UserChoice(u.Email, $"{u.Name} · {string.Join(", ", u.Roles)}", u.BranchCodes)).ToList(), branches);
+            // V7 · El rol con su nombre («Cajero»), no el código («CAJERO»); sin las cuentas de clientes web ni la técnica de la tienda
+            Assign = new UserBranchesEditor(this, App, users.Where(u => u.IsActive).Select(u => new UserItem(u)).Where(u => u.IsStaff)
+                .Select(u => new UserChoice(u.Email, $"{u.Name} · {u.RoleText}", u.Row.BranchCodes)).ToList(), branches);
         }
         catch (Exception ex) when (AppServices.IsExpected(ex))
         {

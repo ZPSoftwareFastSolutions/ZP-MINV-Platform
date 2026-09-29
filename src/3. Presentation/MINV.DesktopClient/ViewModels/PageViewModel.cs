@@ -81,7 +81,7 @@ public sealed class AppServices(SerialMediator mediator, NotificationService not
             Notify.Error("No se pudo exportar", $"No se pudo guardar «{System.IO.Path.GetFileName(path)}»: ciérrelo si está abierto en Excel o elija otra carpeta.");
             return null;
         }
-        Notify.Success($"{what} exportado", $"{table.Count} fila{(table.Count == 1 ? "" : "s")} en {System.IO.Path.GetFileName(path)}");
+        Notify.Success("CSV guardado", $"{what}: {table.Count} fila{(table.Count == 1 ? "" : "s")} en {System.IO.Path.GetFileName(path)}");
         return path;
     }
 

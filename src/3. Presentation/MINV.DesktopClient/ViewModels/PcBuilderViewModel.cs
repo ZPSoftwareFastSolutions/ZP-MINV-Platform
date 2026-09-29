@@ -1266,16 +1266,29 @@ public sealed class ProformaDialog : FormDialog
         catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or InvalidOperationException or TimeoutException
                                        or OperationCanceledException or System.Net.Sockets.SocketException or ArgumentException)
         {
-            _app.Notify.Error("No se pudo imprimir", ex.Message);
+            // V7 · Mensaje para personas (antes, el texto técnico de la excepción, a veces en inglés)
+            System.Diagnostics.Trace.TraceWarning("M-INV · proforma en la impresora: {0}", ex.Message);
+            _app.Notify.Error("No se pudo imprimir", ex is TimeoutException or OperationCanceledException
+                ? $"{printer.Name} no respondió a tiempo: revise que esté encendida y conectada, o use el PDF."
+                : $"No se pudo usar {printer.Name}: revise la conexión y el papel en Configuración › Impresora de tickets, o use el PDF.");
         }
     }
 
     private Task SavePdfAsync()
     {
-        PdfPath = FiscalOutput.Save($"proforma-{Model.Number}.pdf", PcBuildProforma.Pdf(Model));
-        if (!FiscalOutput.Open(PdfPath, _app.Settings))
+        try
         {
-            _app.Notify.Success("Proforma en PDF", PdfPath);
+            PdfPath = FiscalOutput.Save($"proforma-{Model.Number}.pdf", PcBuildProforma.Pdf(Model));
+            if (!FiscalOutput.Open(PdfPath, _app.Settings))
+            {
+                _app.Notify.Success("Proforma en PDF", PdfPath);
+            }
+        }
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
+        {
+            // V7 · Antes la excepción escapaba sin aviso (p. ej. con el PDF anterior abierto en el visor)
+            System.Diagnostics.Trace.TraceWarning("M-INV · proforma en PDF: {0}", ex.Message);
+            _app.Notify.Error("No se pudo guardar el PDF", $"Cierre «proforma-{Model.Number}.pdf» si está abierto en el visor e intente de nuevo.");
         }
         return Task.CompletedTask;
     }

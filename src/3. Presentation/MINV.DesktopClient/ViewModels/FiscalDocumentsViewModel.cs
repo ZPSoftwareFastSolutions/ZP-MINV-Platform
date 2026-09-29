@@ -587,7 +587,10 @@ public sealed class FiscalDocumentsViewModel : PageViewModel
         catch (Exception ex) when (AppServices.IsExpected(ex) || ex is IOException or UnauthorizedAccessException or TimeoutException
                                        or OperationCanceledException or System.Net.Sockets.SocketException or ArgumentException)
         {
-            App.Notify.Error("No se pudo imprimir", AppServices.IsExpected(ex) ? AppServices.Describe(ex) : ex.Message);
+            // V7 · Sin el texto técnico de la excepción (a veces en inglés): qué revisar
+            System.Diagnostics.Trace.TraceWarning("M-INV · rollo del documento fiscal: {0}", ex.Message);
+            App.Notify.Error("No se pudo imprimir", AppServices.IsExpected(ex) ? AppServices.Describe(ex)
+                : "La impresora de rollo no respondió: revise que esté encendida y conectada (Configuración › Impresora de tickets) o use «Ver PDF».");
         }
     }
 
@@ -602,7 +605,9 @@ public sealed class FiscalDocumentsViewModel : PageViewModel
         }
         catch (Exception ex) when (AppServices.IsExpected(ex) || ex is IOException or UnauthorizedAccessException)
         {
-            App.Notify.Error("No se pudo generar el PDF", AppServices.IsExpected(ex) ? AppServices.Describe(ex) : ex.Message);
+            System.Diagnostics.Trace.TraceWarning("M-INV · PDF del documento fiscal: {0}", ex.Message);
+            App.Notify.Error("No se pudo generar el PDF", AppServices.IsExpected(ex) ? AppServices.Describe(ex)
+                : $"No se pudo guardar en {FiscalOutput.Folder}: cierre el PDF si está abierto en el visor e intente de nuevo.");
         }
     }
 

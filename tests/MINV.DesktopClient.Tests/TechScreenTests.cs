@@ -53,6 +53,8 @@ public sealed class TechScreenTests
         Assert.False(claims.IsEmpty);
         Assert.Contains(claims.Rows.Cast<WarrantyClaimItem>(), c => c.IsOpen);
         var dashboard = (DashboardViewModel)shell.AllPages.First(p => p.Key == "inicio");
+        Assert.False(dashboard.Tech.IsLoaded);   // V7: el tablero Tecnología es una sección plegable que se lee al abrirla
+        await dashboard.Tech.OpenAsync();
         Assert.True(dashboard.HasTech);
         Assert.NotEqual("0", dashboard.SerialsKpi.Value);
     });

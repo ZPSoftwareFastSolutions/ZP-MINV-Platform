@@ -60,6 +60,7 @@ public sealed class ScreenshotRunner(ClientHost host, ClientSettings settings, T
                 await CaptureBusinessAsync(admin, cashier);
                 await CaptureBillingAsync(admin, cashier);
                 await CaptureTechAsync(admin, cashier);
+                await CaptureV7Async(admin);
             }
             else
             {
@@ -67,6 +68,7 @@ public sealed class ScreenshotRunner(ClientHost host, ClientSettings settings, T
                 await CaptureBusinessAsync(admin, null);
                 await CaptureBillingAsync(admin, null);
                 await CaptureTechAsync(admin, null);
+                await CaptureV7Async(admin);
             }
             File.WriteAllLines(log, _saved.Prepend(
                 $"✔ {_saved.Count} capturas · M-INV {App.Version} · tema base {ThemeService.Name(_base)} · {DateTime.Now:dd/MM/yyyy HH:mm}"));
@@ -528,10 +530,14 @@ public sealed class ScreenshotRunner(ClientHost host, ClientSettings settings, T
         await TryWaitAsync(() => shell.Current.HasLoaded, 30000);
         shell.App.Notify.Items.Clear();
 
-        // Tablero: la sección Tecnología (se desplaza hasta ella)
+        // Tablero: la sección Tecnología (V7: plegable; se abre y se desplaza hasta ella)
         await GoAsync(shell, "inicio");
+        if (shell.Current is DashboardViewModel home)
+        {
+            await home.Tech.OpenAsync();
+        }
         await SettleAsync(600);
-        await ScrollToAsync<Views.Pages.DashboardView>(window, "Tecnología");
+        await ScrollToAsync<Views.Pages.DashboardView>(window, "Ver tablero Tecnología");
         await SettleAsync(300);
         await CaptureAsync(window, "81-inicio-tecnologia.png");
 
@@ -771,6 +777,94 @@ public sealed class ScreenshotRunner(ClientHost host, ClientSettings settings, T
                 open.Cancel.Execute(null);
             }
             await opening;
+        }
+        shell.App.Notify.Items.Clear();
+        window.Close();
+    }
+
+    /// <summary>
+    /// V7 (103 a 110): el inicio simplificado (botones del rol y una sección plegable abierta), Reservas (lista, detalle y el
+    /// formulario de una reserva en mostrador, sin guardarla), la cola de correos y Usuarios con los clientes de la tienda web.
+    /// </summary>
+    private async Task CaptureV7Async(SessionHandle admin)
+    {
+        var shell = admin.Services.GetRequiredService<ShellViewModel>();
+        var window = new MainWindow(shell) { Width = 1440, Height = 900 };
+        Place(window);
+        window.Show();
+        await WaitAsync(() => shell.Current.HasLoaded, 30000);
+        shell.App.Notify.Items.Clear();
+        await GoAsync(shell, "inicio");
+        await SettleAsync(700);
+        await CaptureAsync(window, "103-inicio-simplificado.png");
+        if (shell.Current is DashboardViewModel home)
+        {
+            await home.Inventory.OpenAsync();
+            await home.Charts.OpenAsync();
+            await SettleAsync(700);
+            await ScrollToAsync<Views.Pages.DashboardView>(window, "Ver indicadores del inventario");
+            await SettleAsync(400);
+            await CaptureAsync(window, "104-inicio-seccion-abierta.png");
+            await home.Inventory.CloseAsync();
+            await home.Charts.CloseAsync();
+        }
+
+        if (shell.AllPages.Any(p => p.Key == "reservas"))
+        {
+            await GoAsync(shell, "reservas");
+            var reservations = (ReservationsViewModel)shell.Current;
+            await SettleAsync(700);
+            await CaptureAsync(window, "105-reservas.png");
+            var rows = reservations.Rows.Cast<ReservationItem>().ToList();
+            reservations.Selected = rows.FirstOrDefault(r => r.IsActive && r.IsWeb && r.IsCart && r.HasEmail)
+                                    ?? rows.FirstOrDefault(r => r.IsActive) ?? rows.FirstOrDefault();
+            if (reservations.Selected is not null)
+            {
+                await TryWaitAsync(() => !reservations.IsLoadingDetail && reservations.Detail is not null, 10000);
+                await SettleAsync(800);
+                await CaptureAsync(window, "106-reserva-detalle.png");
+                theme.Apply(_other, save: false);
+                await SettleAsync(500);
+                await CaptureAsync(window, Other("110-oscuro-reserva-detalle.png"));
+                theme.Apply(_base, save: false);
+                reservations.Selected = null;
+            }
+            if (reservations.NewReservation.CanExecute(null) && shell.Session.Access.Active is not null)
+            {
+                var opening = reservations.NewReservation.ExecuteAsync();
+                await TryWaitAsync(() => shell.Dialogs.Form is CounterReservationDialog || opening.IsCompleted, 10000);
+                if (shell.Dialogs.Form is CounterReservationDialog form)
+                {
+                    form.ContactName = "Mariana Rojas";
+                    form.ContactPhone = "70012345";
+                    form.ContactEmail = "mariana@cliente.example";
+                    form.Search = "monitor";
+                    if (form.Suggestions.FirstOrDefault(s => !s.IsOut) is { } option)
+                    {
+                        form.AddProduct.Execute(option);
+                    }
+                    form.Search = "mouse";   // el buscador con sugerencias a la vista
+                    await SettleAsync(700);
+                    await CaptureAsync(window, "107-nueva-reserva-mostrador.png");
+                    form.Cancel.Execute(null);
+                }
+                await opening;
+            }
+        }
+        if (shell.AllPages.Any(p => p.Key == "correos"))
+        {
+            await GoAsync(shell, "correos");
+            await SettleAsync(700);
+            await CaptureAsync(window, "108-correos.png");
+        }
+        if (shell.AllPages.Any(p => p.Key == "usuarios"))
+        {
+            await GoAsync(shell, "usuarios");
+            var users = (UsersViewModel)shell.Current;
+            users.Kind = users.Kinds.FirstOrDefault(k => k.Value == UserKind.Customer) ?? users.Kinds[0];
+            await SettleAsync(700);
+            await CaptureAsync(window, "109-usuarios-clientes-web.png");
+            users.ClearFilters.Execute(null);
         }
         shell.App.Notify.Items.Clear();
         window.Close();

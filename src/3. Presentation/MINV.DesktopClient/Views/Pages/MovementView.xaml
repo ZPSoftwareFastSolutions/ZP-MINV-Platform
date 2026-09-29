@@ -240,6 +240,9 @@
                                     <TextBlock Text="{Binding BinStockText}" FontSize="17" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" />
                                 </StackPanel>
                             </Grid>
+                            <!-- V7 · Lo reservado para clientes (reservas web y de mostrador) también se ve al registrar -->
+                            <TextBlock Text="{Binding ReservedText}" Style="{StaticResource Caption}" Foreground="{DynamicResource Warning}" TextWrapping="Wrap"
+                                       Margin="0,6,0,0" Visibility="{Binding HasReserved, Converter={StaticResource Visible}}" />
 
                             <Border Margin="0,18,0,0" CornerRadius="12" Padding="16,14">
                                 <Border.Style>
