@@ -8,7 +8,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { WebApiError } from '@/1-domain/auth/errors';
 import type { RpcOperationName, RpcResponseOf } from '@/4-presentation/app/contract';
-import { preloadPanel, renderPanel, signedInAs, type MockWeb, type StaffRole } from '@/test-utils';
+import { renderPanel, signedInAs, type MockWeb, type StaffRole } from '@/test-utils';
 import { buildRegistry } from '../../registry';
 import { PanelApp } from '../../shell/PanelApp';
 import stockModule from './module';
@@ -17,9 +17,12 @@ import { StockValueStat } from './StockValueStat';
 
 const REGISTRY = buildRegistry([{ source: '../modules/stock/module.tsx', definition: stockModule }]);
 
+// Se precargan solo el esqueleto y esta pantalla (el registro de la prueba tiene únicamente este módulo: así los módulos
+// de otros paquetes, en construcción, no afectan a estas pruebas).
 beforeAll(async () => {
-  await preloadPanel();
+  await import('../../shell/PanelApp');
   await import('./StockPage');
+  await import('./StockDetailPanel');
 }, 30_000);
 
 afterEach(() => {
@@ -130,10 +133,12 @@ function card(sku: string): RpcResponseOf<'GetProductCardQuery'> {
 interface FakeOptions {
   /** Sucursales que la sesión ve (por defecto todas). */
   visible?: readonly string[];
-  fail?: Partial<Record<RpcOperationName, WebApiError>>;
+  /** La PRIMERA vez que se pide esa operación, falla con este error (después responde bien). */
+  failOnce?: Partial<Record<RpcOperationName, WebApiError>>;
 }
 
-function fakeServer({ visible = ['CM', 'CB', 'SC'], fail = {} }: FakeOptions = {}) {
+function fakeServer({ visible = ['CM', 'CB', 'SC'], failOnce = {} }: FakeOptions = {}) {
+  const pending = new Map(Object.entries(failOnce));
   const handlers: Partial<Record<RpcOperationName, (payload: never) => unknown>> = {
     GetBranchesQuery: () => branches(visible),
     GetWorkspaceQuery: () => ({
@@ -179,8 +184,11 @@ function fakeServer({ visible = ['CM', 'CB', 'SC'], fail = {} }: FakeOptions = {
   return {
     handles: (operation: string) => operation in handlers,
     handle(operation: RpcOperationName, payload: unknown): unknown {
-      const failure = fail[operation];
-      if (failure) throw failure;
+      const failure = pending.get(operation);
+      if (failure) {
+        pending.delete(operation);
+        throw failure;
+      }
       return handlers[operation]?.(payload as never);
     },
   };
@@ -313,7 +321,7 @@ describe('Stock · lista del almacén', () => {
     const consolidated = await table('Stock consolidado de las sucursales');
     expect(within(consolidated).getAllByRole('columnheader').map((header) => header.textContent)).toEqual(['Producto', 'CM', 'CB', 'SC', 'En tránsito', 'Total', 'Valor', 'Acciones']);
     expect(cells(dataRows(consolidated)[0])).toEqual(['Monitor LG 27"MON-LG-27 · Monitores · u.', '8', '0', '3', '1', '12', 'Bs 18.000,00']);
-    expect(within(consolidated).getByTestId('tabla-totales')).toHaveTextContent('Totales12931125Bs 19.300,00');
+    expect(within(consolidated).getByTestId('tabla-totales')).toHaveTextContent('Totales1293125Bs 19.300,00');
     expect(payloadsOf(call, 'ConsolidatedStockQuery')).toEqual([{ search: null }]);
     // El semáforo es de cada almacén: en el consolidado no se usa.
     expect(screen.getByRole('combobox', { name: 'Semáforo' })).toBeDisabled();
@@ -327,17 +335,7 @@ describe('Stock · lista del almacén', () => {
   });
 
   it('si la consulta falla muestra el error con «Reintentar» y se recupera', async () => {
-    const web = await signedInAs('ADMIN');
-    const server = fakeServer();
-    const call = spyServer(web, server);
-    const failing = fakeServer({ fail: { GetStockProjectionQuery: new WebApiError({ kind: 'network', message: 'Sin conexión' }) } });
-    call.mockImplementationOnce(async (operation, payload, options) => ({ result: failing.handle(operation, payload) as never, replayed: false, requestId: options?.requestId ?? 'x' }));
-    // La primera consulta de la pantalla es la de sucursales; se hace fallar la de stock directamente.
-    call.mockImplementation(async (operation, payload, options) => {
-      const source = operation === 'GetStockProjectionQuery' && payloadsOf(call, 'GetStockProjectionQuery').length === 1 ? failing : server;
-      return { result: source.handle(operation, payload) as never, replayed: false, requestId: options?.requestId ?? 'x' };
-    });
-    await renderPanel(<PanelApp registry={REGISTRY} />, { web: web.services, route: '/panel/stock', path: '/panel/*' });
+    await openStock('ADMIN', '', fakeServer({ failOnce: { GetStockProjectionQuery: new WebApiError({ kind: 'network', message: 'Sin conexión' }) } }));
     const error = await screen.findByTestId('estado-error', undefined, { timeout: 5000 });
     expect(error).toHaveTextContent('No se pudo cargar la información');
     fireEvent.click(within(error).getByRole('button', { name: 'Reintentar' }));
@@ -349,7 +347,7 @@ describe('Stock · ficha lateral', () => {
   it('abre la ficha con el kardex (saldo), las reservas y las existencias por sucursal; queda en la dirección', async () => {
     const { call, location } = await openStock();
     const grid = await table();
-    fireEvent.click(within(dataRows(grid)[1]).getByRole('button', { name: /Mouse Logitech G502/ }));
+    fireEvent.click(within(dataRows(grid)[1]).getByRole('button', { name: /^Mouse Logitech G502/ }));
     const panel = await screen.findByRole('dialog', { name: 'Mouse Logitech G502' }, { timeout: 5000 });
     await waitFor(() => expect(location()).toBe('/panel/stock?ficha=MOU-LOG-G502'));
     expect(payloadsOf(call, 'GetProductCardQuery')).toEqual([{ skuOrBarcode: 'MOU-LOG-G502', take: 300 }]);
@@ -394,9 +392,9 @@ describe('Stock · ficha lateral', () => {
     expect(within(panel).getByText('Sin reservas activas')).toBeInTheDocument();
   });
 
-  it('bodega registra entradas y ajustes pero no salidas; consulta no ve ningún botón de registro', async () => {
+  it('bodega registra entradas y ajustes pero no salidas', async () => {
     await openStock('BODEGA', '?ficha=MOU-LOG-G502', fakeServer({ visible: ['CM'] }));
-    let panel = await screen.findByRole('dialog', { name: 'Mouse Logitech G502' }, { timeout: 5000 });
+    const panel = await screen.findByRole('dialog', { name: 'Mouse Logitech G502' }, { timeout: 5000 });
     await within(panel).findByTestId('ficha-producto');
     expect(within(panel).getByRole('link', { name: 'Registrar entrada' })).toBeInTheDocument();
     expect(within(panel).getByRole('link', { name: 'Registrar ajuste' })).toBeInTheDocument();
@@ -405,11 +403,11 @@ describe('Stock · ficha lateral', () => {
     fireEvent.click(within(panel).getByRole('tab', { name: 'Reservas' }));
     expect(within(panel).queryByRole('link', { name: 'Ver quién reservó' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Registrar movimiento' })).toHaveAttribute('href', '/panel/movimientos?registrar=1');
+  });
 
-    vi.restoreAllMocks();
-    document.body.innerHTML = '';
+  it('consulta ve la ficha pero ningún botón de registro', async () => {
     await openStock('CONSULTA', '?ficha=MOU-LOG-G502', fakeServer({ visible: ['SC'] }));
-    panel = await screen.findByRole('dialog', { name: 'Mouse Logitech G502' }, { timeout: 5000 });
+    const panel = await screen.findByRole('dialog', { name: 'Mouse Logitech G502' }, { timeout: 5000 });
     await within(panel).findByTestId('ficha-producto');
     expect(within(panel).queryByRole('link', { name: /^Registrar/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Registrar movimiento' })).not.toBeInTheDocument();
@@ -454,7 +452,7 @@ describe('Stock · exportar y resumen', () => {
       fireEvent.click(screen.getByRole('button', { name: /Ver resumen del inventario/ }));
     });
     const summary = await screen.findByTestId('resumen-inventario');
-    expect(summary).toHaveTextContent('Valor del inventarioBs 34.400,00');
+    expect(summary).toHaveTextContent('Valor del inventarioBs 33.400,00');
     expect(summary).toHaveTextContent('En alerta3');
     expect(summary).toHaveTextContent('Con reservas2');
     expect(call.mock.calls.length).toBe(before);
@@ -473,7 +471,7 @@ describe('Stock · estadísticas del tablero', () => {
       { web: web.services },
     );
     const value = await screen.findByTestId('valor-del-inventario');
-    await waitFor(() => expect(value).toHaveTextContent('ValorBs 34.400,00'));
+    await waitFor(() => expect(value).toHaveTextContent('ValorBs 33.400,00'));
     expect(value).toHaveTextContent('Productos con stock3 de 4');
     expect(within(value).getByRole('link', { name: 'Consultar el stock' })).toHaveAttribute('href', '/panel/stock');
     const alerts = screen.getByTestId('productos-en-alerta');

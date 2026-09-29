@@ -9,7 +9,7 @@
 // SearchTechProductsQuery (la marca de cada producto). Todas exigen `inventory.stock.view`.
 
 import { ArrowLeftRight, ChartColumn, Download, Eye, ListFilter, PackageMinus, PackagePlus, PackageSearch, RefreshCw, ShoppingCart, TriangleAlert } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ROUTES } from '@/4-presentation/app/routes';
 import { usePermissions, useRpcQuery, useTableState } from '@/4-presentation/panel/hooks';
@@ -29,7 +29,7 @@ import {
   useNotify,
   type DataTableColumn,
 } from '@/4-presentation/panel/kit';
-import { exportCsv, formatDate, formatMoney, formatNumber, formatQuantity } from '@/4-presentation/panel/lib';
+import { exportCsv, formatDate, formatMoney, formatNumber, formatQuantity, sortRows, type SortState } from '@/4-presentation/panel/lib';
 import {
   ALL_BRANCHES,
   BRAND_LOOKUP,
@@ -147,6 +147,12 @@ function consolidatedColumns(branches: ConsolidatedData['branches']): DataTableC
   ];
 }
 
+/** Las filas en el orden de la tabla (para exportar lo que se ve, como se ve). */
+function inTableOrder<T>(list: readonly T[], columns: readonly DataTableColumn<T>[], sort: SortState | null): readonly T[] {
+  const column = sort ? columns.find((item) => item.id === sort.column) : undefined;
+  return sort && column?.value ? sortRows(list, column.value, sort.direction) : list;
+}
+
 /** Detalle desplegable de una fila (lo que no entra en la tabla). */
 function StockRowDetail({ entry }: { entry: StockEntry }) {
   const row = entry.row;
@@ -233,6 +239,20 @@ export function StockPage() {
       { replace: true },
     );
 
+  // El menú «⋯» de la fila se dibuja aparte (portal) y React le pasa el clic a la fila, que abriría la ficha encima de la
+  // acción elegida: mientras se atiende una acción del menú, el clic de la fila se ignora (ver «Pendientes» del informe).
+  const pickingAction = useRef(false);
+  const fromMenu = (action: () => void) => () => {
+    pickingAction.current = true;
+    action();
+    setTimeout(() => {
+      pickingAction.current = false;
+    }, 0);
+  };
+  const openFromRow = (sku: string, tab: DetailTab = 'ficha') => {
+    if (!pickingAction.current) openDetail(sku, tab);
+  };
+
   const canWarehouse = can('inventory.movements.register.warehouse');
   const canSales = can('inventory.movements.register.sales');
   const workWarehouse = workspace.data?.warehouseCode ?? null;
@@ -246,8 +266,12 @@ export function StockPage() {
     }
   };
 
+  // Se exporta en el mismo orden que muestra la tabla.
   const exportRows = () => {
-    const file = consolidated && totals.data ? exportCsv('stock consolidado', consolidatedCsv(totals.data.branches), consolidatedRows) : exportCsv(`stock ${projection.data?.warehouseCode ?? ''}`, STOCK_CSV, rows);
+    const file =
+      consolidated && totals.data
+        ? exportCsv('stock consolidado', consolidatedCsv(totals.data.branches), inTableOrder(consolidatedRows, consolidatedCols, table.sort))
+        : exportCsv(`stock ${projection.data?.warehouseCode ?? ''}`, STOCK_CSV, inTableOrder(rows, COLUMNS, table.sort));
     notify.success('Exportación lista', `Se descargó ${file} (${formatNumber(consolidated ? consolidatedRows.length : rows.length)} filas).`);
   };
 
@@ -394,12 +418,17 @@ export function StockPage() {
           operation="ConsolidatedStockQuery"
           {...table.tableProps}
           footerLabel="Totales"
-          onRowOpen={(entry) => openDetail(entry.row.sku, 'sucursales')}
+          onRowOpen={(entry) => openFromRow(entry.row.sku, 'sucursales')}
           activeRowKey={detailSku}
           rowActions={(entry) => [
-            { label: 'Ver existencias por sucursal', icon: <Eye />, onSelect: () => openDetail(entry.row.sku, 'sucursales') },
-            { label: 'Ver ficha y kardex', icon: <PackageSearch />, onSelect: () => openDetail(entry.row.sku, 'ficha') },
-            { label: 'Ver solo esta categoría', icon: <ListFilter />, onSelect: () => table.setFilter('categoria', entry.row.category), hidden: filters.categoria === entry.row.category },
+            { label: 'Ver existencias por sucursal', icon: <Eye />, onSelect: fromMenu(() => openDetail(entry.row.sku, 'sucursales')) },
+            { label: 'Ver ficha y kardex', icon: <PackageSearch />, onSelect: fromMenu(() => openDetail(entry.row.sku, 'ficha')) },
+            {
+              label: 'Ver solo esta categoría',
+              icon: <ListFilter />,
+              onSelect: fromMenu(() => table.setFilter('categoria', entry.row.category)),
+              hidden: filters.categoria === entry.row.category,
+            },
           ]}
           empty={empty}
         />
@@ -417,13 +446,18 @@ export function StockPage() {
           operation="GetStockProjectionQuery"
           {...table.tableProps}
           renderExpanded={(entry) => <StockRowDetail entry={entry} />}
-          onRowOpen={(entry) => openDetail(entry.row.sku)}
+          onRowOpen={(entry) => openFromRow(entry.row.sku)}
           activeRowKey={detailSku}
           rowActions={(entry) => [
-            { label: 'Ver ficha y kardex', icon: <Eye />, onSelect: () => openDetail(entry.row.sku) },
-            { label: 'Registrar entrada', icon: <PackagePlus />, onSelect: () => navigate(movementLink('ENTRADA', entry.row.sku)), hidden: !canWarehouse },
-            { label: 'Registrar salida', icon: <PackageMinus />, onSelect: () => navigate(movementLink('SALIDA', entry.row.sku)), hidden: !canSales },
-            { label: 'Ver solo esta categoría', icon: <ListFilter />, onSelect: () => table.setFilter('categoria', entry.row.category), hidden: filters.categoria === entry.row.category },
+            { label: 'Ver ficha y kardex', icon: <Eye />, onSelect: fromMenu(() => openDetail(entry.row.sku)) },
+            { label: 'Registrar entrada', icon: <PackagePlus />, onSelect: fromMenu(() => navigate(movementLink('ENTRADA', entry.row.sku))), hidden: !canWarehouse },
+            { label: 'Registrar salida', icon: <PackageMinus />, onSelect: fromMenu(() => navigate(movementLink('SALIDA', entry.row.sku))), hidden: !canSales },
+            {
+              label: 'Ver solo esta categoría',
+              icon: <ListFilter />,
+              onSelect: fromMenu(() => table.setFilter('categoria', entry.row.category)),
+              hidden: filters.categoria === entry.row.category,
+            },
           ]}
           empty={empty}
         />
