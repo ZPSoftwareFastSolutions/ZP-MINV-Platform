@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using MINV.Application.Abstractions;
+using MINV.Cli.WebContract;
 using MINV.Domain.Iam;
 using MINV.Infrastructure;
 using MINV.Infrastructure.Billing;
@@ -27,6 +28,7 @@ using MINV.Infrastructure.Services;
 //                     [--dias-facturacion 25] [--sin-facturacion] [--siat-estado archivo.json] [--simulador http://localhost:5095]
 //   minv siat estado|preparar|sincronizar|procesar [--codigo TECHZONE] [--forzar]        V4.1: facturación SIAT de una empresa
 //   minv siat simulador-estado|simulador-apagar|simulador-encender [--simulador http://localhost:5095]
+//   minv contrato-web [--salida archivo]                      V7: contrato TypeScript de la web (regla P-07), sin base de datos
 // Conexión: --conexion "Host=…" o variable MINV_DB. La clave también puede venir de MINV_CLAVE o se pide sin eco.
 // =====================================================================================================================
 Console.OutputEncoding = Encoding.UTF8;
@@ -68,6 +70,11 @@ internal static class Cli
         {
             // V4.1 · Interruptor del simulador HTTP del SIN (no necesita la base de datos)
             return await SiatCli.SimulatorAsync(command, options);
+        }
+        if (command == "contrato-web")
+        {
+            // V7 · Contrato TypeScript de la web: reflexión sobre RpcCatalog (no necesita la base de datos)
+            return WebContractCommand(options);
         }
         var builder = Host.CreateApplicationBuilder();
         builder.Logging.AddFilter("Microsoft.EntityFrameworkCore", LogLevel.None);
@@ -185,6 +192,29 @@ internal static class Cli
                 Console.Error.WriteLine("Comando desconocido.\n" + Help);
                 return 1;
         }
+    }
+
+    /// <summary>
+    /// V7 · <c>minv contrato-web [--salida archivo]</c>: escribe el contrato TypeScript de la web (regla P-07) por reflexión
+    /// sobre RpcCatalog. Sin <c>--salida</c>, el <c>contract.generated.ts</c> de la web de este repositorio. Solo lo
+    /// reescribe si cambió; la prueba <c>WebContractTests</c> falla si el del repositorio quedó desactualizado.
+    /// </summary>
+    private static int WebContractCommand(Dictionary<string, string> options)
+    {
+        var path = options.GetValueOrDefault("salida") is { Length: > 0 } output && output != "true"
+            ? Path.GetFullPath(output)
+            : Path.Combine(WebContractGenerator.RepositoryRoot(), WebContractGenerator.RelativePath);
+        var contract = WebContractGenerator.Generate();
+        var summary = $"{contract.Operations.Count} operaciones, {contract.Catalog.Declarations.Count} tipos";
+        if (File.Exists(path) && File.ReadAllText(path) == contract.Text)
+        {
+            Console.WriteLine($"✔ El contrato de la web ya estaba al día: {path} ({summary})");
+            return 0;
+        }
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, contract.Text, new UTF8Encoding(false));
+        Console.WriteLine($"✔ Contrato de la web generado: {path} ({summary})");
+        return 0;
     }
 
     /// <summary>
@@ -453,6 +483,7 @@ internal static class Cli
           minv siat sincronizar [--codigo TECHZONE]        (los 18 catálogos del SIN)
           minv siat procesar [--codigo TECHZONE] [--forzar] (envía pendientes, recupera fuera de línea, paquetes, notas y correos)
           minv siat simulador-estado | simulador-apagar | simulador-encender [--simulador http://localhost:5095]   (corte de internet simulado)
+          minv contrato-web [--salida archivo]             (V7: contrato TypeScript de la web, contract.generated.ts; sin base de datos)
         Conexión: --conexion "Host=localhost;Database=minv;Username=minv_owner;Password=…" o variable MINV_DB.
         """;
 }

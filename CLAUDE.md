@@ -94,6 +94,7 @@ rama `Inventario-V1.2`). Idioma del producto y la documentación: español.
 ## Comandos
 
 ```powershell
+dotnet run --project "src/4. Tools/MINV.Cli" -- contrato-web [--salida <archivo>]   # V7: regenera el contrato TypeScript de la web (contract.generated.ts, regla P-07; sin base de datos); WebContractTests falla si quedó desactualizado
 powershell -ExecutionPolicy Bypass -File tools\servidores_locales.ps1 -Accion iniciar   # V6: + tienda web http://localhost:5090/storefront/v1/catalog (-EmpresaTienda TECHZONE -SucursalTienda CM -OrigenTienda http://localhost:5173)
 dotnet run --project "src/3. Presentation/MINV.ApiGateway" -- --urls http://localhost:5090 --Minv:Storefront:TenantCode TECHZONE   # V6: gateway con la tienda web (también Minv__Storefront__* por variables de entorno)
 dotnet test tests/MINV.Integration.Tests --filter Storefront                    # V6: API pública de tienda de punta a punta (Kestrel + base en memoria)

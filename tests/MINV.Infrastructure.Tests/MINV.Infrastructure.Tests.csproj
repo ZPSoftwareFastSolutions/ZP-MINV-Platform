@@ -13,6 +13,8 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\2. Infrastructure\MINV.Infrastructure\MINV.Infrastructure.csproj" />
+    <!-- V7 · Generador del contrato TypeScript de la web (minv contrato-web, regla P-07) -->
+    <ProjectReference Include="..\..\src\4. Tools\MINV.Cli\MINV.Cli.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />

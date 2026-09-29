@@ -160,7 +160,9 @@ src/
 ```
 
 - `contract.generated.ts` lo genera `minv contrato-web` por reflexión sobre `RpcCatalog`: tipos de cada petición y
-  respuesta, nombre completo, si es comando y sus permisos. Una prueba falla si el archivo quedó desactualizado.
+  respuesta, nombre completo, si es comando y sus permisos (`RpcOperations` y `RPC_META`, que además dice los módulos y
+  si la operación la puede ejecutar un cliente), `WebSession`, el sobre del RPC y las listas `PERMISSIONS` y `ROLES`,
+  con la serialización exacta de `RpcJson.Options`. Una prueba (`WebContractTests`) falla si el archivo quedó desactualizado.
 - El panel se descarga aparte (fragmento propio): quien solo visita la tienda no lo baja.
 - Rutas: `/ingresar`, `/registrarse`, `/carrito`, `/reservar`, `/mi-cuenta/*`, `/panel/*`. Las rutas protegidas exigen
   sesión; sin sesión redirigen a `/ingresar`. Un cliente no entra a `/panel`; el personal no entra a `/mi-cuenta`.

@@ -15,4 +15,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\2. Infrastructure\MINV.Infrastructure\MINV.Infrastructure.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- V7 · Las pruebas del generador del contrato de la web (minv contrato-web) viven en MINV.Infrastructure.Tests -->
+    <InternalsVisibleTo Include="MINV.Infrastructure.Tests" />
+  </ItemGroup>
 </Project>
