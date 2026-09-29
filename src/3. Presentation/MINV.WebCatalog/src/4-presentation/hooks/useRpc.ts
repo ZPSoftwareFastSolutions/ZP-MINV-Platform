@@ -21,3 +21,11 @@ export function useRpc(): WebRpc {
 export function useAccount(): AccountUseCases {
   return useWebServices('useAccount()').account;
 }
+
+/**
+ * Casos de uso de la cuenta, o null mientras los servicios de la sesión no están listos. Para las páginas PÚBLICAS que
+ * cambian si hay una cuenta de cliente (la reserva): no lanza fuera de una ruta con sesión.
+ */
+export function useOptionalAccount(): AccountUseCases | null {
+  return useContext(WebServicesContext)?.account ?? null;
+}

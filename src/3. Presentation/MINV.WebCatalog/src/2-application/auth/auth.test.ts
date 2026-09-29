@@ -262,6 +262,7 @@ describe('casos de uso de la cuenta', () => {
   function reservation(number: string, status: Reservation['status'], createdAt: string): Reservation {
     return {
       number,
+      kind: number.startsWith('RES-') ? 'cart' : 'build',
       status,
       statusText: status,
       createdAt: new Date(createdAt),
@@ -274,6 +275,7 @@ describe('casos de uso de la cuenta', () => {
       lines: [],
       cancelReason: null,
       replayed: false,
+      mailQueued: false,
     };
   }
 
@@ -290,6 +292,7 @@ describe('casos de uso de la cuenta', () => {
       reservations: vi.fn().mockResolvedValue(LIST),
       cancelReservation: vi.fn().mockResolvedValue(reservation('RES-WEB-000003', 'Cancelled', '2026-09-27T10:00:00Z')),
       changePassword: vi.fn().mockResolvedValue(undefined),
+      createReservation: vi.fn().mockResolvedValue(reservation('RES-WEB-000004', 'Reserved', '2026-09-28T10:00:00Z')),
     };
   }
 

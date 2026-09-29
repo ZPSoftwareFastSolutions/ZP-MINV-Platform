@@ -38,6 +38,11 @@ export function CartPage() {
   const { lines, review, count, total, persistent } = cart;
   const isEmpty = lines.length === 0;
 
+  // La pantalla de reserva se descarga aparte: se adelanta al abrir el carrito para que «Reservar» abra al instante.
+  useEffect(() => {
+    void import('./CheckoutPage').catch(() => undefined);
+  }, []);
+
   // Disponibilidad fresca al abrir el carrito (y con «Actualizar»): se vuelve a pedir el catálogo a la tienda.
   useEffect(() => {
     let active = true;

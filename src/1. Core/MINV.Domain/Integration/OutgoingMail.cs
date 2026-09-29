@@ -229,7 +229,7 @@ public sealed class OutgoingMailDispatch : BaseEntity, IConcurrencyAware
         {
             return null;
         }
-        var text = new string(error.Select(c => char.IsControl(c) || c is ' ' or ' ' ? ' ' : c).ToArray()).Trim();
+        var text = new string(error.Select(c => char.IsControl(c) || c is '\u2028' or '\u2029' ? ' ' : c).ToArray()).Trim();
         while (text.Contains("  ", StringComparison.Ordinal))
         {
             text = text.Replace("  ", " ", StringComparison.Ordinal);

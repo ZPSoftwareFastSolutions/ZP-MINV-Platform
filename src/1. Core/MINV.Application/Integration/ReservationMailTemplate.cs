@@ -238,7 +238,7 @@ public static class ReservationMailTemplate
         var space = false;
         foreach (var c in value.Trim())
         {
-            var blank = char.IsControl(c) || char.IsWhiteSpace(c) || c is ' ' or ' ';
+            var blank = char.IsControl(c) || char.IsWhiteSpace(c) || c is '\u2028' or '\u2029';
             if (blank)
             {
                 space = text.Length > 0;

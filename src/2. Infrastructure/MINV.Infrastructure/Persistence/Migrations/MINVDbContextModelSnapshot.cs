@@ -4869,7 +4869,7 @@ namespace MINV.Infrastructure.Persistence.Migrations
 
                     b.ToTable("audit_logs", "iam", t =>
                         {
-                            t.HasCheckConstraint("ck_audit_logs_canal", "channel IS NULL OR channel IN ('desktop', 'cloud', 'api', 'storefront')");
+                            t.HasCheckConstraint("ck_audit_logs_canal", "channel IS NULL OR channel IN ('desktop', 'cloud', 'api', 'storefront', 'web')");
                         });
                 });
 
@@ -6094,6 +6094,231 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_outbox_events_tenant_id_occurred_at");
 
                     b.ToTable("outbox_events", "integration");
+                });
+
+            modelBuilder.Entity("MINV.Domain.Integration.OutgoingMail", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("branch_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("kind");
+
+                    b.Property<Guid>("PcBuildId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("pc_build_id");
+
+                    b.Property<string>("Recipient")
+                        .IsRequired()
+                        .HasMaxLength(254)
+                        .HasColumnType("character varying(254)")
+                        .HasColumnName("recipient");
+
+                    b.Property<DateTimeOffset>("RequestedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("requested_at");
+
+                    b.Property<Guid>("RequestedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("requested_by_user_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_outgoing_mails");
+
+                    b.HasAlternateKey("TenantId", "Id")
+                        .HasName("ak_outgoing_mails_tenant_id_id");
+
+                    b.HasAlternateKey("TenantId", "BranchId", "Id")
+                        .HasName("ak_outgoing_mails_tenant_id_branch_id_id");
+
+                    b.HasIndex("TenantId", "RequestedAt")
+                        .HasDatabaseName("ix_outgoing_mails_tenant_id_requested_at");
+
+                    b.HasIndex("TenantId", "RequestedByUserId")
+                        .HasDatabaseName("ix_outgoing_mails_tenant_id_requested_by_user_id");
+
+                    b.HasIndex("TenantId", "BranchId", "PcBuildId")
+                        .HasDatabaseName("ix_outgoing_mails_tenant_id_branch_id_pc_build_id");
+
+                    b.HasIndex("TenantId", "Recipient", "RequestedAt")
+                        .HasDatabaseName("ix_outgoing_mails_tenant_id_recipient_requested_at");
+
+                    b.ToTable("outgoing_mails", "integration", t =>
+                        {
+                            t.HasCheckConstraint("ck_outgoing_mails_destinatario", "recipient = lower(recipient) AND recipient ~ '^[^@[:space:]]+@[^@[:space:]]+\\.[^@[:space:]]+$'");
+
+                            t.HasCheckConstraint("ck_outgoing_mails_tipo", "kind IN ('ReservationConfirmed')");
+                        });
+                });
+
+            modelBuilder.Entity("MINV.Domain.Integration.OutgoingMailAttempt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("Attempt")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempt");
+
+                    b.Property<DateTimeOffset>("AttemptedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("attempted_at");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<int>("DurationMs")
+                        .HasColumnType("integer")
+                        .HasColumnName("duration_ms");
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("error");
+
+                    b.Property<Guid>("OutgoingMailId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("outgoing_mail_id");
+
+                    b.Property<bool>("Succeeded")
+                        .HasColumnType("boolean")
+                        .HasColumnName("succeeded");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_outgoing_mail_attempts");
+
+                    b.HasAlternateKey("TenantId", "Id")
+                        .HasName("ak_outgoing_mail_attempts_tenant_id_id");
+
+                    b.HasIndex("OutgoingMailId", "Attempt")
+                        .IsUnique()
+                        .HasDatabaseName("ux_outgoing_mail_attempts_outgoing_mail_id_attempt");
+
+                    b.HasIndex("TenantId", "OutgoingMailId")
+                        .HasDatabaseName("ix_outgoing_mail_attempts_tenant_id_outgoing_mail_id");
+
+                    b.ToTable("outgoing_mail_attempts", "integration", t =>
+                        {
+                            t.HasCheckConstraint("ck_outgoing_mail_attempts_duracion", "duration_ms >= 0");
+
+                            t.HasCheckConstraint("ck_outgoing_mail_attempts_error", "succeeded = (error IS NULL)");
+
+                            t.HasCheckConstraint("ck_outgoing_mail_attempts_intento", "attempt BETWEEN 1 AND 5");
+                        });
+                });
+
+            modelBuilder.Entity("MINV.Domain.Integration.OutgoingMailDispatch", b =>
+                {
+                    b.Property<Guid>("OutgoingMailId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("outgoing_mail_id");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempts");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("last_error");
+
+                    b.Property<DateTimeOffset>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("next_attempt_at");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("OutgoingMailId")
+                        .HasName("pk_outgoing_mail_dispatch");
+
+                    b.HasIndex("NextAttemptAt")
+                        .HasDatabaseName("ix_outgoing_mail_dispatch_next_attempt_at")
+                        .HasFilter("status = 'Pending'");
+
+                    b.HasIndex("TenantId", "OutgoingMailId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_outgoing_mail_dispatch_tenant_id_outgoing_mail_id");
+
+                    b.ToTable("outgoing_mail_dispatch", "integration", t =>
+                        {
+                            t.HasCheckConstraint("ck_outgoing_mail_dispatch_estado", "status IN ('Pending', 'Sent', 'Exhausted', 'Cancelled')");
+
+                            t.HasCheckConstraint("ck_outgoing_mail_dispatch_fin", "(status = 'Pending') = (completed_at IS NULL)");
+
+                            t.HasCheckConstraint("ck_outgoing_mail_dispatch_intentado", "status NOT IN ('Sent', 'Exhausted') OR attempts >= 1");
+
+                            t.HasCheckConstraint("ck_outgoing_mail_dispatch_intentos", "attempts BETWEEN 0 AND 5");
+                        });
                 });
 
             modelBuilder.Entity("MINV.Domain.Integration.WebhookDelivery", b =>
@@ -9442,6 +9667,59 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("MINV.Domain.Sales.CustomerAccount", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("CustomerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("customer_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_customer_accounts");
+
+                    b.HasAlternateKey("TenantId", "Id")
+                        .HasName("ak_customer_accounts_tenant_id_id");
+
+                    b.HasIndex("TenantId", "CustomerId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_customer_accounts_tenant_id_customer_id");
+
+                    b.HasIndex("TenantId", "UserId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_customer_accounts_tenant_id_user_id");
+
+                    b.ToTable("customer_accounts", "sales");
+                });
+
             modelBuilder.Entity("MINV.Domain.Sales.CustomerAddress", b =>
                 {
                     b.Property<Guid>("CustomerId")
@@ -9976,6 +10254,25 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("branch_id");
 
+                    b.Property<string>("BuyerComplement")
+                        .HasMaxLength(5)
+                        .HasColumnType("character varying(5)")
+                        .HasColumnName("buyer_complement");
+
+                    b.Property<string>("BuyerDocumentNumber")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("buyer_document_number");
+
+                    b.Property<short?>("BuyerDocumentType")
+                        .HasColumnType("smallint")
+                        .HasColumnName("buyer_document_type");
+
+                    b.Property<string>("BuyerName")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("buyer_name");
+
                     b.Property<string>("CancelReason")
                         .HasMaxLength(250)
                         .HasColumnType("character varying(250)")
@@ -10023,6 +10320,12 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("InvoiceId")
                         .HasColumnType("uuid")
                         .HasColumnName("invoice_id");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasColumnName("kind");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -10137,11 +10440,23 @@ namespace MINV.Infrastructure.Persistence.Migrations
 
                             t.HasCheckConstraint("ck_pc_builds_estado", "status IN ('Draft', 'Quoted', 'Reserved', 'Sold', 'Cancelled')");
 
+                            t.HasCheckConstraint("ck_pc_builds_factura_complemento", "buyer_complement IS NULL OR buyer_document_type = 1");
+
+                            t.HasCheckConstraint("ck_pc_builds_factura_documento", "(buyer_document_type IS NULL) = (buyer_document_number IS NULL)");
+
+                            t.HasCheckConstraint("ck_pc_builds_factura_nombre", "buyer_name IS NULL OR buyer_document_type IS NOT NULL");
+
+                            t.HasCheckConstraint("ck_pc_builds_factura_tipo", "buyer_document_type IS NULL OR buyer_document_type BETWEEN 1 AND 5");
+
                             t.HasCheckConstraint("ck_pc_builds_marcado", "NOT quoted_with_errors OR quoted_at IS NOT NULL");
 
                             t.HasCheckConstraint("ck_pc_builds_publicado", "NOT published_to_web OR (channel = 'Desktop' AND status IN ('Quoted', 'Reserved', 'Sold'))");
 
                             t.HasCheckConstraint("ck_pc_builds_reserva", "status <> 'Reserved' OR (reserved_at IS NOT NULL AND reserved_until IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_pc_builds_tipo", "kind IN ('Build', 'Cart')");
+
+                            t.HasCheckConstraint("ck_pc_builds_tipo_publicado", "NOT published_to_web OR kind = 'Build'");
 
                             t.HasCheckConstraint("ck_pc_builds_venta", "(status = 'Sold') = (invoice_id IS NOT NULL)");
                         });
@@ -10261,7 +10576,6 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasColumnName("quoted_unit_price");
 
                     b.Property<string>("Slot")
-                        .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)")
                         .HasColumnName("slot");
@@ -10303,7 +10617,7 @@ namespace MINV.Infrastructure.Persistence.Migrations
 
                             t.HasCheckConstraint("ck_pc_build_lines_precio", "quoted_unit_price >= 0");
 
-                            t.HasCheckConstraint("ck_pc_build_lines_ranura", "slot IN ('Cpu', 'Motherboard', 'Ram', 'Gpu', 'Storage', 'Psu', 'Case', 'Cooler', 'Monitor', 'Peripheral', 'Software', 'Service')");
+                            t.HasCheckConstraint("ck_pc_build_lines_ranura", "slot IS NULL OR slot IN ('Cpu', 'Motherboard', 'Ram', 'Gpu', 'Storage', 'Psu', 'Case', 'Cooler', 'Monitor', 'Peripheral', 'Software', 'Service')");
                         });
                 });
 
@@ -13611,6 +13925,68 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_outbox_events_tenant_id_branch_id");
                 });
 
+            modelBuilder.Entity("MINV.Domain.Integration.OutgoingMail", b =>
+                {
+                    b.HasOne("MINV.Domain.Iam.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_outgoing_mails_tenant_id");
+
+                    b.HasOne("MINV.Domain.Iam.User", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "RequestedByUserId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_outgoing_mails_tenant_id_requested_by_user_id");
+
+                    b.HasOne("MINV.Domain.Sales.PcBuild", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BranchId", "PcBuildId")
+                        .HasPrincipalKey("TenantId", "BranchId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_outgoing_mails_tenant_id_branch_id_pc_build_id");
+                });
+
+            modelBuilder.Entity("MINV.Domain.Integration.OutgoingMailAttempt", b =>
+                {
+                    b.HasOne("MINV.Domain.Iam.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_outgoing_mail_attempts_tenant_id");
+
+                    b.HasOne("MINV.Domain.Integration.OutgoingMail", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "OutgoingMailId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_outgoing_mail_attempts_tenant_id_outgoing_mail_id");
+                });
+
+            modelBuilder.Entity("MINV.Domain.Integration.OutgoingMailDispatch", b =>
+                {
+                    b.HasOne("MINV.Domain.Iam.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_outgoing_mail_dispatch_tenant_id");
+
+                    b.HasOne("MINV.Domain.Integration.OutgoingMail", null)
+                        .WithOne()
+                        .HasForeignKey("MINV.Domain.Integration.OutgoingMailDispatch", "TenantId", "OutgoingMailId")
+                        .HasPrincipalKey("MINV.Domain.Integration.OutgoingMail", "TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_outgoing_mail_dispatch_tenant_id_outgoing_mail_id");
+                });
+
             modelBuilder.Entity("MINV.Domain.Integration.WebhookDelivery", b =>
                 {
                     b.HasOne("MINV.Domain.Iam.Tenant", null)
@@ -14728,6 +15104,32 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_customers_tenant_id_customer_category_id");
+                });
+
+            modelBuilder.Entity("MINV.Domain.Sales.CustomerAccount", b =>
+                {
+                    b.HasOne("MINV.Domain.Iam.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_customer_accounts_tenant_id");
+
+                    b.HasOne("MINV.Domain.Sales.Customer", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "CustomerId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_customer_accounts_tenant_id_customer_id");
+
+                    b.HasOne("MINV.Domain.Iam.User", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "UserId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_customer_accounts_tenant_id_user_id");
                 });
 
             modelBuilder.Entity("MINV.Domain.Sales.CustomerAddress", b =>

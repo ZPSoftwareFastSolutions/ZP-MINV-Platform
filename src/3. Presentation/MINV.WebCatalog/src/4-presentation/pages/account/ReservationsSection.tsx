@@ -1,7 +1,8 @@
 // «Mis reservas»: las reservas del cliente de la sesión (armados y carritos) con número, fecha, estado con color, total
 // y hasta cuándo se guarda; filtro por estado con lista desplegable; detalle con sus productos; y «Liberar mi reserva»
 // con confirmación. Estados de carga, vacío y error con «Reintentar». El servidor devuelve SOLO las reservas de la
-// cuenta que ingresó: la web no envía ningún identificador de cliente (regla P-04).
+// cuenta que ingresó: la web no envía ningún identificador de cliente (regla P-04). V7: cada reserva dice si es un
+// armado o una compra (carrito) y cuántas horas se guarda de verdad.
 
 import { CalendarClock, ChevronDown, LockOpen, MapPin, RotateCcw, ShoppingBag, TicketCheck } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
@@ -10,8 +11,8 @@ import { isReservationActive, type Reservation } from '@/1-domain/storefront/typ
 import { ALL_STATUSES, AttemptKey, filterReservations, isReservationStatusFilter, RESERVATION_STATUS_OPTIONS, type ReservationStatusFilter } from '@/2-application';
 import { ROUTES } from '@/4-presentation/app/routes';
 import { ErrorState, LoadingState } from '@/4-presentation/components/feedback/AsyncState';
-import { ReservationStatusBadge } from '@/4-presentation/components/reservation/ReservationSummary';
-import { branchName, formatDateTime } from '@/4-presentation/components/reservation/reservationText';
+import { ReservationKindBadge, ReservationStatusBadge } from '@/4-presentation/components/reservation/ReservationSummary';
+import { branchName, formatDateTime, heldHoursText, reservationItemsLabel } from '@/4-presentation/components/reservation/reservationText';
 import { Button } from '@/4-presentation/components/ui/Button';
 import { Card } from '@/4-presentation/components/ui/Card';
 import { EmptyState } from '@/4-presentation/components/ui/EmptyState';
@@ -47,6 +48,7 @@ function ReservationCard({ reservation, onReleased, onStale }: ReservationCardPr
   const keepRef = useRef<HTMLButtonElement>(null);
   const count = reservation.lines.reduce((total, line) => total + line.quantity, 0);
   const active = isReservationActive(reservation);
+  const hours = heldHoursText(reservation);
 
   useEffect(() => {
     if (confirming) keepRef.current?.focus();
@@ -82,7 +84,10 @@ function ReservationCard({ reservation, onReleased, onStale }: ReservationCardPr
             </span>
           </h3>
         </div>
-        <ReservationStatusBadge reservation={reservation} />
+        <div className="flex flex-wrap items-center gap-2">
+          <ReservationKindBadge reservation={reservation} />
+          <ReservationStatusBadge reservation={reservation} />
+        </div>
       </div>
 
       <dl className="mt-3 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
@@ -94,11 +99,18 @@ function ReservationCard({ reservation, onReleased, onStale }: ReservationCardPr
           <dt className="text-xs text-text-faint">{heldUntilLabel(reservation)}</dt>
           <dd className="flex items-start gap-1.5 font-medium text-text">
             <CalendarClock aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-accent" />
-            {formatDateTime(reservation.reservedUntil)}
+            <span>
+              {formatDateTime(reservation.reservedUntil)}
+              {hours && (
+                <span className="block text-xs font-normal text-text-muted" data-testid="reserva-horas">
+                  Se guarda {hours}
+                </span>
+              )}
+            </span>
           </dd>
         </div>
         <div>
-          <dt className="text-xs text-text-faint">Total ({pluralize(count, 'producto', 'productos')})</dt>
+          <dt className="text-xs text-text-faint">Total ({reservationItemsLabel(reservation.kind, count)})</dt>
           <dd className="font-display text-lg font-semibold text-text tabular-nums">{formatMoney(reservation.total)}</dd>
         </div>
       </dl>

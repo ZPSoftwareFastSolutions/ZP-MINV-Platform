@@ -2,7 +2,7 @@
 // la infraestructura sobre el RPC (casos de uso `MINV.Application.Accounts.*`, permisos `account.*`). Opera siempre
 // sobre el cliente de la sesión: ningún método recibe un identificador de cliente (regla P-04).
 
-import type { AccountUpdate, CustomerAccount, PasswordChange } from '@/1-domain/account/types';
+import type { AccountReservationRequest, AccountUpdate, CustomerAccount, PasswordChange } from '@/1-domain/account/types';
 import type { Reservation } from '@/1-domain/storefront/types';
 import type { RpcSendOptions } from './IRpcGateway';
 
@@ -14,6 +14,11 @@ export interface IAccountGateway {
   reservations(options?: RpcSendOptions): Promise<Reservation[]>;
   /** Libera una reserva activa del cliente; devuelve la reserva como quedó. */
   cancelReservation(number: string, options?: RpcSendOptions): Promise<Reservation>;
+  /**
+   * V7: reserva con los datos de la cuenta (todo o nada). Idempotente por el `requestId` de las opciones: el reintento por
+   * red caída debe viajar con el MISMO id. Sin stock: WebApiError `domain` con el código `storefront.insufficient_stock`.
+   */
+  createReservation(request: AccountReservationRequest, options?: RpcSendOptions): Promise<Reservation>;
   /** Cambia la contraseña de la sesión. Contraseña actual incorrecta: WebApiError `authentication`. */
   changePassword(change: PasswordChange, options?: RpcSendOptions): Promise<void>;
 }

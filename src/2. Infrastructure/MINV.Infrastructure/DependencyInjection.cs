@@ -104,6 +104,21 @@ public static class DependencyInjection
         services.AddSingleton(sp => new Integration.WebhookDispatcher(sp.GetRequiredService<IServiceScopeFactory>(),
             Integration.SafeWebhookHttp.Create(allowPrivateTargets), sp.GetRequiredService<IClock>()));
 
+    /// <summary>V7 · Despachador de la cola de correos (API Gateway): la sección <c>Minv:Mail</c> y el despachador (siempre, así una
+    /// pasada se puede ejecutar a mano). Con almacenamiento en memoria y el correo encendido registra también el envío SMTP real
+    /// (con PostgreSQL ya lo registra <see cref="AddMinvInfrastructure"/>; la demostración de escritorio no envía correos).</summary>
+    public static IServiceCollection AddMinvMailDispatcher(this IServiceCollection services, Integration.MailOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        services.AddSingleton(options);
+        if (options.Enabled)
+        {
+            services.TryAddSingleton<IMailSender, Billing.Mail.SmtpMailSender>();
+        }
+        return services.AddSingleton(sp => new Integration.MailDispatcher(sp.GetRequiredService<IServiceScopeFactory>(), options,
+            sp.GetRequiredService<IClock>()));
+    }
+
     internal static DbContextOptionsBuilder Configure(DbContextOptionsBuilder options, string connectionString) =>
         options.UseNpgsql(connectionString, npgsql => npgsql.MigrationsHistoryTable("__ef_migrations_history", Schemas.Iam));
 

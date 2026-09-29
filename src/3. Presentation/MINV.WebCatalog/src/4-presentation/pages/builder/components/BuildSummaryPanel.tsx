@@ -8,13 +8,13 @@ import type { BuildSummary } from '@/1-domain/builder/build';
 import type { SlotKey } from '@/1-domain/builder/types';
 import { ivaBreakdown } from '@/1-domain/catalog/money';
 import { reservedLabel } from '@/1-domain/catalog/stock';
-import { RESERVATION_HOURS } from '@/1-domain/storefront/types';
 import { ROUTES } from '@/4-presentation/app/routes';
 import { Badge } from '@/4-presentation/components/ui/Badge';
 import { Button } from '@/4-presentation/components/ui/Button';
 import { EmptyState } from '@/4-presentation/components/ui/EmptyState';
 import { IconButton } from '@/4-presentation/components/ui/IconButton';
 import { ProductImage } from '@/4-presentation/components/ui/ProductImage';
+import { useReservationPolicy } from '@/4-presentation/hooks/useReservationPolicy';
 import { formatMoney, pluralize } from '@/shared/format';
 import { referenceData } from '../builderSteps';
 import { BuildProgress } from './BuildProgress';
@@ -163,9 +163,10 @@ export interface SummaryTotalsProps {
   compact?: boolean;
 }
 
-/** Total en Bs, IVA incluido, «Reservar armado» (V6: te lo guardamos 48 h en la tienda) y «Seguir en el catálogo». */
+/** Total en Bs, IVA incluido, «Reservar armado» (te lo guardamos las horas que publica la tienda) y «Seguir en el catálogo». */
 export function SummaryTotals({ total, savings, count, onFinish, compact = false }: SummaryTotalsProps) {
   const breakdown = ivaBreakdown(total);
+  const { reservationHours } = useReservationPolicy();
   return (
     <div className={compact ? 'flex flex-col gap-3' : 'space-y-4 border-t border-border pt-4'}>
       <div className="flex items-end justify-between gap-3">
@@ -185,7 +186,7 @@ export function SummaryTotals({ total, savings, count, onFinish, compact = false
       {!compact && (
         <p className="flex items-start gap-2 text-xs text-text-muted">
           <CalendarClock aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-accent" />
-          <span>Te lo guardamos {RESERVATION_HOURS} h en la tienda; se confirma y paga en persona.</span>
+          <span>Te lo guardamos {reservationHours} h en la tienda; se confirma y paga en persona.</span>
         </p>
       )}
       <div className={compact ? 'flex gap-2' : 'flex flex-col gap-2'}>

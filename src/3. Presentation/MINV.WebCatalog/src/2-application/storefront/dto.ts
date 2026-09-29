@@ -90,11 +90,16 @@ export interface StorefrontCatalogDto {
   products: StorefrontProductDto[];
   presets: StorefrontPresetDto[];
   generatedAt: string;
+  /** V7: horas que se guarda una reserva sin días indicados (48 si no viene). */
+  reservationHours?: number;
+  /** V7: días que puede pedir quien reserva para recogerla (1 a 3; 3 si no viene). */
+  maxHoldDays?: number;
 }
 
 export interface StorefrontReservationLineRequestDto {
   sku: string;
   quantity: number;
+  /** Ranura del armado; en un carrito las líneas van sin ranura (V7). */
   slot?: string;
 }
 
@@ -104,12 +109,30 @@ export interface StorefrontReservationContactDto {
   email?: string;
 }
 
-/** Cuerpo de `POST /storefront/v1/reservations` (la llave va en la cabecera `Idempotency-Key`). */
+/** V7: datos para la factura (opcionales). `documentType`: 1 CI, 2 CEX, 3 PAS, 4 OD, 5 NIT. */
+export interface StorefrontReservationBuyerDto {
+  documentType: number;
+  documentNumber: string;
+  complement?: string;
+  name?: string;
+}
+
+/** Tipo de reserva del contrato (V7): `build` (armado, por defecto) o `cart` (carrito). */
+export type StorefrontReservationKindDto = 'build' | 'cart';
+
+/**
+ * Cuerpo de `POST /storefront/v1/reservations` (la llave va en la cabecera `Idempotency-Key`). V7: `kind`, `holdDays`
+ * (1 a 3) y `buyer` son opcionales; sin ellos el cuerpo es el mismo de la V6. Nombre, notas y razón social van en UNA
+ * línea (el servidor rechaza los caracteres de control).
+ */
 export interface StorefrontReservationRequestDto {
   lines: StorefrontReservationLineRequestDto[];
   contact: StorefrontReservationContactDto;
   notes?: string;
   name?: string;
+  kind?: StorefrontReservationKindDto;
+  holdDays?: number;
+  buyer?: StorefrontReservationBuyerDto;
 }
 
 export interface StorefrontReservationLineDto {
@@ -136,6 +159,10 @@ export interface StorefrontReservationViewDto {
   hasCompatibilityWarnings: boolean;
   lines: StorefrontReservationLineDto[];
   cancelReason: string | null;
+  /** V7: `build` o `cart` (si falta, se deduce del número). */
+  kind?: string;
+  /** V7: el servidor encoló el correo de confirmación. */
+  mailQueued?: boolean;
 }
 
 export interface StorefrontShortageDto {

@@ -2,13 +2,21 @@
 // dominio. Funciona igual con el RPC por HTTP y con el RPC en memoria del modo mock. No envía ningún identificador de
 // cliente: el servidor opera sobre el cliente de la sesión (regla P-04).
 
-import type { AccountUpdate, CustomerAccount, PasswordChange } from '@/1-domain/account/types';
+import type { AccountReservationRequest, AccountUpdate, CustomerAccount, PasswordChange } from '@/1-domain/account/types';
 import { WebApiError } from '@/1-domain/auth/errors';
 import type { IAccountGateway } from '@/1-domain/ports/IAccountGateway';
 import type { IRpcGateway, RpcSendOptions } from '@/1-domain/ports/IRpcGateway';
 import type { Reservation } from '@/1-domain/storefront/types';
 import { ACCOUNT_OPERATIONS, type RpcOperations } from './contract';
-import { looksLikeAccount, looksLikeReservation, toAccountReservation, toAccountReservations, toCustomerAccount, toUpdateAccountPayload } from './webMappers';
+import {
+  looksLikeAccount,
+  looksLikeReservation,
+  toAccountReservation,
+  toAccountReservations,
+  toCreateReservationPayload,
+  toCustomerAccount,
+  toUpdateAccountPayload,
+} from './webMappers';
 
 export class RpcAccountGateway implements IAccountGateway {
   private readonly rpc: IRpcGateway<RpcOperations>;
@@ -37,6 +45,11 @@ export class RpcAccountGateway implements IAccountGateway {
     const updated = (await this.reservations({ signal: options?.signal })).find((reservation) => reservation.number === number);
     if (!updated) throw new WebApiError({ kind: 'not_found', status: 404, message: `La reserva ${number} ya no está en su cuenta.` });
     return updated;
+  }
+
+  async createReservation(request: AccountReservationRequest, options?: RpcSendOptions): Promise<Reservation> {
+    const response: unknown = await this.rpc.send(ACCOUNT_OPERATIONS.createReservation, toCreateReservationPayload(request), options);
+    return toAccountReservation(response);
   }
 
   async changePassword(change: PasswordChange, options?: RpcSendOptions): Promise<void> {

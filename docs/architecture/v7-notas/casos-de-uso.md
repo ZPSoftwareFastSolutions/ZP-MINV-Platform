@@ -1,6 +1,6 @@
 # Mapa V7 - Casos de uso de MINV.Application (generado por script)
 
-Total: 192 - comandos (IAuditableRequest): 96 - consultas: 96
+Total: 194 - comandos (IAuditableRequest): 97 - consultas: 97
 
 > Paquete B1 (carrito, V7): cambian `CreateStorefrontReservationCommand`, `SavePcBuildCommand` y `GetPcBuildsQuery` (campos
 > opcionales al final) y se agrega `ReserveCartCommand`. `PcBuildItemInput.Slot` y `PcBuildItemView.Slot` admiten nulo.
@@ -8,6 +8,10 @@ Total: 192 - comandos (IAuditableRequest): 96 - consultas: 96
 > Paquete B2 (cuentas de cliente y sesión web, V7): se agrega el namespace `MINV.Application.Accounts` (6 casos de uso). Una
 > sesión cuyo único rol es `CLIENTE` solo ejecuta por RPC los cinco de la cuenta más `ChangePasswordCommand` y `LogoutCommand`
 > (`RpcCatalog.IsAllowedForCustomer`). `RegisterCustomerAccountCommand` y `LoginCommand` no viajan por RPC.
+>
+> Paquete B3a (correo de la reserva, V7): se agregan `ResendReservationMailCommand` y `GetOutgoingMailsQuery` (namespace
+> `MINV.Application.Integration`, `sales.pcbuild.manage`). Los cuatro caminos que reservan encolan la confirmación con
+> `ReservationMail.EnqueueAsync` en el mismo `SaveChanges`; ningún caso de uso envía correo.
 
 El nombre con que viaja por RPC es el FullName: `<namespace>.<Tipo>`. C = comando, Q = consulta.
 
@@ -154,6 +158,8 @@ El nombre con que viaja por RPC es el FullName: `<namespace>.<Tipo>`. C = comand
 | `GetWebhooksQuery` | Q | [RequiresPermission(PermissionCodes.IntegrationManage)] | `IReadOnlyList<WebhookRow>` | Integration/IntegrationUseCases.cs |
 | `RevokeApiKeyCommand(Guid Id)` | C | [RequiresPermission(PermissionCodes.IntegrationManage)] | `string` | Integration/IntegrationUseCases.cs |
 | `RotateWebhookSecretCommand(Guid Id)` | C | [RequiresPermission(PermissionCodes.IntegrationManage)] | `CreatedWebhook` | Integration/IntegrationUseCases.cs |
+| `GetOutgoingMailsQuery(OutgoingMailStatus? Status = null, string? Number = null, int Take = 200)` | Q | [RequiresPermission(PermissionCodes.PcBuildManage)] | `IReadOnlyList<OutgoingMailRow>` | Integration/OutgoingMailUseCases.cs |
+| `ResendReservationMailCommand(string Number, string? Email = null)` | C | [RequiresPermission(PermissionCodes.PcBuildManage)] | `OutgoingMailRow` | Integration/OutgoingMailUseCases.cs |
 
 ## Inventory
 

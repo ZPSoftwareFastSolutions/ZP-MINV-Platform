@@ -50,8 +50,32 @@ public sealed record MailMessageSpec(MailServer Server, string To, string Subjec
 }
 
 /// <summary>V4.1 · Envío de correo (entrega del XML y de la representación gráfica al comprador). V7: también la confirmación
-/// de una reserva, que envía el despachador de la cola de correos DESPUÉS del COMMIT (nunca un caso de uso de negocio).</summary>
+/// de una reserva, que envía el despachador de la cola de correos DESPUÉS del COMMIT (nunca un caso de uso de negocio). V7: una
+/// falla que el emisor sabe clasificar sale como <see cref="MailDeliveryException"/>.</summary>
 public interface IMailSender
 {
     Task SendAsync(MailMessageSpec message, CancellationToken cancellationToken = default);
+}
+
+/// <summary>V7 · De quién es la culpa de un envío fallido: decide qué hace el despachador de la cola de correos.</summary>
+public enum MailFailureKind
+{
+    /// <summary>Pasajera del mensaje (el buzón o el servidor del destinatario están ocupados): gasta un intento y se reintenta
+    /// con espera.</summary>
+    Transient,
+
+    /// <summary>Definitiva del destinatario (el buzón no existe, el servidor lo rechazó para siempre): gasta un intento y el
+    /// correo queda agotado; insistir no cambia nada.</summary>
+    Permanent,
+
+    /// <summary>Del servidor de correo, no del mensaje (no se pudo conectar, no respondió, rechazó las credenciales o está mal
+    /// configurado): NO gasta intentos y el despachador corta la pasada para no quemar los intentos de toda la cola.</summary>
+    Server,
+}
+
+/// <summary>V7 · Envío fallido ya clasificado. El mensaje es para el personal (se guarda en la cola): lo arma quien envía, en
+/// español, SIN credenciales, sin el nombre ni la dirección del servidor y sin la dirección del destinatario.</summary>
+public sealed class MailDeliveryException(MailFailureKind kind, string message, Exception? innerException = null) : Exception(message, innerException)
+{
+    public MailFailureKind Kind { get; } = kind;
 }

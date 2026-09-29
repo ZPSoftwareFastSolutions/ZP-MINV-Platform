@@ -330,8 +330,9 @@ public sealed class ModelTests
         Assert.Equal(new[]
         {
             "AccessLog", "AuditLog", "AverageCostHistory", "CashMovement", "CustomerNitCheck", "ExchangeRate", "ExternalOrder",
-            "FiscalDelivery", "FiscalDocumentEvent", "FiscalDocumentFile", "FiscalDocumentLine", "OutboxEvent", "Payment", "PcBuildEvent",
-            "ProcessedRequest", "SalesOrderLineSerial", "SalesReturnLineSerial", "SerialEvent", "SiatCufd", "SiatCuis", "SiatServiceCall",
+            "FiscalDelivery", "FiscalDocumentEvent", "FiscalDocumentFile", "FiscalDocumentLine", "OutboxEvent", "OutgoingMail", "OutgoingMailAttempt",
+            "Payment", "PcBuildEvent", "ProcessedRequest", "SalesOrderLineSerial", "SalesReturnLineSerial", "SerialEvent", "SiatCufd", "SiatCuis",
+            "SiatServiceCall",
             "SiatSyncRun", "StockMovement", "StockTransferDiscrepancy", "StockTransferEvent", "StockTransferLineBatch", "StockTransferLineSerial",
             "StockTransferMovement", "WarrantyClaimEvent", "WebhookDelivery",
         }, appendOnly);

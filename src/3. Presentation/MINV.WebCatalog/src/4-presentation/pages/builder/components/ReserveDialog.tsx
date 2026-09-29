@@ -6,14 +6,16 @@ import { BadgeCheck, CalendarClock, CircleAlert, LoaderCircle, Printer, Wand2 } 
 import { useEffect, useId, useState, type FormEvent } from 'react';
 import type { BuildSummary } from '@/1-domain/builder/build';
 import { ivaBreakdown } from '@/1-domain/catalog/money';
-import { toReservationContact, validateReservationForm, type ReservationFormErrors, type ReservationFormInput } from '@/1-domain/storefront/contact';
+import { toReservationContact, toSingleLine, validateReservationForm, type ReservationFormErrors, type ReservationFormInput } from '@/1-domain/storefront/contact';
 import { asStorefrontError, describeStorefrontError, type StorefrontError } from '@/1-domain/storefront/errors';
-import { RESERVATION_HOURS, RESERVATION_LIMITS, type Reservation, type StockShortage } from '@/1-domain/storefront/types';
+import { reservationHeldHours } from '@/1-domain/storefront/policy';
+import { RESERVATION_LIMITS, type Reservation, type StockShortage } from '@/1-domain/storefront/types';
 import { newIdempotencyKey } from '@/2-application';
 import { ROUTES } from '@/4-presentation/app/routes';
 import { ReservationSummary } from '@/4-presentation/components/reservation/ReservationSummary';
 import { Button } from '@/4-presentation/components/ui/Button';
 import { ProductImage } from '@/4-presentation/components/ui/ProductImage';
+import { useReservationPolicy } from '@/4-presentation/hooks/useReservationPolicy';
 import { useServices } from '@/4-presentation/hooks/useServices';
 import { useStore } from '@/4-presentation/hooks/useStore';
 import { formatMoney, pluralize } from '@/shared/format';
@@ -41,6 +43,7 @@ type Phase = { kind: 'form' } | { kind: 'sending' } | { kind: 'done'; reservatio
 export function ReserveDialog({ open, onClose, summary, onReserved, onAdjust, onPrint, fallbackFocus }: ReserveDialogProps) {
   const { reservations } = useServices();
   const store = useStore();
+  const { reservationHours } = useReservationPolicy();
   const ids = { name: useId(), phone: useId(), email: useId(), notes: useId(), error: useId() };
   const [form, setForm] = useState<ReservationFormInput>(EMPTY_FORM);
   const [errors, setErrors] = useState<ReservationFormErrors>({});
@@ -83,7 +86,8 @@ export function ReserveDialog({ open, onClose, summary, onReserved, onAdjust, on
       const reservation = await reservations.reserve({
         lines: summary.lines,
         contact: toReservationContact(form),
-        notes: form.notes.trim() || undefined,
+        // V7: el servidor rechaza los saltos de línea en medio de las notas: se envían en una sola línea.
+        notes: toSingleLine(form.notes) || undefined,
         idempotencyKey: newIdempotencyKey(),
       });
       setPhase({ kind: 'done', reservation });
@@ -102,7 +106,7 @@ export function ReserveDialog({ open, onClose, summary, onReserved, onAdjust, on
         fallbackFocus={fallbackFocus}
         size="lg"
         title="Tu armado quedó reservado"
-        description={`${phase.reservation.number} · te lo guardamos ${RESERVATION_HOURS} horas en ${store.branch.name}`}
+        description={`${phase.reservation.number} · te lo guardamos ${reservationHeldHours(phase.reservation) || reservationHours} horas en ${store.branch.name}`}
         footer={
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" leftIcon={<Printer />} onClick={onPrint}>
@@ -145,7 +149,7 @@ export function ReserveDialog({ open, onClose, summary, onReserved, onAdjust, on
           <p className="flex items-start gap-2 text-sm text-text-muted">
             <CalendarClock aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-accent" />
             <span>
-              Te lo guardamos <span className="font-semibold text-text">{RESERVATION_HOURS} horas</span> en {store.branch.name}. La reserva se confirma y paga en la tienda; no hay pagos en línea.
+              Te lo guardamos <span className="font-semibold text-text">{reservationHours} horas</span> en {store.branch.name}. La reserva se confirma y paga en la tienda; no hay pagos en línea.
             </span>
           </p>
           <div className="flex flex-wrap gap-2">

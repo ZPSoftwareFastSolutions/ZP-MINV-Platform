@@ -69,7 +69,8 @@ public sealed class StorefrontCartApiTests(ApiGatewayFixture server) : IClassFix
         Assert.Equal($"/storefront/v1/reservations/{number}", created.Headers.Location?.ToString());
         Assert.Equal(("cart", "Reserved", "Reservada", "CM"), (reservation.GetProperty("kind").GetString(), reservation.GetProperty("status").GetString(),
             reservation.GetProperty("statusText").GetString(), reservation.GetProperty("branch").GetString()));
-        Assert.False(reservation.GetProperty("mailQueued").GetBoolean());
+        // V7 (B3) · Con correo de contacto, la confirmación queda encolada (mailQueued de verdad; sin correo, false: ver el contrato de la V6)
+        Assert.True(reservation.GetProperty("mailQueued").GetBoolean());
         Assert.False(reservation.GetProperty("hasCompatibilityWarnings").GetBoolean());
         Assert.InRange((reservation.GetProperty("reservedUntil").GetDateTimeOffset() - DateTimeOffset.UtcNow).TotalHours, 23, 25);
         var lines = reservation.GetProperty("lines").EnumerateArray().ToList();

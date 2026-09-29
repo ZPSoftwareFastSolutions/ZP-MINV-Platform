@@ -125,8 +125,12 @@ Regla B-08: el correo **no** se envía dentro del caso de uso. Se encola en la m
 | `outgoing_mail_attempts` | `OutgoingMailAttempt` | bitácora append-only | `attempt`, `succeeded`, `error`, `attempted_at`, `duration_ms` |
 
 - No se guarda asunto ni cuerpo: se derivan al enviar desde la reserva (precios ya congelados).
-- `ReservationMail.Enqueue(...)` se llama al reservar (tienda, cuenta de cliente y escritorio) si hay correo. Una repetición
-  idempotente no vuelve a encolar. `ResendReservationMailCommand(Number, Email?)` (`sales.pcbuild.manage`) encola otro.
+- `ReservationMail.EnqueueAsync(...)` se llama al reservar (tienda, cuenta de cliente, carrito de mostrador y reserva de una
+  cotización) si hay correo, antes del `SaveChanges` de la reserva; sin correo, con uno que no sirve o fuera de los topes NO
+  encola y la reserva sigue (la tienda responde `mailQueued` de verdad). Una repetición idempotente no vuelve a encolar.
+  `ResendReservationMailCommand(Number, Email?)` (`sales.pcbuild.manage`) encola otro para una reserva vigente y cancela los
+  pendientes de esa reserva (el reenvío los reemplaza); `GetOutgoingMailsQuery(Status?, Number?, Take)` es la cola para el
+  personal. `ReservationMail.DraftAsync` le da al despachador el correo armado o el motivo para cancelarlo.
 - `MailDispatcher.RunOnceAsync` (en `MINV.Infrastructure/Integration`) reclama con `integration.claim_outgoing_mails`
   (`SECURITY DEFINER`, `FOR UPDATE SKIP LOCKED`), envía, registra el intento y reprograma: inmediato, 1 min, 5 min, 30 min,
   2 h. Si la reserva ya no está `Reserved`, la cola queda `Cancelled`. Lo hospeda `MailDispatcherService` del gateway.

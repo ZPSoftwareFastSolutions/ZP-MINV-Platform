@@ -4,10 +4,13 @@
 import { BUILD_SLOTS } from '@/1-domain/builder/slots';
 import type { BuildLine, BuildPreset, PresetTier, SlotKey } from '@/1-domain/builder/types';
 import type { Brand, Category, Condition, Product, ProductTag, Spec, SpecValue } from '@/1-domain/catalog/types';
+import { toSingleLine } from '@/1-domain/storefront/contact';
 import { StorefrontError, type StorefrontErrorKind } from '@/1-domain/storefront/errors';
+import { normalizeReservationPolicy, parseReservationKind } from '@/1-domain/storefront/policy';
 import type {
   CatalogSnapshot,
   Reservation,
+  ReservationBuyer,
   ReservationRequest,
   ReservationStatus,
   StockShortage,
@@ -15,6 +18,7 @@ import type {
 } from '@/1-domain/storefront/types';
 import type {
   StorefrontBrandDto,
+  StorefrontReservationBuyerDto,
   StorefrontCatalogDto,
   StorefrontCategoryDto,
   StorefrontPresetDto,
@@ -158,16 +162,34 @@ export function toCatalogSnapshot(dto: StorefrontCatalogDto, apiBase: string): C
     brands: dto.brands.map(toBrand),
     products: dto.products.map((product) => toProduct(product, apiBase)),
     presets: dto.presets.map(toPreset),
+    // V7: los plazos de la reserva los fija el servidor; un servidor de la V6 no los manda (48 h y hasta 3 días).
+    reservationPolicy: normalizeReservationPolicy(dto),
     generatedAt: Number.isNaN(generatedAt.getTime()) ? new Date() : generatedAt,
   };
 }
 
-/** Petición del dominio → cuerpo JSON (la llave de idempotencia viaja en la cabecera). */
-export function toReservationRequestDto(request: ReservationRequest): StorefrontReservationRequestDto {
-  const notes = request.notes?.trim();
-  const name = request.name?.trim();
+/** Datos para la factura → JSON (número recortado, complemento solo con CI, razón social en una línea). */
+export function toReservationBuyerDto(buyer: ReservationBuyer): StorefrontReservationBuyerDto {
+  const complement = buyer.complement?.trim().toUpperCase();
+  const name = buyer.name ? toSingleLine(buyer.name) : '';
   return {
-    lines: request.lines.map((line) => ({ sku: line.sku, quantity: line.quantity, slot: line.slot })),
+    documentType: buyer.documentType,
+    documentNumber: buyer.documentNumber.trim(),
+    ...(buyer.documentType === 1 && complement ? { complement } : {}),
+    ...(name ? { name } : {}),
+  };
+}
+
+/**
+ * Petición del dominio → cuerpo JSON (la llave de idempotencia viaja en la cabecera). Nombre y notas viajan en UNA línea:
+ * el servidor rechaza los saltos de línea en medio (400). V7: las líneas sin ranura (carrito) van sin `slot`, y `kind`,
+ * `holdDays` y `buyer` solo se envían si vienen (un armado sin ellos manda el mismo cuerpo de la V6).
+ */
+export function toReservationRequestDto(request: ReservationRequest): StorefrontReservationRequestDto {
+  const notes = request.notes ? toSingleLine(request.notes) : '';
+  const name = request.name ? toSingleLine(request.name) : '';
+  return {
+    lines: request.lines.map((line) => ({ sku: line.sku, quantity: line.quantity, ...(line.slot ? { slot: line.slot } : {}) })),
     contact: {
       name: request.contact.name,
       phone: request.contact.phone,
@@ -175,6 +197,9 @@ export function toReservationRequestDto(request: ReservationRequest): Storefront
     },
     ...(notes ? { notes } : {}),
     ...(name ? { name } : {}),
+    ...(request.kind === 'cart' ? { kind: 'cart' as const } : {}),
+    ...(request.holdDays !== undefined ? { holdDays: request.holdDays } : {}),
+    ...(request.buyer ? { buyer: toReservationBuyerDto(request.buyer) } : {}),
   };
 }
 
@@ -194,6 +219,7 @@ export function toReservation(dto: StorefrontReservationViewDto, replayed = fals
   const status = isStatus(dto.status) ? dto.status : 'Cancelled';
   return {
     number: dto.number,
+    kind: parseReservationKind(dto.kind, dto.number),
     status,
     statusText: dto.statusText || STATUS_TEXT[status],
     createdAt: new Date(dto.createdAt),
@@ -213,6 +239,7 @@ export function toReservation(dto: StorefrontReservationViewDto, replayed = fals
     })),
     cancelReason: dto.cancelReason ?? null,
     replayed,
+    mailQueued: dto.mailQueued === true,
   };
 }
 

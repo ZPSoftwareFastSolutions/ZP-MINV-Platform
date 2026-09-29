@@ -1,4 +1,4 @@
-// Qué se va a reservar en `/reservar` (la página la construye el paquete siguiente; aquí queda el contrato):
+// Qué se va a reservar en `/reservar` (la página es `4-presentation/pages/cart/CheckoutPage.tsx`; aquí queda el contrato):
 //   · `/reservar?sku=<SKU>&cantidad=<n>`  «Reservar ahora»: ESE solo artículo. No pasa por el carrito ni lo modifica.
 //   · `/reservar`                          el carrito completo.
 // La dirección solo lleva el SKU y la cantidad (nunca datos de la persona) y lo que trae se valida como cualquier dato

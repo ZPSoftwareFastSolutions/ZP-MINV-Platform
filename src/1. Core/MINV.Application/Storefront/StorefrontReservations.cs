@@ -406,8 +406,10 @@ public sealed class CreateStorefrontReservationHandler(IMinvDbContext db, ICurre
     {
         var build = await ReservationWriter.CreateAsync(db, clock, options, new ReservationSpec(request.Kind, PcBuildChannel.Web, request.Lines,
             request.Contact.Name, request.Contact.Phone, request.Contact.Email, request.Notes, request.Name, request.HoldDays, request.Buyer), userId, now, ct);
-        // V7 · El correo de confirmación se encola aquí, en la misma transacción (regla P-06): hasta entonces, mailQueued = false
-        return await StorefrontReservationViews.ViewAsync(db, build, now, ct, mailQueued: false);
+        // V7 · La confirmación por correo se encola en la MISMA transacción (regla P-06) y sale después del COMMIT; la
+        // respuesta dice si de verdad se encoló (sin correo, o fuera de los topes, la reserva sigue igual)
+        var mail = await ReservationMail.EnqueueAsync(db, build, userId, now, ct);
+        return await StorefrontReservationViews.ViewAsync(db, build, now, ct, mailQueued: mail.Queued);
     }
 
     /// <summary>Id determinista de la llave de idempotencia (los 16 primeros bytes de su SHA-256), único por empresa en

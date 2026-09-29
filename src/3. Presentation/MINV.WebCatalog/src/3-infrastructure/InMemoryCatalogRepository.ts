@@ -5,7 +5,7 @@
 import type { BuildPreset } from '@/1-domain/builder/types';
 import type { Brand, Category, Product } from '@/1-domain/catalog/types';
 import type { ICatalogRepository } from '@/1-domain/ports/ICatalogRepository';
-import type { CatalogSnapshot, StoreInfo } from '@/1-domain/storefront/types';
+import { DEFAULT_RESERVATION_POLICY, type CatalogSnapshot, type ReservationPolicy, type StoreInfo } from '@/1-domain/storefront/types';
 
 export interface InMemoryCatalogData {
   store: StoreInfo;
@@ -13,10 +13,13 @@ export interface InMemoryCatalogData {
   brands: readonly Brand[];
   products: readonly Product[];
   presets: readonly BuildPreset[];
+  /** V7: plazos de la reserva (sin valor, 48 h y hasta 3 días). */
+  reservationPolicy?: ReservationPolicy;
 }
 
 export class InMemoryCatalogRepository implements ICatalogRepository {
   private readonly store: StoreInfo;
+  private readonly reservationPolicy: ReservationPolicy;
   private readonly categories: readonly Category[];
   private readonly brands: readonly Brand[];
   private readonly products: readonly Product[];
@@ -26,6 +29,7 @@ export class InMemoryCatalogRepository implements ICatalogRepository {
 
   constructor(data: InMemoryCatalogData) {
     this.store = data.store;
+    this.reservationPolicy = data.reservationPolicy ?? DEFAULT_RESERVATION_POLICY;
     this.categories = data.categories;
     this.brands = data.brands;
     this.products = data.products;
@@ -42,11 +46,16 @@ export class InMemoryCatalogRepository implements ICatalogRepository {
       brands: snapshot.brands,
       products: snapshot.products,
       presets: snapshot.presets,
+      reservationPolicy: snapshot.reservationPolicy,
     });
   }
 
   getStore(): StoreInfo {
     return this.store;
+  }
+
+  getReservationPolicy(): ReservationPolicy {
+    return this.reservationPolicy;
   }
 
   getCategories(): readonly Category[] {

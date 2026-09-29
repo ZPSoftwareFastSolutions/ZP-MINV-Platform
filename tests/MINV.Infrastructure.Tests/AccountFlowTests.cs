@@ -256,7 +256,8 @@ public sealed class AccountFlowTests(AccountFlowFixture fixture) : IClassFixture
         // Ana reserva un carrito (1 día) y Luis un armado: cada reserva con el contacto de SU cuenta y ligada a SU cliente
         var mine = await SendAsync(ana, new CreateMyReservationCommand([new StorefrontReservationLineInput(game.Sku.ToLowerInvariant(), 2)], HoldDays: 1, Notes: " Paso el sábado "));
         Assert.StartsWith(PcBuild.WebCartNumberPrefix + "-", mine.Number, StringComparison.Ordinal);
-        Assert.Equal(("Reserved", "cart", "Ana Quispe", LocalDataSeeder.BranchMain, "Paso el sábado", 2 * game.Price, false),
+        // V7 (B3) · La confirmación queda encolada al correo de su cuenta (mailQueued de verdad)
+        Assert.Equal(("Reserved", "cart", "Ana Quispe", LocalDataSeeder.BranchMain, "Paso el sábado", 2 * game.Price, true),
             (mine.Status, mine.Kind, mine.ContactName, mine.Branch, mine.Notes, mine.Total, mine.MailQueued));
         Assert.Equal((game.Sku, (string?)null, 2), (Assert.Single(mine.Lines).Sku, mine.Lines[0].Slot, mine.Lines[0].Quantity));
         Assert.InRange((mine.ReservedUntil!.Value - clock.UtcNow).TotalHours, 23.9, 24.1);

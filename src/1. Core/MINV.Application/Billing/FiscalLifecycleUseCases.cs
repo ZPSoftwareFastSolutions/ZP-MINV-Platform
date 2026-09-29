@@ -448,26 +448,10 @@ internal static class BuyerMail
 {
     private static readonly UTF8Encoding Utf8 = new(false);
 
-    /// <summary>Servidor SMTP activo de la empresa (con la contraseña descifrada SOLO en memoria), o null si no hay.</summary>
-    public static async Task<MailServer?> ServerAsync(IMinvDbContext db, ISecretProtector? protector, CancellationToken ct)
-    {
-        var settings = await db.Set<MailSettings>().FirstOrDefaultAsync(ct);
-        if (settings is not { IsEnabled: true })
-        {
-            return null;
-        }
-        string? password = null;
-        if (settings.PasswordCiphertext is { } cipher && settings.PasswordKeyId is { } keyId)
-        {
-            if (protector is null)
-            {
-                throw new DomainException("mail.no_keys",
-                    "Este equipo no tiene la clave maestra para leer la contraseña del correo: el envío lo hace el servidor.");
-            }
-            password = protector.Unprotect(cipher, keyId);
-        }
-        return new MailServer(settings.Host, settings.Port, settings.UseSsl, settings.UserName, password, settings.FromAddress, settings.FromName);
-    }
+    /// <summary>Servidor SMTP activo de la empresa (con la contraseña descifrada SOLO en memoria), o null si no hay. V7: lo
+    /// resuelve <see cref="Integration.MailServers.CompanyAsync"/>, que comparte con el despachador de la cola de correos.</summary>
+    public static Task<MailServer?> ServerAsync(IMinvDbContext db, ISecretProtector? protector, CancellationToken ct) =>
+        Integration.MailServers.CompanyAsync(db, protector, ct);
 
     /// <summary>¿Se puede avisar al comprador por correo? Devuelve el servidor o el motivo por el que hay que avisarle por otro
     /// medio (queda en la bitácora del documento).</summary>

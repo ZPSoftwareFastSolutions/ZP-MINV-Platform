@@ -205,6 +205,11 @@ public sealed class MinvWriteDbContext : DbContext, IMinvDbContext
     // ---- V7 · Plataforma web: cuentas de cliente de la tienda (sales)
     public DbSet<CustomerAccount> CustomerAccounts => Set<CustomerAccount>();
 
+    // ---- V7 · Correo saliente (integration, regla P-06): el hecho, su cola de envío y la bitácora de intentos
+    public DbSet<OutgoingMail> OutgoingMails => Set<OutgoingMail>();
+    public DbSet<OutgoingMailDispatch> OutgoingMailDispatches => Set<OutgoingMailDispatch>();
+    public DbSet<OutgoingMailAttempt> OutgoingMailAttempts => Set<OutgoingMailAttempt>();
+
     /// <summary>V4 · Alcance por sucursal de la sesión (implementación explícita: <see cref="Branches"/> es la tabla).</summary>
     BranchScope IMinvDbContext.Branches => _tenant.Branches;
 

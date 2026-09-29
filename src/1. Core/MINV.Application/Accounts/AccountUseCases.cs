@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using MINV.Application.Abstractions;
 using MINV.Application.Common;
+using MINV.Application.Integration;
 using MINV.Application.Storefront;
 using MINV.Domain.Common;
 using MINV.Domain.Iam;
@@ -146,9 +147,10 @@ public sealed class CreateMyReservationHandler(IMinvDbContext db, ICurrentUser u
                 var build = await ReservationWriter.CreateAsync(db, clock, options, new ReservationSpec(request.Kind, PcBuildChannel.Web, request.Lines,
                     account.Customer.Name, account.Customer.Phone, account.User.Email, request.Notes, request.Name, request.HoldDays,
                     Buyer: null, CustomerId: account.Customer.Id), userId, now, ct);
-                // V7 · El correo de confirmación se encola aquí, en la misma transacción (regla P-06): hasta entonces, mailQueued = false
+                // V7 · La confirmación va al correo de SU cuenta, encolada en la MISMA transacción (regla P-06)
+                var mail = await ReservationMail.EnqueueAsync(db, build, userId, now, ct);
                 await db.SaveChangesAsync(ct);
-                return await StorefrontReservationViews.ViewAsync(db, build, now, ct, mailQueued: false);
+                return await StorefrontReservationViews.ViewAsync(db, build, now, ct, mailQueued: mail.Queued);
             }
             catch (ConcurrencyConflictException) when (attempt < 3)
             {

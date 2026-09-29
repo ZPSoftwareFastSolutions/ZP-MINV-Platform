@@ -21,6 +21,8 @@
   <ItemGroup>
     <!-- V4.1 · Datos y documentos de prueba del SIN compartidos con MINV.Infrastructure.Tests -->
     <Compile Include="..\MINV.Infrastructure.Tests\Billing\SiatTestKit.cs" Link="Billing\SiatTestKit.cs" />
+    <!-- V7 · Emisor de correo falso compartido con MINV.Infrastructure.Tests -->
+    <Compile Include="..\MINV.Infrastructure.Tests\MailTestKit.cs" Link="MailTestKit.cs" />
   </ItemGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />

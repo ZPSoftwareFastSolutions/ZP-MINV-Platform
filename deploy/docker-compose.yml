@@ -1,4 +1,4 @@
-# M-INV V4/V4.1/V6 · Servidores en contenedores.
+# M-INV V4/V4.1/V6/V7 · Servidores en contenedores.
 # V6 · La tienda web: el gateway publica /storefront/v1 de la empresa MINV_STOREFRONT_TENANT (sucursal MINV_STOREFRONT_BRANCH) y
 #   admite el origen MINV_STOREFRONT_ORIGIN (CORS); el catálogo web (webcatalog) se construye con VITE_API_URL apuntando al gateway.
 #   1. Copie deploy/.env.example a deploy/.env y complete MINV_DB (rol minv_server de su PostgreSQL gestionado, con
@@ -11,6 +11,9 @@
 # V6 · Tienda pública en este equipo (tools\docker_local.ps1): el catálogo web se construye con VITE_API_URL=/ y su nginx
 #   reenvía /storefront/ al gateway; el perfil «publico» agrega un túnel de Cloudflare (trycloudflare) que publica SOLO el
 #   catálogo web con un enlace https para todo público. Los puertos de los servidores quedan en 127.0.0.1 (este equipo).
+# V7 · Plataforma web: el servidor en la nube atiende la sesión web y el panel (/api/v1/web/*, MINV_WEB_*) y el gateway envía
+#   el correo de confirmación de cada reserva (despachador de la cola, MINV_MAIL_*): usa el servidor SMTP de la empresa
+#   (Configuración › Facturación › Correo) y, si no tiene, el de MINV_MAIL_HOST. La contraseña del correo va SOLO en deploy/.env.
 # Perfiles opcionales:
 #   --profile publico         Túnel rápido de Cloudflare hacia el catálogo web (el enlace cambia cada vez que el túnel se
 #                             reinicia: tools\docker_local.ps1 -Accion enlace lo muestra).
@@ -19,6 +22,9 @@
 #   --profile siat-simulador  Simulador del SIN (datos de SIMULACIÓN, sin valor legal). Comparte la red del servidor en la
 #                             nube: la empresa de prueba apunta a http://localhost:5095 igual que en un equipo local
 #                             (tools\servidores_locales.ps1). NUNCA lo levante junto a una empresa que factura con el SIN.
+#   --profile correo-prueba   V7 · Buzón de prueba (Mailpit): recibe los correos del gateway sin enviarlos a nadie
+#                             (MINV_MAIL_HOST=buzon, MINV_MAIL_PORT=1025, MINV_MAIL_STARTTLS=false, sin usuario) y los muestra
+#                             en http://127.0.0.1:8025, solo en este equipo (nunca por el túnel público).
 name: minv
 
 services:
@@ -33,6 +39,15 @@ services:
       MINV_INTEGRATION_KEYS: ${MINV_INTEGRATION_KEYS:?Defina MINV_INTEGRATION_KEYS}
       ASPNETCORE_URLS: http://+:8080
       Minv__Siat__Background: ${MINV_SIAT_BACKGROUND:-true}
+      # V7 · Sesión web y panel (/api/v1/web/*): empresa (siempre de la configuración, nunca del cliente) y sucursal de la web
+      Minv__Web__Enabled: ${MINV_WEB_ENABLED:-true}
+      Minv__Web__TenantCode: ${MINV_WEB_TENANT:-TECHZONE}
+      Minv__Web__BranchCode: ${MINV_WEB_BRANCH:-CM}
+      # V7 · Detrás del nginx del catálogo: IP real (límites por IP) y esquema https (cookie Secure) de X-Forwarded-For y
+      #   X-Forwarded-Proto, SOLO desde la red interna de Docker
+      Minv__ForwardedHeaders__Enabled: ${MINV_FORWARDED_HEADERS:-true}
+      # V7 · Mismas horas de reserva que la tienda del gateway (la cuenta de cliente también reserva)
+      Minv__Storefront__ReservationHours: ${MINV_STOREFRONT_HOURS:-48}
     ports:
       - "${MINV_BIND:-127.0.0.1}:5080:8080"
       # Solo responde con el perfil siat-simulador (el simulador escucha dentro de la red de este servicio)
@@ -58,6 +73,19 @@ services:
       Minv__Storefront__ReservationHours: ${MINV_STOREFRONT_HOURS:-48}
       # V6 · Detrás del nginx del catálogo: la IP del cliente sale de X-Forwarded-For (solo desde la red interna de Docker)
       Minv__ForwardedHeaders__Enabled: ${MINV_FORWARDED_HEADERS:-true}
+      # V7 · Correo de confirmación de las reservas (regla P-06): despachador de la cola (apagado por defecto) y servidor SMTP de
+      #   respaldo. La contraseña llega SOLO de deploy/.env (MINV_MAIL_PASSWORD): nunca se escribe aquí ni se versiona.
+      Minv__Mail__Enabled: ${MINV_MAIL_ENABLED:-false}
+      Minv__Mail__Host: ${MINV_MAIL_HOST:-}
+      Minv__Mail__Port: ${MINV_MAIL_PORT:-587}
+      Minv__Mail__UseSsl: ${MINV_MAIL_STARTTLS:-true}
+      Minv__Mail__UserName: ${MINV_MAIL_USER:-}
+      Minv__Mail__Password: ${MINV_MAIL_PASSWORD:-}
+      Minv__Mail__FromAddress: ${MINV_MAIL_FROM:-}
+      Minv__Mail__FromName: ${MINV_MAIL_FROM_NAME:-M-INV}
+      Minv__Mail__IntervalSeconds: ${MINV_MAIL_INTERVAL:-15}
+      # Dirección pública de la tienda: el correo enlaza «Ver mi reserva» a <MINV_PUBLIC_URL>/reserva/<número> (vacío = sin enlace)
+      Minv__Mail__PublicUrl: ${MINV_PUBLIC_URL:-}
     ports:
       - "${MINV_BIND:-127.0.0.1}:5090:8080"
 
@@ -104,6 +132,15 @@ services:
     command: ["tunnel", "--no-autoupdate", "--url", "http://webcatalog:80"]
     depends_on:
       - webcatalog
+
+  # V7 · Buzón de PRUEBA para el correo de las reservas: SMTP en la red interna (buzon:1025, sin TLS ni credenciales, sin puerto
+  # publicado) e interfaz web SOLO en este equipo. Nunca por el túnel ni en producción.
+  buzon:
+    profiles: ["correo-prueba"]
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8025:8025"
 
   postgres:
     profiles: ["local-db"]

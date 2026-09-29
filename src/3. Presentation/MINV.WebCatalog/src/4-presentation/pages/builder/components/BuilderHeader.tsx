@@ -1,15 +1,17 @@
 // Cabecera del armador: título, progreso de las piezas esenciales y acciones (armado sugerido, vaciar con confirmación
 // inline e imprimir el resumen). El foco acompaña a la confirmación: al pedir «Vaciar» pasa a «No» (la opción segura)
 // y al resolverla vuelve a «Vaciar» o, si el armado quedó vacío, al botón de armados sugeridos.
-// V6: explica que el armado se RESERVA en la tienda (48 h) y, después de reservar, recuerda el número con su enlace.
+// V6: explica que el armado se RESERVA en la tienda (las horas que publica el servidor) y, después de reservar, recuerda
+// el número con su enlace.
 
 import { Printer, Sparkles, TicketCheck, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { BuildSummary } from '@/1-domain/builder/build';
 import type { SlotKey } from '@/1-domain/builder/types';
-import { RESERVATION_HOURS, type Reservation } from '@/1-domain/storefront/types';
+import type { Reservation } from '@/1-domain/storefront/types';
 import { ROUTES } from '@/4-presentation/app/routes';
 import { Button } from '@/4-presentation/components/ui/Button';
+import { useReservationPolicy } from '@/4-presentation/hooks/useReservationPolicy';
 import { formatMoney, pluralize } from '@/shared/format';
 import { BuildProgress } from './BuildProgress';
 
@@ -35,6 +37,7 @@ export function BuilderHeader({ summary, branchName, hasPresets, canPrint, lastR
   const clearRef = useRef<HTMLButtonElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const wasConfirming = useRef(false);
+  const { reservationHours } = useReservationPolicy();
   const empty = summary.lines.length === 0;
   if (confirmClear && empty) setConfirmClear(false);
 
@@ -58,7 +61,7 @@ export function BuilderHeader({ summary, branchName, hasPresets, canPrint, lastR
           </h1>
           <p className="mt-3 text-base text-text-muted">
             Elegí una pieza por paso y mirá el total al instante. Podés empezar desde cero o cargar un armado sugerido y ajustarlo a tu gusto. Cuando
-            esté listo, <span className="font-semibold text-text">reservalo</span>: te lo guardamos {RESERVATION_HOURS} horas en {branchName} y lo
+            esté listo, <span className="font-semibold text-text">reservalo</span>: te lo guardamos {reservationHours} horas en {branchName} y lo
             confirmás y pagás en la tienda.
           </p>
         </div>

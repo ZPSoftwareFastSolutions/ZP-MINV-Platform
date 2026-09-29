@@ -25,6 +25,7 @@ const SOCIAL = [
 export function Footer() {
   const { catalog, generatedAt } = useServices();
   const { company, branch } = useStore();
+  const { maxHoldDays } = catalog.getReservationPolicy();
   const roots = catalog.getRootCategories();
   const branches = company.branches.map((item) => item.name).join(' · ');
 
@@ -86,8 +87,8 @@ export function Footer() {
               <li className="flex items-start gap-2">
                 <Truck aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-accent" />
                 <span>
-                  <span className="font-medium text-text">Reservas</span> desde el armador: te guardamos las piezas 48 horas en {branch.name} y las
-                  confirmás y pagás en la tienda.
+                  <span className="font-medium text-text">Reservas</span> desde el carrito o el armador: elegís cuándo pasás (hasta {maxHoldDays === 1 ? '1 día' : `${maxHoldDays} días`}), te
+                  guardamos los productos en {branch.name} y los confirmás y pagás en la tienda.
                 </span>
               </li>
               <li className="flex items-start gap-2">

@@ -111,7 +111,8 @@ public sealed class CartFlowTests : IAsyncLifetime
         // 1. Un solo monitor, sin pasar por el armador y sin ranura: 1 día para recogerlo
         var single = (await SendAsync(scope, Cart("c-monitor", [new StorefrontReservationLineInput(monitor.Sku)], holdDays: 1))).Reservation;
         Assert.Equal("RES-WEB-000001", single.Number);
-        Assert.Equal(("Reserved", "cart", false, false, "CM"), (single.Status, single.Kind, single.MailQueued, single.HasCompatibilityWarnings, single.Branch));
+        // V7 (B3) · Con correo de contacto, la confirmación queda encolada (mailQueued de verdad)
+        Assert.Equal(("Reserved", "cart", true, false, "CM"), (single.Status, single.Kind, single.MailQueued, single.HasCompatibilityWarnings, single.Branch));
         var only = Assert.Single(single.Lines);
         Assert.Equal((monitor.Sku, (string?)null, 1, monitor.Price), (only.Sku, only.Slot, only.Quantity, only.UnitPrice));
         Assert.InRange((single.ReservedUntil!.Value - clock.UtcNow).TotalHours, 23.9, 24.1);

@@ -3,13 +3,13 @@
 // no se reconoce en vez de propagarlo. Funciones puras.
 
 import { isDocumentTypeCode } from '@/1-domain/account/documents';
-import type { AccountUpdate, CustomerAccount } from '@/1-domain/account/types';
+import type { AccountReservationRequest, AccountUpdate, CustomerAccount } from '@/1-domain/account/types';
 import { WebApiError } from '@/1-domain/auth/errors';
 import { CUSTOMER_ROLE } from '@/1-domain/auth/permissions';
 import type { BranchAccess, Session, SessionBranch, SessionKind } from '@/1-domain/auth/types';
 import type { Reservation } from '@/1-domain/storefront/types';
 import { toReservation, type StorefrontReservationLineDto, type StorefrontReservationViewDto } from '@/2-application/storefront';
-import type { UpdateMyAccountCommand } from './contract';
+import type { CreateMyReservationCommand, UpdateMyAccountCommand } from './contract';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -134,8 +134,25 @@ export function toAccountReservation(dto: unknown): Reservation {
     hasCompatibilityWarnings: dto.hasCompatibilityWarnings === true,
     lines: (dto.lines as unknown[]).map(toLineDto).filter((line): line is StorefrontReservationLineDto => line !== null),
     cancelReason: optionalStr(dto.cancelReason),
+    // V7: armado o carrito (si falta, se deduce del número) y si se encoló el correo de confirmación.
+    kind: optionalStr(dto.kind) ?? undefined,
+    mailQueued: dto.mailQueued === true,
   };
   return toReservation(view);
+}
+
+/**
+ * Reserva con la cuenta → `CreateMyReservationCommand`. En un carrito las líneas van sin ranura; los opcionales vacíos no
+ * viajan (el servidor aplica sus valores por defecto).
+ */
+export function toCreateReservationPayload(request: AccountReservationRequest): CreateMyReservationCommand {
+  return {
+    lines: request.lines.map((line) => ({ sku: line.sku, quantity: line.quantity, ...(line.slot ? { slot: line.slot } : {}) })),
+    kind: request.kind,
+    ...(request.holdDays !== undefined ? { holdDays: request.holdDays } : {}),
+    ...(request.notes ? { notes: request.notes } : {}),
+    ...(request.name ? { name: request.name } : {}),
+  };
 }
 
 export function toAccountReservations(dto: unknown): Reservation[] {

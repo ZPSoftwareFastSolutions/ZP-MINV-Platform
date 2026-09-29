@@ -23,6 +23,29 @@ export interface AccountUpdate {
   complement: string | null;
 }
 
+/** Una línea de la reserva hecha con la cuenta (en un carrito, sin ranura). */
+export interface AccountReservationLine {
+  sku: string;
+  quantity: number;
+  slot?: string | null;
+}
+
+/**
+ * Reserva con los datos de la cuenta (`CreateMyReservationCommand`): el nombre, el teléfono y el correo salen de la
+ * cuenta del cliente de la sesión, y la reserva queda ligada a su cliente. No lleva datos para la factura: la caja
+ * usa el documento de la cuenta al cobrar.
+ */
+export interface AccountReservationRequest {
+  lines: AccountReservationLine[];
+  /** `cart` (carrito o artículo suelto) o `build` (armado). */
+  kind: 'build' | 'cart';
+  /** Días para recogerla (1 a 3); sin valor, las horas configuradas en el servidor. */
+  holdDays?: number;
+  /** En UNA línea (el servidor rechaza los saltos de línea). */
+  notes?: string;
+  name?: string;
+}
+
 export interface PasswordChange {
   currentPassword: string;
   newPassword: string;

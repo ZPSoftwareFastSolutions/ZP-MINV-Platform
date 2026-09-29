@@ -1,13 +1,15 @@
 // «Consultar mi reserva» (/reserva y /reserva/:numero): número + teléfono → estado (Reservada / Vendida / Cancelada /
 // Vencida) con las piezas, el total y la sucursal de retiro; «Liberar mi reserva» con confirmación cuando sigue activa.
 // La API exige el teléfono con el que se hizo la reserva (regla S-06); si no coincide, responde «no existe». Estado en
-// memoria: nada de storage.
+// memoria: nada de storage. V7: también las reservas de carrito (RES-WEB-…), con su tipo (Armado / Compra) y las horas
+// reales que se guardan.
 
 import { CircleAlert, LockOpen, MessageCircle, Search, TicketCheck } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { useParams } from 'react-router-dom';
 import { isBolivianPhone } from '@/1-domain/storefront/contact';
 import { asStorefrontError, describeStorefrontError, type StorefrontError } from '@/1-domain/storefront/errors';
+import { isReservationNumber } from '@/1-domain/storefront/policy';
 import { isReservationActive, type Reservation } from '@/1-domain/storefront/types';
 import { ROUTES } from '@/4-presentation/app/routes';
 import { ReservationSummary } from '@/4-presentation/components/reservation/ReservationSummary';
@@ -23,8 +25,6 @@ import { useToast } from '@/4-presentation/hooks/useToast';
 
 const FIELD =
   'h-11 w-full rounded-xl border border-border-control bg-surface px-3 text-sm text-text placeholder:text-text-faint transition-colors duration-200 hover:border-border-strong focus:border-accent focus:outline-none aria-invalid:border-danger';
-
-const NUMBER_PATTERN = /^ARM-[A-Z0-9]+-\d{1,6}$/i;
 
 type Phase = { kind: 'idle' } | { kind: 'loading' } | { kind: 'found'; reservation: Reservation } | { kind: 'error'; error: StorefrontError };
 
@@ -49,8 +49,8 @@ export function ReservationPage() {
 
   const validate = () => {
     const errors: { number?: string; phone?: string } = {};
-    if (!number.trim()) errors.number = 'Indicá el número de tu reserva (por ejemplo ARM-WEB-000001).';
-    else if (!NUMBER_PATTERN.test(number.trim())) errors.number = 'El número tiene la forma ARM-WEB-000001.';
+    if (!number.trim()) errors.number = 'Indicá el número de tu reserva (por ejemplo RES-WEB-000001 o ARM-WEB-000001).';
+    else if (!isReservationNumber(number)) errors.number = 'El número tiene la forma RES-WEB-000001 (compras) o ARM-WEB-000001 (armados).';
     if (!phone.trim()) errors.phone = 'Indicá el teléfono con el que hiciste la reserva.';
     else if (!isBolivianPhone(phone)) errors.phone = 'El teléfono debe tener 7 u 8 dígitos (Bolivia), con o sin +591.';
     setFieldErrors(errors);
@@ -76,7 +76,7 @@ export function ReservationPage() {
       const updated = await reservations.release(phase.reservation.number, phone);
       setPhase({ kind: 'found', reservation: updated });
       setConfirmRelease(false);
-      toast.notify({ tone: 'success', title: 'Reserva liberada', description: `${updated.number}: las piezas vuelven a estar disponibles.` });
+      toast.notify({ tone: 'success', title: 'Reserva liberada', description: `${updated.number}: ${updated.kind === 'cart' ? 'los productos vuelven' : 'las piezas vuelven'} a estar disponibles.` });
     } catch (error) {
       const failure = asStorefrontError(error);
       setConfirmRelease(false);
@@ -125,7 +125,7 @@ export function ReservationPage() {
                 autoComplete="off"
                 autoCapitalize="characters"
                 spellCheck={false}
-                placeholder="ARM-WEB-000001"
+                placeholder="RES-WEB-000001"
                 value={number}
                 onChange={(event) => setNumber(event.target.value.toUpperCase())}
                 aria-invalid={fieldErrors.number ? true : undefined}
@@ -192,10 +192,13 @@ export function ReservationPage() {
               </span>
               <p className="mt-4 font-display text-lg font-semibold text-text">Acá vas a ver el estado de tu reserva</p>
               <p className="mx-auto mt-1 max-w-md text-sm text-text-muted">
-                Las reservas se guardan en {store.branch.name} y se confirman y pagan en la tienda. ¿Todavía no reservaste? Armá tu PC y reservala desde el
-                armador.
+                Las reservas se guardan en {store.branch.name} y se confirman y pagan en la tienda. ¿Todavía no reservaste? Elegí tus productos en el
+                catálogo o armá tu PC.
               </p>
-              <div className="mt-5">
+              <div className="mt-5 flex flex-wrap justify-center gap-3">
+                <Button to={ROUTES.catalog} variant="outline">
+                  Ver el catálogo
+                </Button>
                 <Button to={ROUTES.builder} variant="outline">
                   Ir al armador
                 </Button>
@@ -210,7 +213,9 @@ export function ReservationPage() {
                 {isReservationActive(found) ? (
                   confirmRelease ? (
                     <div role="alert" className="flex flex-col gap-3 rounded-xl border border-danger/40 bg-danger-soft p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
-                      <span className="text-text">¿Liberar la reserva {found.number}? Las piezas vuelven a estar disponibles para otros clientes.</span>
+                      <span className="text-text">
+                        ¿Liberar la reserva {found.number}? {found.kind === 'cart' ? 'Los productos vuelven' : 'Las piezas vuelven'} a estar disponibles para otros clientes.
+                      </span>
                       <div className="flex gap-2">
                         <Button ref={cancelRef} variant="ghost" onClick={() => setConfirmRelease(false)} disabled={releasing}>
                           No, conservarla
@@ -235,15 +240,21 @@ export function ReservationPage() {
                     {found.status === 'Sold'
                       ? 'Esta reserva ya se confirmó y vendió en la tienda. ¡Gracias por tu compra!'
                       : found.status === 'Expired'
-                        ? 'Esta reserva venció y las piezas volvieron a estar disponibles. Podés armar y reservar de nuevo cuando quieras.'
-                        : 'Esta reserva está cancelada y las piezas volvieron a estar disponibles.'}
+                        ? `Esta reserva venció y ${found.kind === 'cart' ? 'los productos volvieron' : 'las piezas volvieron'} a estar disponibles. Podés reservar de nuevo cuando quieras.`
+                        : `Esta reserva está cancelada y ${found.kind === 'cart' ? 'los productos volvieron' : 'las piezas volvieron'} a estar disponibles.`}
                   </p>
                 )}
                 {!isReservationActive(found) && (
                   <div>
-                    <Button to={ROUTES.builder} variant="outline">
-                      Armar otra PC
-                    </Button>
+                    {found.kind === 'cart' ? (
+                      <Button to={ROUTES.catalog} variant="outline">
+                        Ver el catálogo
+                      </Button>
+                    ) : (
+                      <Button to={ROUTES.builder} variant="outline">
+                        Armar otra PC
+                      </Button>
+                    )}
                   </div>
                 )}
               </div>

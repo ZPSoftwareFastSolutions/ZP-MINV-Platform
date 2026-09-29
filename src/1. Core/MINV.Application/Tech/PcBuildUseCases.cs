@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using MINV.Application.Abstractions;
 using MINV.Application.Billing;
 using MINV.Application.Common;
+using MINV.Application.Integration;
 using MINV.Application.Inventory;
 using MINV.Application.Sales;
 using MINV.Application.Storefront;
@@ -406,6 +407,8 @@ public sealed class ReservePcBuildHandler(IMinvDbContext db, ICurrentUser user, 
                 var until = now.AddHours(request.Hours);
                 build.Reserve(now, until, today, userId);
                 await PcBuildStock.ReserveAsync(db, build, now, until, ct);
+                // V7 · Si la cotización tiene correo de contacto, la confirmación se encola en la MISMA transacción (regla P-06)
+                await ReservationMail.EnqueueAsync(db, build, userId, now, ct);
                 await db.SaveChangesAsync(ct);
                 return await new PcBuildViews(db, clock, user).RowAsync(build, ct);
             }
@@ -464,10 +467,12 @@ public sealed class ReserveCartHandler(IMinvDbContext db, ICurrentUser user, ICl
                                  ?? throw new NotFoundException($"El cliente {code} no existe.");
                 }
                 var lines = request.Items.Select(i => new StorefrontReservationLineInput(i.Sku, i.Quantity)).ToList();
+                var now = clock.UtcNow;
                 var build = await ReservationWriter.CreateAsync(db, clock, options, new ReservationSpec(PcBuildKind.Cart, PcBuildChannel.Desktop, lines,
                     request.ContactName, request.ContactPhone, request.ContactEmail, request.Notes, request.Name, request.HoldDays, request.Buyer, customerId),
-                    userId, clock.UtcNow, ct);
-                // V7 · El correo de confirmación se encola aquí, en la misma transacción (regla P-06)
+                    userId, now, ct);
+                // V7 · Con correo de contacto, la confirmación se encola en la MISMA transacción (regla P-06)
+                await ReservationMail.EnqueueAsync(db, build, userId, now, ct);
                 await db.SaveChangesAsync(ct);
                 return await new PcBuildViews(db, clock, user).RowAsync(build, ct);
             }

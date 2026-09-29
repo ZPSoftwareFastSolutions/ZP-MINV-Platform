@@ -36,6 +36,55 @@ public sealed class WebhookDispatcherService(WebhookDispatcher dispatcher, IConf
     }
 }
 
+/// <summary>
+/// V7 · Envía los correos de confirmación de las reservas en segundo plano (regla P-06: DESPUÉS del COMMIT de la reserva). Solo
+/// marca el ritmo: cada pasada la hace <see cref="MailDispatcher"/> (cada réplica del gateway toma su lote con SKIP LOCKED). Si
+/// hubo correos repite enseguida; con la cola vacía espera <c>Minv:Mail:IntervalSeconds</c>; si la pasada se cortó porque el
+/// servidor de correo falló (conexión o credenciales), espera al menos <see cref="HaltPause"/> para no insistirle.
+/// Interruptor: <c>Minv:Mail:Enabled</c> (apagado por defecto).
+/// </summary>
+public sealed class MailDispatcherService(MailDispatcher dispatcher, MailOptions options, ILogger<MailDispatcherService> log) : BackgroundService
+{
+    /// <summary>Correos por pasada.</summary>
+    public const int Batch = 20;
+
+    /// <summary>Espera mínima después de una pasada cortada por una falla del servidor de correo.</summary>
+    public static readonly TimeSpan HaltPause = TimeSpan.FromMinutes(1);
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        log.LogInformation("{Options}", options.ToString());
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            var wait = options.Interval;
+            try
+            {
+                var summary = await dispatcher.RunOnceAsync(Batch, stoppingToken);
+                if (summary.Mails > 0)
+                {
+                    log.LogInformation("Correos: {Mails} tomados, {Sent} enviados, {Failed} fallidos, {Postponed} pospuestos, {Cancelled} cancelados",
+                        summary.Mails, summary.Sent, summary.Failed, summary.Postponed, summary.Cancelled);
+                }
+                if (summary.Halted)
+                {
+                    log.LogWarning("Correos: el servidor de correo falló (conexión, credenciales o configuración); se reintenta en {Minutes} min. " +
+                                   "El detalle queda en la cola (GetOutgoingMailsQuery).", Math.Max(HaltPause.TotalMinutes, wait.TotalMinutes));
+                    wait = wait > HaltPause ? wait : HaltPause;
+                }
+                else if (summary.Mails > 0)
+                {
+                    continue;   // puede haber más en la cola
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                log.LogError(ex, "Falla del despachador de correos");
+            }
+            await Task.Delay(wait, stoppingToken);
+        }
+    }
+}
+
 /// <summary>V4 · Refresca el modelo de lectura (vistas materializadas de <c>reporting</c>) cada pocos minutos. La función
 /// toma un candado consultivo: si otra réplica ya está refrescando, esta pasada no hace nada.</summary>
 public sealed class ReportingRefreshService(IServiceScopeFactory scopes, IConfiguration configuration, ILogger<ReportingRefreshService> log)

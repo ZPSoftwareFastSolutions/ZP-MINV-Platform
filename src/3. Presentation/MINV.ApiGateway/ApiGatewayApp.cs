@@ -15,6 +15,7 @@ using MINV.Application.Storefront;
 using MINV.Domain.Integration;
 using MINV.Infrastructure;
 using MINV.Infrastructure.Hosting;
+using MINV.Infrastructure.Integration;
 
 namespace MINV.ApiGateway;
 
@@ -23,10 +24,14 @@ namespace MINV.ApiGateway;
 /// (claves maestras de los secretos de webhooks) y <c>ASPNETCORE_URLS</c>. <c>--Minv:Storage=memoria</c> para pruebas.
 /// V6 · API pública de tienda <c>/storefront/v1</c> (sin llave; principal técnico de <c>Minv:Storefront:TenantCode</c>, CORS para
 /// <c>Minv:Storefront:AllowedOrigins</c>, límites por IP propios) y trabajo de vencimiento de reservas cada 5 minutos.
+/// V7 · Despachador de la cola de correos de las reservas (<c>Minv:Mail</c>: servidor SMTP de respaldo, enlace público y
+/// <c>Enabled</c> para su trabajo en segundo plano).
 /// </summary>
 public static class ApiGatewayApp
 {
-    public static WebApplication Build(string[] args)
+    /// <summary>Arma el gateway. <paramref name="configureServices"/> se aplica al final del registro: solo lo usan las pruebas
+    /// para reemplazar un servicio (p. ej. el emisor de correo por uno falso).</summary>
+    public static WebApplication Build(string[] args, Action<IServiceCollection>? configureServices = null)
     {
         var builder = WebApplication.CreateBuilder(args);
         builder.Services.AddMinvApplication();
@@ -41,6 +46,14 @@ public static class ApiGatewayApp
         if (storage == ServerStorage.Postgres && builder.Configuration.GetValue("Minv:Reporting:Enabled", true))
         {
             builder.Services.AddHostedService<ReportingRefreshService>();
+        }
+        // V7 · Correo de la reserva (regla P-06): el despachador de la cola siempre (las pruebas ejecutan una pasada a mano) y su
+        // trabajo en segundo plano solo con Minv:Mail:Enabled (apagado por defecto)
+        var mail = builder.Configuration.GetSection(MailOptions.Section).Get<MailOptions>() ?? new MailOptions();
+        builder.Services.AddMinvMailDispatcher(mail);
+        if (mail.Enabled)
+        {
+            builder.Services.AddHostedService<MailDispatcherService>();
         }
 
         // V6 · Tienda web pública: configuración, principal técnico, vigencia de las reservas y trabajo de vencimiento
@@ -149,6 +162,7 @@ public static class ApiGatewayApp
         });
 
         builder.Services.AddSingleton(new StorageInfo(storage));
+        configureServices?.Invoke(builder.Services);
 
         var app = builder.Build();
         if (trustProxy)

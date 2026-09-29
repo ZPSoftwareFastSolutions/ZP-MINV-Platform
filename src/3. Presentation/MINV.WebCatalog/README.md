@@ -139,6 +139,7 @@ tools/           generar_catalogo_web.py
 | `/arma-tu-pc` (`#armados`) | Armá tu PC paso a paso, armados sugeridos y **Reservar armado** |
 | `/reserva` · `/reserva/:numero` | Consultar mi reserva (número + teléfono), liberar |
 | `/carrito` | Carrito de compras (V7) |
+| `/reservar` | Reserva del carrito o de un artículo suelto con los datos del cliente (V7) |
 | `*` | Página no encontrada |
 
 ## Pruebas
@@ -180,7 +181,7 @@ Reglas: `.claude/v7-web-platform-rules.md` (P-01 a P-14) · diseño: `docs/archi
 | `/mi-cuenta` · `/mi-cuenta/reservas` · `/datos` · `/contrasena` | sesión de **cliente** | «Mis reservas» (filtro por estado, detalle, liberar), «Mis datos» (nombre, teléfono, documento para la factura) y «Cambiar contraseña» |
 | `/panel/*` | sesión del **personal** | Punto de montaje del panel: `4-presentation/panel/PanelRoot.tsx` (provisional «Panel en construcción»; lo reemplaza el paquete W3) |
 | `/carrito` | todos | El carrito de compras (ver «V7 · Carrito de compras») |
-| `/reservar` | todos | Provisional (`pages/cart/CheckoutPage.tsx`; la construye el paquete siguiente). Recibe el carrito o un artículo suelto (`?sku=…&cantidad=…`) |
+| `/reservar` | todos | La reserva del carrito o de un artículo suelto (`?sku=…&cantidad=…`), con o sin cuenta (ver «V7 · Reserva») |
 
 Después de ingresar: el personal va a `/panel` y el cliente a `/mi-cuenta`, o a `volver` si es una ruta interna que su
 tipo de sesión puede ver. Las pantallas de la V7 se descargan solo al visitarlas (carga diferida en
@@ -315,3 +316,71 @@ almacenamiento (`3-infrastructure/storage/cartStorage.test.ts`: datos rotos, ver
 aviso entre pestañas), proveedor (`state/CartProvider.test.tsx`), botones de la tarjeta y la fila
 (`components/product/ProductActions.test.tsx`), de la ficha (`pages/product/PurchaseBox.test.tsx`) y la página del
 carrito con la tabla de rutas real (`pages/cart/CartPage.test.tsx`).
+
+## V7 · Reserva (`/reservar`)
+
+Pedido del cliente: «al hacer la reserva, pida los datos del cliente. Cuando introduzcan su correo, el sistema envía
+automáticamente el código de reserva con sus datos y detalles». La MISMA pantalla sirve para el carrito completo
+(`/reservar`) y para un artículo suelto («Reservar ahora», `/reservar?sku=…&cantidad=…`).
+
+### Qué hay
+
+- **Resumen** de lo que se reserva (imagen, cantidad, precio, subtotal y total). Al abrirse vuelve a consultar la
+  disponibilidad; un artículo suelto permite cambiar la cantidad ahí mismo y el carrito se edita en `/carrito`.
+- **Datos del cliente sin cuenta**: nombre y apellido, teléfono o WhatsApp (Bolivia), correo («Te enviamos el código y el
+  detalle de tu reserva a este correo»), la sección plegable **«Datos para tu factura (opcional)»** (tipo de documento
+  CI, CEX, PAS, OD o NIT; número; complemento solo con CI; nombre o razón social) y la invitación «¿Tenés cuenta?
+  Ingresá y seguí tus reservas» (no obliga).
+- **Con una cuenta de cliente**: los datos salen de su cuenta (solo lectura, con «Cambiar mis datos») y la reserva va
+  por RPC (`CreateMyReservationCommand`); la factura usa el documento de la cuenta al cobrar.
+- **«¿Cuándo pasás a recogerlo?»**: mañana (24 h), en 2 días (48 h) o en 3 días (72 h), acotado por `maxHoldDays` del
+  catálogo. Las horas de la tienda salen del catálogo (`reservationHours`, `maxHoldDays`; 48 y 3 si el servidor no las
+  manda): la web ya no tiene una constante de 48 h (también en «Armá tu PC» y el pie de página).
+- **Notas**: se pueden escribir en varias líneas, pero viajan en UNA (el servidor rechaza los saltos de línea; el
+  formulario de «Armá tu PC» también las une ahora).
+- **Validación** de cada campo al salir de él y de todos al enviar (el foco va al primero con error; si está en la
+  factura, la sección se abre sola).
+- **Confirmación**: número bien visible con «Copiar», tipo (Compra), estado, hasta cuándo se guarda (y cuántas horas),
+  dónde se retira, detalle con el total, «Te enviamos un correo a …» SOLO si el servidor dejó el correo en cola
+  (`mailQueued`), y los enlaces «Mi reserva» y «Seguir en el catálogo». Se quitan del carrito los productos reservados; un
+  artículo suelto no toca el carrito.
+- **«Mi reserva»** (`/reserva`) acepta `RES-WEB-…` y `ARM-WEB-…`; ella y «Mis reservas» muestran el tipo (Armado /
+  Compra) y las horas reales que se guarda cada reserva.
+
+### Fallas
+
+| Respuesta | Qué hace la página |
+|---|---|
+| 409 sin stock (o 422 `storefront.insufficient_stock` por RPC, con el detalle en el mensaje) | Marca cada producto con lo que pidió y cuánto hay, ofrece «Ajustar a lo disponible» (baja cantidades o quita) y NO pierde lo escrito |
+| 400 / 422 | Marca el campo que rechazó el servidor cuando se puede ubicar (por código o por texto); si no, lo muestra arriba |
+| 429 | «Hiciste demasiados intentos seguidos», con «Reintentar» |
+| Red caída | «No pudimos conectarnos con la tienda» con «Reintentar»: viaja con la MISMA llave |
+
+**Idempotencia** (`2-application/checkout/attempt.ts`, `IdempotentAttempt`): una llave por intento. Si el envío falla
+por la red, el reintento usa la misma (la tienda devuelve la reserva ya creada en vez de reservar dos veces); si la
+persona cambia algo (productos, datos, días, factura o notas), la llave es otra; cuando el servidor respondió, el
+intento se cierra. Sirve para la cabecera `Idempotency-Key` y para el `requestId` del RPC.
+
+### Contrato con el servidor
+
+`POST /storefront/v1/reservations` con `kind: "cart"`, `holdDays` (1 a 3), `buyer { documentType, documentNumber,
+complement, name }` y líneas sin `slot` (un armado sin los campos nuevos manda el mismo cuerpo de la V6). La respuesta
+trae `kind` y `mailQueued`; sus líneas pueden traer `slot: null` (en el dominio queda como texto vacío). Con cuenta:
+`CreateMyReservationCommand { lines, kind: "cart", holdDays, notes }`.
+
+### Modo mock
+
+La pasarela en memoria (`3-infrastructure/data/mockCatalog.ts`) numera los carritos `RES-WEB-n`, aplica los días, valida
+la factura con las reglas del SIN, rechaza los caracteres de control como el servidor y encola el correo solo si hay
+correo. La cuenta del cliente del modo mock reserva sobre el MISMO stock (`InMemoryWebBackend` con `stock`): con
+`VITE_API_URL=mock` se recorre todo el flujo sin servidor (agregar al carrito → reservar con o sin cuenta → ver la reserva
+en «Mi reserva» o «Mis reservas»).
+
+### Pruebas de la reserva
+
+Reglas del formulario y de los plazos (`1-domain/storefront/checkout.test.ts`), llave por intento, fallas y ajuste
+(`2-application/checkout/checkout.test.ts`), cuerpo HTTP y RPC (`3-infrastructure/http/checkoutHttp.test.ts`), modo mock
+(`3-infrastructure/data/mockCheckout.test.ts`) y la página con la tabla de rutas real (`pages/cart/CheckoutPage.test.tsx`:
+artículo suelto sin tocar el carrito, validaciones, notas en una línea, 409 y «Ajustar a lo disponible» conservando el
+formulario, misma llave al reintentar y otra al cambiar, 400 por campo y 429, cliente con sesión por RPC y confirmación
+con y sin correo).

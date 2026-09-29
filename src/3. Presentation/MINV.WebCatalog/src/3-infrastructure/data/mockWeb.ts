@@ -5,6 +5,10 @@
 //
 // Trae dos usuarios de MUESTRA (uno del personal y un cliente). No son cuentas reales: existen solo en la memoria de
 // la pestaña y su contraseña es pública a propósito, para la demostración.
+//
+// V7 · reservas con la cuenta: con la opción `stock` (la pasarela de reservas del modo mock) la reserva descuenta el MISMO
+// stock que ve el catálogo y, si no alcanza, responde como el servidor (422 `storefront.insufficient_stock`, con el
+// detalle en el mensaje). Las notas y el nombre rechazan los caracteres de control en medio (400).
 
 import { WebApiError } from '@/1-domain/auth/errors';
 import { isStrongPassword } from '@/1-domain/auth/validation';
@@ -13,6 +17,7 @@ import type { Product } from '@/1-domain/catalog/types';
 import type { IRpcGateway, RpcOutcome, RpcSendOptions } from '@/1-domain/ports/IRpcGateway';
 import type { ISessionGateway } from '@/1-domain/ports/ISessionGateway';
 import { formatBolivianPhone, isBolivianPhone, isValidEmail } from '@/1-domain/storefront/contact';
+import type { StockShortage } from '@/1-domain/storefront/types';
 import { newUuid } from '@/shared/ids';
 import {
   PERMISSION_LIST,
@@ -88,12 +93,21 @@ interface ProcessedRequest {
   result: unknown;
 }
 
+/** Stock compartido con la tienda del modo mock (lo implementa InMemoryReservationGateway). */
+export interface InMemoryStock {
+  /** Reserva todo o nada; devuelve los faltantes (vacío = reservó). */
+  hold(lines: readonly { sku: string; quantity: number }[]): StockShortage[];
+  release(lines: readonly { sku: string; quantity: number }[]): void;
+}
+
 export interface InMemoryWebOptions {
   /** Productos para armar las reservas de muestra del cliente (por defecto, ninguna reserva). */
   products?: readonly Product[];
   now?: () => Date;
   /** Usuarios iniciales (por defecto los de muestra). */
   users?: readonly DemoUser[];
+  /** V7: stock compartido con la tienda; sin él, las reservas de la cuenta no descuentan stock. */
+  stock?: InMemoryStock;
 }
 
 function normalizeEmail(email: string): string {
@@ -119,12 +133,16 @@ export class InMemoryWebBackend {
   private readonly processed = new Map<string, ProcessedRequest>();
   private readonly products: readonly Product[];
   private readonly now: () => Date;
+  private readonly stock: InMemoryStock | null;
+  /** Reservas de la cuenta que tienen stock tomado (las de muestra no): al liberarlas se devuelve. */
+  private readonly holding = new Set<string>();
   private currentEmail: string | null = null;
   private sequence = 0;
 
   constructor(options: InMemoryWebOptions = {}) {
     this.products = options.products ?? [];
     this.now = options.now ?? (() => new Date());
+    this.stock = options.stock ?? null;
     for (const user of options.users ?? DEMO_USERS) this.addUser(user);
 
     this.session = {
@@ -397,6 +415,7 @@ export class InMemoryWebBackend {
     }
     const cancelled: StorefrontReservationView = { ...current, status: 'Cancelled', statusText: 'Cancelada', cancelReason: 'Cancelada por el cliente desde su cuenta' };
     user.reservations[index] = cancelled;
+    if (this.holding.delete(code)) this.stock?.release(current.lines.map((line) => ({ sku: line.sku, quantity: line.quantity })));
     return cancelled;
   }
 
@@ -405,21 +424,33 @@ export class InMemoryWebBackend {
     if (lines.length === 0) {
       throw new WebApiError({ kind: 'validation', status: 400, message: 'Datos no válidos: Agregue al menos un producto.', errors: ['Agregue al menos un producto.'] });
     }
-    const kind = command.kind === 'cart' ? 'cart' : 'build';
+    const kind = String(command.kind).toLowerCase() === 'cart' ? 'cart' : 'build';
     const days = command.holdDays ?? null;
-    if (days !== null && (!Number.isInteger(days) || days < 1 || days > 3)) {
-      throw new WebApiError({ kind: 'validation', status: 400, message: 'Datos no válidos: El plazo para recoger va de 1 a 3 días.', errors: ['El plazo para recoger va de 1 a 3 días.'] });
-    }
+    const invalid: string[] = [];
+    if (days !== null && (!Number.isInteger(days) || days < 1 || days > 3)) invalid.push('Los días para recoger la reserva van de 1 a 3.');
+    // Como el servidor: los extremos se recortan; en medio no se admiten saltos de línea ni otros caracteres de control.
+    if (hasControlChars((command.notes ?? '').trim())) invalid.push('Las notas van en una sola línea: no admite saltos de línea, tabuladores ni otros caracteres de control.');
+    if (hasControlChars((command.name ?? '').trim())) invalid.push('El nombre de la reserva no admite saltos de línea, tabuladores ni otros caracteres de control.');
+    if (invalid.length > 0) throw new WebApiError({ kind: 'validation', status: 400, message: `Datos no válidos: ${invalid.join(' · ')}`, errors: invalid });
     const bySku = new Map(this.products.map((product) => [product.sku, product]));
     const viewLines = lines.map((line) => {
       const product = bySku.get(line.sku);
       if (!product) throw new WebApiError({ kind: 'domain', status: 422, code: 'product.inactive', message: `El producto ${line.sku} no está en el catálogo.` });
       return { slot: kind === 'cart' ? null : (line.slot ?? null), sku: product.sku, name: product.name, quantity: line.quantity, unitPrice: product.price, subtotal: roundMoney(product.price * line.quantity) };
     });
+    if (this.stock) {
+      const shortages = this.stock.hold(lines.map((line) => ({ sku: line.sku, quantity: line.quantity })));
+      if (shortages.length > 0) {
+        const detail = shortages.map((item) => `${item.sku} (pedido ${item.requested}, disponible ${item.available})`).join('; ');
+        throw new WebApiError({ kind: 'domain', status: 422, code: 'storefront.insufficient_stock', message: `No hay stock suficiente para ${shortages.length} pieza(s): ${detail}` });
+      }
+    }
     const createdAt = this.now();
     this.sequence += 1;
+    const number = `${kind === 'cart' ? 'RES' : 'ARM'}-WEB-${String(900000 + this.sequence)}`;
+    if (this.stock) this.holding.add(number);
     const reservation: StorefrontReservationView = {
-      number: `${kind === 'cart' ? 'RES' : 'ARM'}-WEB-${String(900000 + this.sequence)}`,
+      number,
       status: 'Reserved',
       statusText: 'Reservada',
       createdAt: createdAt.toISOString(),

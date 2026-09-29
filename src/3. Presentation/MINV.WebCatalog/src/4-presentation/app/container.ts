@@ -9,6 +9,9 @@
 //
 // V7 · carrito: `createCartServices()` arma los casos de uso del carrito sobre el almacenamiento del navegador (o la
 // memoria, si el navegador no deja guardar). La presentación lo usa con `useCart()`.
+//
+// V7 · modo mock: la tienda (reservas sin sesión) y la cuenta del cliente (reservas por RPC) comparten UNA pasarela de
+// reservas en memoria, así lo que reserva cualquiera de las dos vías baja lo disponible que muestra el catálogo.
 
 import type { SessionKind } from '@/1-domain/auth/types';
 import type { Product } from '@/1-domain/catalog/types';
@@ -92,8 +95,8 @@ export interface Services {
  */
 export async function createSources(apiUrl: string | undefined = import.meta.env.VITE_API_URL): Promise<Sources> {
   if (isMockApiUrl(apiUrl)) {
-    const mock = await import('@/3-infrastructure/data/mockCatalog');
-    return createMockSources(mock.MOCK_CATALOG, mock);
+    const { mock, gateway } = await mockWorld();
+    return createMockSources(mock.MOCK_CATALOG, mock, gateway);
   }
   // El valor crudo: StorefrontApi lo resuelve UNA vez («/» = mismo origen). Resolverlo aquí antes lo convertía en vacío y el
   // constructor lo tomaba como «sin configurar» (volvía a http://localhost:5090 y la tienda pública no cargaba).
@@ -102,10 +105,31 @@ export async function createSources(apiUrl: string | undefined = import.meta.env
 }
 
 type MockModule = typeof import('@/3-infrastructure/data/mockCatalog');
+type MockReservationGateway = InstanceType<MockModule['InMemoryReservationGateway']>;
 
-/** Fuente y pasarela en memoria sobre unos datos (el mock de la V5 o datos de prueba): comparten la disponibilidad. */
-export function createMockSources(data: InMemoryCatalogData, mock: Pick<MockModule, 'MockCatalogSource' | 'InMemoryReservationGateway'>): Sources {
-  const gateway = new mock.InMemoryReservationGateway(data);
+interface MockWorld {
+  mock: MockModule;
+  /** La pasarela de reservas del modo mock: una sola para la tienda y para la cuenta del cliente. */
+  gateway: MockReservationGateway;
+}
+
+let mockWorldPromise: Promise<MockWorld> | null = null;
+
+/** Datos del modo mock (fragmento aparte) y su única pasarela de reservas, creados una vez por página. */
+function mockWorld(): Promise<MockWorld> {
+  mockWorldPromise ??= import('@/3-infrastructure/data/mockCatalog').then((mock) => ({ mock, gateway: new mock.InMemoryReservationGateway(mock.MOCK_CATALOG) }));
+  return mockWorldPromise;
+}
+
+/**
+ * Fuente y pasarela en memoria sobre unos datos (el mock de la V5 o datos de prueba): comparten la disponibilidad. Se
+ * puede pasar la pasarela para que otra vía (la cuenta del cliente del modo mock) reserve sobre el mismo stock.
+ */
+export function createMockSources(
+  data: InMemoryCatalogData,
+  mock: Pick<MockModule, 'MockCatalogSource' | 'InMemoryReservationGateway'>,
+  gateway: MockReservationGateway = new mock.InMemoryReservationGateway(data),
+): Sources {
   // La fuente lee la disponibilidad desde la pasarela: lo reservado en memoria se refleja al refrescar y en la ficha.
   const source = new mock.MockCatalogSource({
     ...data,
@@ -194,8 +218,9 @@ export function createWebServicesFrom(gateways: WebGateways, mode: CatalogMode, 
  */
 export async function createWebServices(apiUrl: string | undefined = import.meta.env.VITE_API_URL): Promise<WebServices> {
   if (isMockApiUrl(apiUrl)) {
-    const [web, catalog] = await Promise.all([import('@/3-infrastructure/data/mockWeb'), import('@/3-infrastructure/data/mockCatalog')]);
-    const backend = new web.InMemoryWebBackend({ products: catalog.MOCK_CATALOG.products });
+    const [web, world] = await Promise.all([import('@/3-infrastructure/data/mockWeb'), mockWorld()]);
+    // Las reservas de la cuenta descuentan el MISMO stock que las de la tienda (y que ve el catálogo).
+    const backend = new web.InMemoryWebBackend({ products: world.mock.MOCK_CATALOG.products, stock: world.gateway });
     return createWebServicesFrom({ session: backend.session, rpc: backend.rpc }, 'mock', web.DEMO_USERS);
   }
   const api = new WebApi();

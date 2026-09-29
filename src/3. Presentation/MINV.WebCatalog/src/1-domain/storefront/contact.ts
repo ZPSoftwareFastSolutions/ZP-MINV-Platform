@@ -29,6 +29,19 @@ export function formatBolivianPhone(input: string): string {
   return local ? `+${BOLIVIA_COUNTRY_CODE} ${local}` : input.trim();
 }
 
+/**
+ * Texto libre en UNA línea (V7): el servidor rechaza saltos de línea, tabuladores y otros caracteres de control en medio
+ * del nombre, las notas y la razón social (400). Une las líneas con un espacio, cambia cualquier carácter de control por
+ * un espacio, junta los espacios repetidos y recorta los extremos: «Paso el sábado\npor la mañana» → «Paso el sábado por
+ * la mañana».
+ */
+export function toSingleLine(text: string): string {
+  return text
+    .replace(/[\p{Cc}\p{Zl}\p{Zp}]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 /** Validación mínima y local de un correo (la API vuelve a validarlo). */
 export function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value.trim());

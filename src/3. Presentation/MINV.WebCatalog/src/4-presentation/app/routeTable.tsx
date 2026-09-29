@@ -6,8 +6,8 @@
 //   /panel/*             sesión del personal   → `panel/PanelRoot` (lo construye el paquete W3)
 //   /mi-cuenta/*         sesión de cliente     → `pages/account/AccountPage`
 //   /cambiar-contrasena  cualquier sesión
-// Rutas públicas nuevas: /ingresar, /registrarse, /carrito (el carrito de compras) y /reservar (provisional: la
-// construye el paquete siguiente; recibe el carrito o un artículo suelto con `?sku=…&cantidad=…`).
+// Rutas públicas nuevas: /ingresar, /registrarse, /carrito (el carrito de compras) y /reservar (la reserva del carrito
+// o de un artículo suelto con `?sku=…&cantidad=…`, con o sin cuenta de cliente).
 
 import type { RouteObject } from 'react-router-dom';
 import { RequireSession } from '@/4-presentation/components/auth/RequireSession';
