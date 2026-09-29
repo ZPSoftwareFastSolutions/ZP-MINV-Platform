@@ -77,13 +77,16 @@ export function UsersPage() {
     notifyError: false,
   });
 
-  // Botones del tablero: la acción de la dirección abre su diálogo (una sola vez).
-  useEffect(() => {
-    if (!action) return;
+  // Botones del tablero: la acción de la dirección abre su diálogo una sola vez y después se quita de la dirección.
+  const [handled, setHandled] = useState('');
+  if (action !== handled) {
+    setHandled(action);
     if (action === 'nuevo' && canSave) setForm({ kind: 'new' });
     else if (action === 'restablecer' && canReset) setReset({ item: null });
-    clearAction();
-  }, [action, canSave, canReset, clearAction]);
+  }
+  useEffect(() => {
+    if (action) clearAction();
+  }, [action, clearAction]);
 
   const openNew = () => setForm({ kind: 'new' });
   const askToggle = (item: UserItem) => {

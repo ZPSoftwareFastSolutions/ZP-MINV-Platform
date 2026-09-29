@@ -41,7 +41,7 @@ function userOption(item: UserItem): ComboOption<UserItem> {
 export function ResetPasswordDialog({ request, users, onClose, onDone }: ResetPasswordDialogProps) {
   const formId = useId();
   const reset = useRpcCommand('ResetUserPasswordCommand', { notifyError: false, success: (_result, payload) => `Contraseña temporal asignada a ${payload.email}` });
-  const [shown, setShown] = useState<ResetRequest | null>(request);
+  const [shown, setShown] = useState<ResetRequest | null>(null);
   const [picked, setPicked] = useState<ComboOption<UserItem> | null>(null);
   const [mustChange, setMustChange] = useState(true);
   const [password, setPassword] = useState('');

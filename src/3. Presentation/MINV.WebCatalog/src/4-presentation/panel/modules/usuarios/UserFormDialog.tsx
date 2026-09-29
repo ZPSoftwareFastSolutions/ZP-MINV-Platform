@@ -59,7 +59,7 @@ export function UserFormDialog({ mode, roles, branches, activeBranchCode, onClos
   const notify = useNotify();
   const save = useRpcCommand('SaveUserCommand', { notifyError: false });
   const unlock = useRpcCommand('ResetUserPasswordCommand', { notifyError: false });
-  const [shown, setShown] = useState<UserFormMode | null>(mode);
+  const [shown, setShown] = useState<UserFormMode | null>(null);
   const [values, setValues] = useState<UserFormValues>(() => initialUserForm(mode?.kind === 'edit' ? mode.item : null, roles, activeBranchCode));
   const [touched, setTouched] = useState(false);
   // Cada vez que se abre, el formulario empieza de nuevo (el último sigue a la vista mientras se cierra).
@@ -219,7 +219,7 @@ export function UserFormDialog({ mode, roles, branches, activeBranchCode, onClos
         )}
 
         {isNew && (
-          <section className="space-y-3 rounded-xl border border-border bg-surface-2 p-4" aria-label="Contraseña inicial">
+          <div className="space-y-3 rounded-xl border border-border bg-surface-2 p-4">
             <TextField
               label="Contraseña inicial"
               value={values.password}
@@ -242,7 +242,7 @@ export function UserFormDialog({ mode, roles, branches, activeBranchCode, onClos
               checked={values.mustChange}
               onChange={(value) => set('mustChange', value)}
             />
-          </section>
+          </div>
         )}
       </Form>
     </Dialog>

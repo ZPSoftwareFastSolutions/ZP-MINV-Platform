@@ -19,13 +19,18 @@ export interface AssignBranchesDialogProps {
 export function AssignBranchesDialog({ target, branches, onClose, onDone }: AssignBranchesDialogProps) {
   const formId = useId();
   const assign = useRpcCommand('AssignUserBranchesCommand', { notifyError: false, success: (result) => plainMessage(result) || 'Sucursales asignadas' });
-  const [shown, setShown] = useState<UserItem | null>(target);
+  const [shown, setShown] = useState<UserItem | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [touched, setTouched] = useState(false);
-  if (target && target !== shown) {
-    setShown(target);
-    setSelected([...target.record.branchCodes]);
-    setTouched(false);
+  const [wasOpen, setWasOpen] = useState(false);
+  // Cada vez que se abre, empieza con las sucursales que tiene (el último sigue a la vista mientras se cierra).
+  if ((target !== null) !== wasOpen) {
+    setWasOpen(target !== null);
+    if (target) {
+      setShown(target);
+      setSelected([...target.record.branchCodes]);
+      setTouched(false);
+    }
   }
   const problem = selected.length === 0 ? 'Elija al menos una sucursal.' : null;
   // También las asignadas que ya no están en el directorio (para poder quitarlas).
