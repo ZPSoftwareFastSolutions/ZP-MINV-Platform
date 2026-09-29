@@ -1,22 +1,33 @@
 // Bloque de compra de la ficha: precio grande con lista tachada y ahorro, IVA incluido, disponibilidad FRESCA (V6: la
 // ficha consulta `GET /products/{slug}` al abrirse y muestra disponible y reservado), garantía, ranura del armador («Va
-// en: Tarjeta de video»), cantidad (solo en ranuras múltiples, con lo disponible como tope), «Agregar al armado», «Ver mi
-// armado» y beneficios. Todo el estado del armado vive en memoria (useBuilder).
+// en: Tarjeta de video») y beneficios.
+//
+// V7 · la tienda funciona como carrito de compras: TODO producto con disponibilidad (también consolas, juegos,
+// portátiles y lo que antes solo ofrecía «Consultar por WhatsApp») tiene cantidad (con lo disponible como tope),
+// «Agregar al carrito» y «Reservar ahora». «Reservar ahora» lleva directo a la reserva de ESE solo artículo
+// (`/reservar?sku=…&cantidad=…`), sin pasar por el carrito ni por «Armá tu PC». Debajo quedan, como opciones
+// secundarias, el armador (para las piezas que ocupan una ranura) o la consulta por WhatsApp (para el resto).
 
-import { ArrowRight, Check, CreditCard, LoaderCircle, MessageCircle, PcCase, Plus, ScanBarcode, ShieldCheck, Store, Truck } from 'lucide-react';
+import { ArrowRight, Check, CreditCard, LoaderCircle, MessageCircle, PcCase, Plus, ScanBarcode, ShieldCheck, ShoppingCart, Store, Truck, Zap } from 'lucide-react';
 import { useId, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { maxQuantityFor } from '@/1-domain/builder/build';
 import { slotForProduct } from '@/1-domain/builder/slots';
+import { maxCartQuantity } from '@/1-domain/cart/cart';
 import { savingAmount } from '@/1-domain/catalog/money';
 import { isAvailable, reservedLabel, stockStatus, unavailableLabel } from '@/1-domain/catalog/stock';
 import type { Product } from '@/1-domain/catalog/types';
+import { ROUTES } from '@/4-presentation/app/routes';
+import { unitsLabel } from '@/4-presentation/components/cart/cartText';
 import { StockIndicator } from '@/4-presentation/components/product/StockIndicator';
 import { Button } from '@/4-presentation/components/ui/Button';
 import { Card } from '@/4-presentation/components/ui/Card';
 import { CategoryIcon } from '@/4-presentation/components/ui/CategoryIcon';
 import { PriceTag } from '@/4-presentation/components/ui/PriceTag';
 import { QuantityStepper } from '@/4-presentation/components/ui/QuantityStepper';
+import { useAddToCart } from '@/4-presentation/hooks/useAddToCart';
 import { useBuilder } from '@/4-presentation/hooks/useBuilder';
+import { useCartState } from '@/4-presentation/hooks/useCart';
 import { useFreshProduct } from '@/4-presentation/hooks/useFreshProduct';
 import { useStore } from '@/4-presentation/hooks/useStore';
 import { STORE } from '@/shared/constants';
@@ -30,22 +41,26 @@ export interface PurchaseBoxProps {
 }
 
 export function PurchaseBox({ product: snapshotProduct, categoryHref }: PurchaseBoxProps) {
-  const { add, isInBuild, openDrawer, count } = useBuilder();
+  const { add: addToBuild, isInBuild, openDrawer, count } = useBuilder();
+  const addToCart = useAddToCart();
+  const { quantityOf } = useCartState();
   const { branch } = useStore();
   // Disponibilidad recién consultada a la tienda (regla S-07); mientras llega, la de la instantánea.
   const { product, refreshing, fresh } = useFreshProduct(snapshotProduct);
   const headingId = useId();
-  const quantityId = useId();
   const slot = slotForProduct(product);
   const available = isAvailable(product);
   const status = stockStatus(product);
   const inBuild = isInBuild(product.sku);
+  const inCart = quantityOf(product.sku);
   const saving = savingAmount(product.price, product.listPrice);
-  const maxQuantity = maxQuantityFor(product);
-  const [quantity, setQuantity] = useState(1);
+  // Tope de la cantidad: lo disponible, hasta 16 por producto (el armador admite hasta 10 de una misma pieza).
+  const maxQuantity = Math.max(1, maxCartQuantity(product));
+  const [wanted, setWanted] = useState(1);
+  const quantity = Math.min(wanted, maxQuantity);
   const reserved = reservedLabel(product);
 
-  const addLabel = !available ? unavailableLabel(product) : inBuild ? (slot?.multiple ? 'Agregar otra vez' : 'En tu armado') : 'Agregar al armado';
+  const buildLabel = inBuild ? (slot?.multiple ? 'Agregar otra vez al armado' : 'En tu armado') : 'Agregar al armado';
 
   return (
     <Card as="section" aria-labelledby={headingId} elevated padding="md" className="animate-fade-up">
@@ -93,55 +108,79 @@ export function PurchaseBox({ product: snapshotProduct, categoryHref }: Purchase
         )}
       </dl>
 
-      <div className="mt-5 flex flex-col gap-3">
-        {slot ? (
+      <div className="mt-5 flex flex-col gap-3" data-testid="acciones-ficha">
+        {available ? (
           <>
-            {slot.multiple && available && (
+            {maxQuantity > 1 && (
               <div className="flex items-center justify-between gap-3">
-                <span id={quantityId} className="text-sm font-medium text-text-muted">
+                <span aria-hidden="true" className="text-sm font-medium text-text-muted">
                   Cantidad
                 </span>
-                <QuantityStepper value={Math.min(quantity, maxQuantity)} onChange={setQuantity} min={1} max={maxQuantity} label={`Cantidad de ${product.shortName}`} />
+                <QuantityStepper value={quantity} onChange={setWanted} min={1} max={maxQuantity} label={`Cantidad de ${product.shortName}`} />
               </div>
             )}
-            <Button
-              size="lg"
-              variant={inBuild && !slot.multiple ? 'subtle' : 'brand'}
-              fullWidth
-              disabled={!available}
-              leftIcon={inBuild && !slot.multiple ? <Check /> : <Plus />}
-              onClick={() => add(product, slot.key, slot.multiple ? Math.min(quantity, maxQuantity) : undefined)}
-            >
-              {addLabel}
+            <Button size="lg" variant="brand" fullWidth leftIcon={<ShoppingCart />} onClick={() => addToCart(product, quantity)}>
+              Agregar al carrito
             </Button>
-            <Button size="lg" variant="outline" fullWidth leftIcon={<PcCase />} onClick={openDrawer}>
-              Ver mi armado{count > 0 ? ` (${count})` : ''}
+            <Button size="lg" variant="accent" fullWidth leftIcon={<Zap />} to={ROUTES.checkoutItem(product.sku, quantity)}>
+              Reservar ahora
             </Button>
+            {inCart > 0 && (
+              <p className="text-sm text-text-muted" data-testid="en-carrito-ficha">
+                Tenés {unitsLabel(inCart)} en tu carrito.{' '}
+                <Link to={ROUTES.cart} className="inline-flex min-h-6 items-center rounded-sm font-semibold text-accent transition-colors duration-200 hover:text-accent-hover">
+                  Ver carrito
+                </Link>
+              </p>
+            )}
           </>
         ) : (
           <>
-            <p className="rounded-xl border border-border bg-surface px-3 py-2.5 text-sm text-text-muted">
-              Este producto no ocupa una ranura del armador «Armá tu PC»: se compra por separado.
+            <Button size="lg" variant="subtle" fullWidth disabled>
+              {unavailableLabel(product)}
+            </Button>
+            <p className="text-sm text-text-muted">
+              {status === 'reservado'
+                ? 'Las unidades que quedan están reservadas por otros clientes; si una reserva se libera o vence, vuelven a estar disponibles. '
+                : 'Sin stock por ahora. '}
+              <a href={STORE.whatsappUrl} target="_blank" rel="noreferrer noopener" className="font-semibold text-accent transition-colors duration-200 hover:text-accent-hover">
+                Consultanos por WhatsApp
+              </a>{' '}
+              para avisarte cuando vuelva.
             </p>
-            <Button href={STORE.whatsappUrl} target="_blank" rel="noreferrer noopener" size="lg" variant="brand" fullWidth leftIcon={<MessageCircle />}>
-              Consultar por WhatsApp
-            </Button>
-            <Button to={categoryHref} size="lg" variant="outline" fullWidth rightIcon={<ArrowRight />}>
-              Ver más de {product.categoryName}
-            </Button>
           </>
         )}
-        {!available && (
-          <p className="text-sm text-text-muted">
-            {status === 'reservado'
-              ? 'Las unidades que quedan están reservadas por otros clientes; si una reserva se libera o vence, vuelven a estar disponibles. '
-              : 'Sin stock por ahora. '}
-            <a href={STORE.whatsappUrl} target="_blank" rel="noreferrer noopener" className="font-semibold text-accent transition-colors duration-200 hover:text-accent-hover">
-              Consultanos por WhatsApp
-            </a>{' '}
-            para avisarte cuando vuelva.
-          </p>
-        )}
+
+        <div className="mt-1 flex flex-col gap-3 border-t border-border pt-4">
+          {slot ? (
+            <>
+              <p className="text-xs font-semibold uppercase tracking-wide text-text-faint">¿Estás armando una PC?</p>
+              {available && (
+                <Button
+                  variant={inBuild && !slot.multiple ? 'subtle' : 'outline'}
+                  fullWidth
+                  leftIcon={inBuild && !slot.multiple ? <Check /> : <Plus />}
+                  onClick={() => addToBuild(product, slot.key, slot.multiple ? Math.min(quantity, maxQuantityFor(product)) : undefined)}
+                >
+                  {buildLabel}
+                </Button>
+              )}
+              <Button variant="ghost" fullWidth leftIcon={<PcCase />} onClick={openDrawer}>
+                Ver mi armado{count > 0 ? ` (${count})` : ''}
+              </Button>
+            </>
+          ) : (
+            <>
+              <p className="text-xs font-semibold uppercase tracking-wide text-text-faint">¿Tenés dudas?</p>
+              <Button href={STORE.whatsappUrl} target="_blank" rel="noreferrer noopener" variant="outline" fullWidth leftIcon={<MessageCircle />}>
+                Consultar por WhatsApp
+              </Button>
+              <Button to={categoryHref} variant="ghost" fullWidth rightIcon={<ArrowRight />}>
+                Ver más de {product.categoryName}
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       <ul className="mt-5 space-y-2.5 border-t border-border pt-4 text-sm text-text-muted">

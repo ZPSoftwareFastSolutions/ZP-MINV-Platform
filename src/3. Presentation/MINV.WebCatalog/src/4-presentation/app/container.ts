@@ -6,9 +6,13 @@
 // V7: `createWebServices()` arma la sesión web, el RPC y la cuenta del cliente (servidor en la nube por `/api/v1/web`, o
 // todo en memoria con «mock»). La presentación los usa con `useSession()`, `useRpc()` y `useAccount()`. El contrato
 // generado también sale a la presentación por aquí (ver `./contract.ts`).
+//
+// V7 · carrito: `createCartServices()` arma los casos de uso del carrito sobre el almacenamiento del navegador (o la
+// memoria, si el navegador no deja guardar). La presentación lo usa con `useCart()`.
 
 import type { SessionKind } from '@/1-domain/auth/types';
 import type { Product } from '@/1-domain/catalog/types';
+import type { ICartStore } from '@/1-domain/ports/ICartStore';
 import type { ICatalogSource } from '@/1-domain/ports/ICatalogSource';
 import type { IReservationGateway } from '@/1-domain/ports/IReservationGateway';
 import type { IRpcGateway } from '@/1-domain/ports/IRpcGateway';
@@ -16,11 +20,13 @@ import type { ISessionGateway } from '@/1-domain/ports/ISessionGateway';
 import type { CatalogSnapshot } from '@/1-domain/storefront/types';
 import {
   createAccountUseCases,
+  createCartUseCases,
   createCatalogUseCases,
   createReservationUseCases,
   createSessionUseCases,
   watchSession,
   type AccountUseCases,
+  type CartUseCases,
   type CatalogUseCases,
   type ReservationUseCases,
   type SessionUseCases,
@@ -33,6 +39,7 @@ import { HttpSessionGateway } from '@/3-infrastructure/http/HttpSessionGateway';
 import { RpcAccountGateway } from '@/3-infrastructure/http/RpcAccountGateway';
 import { isMockApiUrl, StorefrontApi } from '@/3-infrastructure/http/api';
 import { WebApi } from '@/3-infrastructure/http/webApi';
+import { createCartStore } from '@/3-infrastructure/storage/cartStorage';
 import { InMemoryCatalogRepository, type InMemoryCatalogData } from '@/3-infrastructure/InMemoryCatalogRepository';
 
 // Contrato generado del servidor (tipos de cada petición y respuesta, operaciones, permisos y roles): la presentación
@@ -72,8 +79,11 @@ export interface Services {
   mode: CatalogMode;
   /** Cuándo se generó la instantánea que alimenta `catalog`. */
   generatedAt: Date;
-  /** Vuelve a cargar la instantánea (sin parpadeo: la anterior sigue visible hasta que llegue la nueva). */
-  refresh(): Promise<void>;
+  /**
+   * Vuelve a cargar la instantánea (sin parpadeo: la anterior sigue visible hasta que llegue la nueva). Devuelve si
+   * llegó una nueva; con falso la consulta falló y se conserva la anterior (el carrito avisa que no pudo actualizar).
+   */
+  refresh(): Promise<boolean>;
 }
 
 /**
@@ -107,7 +117,7 @@ export function createMockSources(data: InMemoryCatalogData, mock: Pick<MockModu
 }
 
 /** Casos de uso sobre una instantánea ya cargada. */
-export function createServices(snapshot: CatalogSnapshot, sources: Sources, refresh: () => Promise<void>): Services {
+export function createServices(snapshot: CatalogSnapshot, sources: Sources, refresh: () => Promise<boolean>): Services {
   const repository = InMemoryCatalogRepository.fromSnapshot(snapshot);
   return {
     catalog: createCatalogUseCases(repository),
@@ -190,4 +200,14 @@ export async function createWebServices(apiUrl: string | undefined = import.meta
   }
   const api = new WebApi();
   return createWebServicesFrom({ session: new HttpSessionGateway(api), rpc: new HttpRpcGateway(api) }, 'api');
+}
+
+// ======================================================================================================== V7 · carrito
+
+/**
+ * Carrito de compras sobre un almacén: por defecto el almacenamiento del navegador (o la memoria si el navegador no lo
+ * ofrece o lo bloquea). Las pruebas pasan un almacén en memoria.
+ */
+export function createCartServices(store: ICartStore = createCartStore()): CartUseCases {
+  return createCartUseCases(store);
 }

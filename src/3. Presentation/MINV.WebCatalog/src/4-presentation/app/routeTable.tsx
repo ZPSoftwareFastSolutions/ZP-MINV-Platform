@@ -6,7 +6,8 @@
 //   /panel/*             sesión del personal   → `panel/PanelRoot` (lo construye el paquete W3)
 //   /mi-cuenta/*         sesión de cliente     → `pages/account/AccountPage`
 //   /cambiar-contrasena  cualquier sesión
-// Rutas públicas nuevas: /ingresar, /registrarse, /carrito y /reservar (estas dos las construye el paquete W2).
+// Rutas públicas nuevas: /ingresar, /registrarse, /carrito (el carrito de compras) y /reservar (provisional: la
+// construye el paquete siguiente; recibe el carrito o un artículo suelto con `?sku=…&cantidad=…`).
 
 import type { RouteObject } from 'react-router-dom';
 import { RequireSession } from '@/4-presentation/components/auth/RequireSession';
@@ -55,7 +56,7 @@ export function createAppRoutes(): RouteObject[] {
             // V7 · cuenta del cliente
             // Una sola ruta con la sección opcional: cambiar de pestaña no vuelve a montar la página.
             { element: <RequireSession kind="customer" />, children: [{ path: 'mi-cuenta/:seccion?', lazy: lazyAccount }] },
-            // V7 · carrito y reserva (paquete W2)
+            // V7 · carrito y reserva
             { path: 'carrito', lazy: lazyCart },
             { path: 'reservar', lazy: lazyCheckout },
             { path: '*', element: <NotFoundPage /> },

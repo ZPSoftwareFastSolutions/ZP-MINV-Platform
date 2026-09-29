@@ -1,8 +1,8 @@
-// Menú móvil en un cajón izquierdo: la sesión (ingresar o las opciones de la cuenta), accesos rápidos, categorías en
-// acordeón y contacto. Se cierra al navegar.
+// Menú móvil en un cajón izquierdo: la sesión (ingresar o las opciones de la cuenta), accesos rápidos (el carrito, el
+// armador, ofertas y la consulta de reservas), categorías en acordeón y contacto. Se cierra al navegar.
 
 import clsx from 'clsx';
-import { BadgePercent, ChevronDown, Cpu, LogIn, LogOut, MessageCircle, Phone, Sparkles, TicketCheck, UserPlus } from 'lucide-react';
+import { BadgePercent, ChevronDown, Cpu, LogIn, LogOut, MessageCircle, Phone, ShoppingCart, Sparkles, TicketCheck, UserPlus } from 'lucide-react';
 import { useState } from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import type { CategoryNode } from '@/1-domain/catalog/categories';
@@ -11,6 +11,7 @@ import { Button } from '@/4-presentation/components/ui/Button';
 import { CategoryIcon } from '@/4-presentation/components/ui/CategoryIcon';
 import { Drawer } from '@/4-presentation/components/ui/Drawer';
 import { useBuilder } from '@/4-presentation/hooks/useBuilder';
+import { useCartState } from '@/4-presentation/hooks/useCart';
 import { useLogout } from '@/4-presentation/hooks/useLogout';
 import { useServices } from '@/4-presentation/hooks/useServices';
 import { useSession } from '@/4-presentation/hooks/useSession';
@@ -113,6 +114,7 @@ function SessionBlock({ onClose }: { onClose: () => void }) {
 export function MobileMenu({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { catalog } = useServices();
   const { count } = useBuilder();
+  const { count: cartCount } = useCartState();
   const [expanded, setExpanded] = useState<string | null>(null);
   const tree = catalog.getCategoryTree();
 
@@ -121,6 +123,15 @@ export function MobileMenu({ open, onClose }: { open: boolean; onClose: () => vo
       <div className="space-y-6">
         <SessionBlock onClose={onClose} />
         <div className="space-y-2">
+          <Button to={ROUTES.cart} variant="subtle" fullWidth leftIcon={<ShoppingCart />}>
+            Carrito
+            {cartCount > 0 && (
+              <span className="ml-1 rounded-full bg-cta px-2 text-xs font-bold text-bg">
+                {cartCount}
+                <span className="sr-only">{cartCount === 1 ? ' producto en tu carrito' : ' productos en tu carrito'}</span>
+              </span>
+            )}
+          </Button>
           <Button to={ROUTES.builder} variant="brand" fullWidth leftIcon={<Cpu />}>
             Armá tu PC
             {count > 0 && (

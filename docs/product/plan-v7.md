@@ -11,17 +11,17 @@ Estado de cada tarea: `[x]` terminada · `[ ]` pendiente.
 - [x] 1. Crear la rama `Inventario-V7` desde `Inventario-V6`.
 - [x] 2. Mapa del sistema actual (casos de uso, escritorio, web, base de datos, seguridad, despliegue).
 - [x] 3. Diseño de la V7 y sus reglas (`docs/architecture/plataforma-web-v7.md`, `.claude/v7-web-platform-rules.md`).
-- [ ] 4. Servidor: carrito → reserva de cualquier producto (un solo artículo o varios, sin pasar por «Armá tu PC»).
+- [x] 4. Servidor: carrito → reserva de cualquier producto (un solo artículo o varios, sin pasar por «Armá tu PC»).
 - [ ] 5. Servidor: cuentas web (iniciar sesión y registrarse), roles y sesión segura.
 - [ ] 6. Servidor: correo automático con el código y el detalle de la reserva (remitente `zapasoftwarefastsolutions@gmail.com`).
 - [ ] 7. Base de datos: migración V7 y comprobación de normalización con informe.
-- [ ] 8. Web: botón «Ingresar» y pantallas de inicio de sesión y registro.
+- [x] 8. Web: botón «Ingresar» y pantallas de inicio de sesión y registro.
 - [ ] 9. Web: carrito de compras y página de reserva con los datos del cliente.
 - [ ] 10. Web: panel por rol separado por módulos, con botones, listas desplegables y filtros.
 - [ ] 11. Web: las funciones del escritorio (stock, catálogo, caja, ventas, clientes, compras, proveedores,
       transferencias, reservas, series y garantías, facturación, reportes, contabilidad, usuarios).
 - [ ] 12. Web: tablero simplificado (funciones como botones; estadísticas solo al pulsar «Ver»).
-- [ ] 13. Web: panel del cliente (mis reservas, mis datos).
+- [x] 13. Web: panel del cliente (mis reservas, mis datos).
 - [ ] 14. Escritorio: arreglos, más botones, filtros y funciones.
 - [ ] 15. Calidad: pruebas del servidor, de la web y recorrido completo en un navegador real.
 - [ ] 16. Ciberseguridad: revisión de accesos, sesiones y datos, con sus correcciones.

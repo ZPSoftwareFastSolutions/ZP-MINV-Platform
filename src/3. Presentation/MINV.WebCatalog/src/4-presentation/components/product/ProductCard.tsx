@@ -1,19 +1,15 @@
 import clsx from 'clsx';
-import { ArrowRight, Check, Plus } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { isBuildable } from '@/1-domain/builder/slots';
 import { isOnSale } from '@/1-domain/catalog/money';
 import { savingLabel } from '@/4-presentation/i18n/priceLabels';
-import { isAvailable, unavailableLabel } from '@/1-domain/catalog/stock';
 import type { Product } from '@/1-domain/catalog/types';
 import { ROUTES } from '@/4-presentation/app/routes';
 import { Badge } from '@/4-presentation/components/ui/Badge';
-import { Button } from '@/4-presentation/components/ui/Button';
 import { Card } from '@/4-presentation/components/ui/Card';
 import { PriceTag } from '@/4-presentation/components/ui/PriceTag';
 import { ProductImage } from '@/4-presentation/components/ui/ProductImage';
 import { Skeleton } from '@/4-presentation/components/ui/Skeleton';
-import { useBuilder } from '@/4-presentation/hooks/useBuilder';
+import { ProductActions } from './ProductActions';
 import { ProductBadges } from './ProductBadges';
 import { StockIndicator } from './StockIndicator';
 
@@ -28,13 +24,10 @@ export interface ProductCardProps {
 
 /**
  * Tarjeta de producto: imagen en loseta, insignias, marca, nombre (2 líneas), 2 características, precio con lista
- * tachada, disponibilidad y «Agregar al armado» (ranura inferida). Toda la tarjeta enlaza al detalle.
+ * tachada, disponibilidad y las acciones de compra (V7: «Agregar al carrito» y «Reservar ahora» en todo producto con
+ * disponibilidad; «Agregar al armado» en las piezas del armador). Toda la tarjeta enlaza al detalle.
  */
 export function ProductCard({ product, priority = false, showCategory = true, className }: ProductCardProps) {
-  const { add, isInBuild } = useBuilder();
-  const available = isAvailable(product);
-  const buildable = isBuildable(product);
-  const inBuild = isInBuild(product.sku);
   const detail = ROUTES.product(product.slug);
 
   return (
@@ -72,24 +65,7 @@ export function ProductCard({ product, priority = false, showCategory = true, cl
           <PriceTag price={product.price} listPrice={product.listPrice} size="md" showSaving={false} />
           <StockIndicator product={product} className="pb-1" />
         </div>
-        {buildable ? (
-          <Button
-            type="button"
-            variant={inBuild ? 'subtle' : 'primary'}
-            fullWidth
-            disabled={!available}
-            leftIcon={inBuild ? <Check /> : <Plus />}
-            aria-label={available ? `${inBuild ? 'En tu armado, agregar otra vez' : 'Agregar al armado'}: ${product.shortName}` : `${unavailableLabel(product)}: ${product.shortName}`}
-            onClick={() => add(product)}
-            className="relative z-10"
-          >
-            {!available ? unavailableLabel(product) : inBuild ? 'En tu armado' : 'Agregar al armado'}
-          </Button>
-        ) : (
-          <Button to={detail} variant="outline" fullWidth rightIcon={<ArrowRight />} className="relative z-10">
-            Ver producto
-          </Button>
-        )}
+        <ProductActions product={product} />
       </div>
     </Card>
   );
@@ -111,6 +87,7 @@ export function ProductCardSkeleton({ className }: { className?: string }) {
           <Skeleton className="h-6 w-24" />
           <Skeleton className="h-3 w-16" />
         </div>
+        <Skeleton className="h-11 w-full rounded-xl" />
         <Skeleton className="h-11 w-full rounded-xl" />
       </div>
     </Card>

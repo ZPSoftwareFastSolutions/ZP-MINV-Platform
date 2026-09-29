@@ -158,7 +158,7 @@ public static class RpcCatalog
     {
         RequestValidationException v => new RpcError(RpcErrorKinds.Validation, v.Message, v.Errors),
         AccessDeniedException => new RpcError(RpcErrorKinds.AccessDenied, ex.Message),
-        AuthenticationFailedException => new RpcError(RpcErrorKinds.Authentication, ex.Message),
+        AuthenticationFailedException a => new RpcError(RpcErrorKinds.Authentication, a.Message, null, a.Code),
         NotFoundException => new RpcError(RpcErrorKinds.NotFound, ex.Message),
         ConcurrencyConflictException => new RpcError(RpcErrorKinds.Concurrency, ex.Message),
         IdempotencyConflictException => new RpcError(RpcErrorKinds.Idempotency, ex.Message),
@@ -171,7 +171,7 @@ public static class RpcCatalog
     {
         RpcErrorKinds.Validation => new RequestValidationException(error.Errors ?? [error.Message]),
         RpcErrorKinds.AccessDenied => new AccessDeniedException(error.Message),
-        RpcErrorKinds.Authentication => new AuthenticationFailedException(error.Message),
+        RpcErrorKinds.Authentication => new AuthenticationFailedException(error.Message, error.Code),
         RpcErrorKinds.NotFound => new NotFoundException(error.Message),
         RpcErrorKinds.Concurrency => new ConcurrencyConflictException(error.Message),
         RpcErrorKinds.Idempotency => new IdempotencyConflictException(error.Message),

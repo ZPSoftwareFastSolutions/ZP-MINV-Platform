@@ -60,11 +60,15 @@ Reglas de la sesión:
 3. La empresa NO la escribe el usuario: sale de `Minv:Web:TenantCode`.
 4. Mensaje único ante cualquier falla de inicio de sesión («Correo o contraseña incorrectos»); bloqueo de la cuenta a los
    5 intentos (15 min); 10 inicios por minuto por IP; 5 registros por hora por IP. La IP real sale de `X-Forwarded-For`
-   solo desde redes privadas conocidas (`Minv:ForwardedHeaders`, igual que el gateway).
+   solo desde redes privadas conocidas (`Minv:ForwardedHeaders`, igual que el gateway). La cuenta bloqueada conserva el
+   mensaje único y agrega el código estable `auth.locked` (`error.code`), para que la página avise que hay que esperar.
 5. `kind = customer` cuando el ÚNICO rol del usuario es `CLIENTE`. Una sesión de cliente solo puede ejecutar por RPC
    (también por la ruta del escritorio) los casos de uso cuyos permisos empiezan con `account.` y los de su propia sesión
    (`ChangePasswordCommand`, `LogoutCommand`). Defensa en profundidad: la tubería de permisos sigue aplicando.
 6. Canal de auditoría `web` (`RequestChannels.Web`).
+7. La página no conoce el identificador de su sesión: por `/api/v1/web/rpc`, `SelectBranchCommand` y `LogoutCommand`
+   actúan SIEMPRE sobre la sesión de la cookie (el `sessionId` del pedido se ignora).
+8. Con `Minv:Web:Enabled=false` las cinco rutas no existen (404); encendida sin `TenantCode` responden 503.
 
 ## 4. Cuentas de cliente
 

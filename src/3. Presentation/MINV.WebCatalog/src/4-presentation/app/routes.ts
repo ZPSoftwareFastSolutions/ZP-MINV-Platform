@@ -1,6 +1,7 @@
 // Rutas del sitio en un solo lugar: las páginas y componentes construyen enlaces con estas funciones.
 
 import { AUTH_PATHS, changePasswordPath, loginPath, registerPath } from '@/2-application/auth/navigation';
+import { CART_PATH, CHECKOUT_PATH, checkoutItemPath } from '@/2-application/cart/checkout';
 
 /** Secciones de «Mi cuenta» (`/mi-cuenta/:seccion`). */
 export const ACCOUNT_SECTIONS = ['reservas', 'datos', 'contrasena'] as const;
@@ -33,9 +34,12 @@ export const ROUTES = {
   /** Panel del personal (solo sesión del personal); los módulos cuelgan de `/panel/<módulo>`. */
   panel: AUTH_PATHS.panel,
   panelModule: (path: string) => `${AUTH_PATHS.panel}/${path.replace(/^\/+/, '')}`,
-  /** Carrito y reserva del carrito (paquete W2). */
-  cart: '/carrito',
-  checkout: '/reservar',
+  /** Carrito de compras. */
+  cart: CART_PATH,
+  /** Reserva del carrito completo. */
+  checkout: CHECKOUT_PATH,
+  /** «Reservar ahora»: la reserva de ESE solo artículo (`/reservar?sku=…&cantidad=…`), sin pasar por el carrito. */
+  checkoutItem: (sku: string, quantity = 1) => checkoutItemPath(sku, quantity),
 } as const;
 
 /** Nombre del parámetro de búsqueda en /catalogo. */

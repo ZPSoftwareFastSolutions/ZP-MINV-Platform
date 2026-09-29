@@ -9,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using MINV.Application.Abstractions;
 using MINV.Application.Accounting;
 using MINV.Application.Accounts;
+using MINV.Application.Billing;
 using MINV.Application.Common;
 using MINV.Application.Corporate;
 using MINV.Application.Iam;
@@ -120,6 +121,15 @@ internal sealed class WebTestClient : IDisposable
         return (response.StatusCode, (await response.Content.ReadFromJsonAsync<RpcResponse>(RpcJson.Options))!);
     }
 
+    /// <summary>Un caso de uso con los datos que la prueba quiera (campos que el contrato no tiene): lo que enviaría una página
+    /// manipulada.</summary>
+    public async Task<(HttpStatusCode Status, RpcResponse Response)> PostRpcAsync(Type type, object payload, string path = "/api/v1/web/rpc")
+    {
+        var response = await PostAsync(path, new RpcRequest(Guid.NewGuid(), RpcCatalog.NameOf(type),
+            JsonSerializer.SerializeToElement(payload, payload.GetType(), RpcJson.Options)));
+        return (response.StatusCode, (await response.Content.ReadFromJsonAsync<RpcResponse>(RpcJson.Options))!);
+    }
+
     public async Task<T> SendAsync<T>(IRequest<T> request)
     {
         var (_, response) = await RpcAsync(request);
@@ -155,6 +165,9 @@ public sealed class WebSessionTests(WebServerFixture server) : IClassFixture<Web
         server.Seed.Users.First(u => u.RoleCode == role && (branches is null || u.Branches == branches));
 
     private static string Email(string prefix) => $"{prefix}-{Guid.NewGuid():N}@correo.example";
+
+    /// <summary>La hora del servidor (el reloj de la empresa de prueba no es el del equipo).</summary>
+    private DateTimeOffset Now => server.Services.GetRequiredService<IClock>().UtcNow;
 
     private async Task<(WebTestClient Browser, string Email)> RegisteredAsync(string name, string phone = "71234567")
     {
@@ -215,7 +228,8 @@ public sealed class WebSessionTests(WebServerFixture server) : IClassFixture<Web
         Assert.Equal(["CB", "CM", "SC"], session.GetProperty("access").GetProperty("branches").EnumerateArray().Select(b => b.GetProperty("code").GetString()));
         Assert.Equal(server.Seed.CompanyName, session.GetProperty("company").GetString());
         Assert.Equal(RpcTestClient.ClientVersion, session.GetProperty("serverVersion").GetString());
-        Assert.InRange((session.GetProperty("expiresAt").GetDateTimeOffset() - DateTimeOffset.UtcNow).TotalHours, 11.5, 12.5);
+        // Vence a las 12 h sin actividad, según el reloj del SERVIDOR (el de la empresa de prueba va adelantado o atrasado)
+        Assert.InRange((session.GetProperty("expiresAt").GetDateTimeOffset() - Now).TotalHours, 11.9, 12.1);
 
         // En la base solo queda el SHA-256 del token, nunca el token
         var token = browser.Cookie!;
@@ -250,29 +264,41 @@ public sealed class WebSessionTests(WebServerFixture server) : IClassFixture<Web
         var manager = User(RoleCodes.Management);
         var (locked, lockedEmail) = await RegisteredAsync("Cuenta Bloqueada");
         locked.Dispose();
-        var attempts = new List<(string Email, string Password)>
+        var attempts = new List<(string Email, string Password, string? Code)>
         {
-            (manager.Email, "Clave-Equivocada-1"),                 // contraseña incorrecta
-            ("nadie-" + Guid.NewGuid().ToString("N") + "@correo.example", manager.Password),   // el correo no existe
-            (manager.Email, new string('x', 300)),                  // texto enorme: ni se calcula el hash
-            (TenantProvisioner.StorefrontEmail("NUBE", server.Seed.Users[0].Email), "Clave-Tecnica-1"),   // usuario técnico de la tienda
+            (manager.Email, "Clave-Equivocada-1", null),                 // contraseña incorrecta
+            ("nadie-" + Guid.NewGuid().ToString("N") + "@correo.example", manager.Password, null),   // el correo no existe
+            (manager.Email, new string('x', 300), null),                  // texto enorme: ni se calcula el hash
+            (TenantProvisioner.StorefrontEmail("NUBE", server.Seed.Users[0].Email), "Clave-Tecnica-1", null),   // usuario técnico de la tienda
         };
-        // Cinco intentos fallidos bloquean la cuenta: el sexto, con la contraseña CORRECTA, recibe el mismo mensaje
-        attempts.AddRange(Enumerable.Repeat((lockedEmail, "Clave-Equivocada-1"), UserCredential.MaxFailedAttempts));
-        attempts.Add((lockedEmail, Password));
-        foreach (var (email, password) in attempts)
+        // Cinco intentos fallidos bloquean la cuenta: el quinto y el sexto (este con la contraseña CORRECTA) reciben el mismo
+        // mensaje y, además, el código estable auth.locked
+        attempts.AddRange(Enumerable.Repeat((lockedEmail, "Clave-Equivocada-1", (string?)null), UserCredential.MaxFailedAttempts - 1));
+        attempts.Add((lockedEmail, "Clave-Equivocada-1", AuthenticationCodes.Locked));
+        attempts.Add((lockedEmail, Password, AuthenticationCodes.Locked));
+        Assert.Equal("auth.locked", AuthenticationCodes.Locked);
+        foreach (var (email, password, code) in attempts)
         {
             using var browser = Browser();
             var response = await browser.LoginAsync(email, password);
             Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
             var error = await WebTestClient.ErrorAsync(response);
-            Assert.Equal((RpcErrorKinds.Authentication, WebEndpoints.LoginFailedMessage), (error.Kind, error.Message));
+            Assert.Equal((RpcErrorKinds.Authentication, WebEndpoints.LoginFailedMessage, code), (error.Kind, error.Message, error.Code));
+            Assert.Null(error.Errors);
             Assert.Null(browser.Cookie);
             Assert.DoesNotContain("mses_", string.Join(';', response.Headers.TryGetValues("Set-Cookie", out var set) ? set : []), StringComparison.Ordinal);
             // Sin cookie no hay sesión ni RPC
             Assert.Equal(HttpStatusCode.Unauthorized, (await browser.GetAsync("/api/v1/web/session")).StatusCode);
             Assert.Equal(HttpStatusCode.Unauthorized, (await browser.RpcAsync(new GetBranchesQuery())).Status);
         }
+        // Por la ruta del escritorio la cuenta bloqueada conserva su mensaje de siempre y lleva el mismo código estable
+        var desktop = new RpcTestClient(RpcTestClient.Configure(server.CreateClient()));
+        var (lockedStatus, _, lockedError) = await desktop.LoginAsync("NUBE", new SeedUser(RoleCodes.Customer, "Cliente web", "Cuenta Bloqueada", lockedEmail, Password));
+        Assert.Equal((HttpStatusCode.Unauthorized, RpcErrorKinds.Authentication, AuthenticationCodes.Locked),
+            (lockedStatus, lockedError!.Error!.Kind, lockedError.Error.Code));
+        Assert.Contains("bloqueada", lockedError.Error.Message, StringComparison.Ordinal);
+        var (wrongStatus, _, wrongError) = await desktop.LoginAsync("NUBE", manager, "Clave-Equivocada-1");
+        Assert.Equal((HttpStatusCode.Unauthorized, (string?)null), (wrongStatus, wrongError!.Error!.Code));
         // La empresa sale de la configuración: un «tenantCode» en el cuerpo no cambia nada
         using (var browser = Browser())
         {
@@ -289,8 +315,10 @@ public sealed class WebSessionTests(WebServerFixture server) : IClassFixture<Web
         }
         // Los intentos quedaron en el registro de acceso, con el equipo «web …» y sin la contraseña
         var logs = await InDatabaseAsync(db => db.AccessLogs.AsNoTracking().Where(a => a.AttemptedEmail == lockedEmail).ToListAsync());
-        Assert.Equal(UserCredential.MaxFailedAttempts + 1, logs.Count(a => !a.Succeeded));
-        Assert.All(logs, a => Assert.StartsWith("web ", a.MachineName, StringComparison.Ordinal));
+        var fromWeb = logs.Where(a => a.MachineName != "PRUEBAS").ToList();
+        Assert.Equal(UserCredential.MaxFailedAttempts + 1, fromWeb.Count(a => !a.Succeeded));
+        Assert.All(fromWeb, a => Assert.StartsWith("web ", a.MachineName, StringComparison.Ordinal));
+        Assert.Single(logs, a => a.MachineName == "PRUEBAS" && !a.Succeeded);   // el intento por la ruta del escritorio
         Assert.DoesNotContain(logs, a => (a.FailureReason ?? string.Empty).Contains(Password, StringComparison.Ordinal));
     }
 
@@ -531,8 +559,9 @@ public sealed class WebSessionTests(WebServerFixture server) : IClassFixture<Web
         var next = await second.SendAsync(new GetMyAccountQuery());
         second.Dispose();
         Assert.Equal(secondEmail, next.Email);
-        Assert.Equal(int.Parse(stored.customer.Code[4..], System.Globalization.CultureInfo.InvariantCulture) < int.Parse(next.CustomerCode[4..],
-            System.Globalization.CultureInfo.InvariantCulture), true);
+        Assert.Matches(@"^WEB-\d{6}$", next.CustomerCode);
+        Assert.True(int.Parse(stored.customer.Code[4..], System.Globalization.CultureInfo.InvariantCulture) < int.Parse(next.CustomerCode[4..],
+            System.Globalization.CultureInfo.InvariantCulture), $"{stored.customer.Code} → {next.CustomerCode}");
     }
 
     [Fact]
@@ -639,9 +668,11 @@ public sealed class WebSessionTests(WebServerFixture server) : IClassFixture<Web
             new CreateStorefrontReservationCommand([new StorefrontReservationLineInput("CASE-COR-4000D")], new StorefrontContactInput("Diego", "71234567"), null, "llave"),
             new CancelStorefrontReservationCommand("RES-WEB-000001", "71234567"),
             new ExpirePcBuildReservationsCommand(),
-            // Casos de uso SIN permiso declarado (lo comprueban por dentro): tampoco están en la lista
+            // Casos de uso SIN permiso declarado (lo comprueban por dentro o solo piden una sesión): tampoco están en la lista
             new RegisterMovementCommand("CASE-COR-4000D", "ALM01-GENERAL", "SALIDA", 1),
             new SelectBranchCommand(login.Login.SessionId, null),
+            new SelectBranchCommand(login.Login.SessionId, login.Login.Access.ActiveBranchId),   // ni siquiera a su propia sucursal
+            new GetBillingAccessQuery(),
         };
         foreach (var request in staff)
         {
@@ -696,7 +727,7 @@ public sealed class WebSessionTests(WebServerFixture server) : IClassFixture<Web
         var mine = first.Result!.Value.Deserialize<StorefrontReservationView>(RpcJson.Options)!;
         Assert.StartsWith("RES-WEB-", mine.Number, StringComparison.Ordinal);
         Assert.Equal(("Reserved", "cart", "Ana Quispe", "CM", "Paso el sábado", 2 * game.Price), (mine.Status, mine.Kind, mine.ContactName, mine.Branch, mine.Notes, mine.Total));
-        Assert.InRange((mine.ReservedUntil!.Value - DateTimeOffset.UtcNow).TotalHours, 47, 49);
+        Assert.InRange((mine.ReservedUntil!.Value - Now).TotalHours, 47.9, 48.1);
         // Idempotente por el identificador del pedido: el reintento devuelve la misma reserva
         var (_, replayed) = await ana.RpcAsync(command, id);
         Assert.True(replayed.Replayed);
@@ -781,7 +812,7 @@ public sealed class WebSessionTests(WebServerFixture server) : IClassFixture<Web
         Assert.Equal(HttpStatusCode.OK, (await manager.LoginAsync(who.Email, who.Password)).StatusCode);
         // Consultas: las mismas del escritorio, con el alcance que calcula el servidor
         Assert.Equal(["CB", "CM", "SC"], (await manager.SendAsync(new GetBranchesQuery())).Where(b => b.IsVisible).Select(b => b.Code).Order(StringComparer.Ordinal));
-        Assert.NotEmpty((await manager.SendAsync(new GetStockProjectionQuery())).Rows);
+        Assert.NotEmpty((await manager.SendAsync(new GetStockProjectionQuery())).Result.Stock);
         // Comando idempotente, en una transacción con su registro (mismo contrato que /api/v1/rpc)
         var id = Guid.NewGuid();
         var command = new CreateJournalEntryCommand(server.Seed.To, "Pago de servicios desde el panel web",
@@ -813,8 +844,27 @@ public sealed class WebSessionTests(WebServerFixture server) : IClassFixture<Web
         Assert.Equal(HttpStatusCode.OK, (await cashier.LoginAsync(cb.Email, cb.Password)).StatusCode);
         Assert.Equal(["CB"], (await cashier.SendAsync(new GetBranchesQuery())).Where(b => b.IsVisible).Select(b => b.Code));
         await Assert.ThrowsAsync<AccessDeniedException>(() => cashier.SendAsync(new GetUsersQuery()));
+        var branches = await manager.SendAsync(new GetBranchesQuery());
+        var (outside, outsideError) = await cashier.RpcAsync(new SelectBranchCommand(Guid.NewGuid(), branches.Single(b => b.Code == "SC").Id));
+        Assert.Equal((HttpStatusCode.Forbidden, RpcErrorKinds.AccessDenied), (outside, outsideError.Error!.Kind));
+        // La página no conoce el identificador de su sesión: el servidor usa SIEMPRE la sesión de la cookie (el que venga se ignora)
+        var chosen = await manager.SendAsync(new SelectBranchCommand(Guid.NewGuid(), branches.Single(b => b.Code == "CB").Id));
+        Assert.Equal("CB", chosen.Active!.Code);
+        var afterChange = await WebTestClient.JsonAsync(await manager.GetAsync("/api/v1/web/session"));
+        Assert.Equal(chosen.ActiveBranchId, afterChange.GetProperty("access").GetProperty("activeBranchId").GetGuid());
+        Assert.True(afterChange.GetProperty("access").GetProperty("allBranches").GetBoolean());
+        // …y no puede tocar la sesión de otro usuario aunque conozca su identificador
+        var cashierSession = await InDatabaseAsync(db => (from s in db.Sessions join u in db.Users on s.UserId equals u.Id
+                                                          where u.Email == cb.Email && s.EndedAt == null select s.Id).FirstAsync());
+        Assert.Null((await manager.SendAsync(new SelectBranchCommand(cashierSession, null))).ActiveBranchId);
+        Assert.True(await manager.SendAsync(new LogoutCommand(cashierSession)));   // cierra la SUYA, no la del cajero
+        Assert.Equal(HttpStatusCode.Unauthorized, (await manager.GetAsync("/api/v1/web/session")).StatusCode);
+        var cashierNow = await WebTestClient.JsonAsync(await cashier.GetAsync("/api/v1/web/session"));
+        Assert.Equal(cb.Email, cashierNow.GetProperty("email").GetString());
+        Assert.Equal("CB", cashierNow.GetProperty("access").GetProperty("active").GetProperty("code").GetString());
+        Assert.Equal(HttpStatusCode.OK, (await manager.LoginAsync(who.Email, who.Password)).StatusCode);
         // Errores del contrato: operación desconocida, datos mal formados y validación
-        Assert.Equal(HttpStatusCode.BadRequest, (await manager.PostAsync("/api/v1/web/rpc", new RpcRequest(Guid.NewGuid(), "MINV.Application.NoExiste", default))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await manager.PostAsync("/api/v1/web/rpc", new RpcRequest(Guid.NewGuid(), "MINV.Application.NoExiste", JsonSerializer.SerializeToElement(new { })))).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await manager.PostAsync("/api/v1/web/rpc", new { requestId = Guid.NewGuid(), type = RpcCatalog.NameOf(typeof(LoginCommand)), payload = new { } })).StatusCode);
         // Las rutas del escritorio siguen con su contrato: token en el cuerpo y cabecera Bearer; la cookie no sirve ahí
         var desktop = new RpcTestClient(RpcTestClient.Configure(server.CreateClient()));
@@ -914,14 +964,18 @@ public sealed class WebSwitchTests
     {
         var probes = await ProbeAsync("--Minv:Web:Enabled", "true");
         Assert.All(probes, r => Assert.True(HttpStatusCode.ServiceUnavailable == r.Status, $"{r.Path}: {(int)r.Status}"));
-        Assert.All(probes, r => Assert.Contains(WebEndpoints.UnavailableMessage, r.Body, StringComparison.Ordinal));
+        Assert.All(probes, r =>
+        {
+            var error = JsonSerializer.Deserialize<RpcResponse>(r.Body, RpcJson.Options)!.Error!;
+            Assert.Equal((RpcErrorKinds.Server, WebEndpoints.UnavailableMessage), (error.Kind, error.Message));
+        });
         var error = Assert.Throws<InvalidOperationException>(() => CloudServerApp.Build(
             ["--Minv:Storage", "memoria", "--Minv:Web:Enabled", "true", "--Minv:Web:TenantCode", "NUBE", "--Minv:Web:CookieName", "sesion; Path=/"]));
         Assert.Contains("CookieName", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void El_origen_se_compara_por_el_nombre_del_host()
+    public void La_configuracion_de_la_sesion_web_viene_apagada_y_se_normaliza()
     {
         var settings = new WebSettings { Enabled = true, TenantCode = " techzone ", RegistrationsPerHour = 0 }.Validated();
         Assert.Equal((true, "TECHZONE", WebSettings.DefaultCookieName, 1), (settings.IsConfigured, settings.Tenant, settings.CookieName, settings.EffectiveRegistrationsPerHour));

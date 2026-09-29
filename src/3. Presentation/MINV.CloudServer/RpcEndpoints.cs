@@ -148,7 +148,10 @@ internal static class RpcExecution
     }
 
     /// <summary>Ejecuta el comando o la consulta del sobre con la sesión ya autenticada.</summary>
-    public static async Task<IResult> ExecuteAsync(HttpContext http, IServiceProvider sp, CloudPrincipal principal, CancellationToken ct)
+    /// <param name="ownSession">V7 · Verdadero en la ruta de la web: los casos de uso de la propia sesión se ejecutan SIEMPRE
+    /// sobre la sesión de la cookie (ver <see cref="BindSession"/>).</param>
+    public static async Task<IResult> ExecuteAsync(HttpContext http, IServiceProvider sp, CloudPrincipal principal, CancellationToken ct,
+        bool ownSession = false)
     {
         var envelope = await ReadBodyAsync<RpcRequest>(http, ct);
         if (envelope is null || envelope.RequestId == Guid.Empty || envelope.Type is null
@@ -172,6 +175,10 @@ internal static class RpcExecution
         catch (Exception ex) when (ex is JsonException or InvalidOperationException)
         {
             return Error(new RpcError(RpcErrorKinds.Validation, "Los datos del pedido no tienen el formato esperado."));
+        }
+        if (ownSession)
+        {
+            request = BindSession(request, principal.SessionId);
         }
         var sender = sp.GetRequiredService<ISender>();
         try
@@ -224,6 +231,18 @@ internal static class RpcExecution
         await transaction.CommitAsync(ct);
         return Results.Json(new RpcResponse(true, json, null), RpcJson.Options);
     }
+
+    /// <summary>
+    /// V7 · La página no conoce el identificador de su sesión (la sesión web no lo entrega, regla P-02): cambiar de sucursal
+    /// (<see cref="SelectBranchCommand"/>) y cerrar la sesión (<see cref="LogoutCommand"/>) por la ruta de la web actúan
+    /// SIEMPRE sobre la sesión de la cookie; el <c>sessionId</c> que venga en el pedido se ignora.
+    /// </summary>
+    internal static object BindSession(object request, Guid sessionId) => request switch
+    {
+        SelectBranchCommand select => select with { SessionId = sessionId },
+        LogoutCommand logout => logout with { SessionId = sessionId },
+        _ => request,
+    };
 
     public static string Limit(string? text, int max) => string.IsNullOrWhiteSpace(text) ? "?" : text.Length > max ? text[..max] : text;
 

@@ -135,9 +135,10 @@ tools/           generar_catalogo_web.py
 |---|---|
 | `/` | Inicio (hero, destacados, ofertas, categorías, armados publicados) |
 | `/catalogo` · `/catalogo/:categoria` | Catálogo con filtros en cliente (`?q=`, `?tags=oferta`, marcas, precio) |
-| `/producto/:slug` | Ficha del producto con disponibilidad fresca (disponible y reservado), agregar al armado |
+| `/producto/:slug` | Ficha del producto con disponibilidad fresca (disponible y reservado), agregar al carrito, reservar ahora y agregar al armado |
 | `/arma-tu-pc` (`#armados`) | Armá tu PC paso a paso, armados sugeridos y **Reservar armado** |
 | `/reserva` · `/reserva/:numero` | Consultar mi reserva (número + teléfono), liberar |
+| `/carrito` | Carrito de compras (V7) |
 | `*` | Página no encontrada |
 
 ## Pruebas
@@ -154,8 +155,8 @@ ajuste) y la página de consulta (404, estado y liberación). `src/architecture.
   para revisar el diseño sin servidor (`VITE_API_URL=mock`).
 - **Repositorio síncrono sobre una instantánea.** La red se concentra en una carga (y refrescos en segundo plano); las
   páginas calculan con `useMemo` sin estados de carga. Solo la ficha y las reservas vuelven a la red.
-- **Estado en memoria.** El armado, la última reserva mostrada y los formularios viven en React; nada se guarda en el
-  navegador. Lo que persiste es la reserva en la base de datos de la tienda.
+- **Estado en memoria.** El armado, la última reserva mostrada y los formularios viven en React. Lo que persiste es la
+  reserva en la base de datos de la tienda. Desde la V7 el navegador guarda UNA cosa: el carrito (solo SKU y cantidad).
 - **Idempotencia.** Cada intento de envío genera un UUID nuevo (`Idempotency-Key`); si la API devuelve la misma reserva
   (`Idempotent-Replayed`), la confirmación lo dice.
 - **Fragmentos de producción.** `vite.config.ts` separa el mock (`catalogo`) y las bibliotecas (`vendor`) del código de
@@ -178,7 +179,8 @@ Reglas: `.claude/v7-web-platform-rules.md` (P-01 a P-14) · diseño: `docs/archi
 | `/cambiar-contrasena` | cualquier sesión | Cambio de contraseña; obligatoria cuando la sesión llega con `mustChangePassword` |
 | `/mi-cuenta` · `/mi-cuenta/reservas` · `/datos` · `/contrasena` | sesión de **cliente** | «Mis reservas» (filtro por estado, detalle, liberar), «Mis datos» (nombre, teléfono, documento para la factura) y «Cambiar contraseña» |
 | `/panel/*` | sesión del **personal** | Punto de montaje del panel: `4-presentation/panel/PanelRoot.tsx` (provisional «Panel en construcción»; lo reemplaza el paquete W3) |
-| `/carrito` · `/reservar` | todos | Provisionales (`pages/cart/CartPage.tsx` y `CheckoutPage.tsx`; los reemplaza el paquete W2) |
+| `/carrito` | todos | El carrito de compras (ver «V7 · Carrito de compras») |
+| `/reservar` | todos | Provisional (`pages/cart/CheckoutPage.tsx`; la construye el paquete siguiente). Recibe el carrito o un artículo suelto (`?sku=…&cantidad=…`) |
 
 Después de ingresar: el personal va a `/panel` y el cliente a `/mi-cuenta`, o a `volver` si es una ruta interna que su
 tipo de sesión puede ver. Las pantallas de la V7 se descargan solo al visitarlas (carga diferida en
@@ -236,3 +238,80 @@ Funciones puras (`1-domain/auth`, `1-domain/account`, `2-application/auth`), ada
 malicioso, cambio de contraseña obligatorio, sesión vencida) y las pantallas. `src/architecture.test.ts` vigila el único
 adaptador del contrato, los dos únicos archivos con `fetch`, que `localStorage` exista solo en
 `3-infrastructure/storage/*` (el carrito) y que nada de la sesión toque el almacenamiento.
+
+## V7 · Carrito de compras
+
+Pedido del cliente: la tienda funciona como **carrito de compras**; quien quiere un solo monitor lo reserva sin pasar por
+«Armá tu PC», que sigue funcionando igual.
+
+### Qué hay
+
+- **En cada tarjeta, fila y ficha de producto** con disponibilidad (también consolas, juegos, portátiles y lo que antes
+  solo ofrecía «Consultar por WhatsApp»): **«Agregar al carrito»** y **«Reservar ahora»**. Las piezas del armador
+  conservan «Agregar al armado» y el resto conserva «Consultar por WhatsApp», las dos como opciones secundarias.
+- **«Reservar ahora»** lleva directo a `/reservar?sku=<SKU>&cantidad=<n>` con ESE solo artículo: no pasa por el carrito
+  ni lo modifica.
+- **Aviso al agregar**: «Agregado al carrito» con «Ver carrito» (o por qué no entró más: todo lo disponible, el máximo
+  por producto o el carrito lleno).
+- **Ícono del carrito** con las unidades en la cabecera (escritorio y móvil) y en el menú móvil.
+- **`/carrito`**: lista con imagen, nombre, precio, cantidad (más y menos), subtotal y «Quitar»; total; «Seguir
+  comprando»; «Vaciar carrito» con confirmación; «Reservar» → `/reservar`. Al abrirse vuelve a consultar el catálogo a la
+  tienda: marca lo que **se agotó**, lo que **bajó** por debajo de lo pedido y lo que ya no está publicado, y ofrece
+  ajustar (línea por línea o todo junto). El carrito nunca se corrige solo y no deja reservar mientras haya algo por
+  ajustar.
+
+### Reglas
+
+| Regla | Dónde |
+|---|---|
+| Una línea por SKU; 16 unidades por producto y 20 productos distintos (los topes de la reserva, regla S-05) | `1-domain/cart/cart.ts` (`CART_LIMITS`) |
+| La cantidad nunca supera lo disponible del producto | `addToCart`, `setCartQuantity`, `maxCartQuantity` |
+| Total con aritmética exacta de centavos (3 × Bs 0,10 = Bs 0,30) | `1-domain/cart/totals.ts` |
+| Cruce con el catálogo fresco: `ok`, `reduced` (bajó), `sold_out` (se agotó) y `unavailable` (ya no está) | `2-application/cart/review.ts` |
+| Lo agotado y lo que ya no está no entran al total | `reviewCart` (`counted`) |
+
+### Qué se guarda en el navegador
+
+Una sola entrada, **`minv.carrito`**, con la versión del formato y el SKU y la cantidad de cada línea:
+
+```json
+{"v":1,"items":[{"sku":"MON-AOC-24G4","quantity":1}]}
+```
+
+Nada más: ni precios, ni nombres, ni datos de la persona, ni nada de la sesión. `3-infrastructure/storage/cartStorage.ts`
+es el ÚNICO archivo de la web que usa el almacenamiento del navegador (lo vigila `src/architecture.test.ts`). Tolera un
+almacenamiento lleno, bloqueado o con datos que no sirven (texto roto, otra versión del formato): leer devuelve un
+carrito vacío, guardar devuelve `false` y el carrito sigue funcionando en memoria (la página avisa que no se está
+guardando). Entre pestañas se sincroniza con el evento `storage`. Si el navegador no ofrece almacenamiento, se usa
+`memoryCartStore.ts` (el mismo puerto, en memoria), que también usan las pruebas.
+
+### Cómo se usa desde otra pantalla
+
+```tsx
+import { useCart } from '@/4-presentation/hooks/useCart';
+import { useAddToCart } from '@/4-presentation/hooks/useAddToCart';
+import { checkoutSelection } from '@/2-application';
+import { ROUTES } from '@/4-presentation/app/routes';
+
+const { lines, review, count, total, persistent, clear } = useCart();   // líneas ya cruzadas con el catálogo
+const addToCart = useAddToCart();                                        // agrega y muestra el aviso
+<Link to={ROUTES.checkoutItem(product.sku, 2)}>Reservar ahora</Link>     // /reservar?sku=…&cantidad=2
+
+// En /reservar: qué se reserva (el artículo de la dirección o el carrito), ya cruzado con el catálogo.
+const { source, items, review } = checkoutSelection(location.search, { items: cart.items }, (sku) => catalog.getProductBySku(sku));
+// Al confirmar la reserva, el carrito se vacía SOLO si `source === 'cart'`.
+```
+
+### Cambios visibles en la cabecera
+
+Para que el carrito entre sin desplazamiento horizontal: el botón «Armá tu PC» de la cabecera aparece desde 1024 px
+(antes, desde 640 px; por debajo está en el menú) y, por debajo de 480 px, el ícono «Mi armado» aparece solo cuando hay
+un armado en curso.
+
+### Pruebas del carrito
+
+Dominio (`1-domain/cart/cart.test.ts`), casos de uso con un almacén simulado (`2-application/cart/cart.test.ts`),
+almacenamiento (`3-infrastructure/storage/cartStorage.test.ts`: datos rotos, versión vieja, almacenamiento que lanza,
+aviso entre pestañas), proveedor (`state/CartProvider.test.tsx`), botones de la tarjeta y la fila
+(`components/product/ProductActions.test.tsx`), de la ficha (`pages/product/PurchaseBox.test.tsx`) y la página del
+carrito con la tabla de rutas real (`pages/cart/CartPage.test.tsx`).

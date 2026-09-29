@@ -195,14 +195,4 @@ public interface IFiscalRollRenderer
     byte[] RenderRoll(FiscalPrintModel model, int columns = 48);
 }
 
-public sealed record MailServer(string Host, int Port, bool UseSsl, string? UserName, string? Password, string FromAddress, string FromName);
-
-public sealed record MailAttachment(string FileName, string ContentType, byte[] Content);
-
-public sealed record MailMessageSpec(MailServer Server, string To, string Subject, string HtmlBody, IReadOnlyList<MailAttachment> Attachments);
-
-/// <summary>V4.1 · Envío de correo (entrega del XML y de la representación gráfica al comprador).</summary>
-public interface IMailSender
-{
-    Task SendAsync(MailMessageSpec message, CancellationToken cancellationToken = default);
-}
+// El puerto de correo (IMailSender, MailServer, MailAttachment, MailMessageSpec) está en MailPorts.cs desde la V7.

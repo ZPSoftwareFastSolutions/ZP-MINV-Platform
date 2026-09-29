@@ -37,7 +37,7 @@ type Publish = (update: LoadState | ((current: LoadState) => LoadState)) => void
 class CatalogLoader {
   private readonly sources: Sources | Promise<Sources>;
   private readonly publish: Publish;
-  private inFlight: Promise<void> | null = null;
+  private inFlight: Promise<boolean> | null = null;
   /** Momento (ms) en que llegó la última instantánea; 0 si todavía no hay ninguna. */
   loadedAt = 0;
 
@@ -46,7 +46,8 @@ class CatalogLoader {
     this.publish = publish;
   }
 
-  load(background: boolean): Promise<void> {
+  /** Devuelve si llegó una instantánea nueva (falso: la carga falló y, en segundo plano, se conserva la anterior). */
+  load(background: boolean): Promise<boolean> {
     if (this.inFlight) return this.inFlight;
     const run = (async () => {
       try {
@@ -54,9 +55,11 @@ class CatalogLoader {
         const snapshot = await resolved.source.load();
         this.loadedAt = Date.now();
         this.publish({ status: 'ready', snapshot, sources: resolved, loadedAt: this.loadedAt });
+        return true;
       } catch (error) {
         const failure = asStorefrontError(error);
         this.publish((current) => (background && current.status === 'ready' ? current : { status: 'error', error: failure, retrying: false }));
+        return false;
       } finally {
         this.inFlight = null;
       }

@@ -25,6 +25,8 @@ export type { ReservationUseCases, ReserveBuildInput } from './storefront/reserv
 export { createReservationUseCases, newIdempotencyKey } from './storefront/reservations';
 // V7 · sesión web y cuenta del cliente.
 export * from './auth';
+// V7 · carrito de compras.
+export * from './cart';
 
 export interface CatalogUseCases {
   /** Empresa y sucursal de la tienda (la disponibilidad y el retiro son de esa sucursal). */

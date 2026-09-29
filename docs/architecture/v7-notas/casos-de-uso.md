@@ -1,11 +1,26 @@
 # Mapa V7 - Casos de uso de MINV.Application (generado por script)
 
-Total: 186 - comandos (IAuditableRequest): 92 - consultas: 94
+Total: 192 - comandos (IAuditableRequest): 96 - consultas: 96
 
 > Paquete B1 (carrito, V7): cambian `CreateStorefrontReservationCommand`, `SavePcBuildCommand` y `GetPcBuildsQuery` (campos
 > opcionales al final) y se agrega `ReserveCartCommand`. `PcBuildItemInput.Slot` y `PcBuildItemView.Slot` admiten nulo.
+>
+> Paquete B2 (cuentas de cliente y sesión web, V7): se agrega el namespace `MINV.Application.Accounts` (6 casos de uso). Una
+> sesión cuyo único rol es `CLIENTE` solo ejecuta por RPC los cinco de la cuenta más `ChangePasswordCommand` y `LogoutCommand`
+> (`RpcCatalog.IsAllowedForCustomer`). `RegisterCustomerAccountCommand` y `LoginCommand` no viajan por RPC.
 
 El nombre con que viaja por RPC es el FullName: `<namespace>.<Tipo>`. C = comando, Q = consulta.
+
+## Accounts
+
+| Caso de uso (namespace MINV.Application.Accounts) | Tipo | Atributos | Respuesta | Archivo |
+|---|---|---|---|---|
+| `RegisterCustomerAccountCommand(string TenantCode, string Name, string Email, string Phone, string Password, string? BranchCode = null, string MachineName = "web", string ClientVersion = "web")` | C | **SIN ATRIBUTOS** (previo a la sesión; NO viaja por RPC) | `CustomerAccountSession` | Accounts/AccountContracts.cs |
+| `GetMyAccountQuery` | Q | [RequiresPermission(PermissionCodes.AccountManage)] | `MyAccountView` | Accounts/AccountContracts.cs |
+| `UpdateMyAccountCommand(string Name, string Phone, int? DocumentType = null, string? DocumentNumber = null, string? Complement = null)` | C | [RequiresPermission(PermissionCodes.AccountManage)] | `MyAccountView` | Accounts/AccountContracts.cs |
+| `GetMyReservationsQuery` | Q | [RequiresPermission(PermissionCodes.AccountManage)] | `IReadOnlyList<StorefrontReservationView>` | Accounts/AccountContracts.cs |
+| `CancelMyReservationCommand(string Number)` | C | [RequiresPermission(PermissionCodes.AccountManage)] | `StorefrontReservationView` | Accounts/AccountContracts.cs |
+| `CreateMyReservationCommand(IReadOnlyList<StorefrontReservationLineInput> Lines, PcBuildKind Kind = PcBuildKind.Cart, int? HoldDays = null, string? Notes = null, string? Name = null)` | C | [RequiresPermission(PermissionCodes.AccountReserve)] | `StorefrontReservationView` | Accounts/AccountContracts.cs |
 
 ## Accounting
 

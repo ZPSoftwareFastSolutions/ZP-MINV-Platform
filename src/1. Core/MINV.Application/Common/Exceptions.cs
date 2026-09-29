@@ -22,8 +22,20 @@ public sealed class RequestValidationException(IReadOnlyList<string> errors)
     public IReadOnlyList<string> Errors { get; } = errors;
 }
 
-/// <summary>Credenciales incorrectas (mensaje genérico: no revela si el correo existe).</summary>
-public sealed class AuthenticationFailedException(string message) : Exception(message);
+/// <summary>Credenciales incorrectas (mensaje genérico: no revela si el correo existe). V7: puede llevar un código estable
+/// (<see cref="AuthenticationCodes"/>) para que el cliente reconozca el caso sin leer el texto.</summary>
+public sealed class AuthenticationFailedException(string message, string? code = null) : Exception(message)
+{
+    /// <summary>Código estable de la falla; null en el caso general (credenciales incorrectas).</summary>
+    public string? Code { get; } = code;
+}
+
+/// <summary>V7 · Códigos estables de las fallas de autenticación.</summary>
+public static class AuthenticationCodes
+{
+    /// <summary>La cuenta está bloqueada por intentos fallidos (se desbloquea sola al pasar el tiempo de espera).</summary>
+    public const string Locked = "auth.locked";
+}
 
 /// <summary>V4 · Se repitió una petición idempotente (mismo id) con OTRO contenido: se rechaza (HTTP 422) en lugar de
 /// registrar dos veces.</summary>

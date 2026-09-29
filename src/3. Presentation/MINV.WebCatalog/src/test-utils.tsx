@@ -1,20 +1,24 @@
 // Utilidades de las pruebas de la presentación: orígenes en memoria (mock de la V5 con la pasarela de reservas), sesión
-// web en memoria (V7) y un render con todos los proveedores (sesión → catálogo → avisos → armado → enrutador en
-// memoria). Solo lo importan las pruebas: ninguna toca la red.
+// web en memoria (V7), carrito en memoria (V7) y un render con todos los proveedores (sesión → catálogo → avisos →
+// armado → carrito → enrutador en memoria). Solo lo importan las pruebas: ninguna toca la red ni el almacenamiento.
 
 import { render, screen, type RenderResult } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { createMemoryRouter, MemoryRouter, Route, RouterProvider, Routes } from 'react-router-dom';
 import type { SessionKind } from '@/1-domain/auth/types';
-import { createMockSources, createWebServicesFrom, type Sources, type WebGateways, type WebServices } from '@/4-presentation/app/container';
+import type { CartItem } from '@/1-domain/cart/types';
+import type { CartUseCases } from '@/2-application';
+import { createCartServices, createMockSources, createWebServicesFrom, type Sources, type WebGateways, type WebServices } from '@/4-presentation/app/container';
 import { createAppRoutes } from '@/4-presentation/app/routeTable';
 import { ToastProvider } from '@/4-presentation/components/feedback/ToastProvider';
 import { BuilderProvider } from '@/4-presentation/state/BuilderProvider';
+import { CartProvider } from '@/4-presentation/state/CartProvider';
 import { CatalogProvider } from '@/4-presentation/state/CatalogProvider';
 import { SessionProvider } from '@/4-presentation/state/SessionProvider';
 import { InMemoryReservationGateway, MOCK_CATALOG, MockCatalogSource } from '@/3-infrastructure/data/mockCatalog';
 import { DEMO_USERS, InMemoryWebBackend, type InMemoryWebOptions } from '@/3-infrastructure/data/mockWeb';
 import type { InMemoryCatalogData } from '@/3-infrastructure/InMemoryCatalogRepository';
+import { InMemoryCartStore } from '@/3-infrastructure/storage/memoryCartStore';
 
 /** Orígenes en memoria sobre el mock (o sobre datos propios): la fuente ve lo que reserva la pasarela. */
 export function mockSources(data: InMemoryCatalogData = MOCK_CATALOG): Sources {
@@ -52,10 +56,24 @@ export async function signedInWeb(kind: SessionKind, options: InMemoryWebOptions
   return web;
 }
 
+export interface MockCart {
+  /** Almacén en memoria: `store.changeFromElsewhere(items)` simula que otra pestaña cambió el carrito. */
+  store: InMemoryCartStore;
+  cart: CartUseCases;
+}
+
+/** Carrito en memoria (por defecto vacío) con las líneas indicadas ya guardadas. */
+export function mockCart(items: readonly CartItem[] = [], options: { persistent?: boolean } = {}): MockCart {
+  const store = new InMemoryCartStore(items, { persistent: options.persistent ?? true });
+  return { store, cart: createCartServices(store) };
+}
+
 export interface RenderAppOptions {
   sources?: Sources | Promise<Sources>;
   /** Sesión web (por defecto en memoria y sin nadie ingresado). */
   web?: WebServices | Promise<WebServices>;
+  /** Carrito (por defecto en memoria y vacío; cada render estrena el suyo). */
+  cart?: CartUseCases;
   /** Ruta inicial del enrutador en memoria. */
   route?: string;
   /** Patrón de la ruta que dibuja `ui` (por ejemplo `/reserva/:numero`); por defecto cualquiera. */
@@ -63,12 +81,14 @@ export interface RenderAppOptions {
 }
 
 /** Todos los proveedores de la aplicación alrededor de `children` (no es un componente: devuelve el árbol ya armado). */
-function withProviders(sources: Sources | Promise<Sources>, web: WebServices | Promise<WebServices>, children: ReactNode): ReactNode {
+function withProviders(sources: Sources | Promise<Sources>, web: WebServices | Promise<WebServices>, cart: CartUseCases, children: ReactNode): ReactNode {
   return (
     <SessionProvider web={web}>
       <CatalogProvider sources={sources}>
         <ToastProvider>
-          <BuilderProvider>{children}</BuilderProvider>
+          <BuilderProvider>
+            <CartProvider cart={cart}>{children}</CartProvider>
+          </BuilderProvider>
         </ToastProvider>
       </CatalogProvider>
     </SessionProvider>
@@ -78,12 +98,13 @@ function withProviders(sources: Sources | Promise<Sources>, web: WebServices | P
 /** Dibuja `ui` dentro de la aplicación completa y espera a que el catálogo esté listo. */
 export async function renderWithApp(
   ui: ReactNode,
-  { sources = mockSources(), web = mockWeb().services, route = '/', path = '*' }: RenderAppOptions = {},
+  { sources = mockSources(), web = mockWeb().services, cart = mockCart().cart, route = '/', path = '*' }: RenderAppOptions = {},
 ): Promise<RenderResult> {
   const result = render(
     withProviders(
       sources,
       web,
+      cart,
       <MemoryRouter initialEntries={[route]}>
         <Routes>
           <Route path={path} element={withReadyMark(ui)} />
@@ -105,7 +126,12 @@ export interface RenderRoutesResult extends RenderResult {
  * Dibuja la aplicación con la tabla de rutas REAL (guardas, carga diferida y vigilante de la sesión) en un enrutador en
  * memoria, y espera a que el catálogo esté listo.
  */
-export async function renderRoutes({ sources = mockSources(), web = mockWeb().services, route = '/' }: Omit<RenderAppOptions, 'path'> = {}): Promise<RenderRoutesResult> {
+export async function renderRoutes({
+  sources = mockSources(),
+  web = mockWeb().services,
+  cart = mockCart().cart,
+  route = '/',
+}: Omit<RenderAppOptions, 'path'> = {}): Promise<RenderRoutesResult> {
   // jsdom no implementa `scrollTo`, que usa <ScrollRestoration> de la tienda: se deja sin efecto para no ensuciar la salida.
   window.scrollTo = (() => undefined) as typeof window.scrollTo;
   const router = createMemoryRouter(createAppRoutes(), { initialEntries: [route] });
@@ -113,6 +139,7 @@ export async function renderRoutes({ sources = mockSources(), web = mockWeb().se
     withProviders(
       sources,
       web,
+      cart,
       <>
         <span data-testid="catalogo-listo" hidden />
         <RouterProvider router={router} />

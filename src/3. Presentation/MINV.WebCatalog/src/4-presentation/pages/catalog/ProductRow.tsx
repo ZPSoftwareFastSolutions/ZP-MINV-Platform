@@ -1,20 +1,17 @@
 // Fila de la vista en lista del catálogo: más información que la tarjeta (tres características, hasta cuatro
-// especificaciones principales) con precio, disponibilidad y «Agregar al armado». Toda la fila enlaza al detalle.
+// especificaciones principales) con precio, disponibilidad y las acciones de compra (V7: «Agregar al carrito» y
+// «Reservar ahora»; «Agregar al armado» en las piezas del armador). Toda la fila enlaza al detalle.
 
 import clsx from 'clsx';
-import { ArrowRight, Check, Plus } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { isBuildable } from '@/1-domain/builder/slots';
-import { isAvailable, unavailableLabel } from '@/1-domain/catalog/stock';
 import type { Product } from '@/1-domain/catalog/types';
 import { ROUTES } from '@/4-presentation/app/routes';
+import { ProductActions } from '@/4-presentation/components/product/ProductActions';
 import { ProductBadges } from '@/4-presentation/components/product/ProductBadges';
 import { StockIndicator } from '@/4-presentation/components/product/StockIndicator';
-import { Button } from '@/4-presentation/components/ui/Button';
 import { Card } from '@/4-presentation/components/ui/Card';
 import { PriceTag } from '@/4-presentation/components/ui/PriceTag';
 import { ProductImage } from '@/4-presentation/components/ui/ProductImage';
-import { useBuilder } from '@/4-presentation/hooks/useBuilder';
 
 export interface ProductRowProps {
   product: Product;
@@ -25,10 +22,6 @@ export interface ProductRowProps {
 const MAX_SPECS = 4;
 
 export function ProductRow({ product, priority = false, className }: ProductRowProps) {
-  const { add, isInBuild } = useBuilder();
-  const available = isAvailable(product);
-  const buildable = isBuildable(product);
-  const inBuild = isInBuild(product.sku);
   const detail = ROUTES.product(product.slug);
   const specs = product.specs.filter((spec) => spec.filterable && spec.key !== 'condicion').slice(0, MAX_SPECS);
 
@@ -83,23 +76,7 @@ export function ProductRow({ product, priority = false, className }: ProductRowP
             <PriceTag price={product.price} listPrice={product.listPrice} size="lg" align="start" className="md:items-end md:text-right" />
             <StockIndicator product={product} />
           </div>
-          {buildable ? (
-            <Button
-              type="button"
-              variant={inBuild ? 'subtle' : 'primary'}
-              disabled={!available}
-              leftIcon={inBuild ? <Check /> : <Plus />}
-              aria-label={available ? `${inBuild ? 'En tu armado, agregar otra vez' : 'Agregar al armado'}: ${product.shortName}` : `${unavailableLabel(product)}: ${product.shortName}`}
-              onClick={() => add(product)}
-              className="relative z-10 w-full sm:w-auto md:w-full"
-            >
-              {!available ? unavailableLabel(product) : inBuild ? 'En tu armado' : 'Agregar al armado'}
-            </Button>
-          ) : (
-            <Button to={detail} variant="outline" rightIcon={<ArrowRight />} className="relative z-10 w-full sm:w-auto md:w-full">
-              Ver producto
-            </Button>
-          )}
+          <ProductActions product={product} className="w-full sm:w-56 md:w-full" />
         </div>
       </div>
     </Card>

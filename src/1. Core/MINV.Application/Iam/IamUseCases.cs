@@ -69,9 +69,12 @@ public sealed class LoginHandler(IMinvDbContext db, ITenantContext tenant, ICurr
         if (failure is not null)
         {
             await db.SaveChangesAsync(ct);
-            throw new AuthenticationFailedException(credential?.IsLocked(now) == true
-                ? $"Cuenta bloqueada por {UserCredential.MaxFailedAttempts} intentos fallidos: espere {UserCredential.LockoutDuration.TotalMinutes} minutos."
-                : Generic);
+            // V7 · La cuenta bloqueada lleva además un código estable (auth.locked): el cliente no depende del texto
+            throw credential?.IsLocked(now) == true
+                ? new AuthenticationFailedException(
+                    $"Cuenta bloqueada por {UserCredential.MaxFailedAttempts} intentos fallidos: espere {UserCredential.LockoutDuration.TotalMinutes} minutos.",
+                    AuthenticationCodes.Locked)
+                : new AuthenticationFailedException(Generic);
         }
 
         // Permisos y alcance por sucursal (la sucursal activa de la sesión anterior se conserva si sigue permitida)

@@ -37,7 +37,8 @@ public static class WebEndpoints
     public const string RegisterPolicy = "web-register";
 
     /// <summary>Mensaje ÚNICO de cualquier falla de inicio de sesión: no distingue un correo que no existe de una contraseña
-    /// incorrecta, una cuenta bloqueada o un usuario inactivo (regla P-03).</summary>
+    /// incorrecta, una cuenta bloqueada o un usuario inactivo (regla P-03). La cuenta bloqueada lleva ADEMÁS el código
+    /// estable <see cref="AuthenticationCodes.Locked"/> (<c>auth.locked</c>).</summary>
     public const string LoginFailedMessage = "Correo o contraseña incorrectos.";
 
     public const string UnavailableMessage = "La sesión web no está configurada en este servidor.";
@@ -90,9 +91,11 @@ public static class WebEndpoints
                 body.Password ?? string.Empty, Machine(http), ClientVersion(http)), ct);
             return await OpenAsync(http, sp, settings, login, StatusCodes.Status200OK, ct);
         }
-        catch (AuthenticationFailedException)
+        catch (AuthenticationFailedException ex)
         {
-            return LoginFailed(http, settings);
+            // El mensaje es SIEMPRE el mismo; la cuenta bloqueada lleva además su código estable (auth.locked) para que la
+            // página avise que hay que esperar. Ningún otro código del caso de uso sale por aquí.
+            return LoginFailed(http, settings, ex.Code == AuthenticationCodes.Locked ? AuthenticationCodes.Locked : null);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -161,7 +164,7 @@ public static class WebEndpoints
     {
         var settings = sp.GetRequiredService<WebSettings>();
         var principal = await AuthenticateAsync(http, sp, settings, ct);
-        return principal is null ? SessionExpired(http, settings) : await RpcExecution.ExecuteAsync(http, sp, principal, ct);
+        return principal is null ? SessionExpired(http, settings) : await RpcExecution.ExecuteAsync(http, sp, principal, ct, ownSession: true);
     }
 
     // ------------------------------------------------------------------------------------------------ sesión y cookie
@@ -211,10 +214,10 @@ public static class WebEndpoints
 
     private static void DeleteCookie(HttpContext http, WebSettings settings) => http.Response.Cookies.Delete(settings.CookieName, Cookie(http));
 
-    private static IResult LoginFailed(HttpContext http, WebSettings settings)
+    private static IResult LoginFailed(HttpContext http, WebSettings settings, string? code = null)
     {
         DeleteCookie(http, settings);
-        return RpcExecution.Error(new RpcError(RpcErrorKinds.Authentication, LoginFailedMessage));
+        return RpcExecution.Error(new RpcError(RpcErrorKinds.Authentication, LoginFailedMessage, null, code));
     }
 
     private static IResult SessionExpired(HttpContext http, WebSettings settings)

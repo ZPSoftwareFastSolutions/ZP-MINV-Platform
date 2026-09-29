@@ -11,6 +11,8 @@ export type * from './account/types';
 export type { ISessionGateway } from './ports/ISessionGateway';
 export type { IRpcGateway, RpcOperationMap, RpcOperationShape, RpcOutcome, RpcSendOptions } from './ports/IRpcGateway';
 export type { IAccountGateway } from './ports/IAccountGateway';
+export type * from './cart/types';
+export type { ICartStore } from './ports/ICartStore';
 
 export * from './catalog/money';
 export * from './catalog/categories';
@@ -26,3 +28,5 @@ export * from './auth/errors';
 export * from './auth/validation';
 export * from './account/documents';
 export * from './account/validation';
+export * from './cart/cart';
+export * from './cart/totals';
