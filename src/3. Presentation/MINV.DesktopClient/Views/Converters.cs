@@ -126,6 +126,20 @@ public sealed class IndentConverter : IValueConverter
 }
 
 /// <summary>Panel de detalle: visible si hay selección (valor 0) y no se está editando (valor 1).</summary>
+/// <summary>V7 · Fecha y hora de un <see cref="DateTimeOffset"/> en la hora LOCAL del equipo, «dd/MM/yyyy HH:mm» (con
+/// <c>StringFormat</c> directo se mostraba la hora UTC que devuelve el servidor, cuatro horas adelantada en Bolivia).</summary>
+public sealed class LocalTimeConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) => value switch
+    {
+        DateTimeOffset at => MINV.DesktopClient.Services.Fmt.DateTime(at),
+        DateTime at => MINV.DesktopClient.Services.Fmt.DateTime(new DateTimeOffset(at.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(at, DateTimeKind.Utc) : at)),
+        _ => string.Empty,
+    };
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotSupportedException();
+}
+
 public sealed class DetailVisibilityConverter : IMultiValueConverter
 {
     public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture) =>

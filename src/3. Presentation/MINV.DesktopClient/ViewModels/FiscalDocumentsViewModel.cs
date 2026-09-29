@@ -81,6 +81,10 @@ public sealed class FiscalDocumentsViewModel : PageViewModel
     private IReadOnlyList<SiatCatalogItemView>? _voidReasons;
     private IReadOnlyList<SiatCatalogItemView>? _documentTypes;
     private string _qrUrl = string.Empty;
+    private Choice<string?> _branch;
+    private Choice<int?> _pointOfSale;
+    private Choice<int?> _emission;
+    private string _periodSummary = string.Empty;
 
     public FiscalDocumentsViewModel(AppServices app)
         : base(app, "documentos-fiscales", "Documentos fiscales", "Facturas y notas crédito-débito del SIN: consulta, reimpresión, anulación y devoluciones",
@@ -92,6 +96,15 @@ public sealed class FiscalDocumentsViewModel : PageViewModel
             .. Enum.GetValues<FiscalDocumentStatus>().Select(s => new Choice<FiscalDocumentStatus?>(FiscalText.Status(s), s)),
         ];
         Kinds = [AllKinds, new("Solo facturas", FiscalDocumentKind.Invoice), new("Solo notas crédito-débito", FiscalDocumentKind.CreditDebitNote)];
+        // V7 · Sucursal, punto de venta y tipo de emisión en listas desplegables (se filtran sobre lo que trae el período)
+        Branches.ReplaceAll([new Choice<string?>("Todas las sucursales", null)]);
+        _branch = Branches[0];
+        PointsOfSale.ReplaceAll([new Choice<int?>("Todos los puntos de venta", null)]);
+        _pointOfSale = PointsOfSale[0];
+        Emissions = [new("En línea y fuera de línea", null), new("Emitidos en línea", SiatCodes.EmissionOnline), new("Emitidos fuera de línea", SiatCodes.EmissionOffline)];
+        _emission = Emissions[0];
+        Export = new RelayCommand(() => App.ExportCsv(App.CsvName("documentos-fiscales"), "Documentos fiscales", ExportTable()), () => _items.Count > 0);
+        ClearFilters = new RelayCommand(ClearAllFilters, () => HasFilters);
         Rows = CollectionViewSource.GetDefaultView(_items);
         _debounce.Tick += async (_, _) =>
         {
@@ -166,6 +179,61 @@ public sealed class FiscalDocumentsViewModel : PageViewModel
     }
 
     public string Summary { get => _summary; private set => Set(ref _summary, value); }
+
+    public BulkObservableCollection<Choice<string?>> Branches { get; } = [];
+
+    public BulkObservableCollection<Choice<int?>> PointsOfSale { get; } = [];
+
+    public IReadOnlyList<Choice<int?>> Emissions { get; }
+
+    public Choice<string?> Branch { get => _branch; set { if (Set(ref _branch, value ?? Branches[0])) { ApplyFilter(); } } }
+
+    public Choice<int?> PointOfSale { get => _pointOfSale; set { if (Set(ref _pointOfSale, value ?? PointsOfSale[0])) { ApplyFilter(); } } }
+
+    public Choice<int?> Emission { get => _emission; set { if (Set(ref _emission, value ?? Emissions[0])) { ApplyFilter(); } } }
+
+    /// <summary>Algo distinto de lo de siempre (los últimos 30 días, todos los estados y tipos, sin búsqueda).</summary>
+    public bool HasFilters => _status.Value is not null || _kind.Value is not null || _search.Trim().Length > 0 || _branch.Value is not null
+                              || _pointOfSale.Value is not null || _emission.Value is not null || (_period is not null && _period.Label != "Últimos 30 días");
+
+    public RelayCommand Export { get; }
+
+    public RelayCommand ClearFilters { get; }
+
+    /// <summary>V7 · Lo que se exporta: los documentos visibles con sus filtros.</summary>
+    public CsvTable ExportTable() => CsvTable.Of(
+        ["Tipo", "Número", "Fecha y hora fiscal", "Sucursal", "Punto de venta", "Comprador", "NIT/CI", "Total", "Estado", "Emisión", "Venta", "CUF"],
+        Rows.Cast<FiscalDocumentItem>(),
+        d => [d.KindText, d.Row.Number, d.IssuedText, d.Row.BranchCode, d.Row.PointOfSaleCode, d.BuyerName, d.BuyerDocument, d.Total, d.StatusText,
+            d.IsOffline ? "Fuera de línea" : "En línea", d.Row.SaleNumber, d.Row.Cuf]);
+
+    private bool Matches(object o) => o is FiscalDocumentItem d
+                                      && (_branch.Value is not { } branch || d.Row.BranchCode == branch)
+                                      && (_pointOfSale.Value is not { } pos || d.Row.PointOfSaleCode == pos)
+                                      && (_emission.Value is not { } emission || d.Row.EmissionType == emission);
+
+    private void ApplyFilter()
+    {
+        Rows.Refresh();
+        var visible = Rows.Cast<object>().Count();
+        Summary = visible == _items.Count ? _periodSummary : $"{visible} de {_periodSummary}";
+        OnPropertiesChanged(nameof(IsEmpty), nameof(HasFilters));
+        System.Windows.Input.CommandManager.InvalidateRequerySuggested();
+    }
+
+    private void ClearAllFilters()
+    {
+        _status = AllStatuses;
+        _kind = AllKinds;
+        _search = string.Empty;
+        _branch = Branches[0];
+        _pointOfSale = PointsOfSale[0];
+        _emission = Emissions[0];
+        Periods.ReplaceAll(PeriodOption.Presets(BillingClock.Today(App)));
+        _period = Periods.First(p => p.Label == "Últimos 30 días");
+        OnPropertiesChanged(nameof(Status), nameof(Kind), nameof(Search), nameof(Branch), nameof(PointOfSale), nameof(Emission), nameof(Period));
+        _ = LoadAsync(force: true);
+    }
 
     public KpiCard DocumentsKpi { get; } = new("Documentos", Glyphs.Invoice);
 
@@ -329,8 +397,15 @@ public sealed class FiscalDocumentsViewModel : PageViewModel
         var selected = _selected?.Id;
         _items = rows.Select(r => new FiscalDocumentItem(r)).ToList();
         Rows = CollectionViewSource.GetDefaultView(_items);
+        Rows.Filter = Matches;
         Rows.SortDescriptions.Add(new SortDescription(nameof(FiscalDocumentItem.IssuedAt), ListSortDirection.Descending));
         OnPropertyChanged(nameof(Rows));
+        Branches.ReplaceAll(FilterChoices.Of("Todas las sucursales", rows.Select(r => r.BranchCode)));
+        _branch = FilterChoices.Keep(Branches, _branch);
+        PointsOfSale.ReplaceAll([new Choice<int?>("Todos los puntos de venta", null),
+            .. rows.Select(r => r.PointOfSaleCode).Distinct().Order().Select(p => new Choice<int?>($"Punto de venta {p}", p))]);
+        _pointOfSale = FilterChoices.Keep(PointsOfSale, _pointOfSale);
+        OnPropertiesChanged(nameof(Branch), nameof(PointOfSale));
         var valid = rows.Where(r => r.Status == FiscalDocumentStatus.Valid && r.Kind == FiscalDocumentKind.Invoice).ToList();
         DocumentsKpi.Value = rows.Count.ToString("N0", Fmt.Culture);
         var invoices = rows.Count(r => r.Kind == FiscalDocumentKind.Invoice);
@@ -346,7 +421,8 @@ public sealed class FiscalDocumentsViewModel : PageViewModel
             or FiscalDocumentStatus.DuplicateToVoid).ToList();
         VoidedKpi.Value = bad.Count.ToString("N0", Fmt.Culture);
         VoidedKpi.Detail = bad.Count == 0 ? "Sin anulaciones ni rechazos" : $"{bad.Count(r => r.Status == FiscalDocumentStatus.Voided)} anulados";
-        Summary = $"{rows.Count} documentos · {period.Label} ({period.RangeText})";
+        _periodSummary = $"{rows.Count} documentos · {period.Label} ({period.RangeText})";
+        ApplyFilter();
         Subtitle = App.Session.IsBillingEnabled
             ? "Facturas y notas crédito-débito del SIN: consulta, reimpresión, anulación y devoluciones"
             : "La facturación SIAT no está activa: aquí verá los documentos cuando se active (Administración › Facturación SIAT)";
@@ -388,7 +464,11 @@ public sealed class FiscalDocumentsViewModel : PageViewModel
         {
             var detail = await App.SendAsync(new GetFiscalDocumentQuery(focus.DocumentId));
             var day = DateOnly.FromDateTime(detail.Row.IssuedAt);
-            if (_period is null || day < _period.From || day > _period.To || _status.Value is not null || _kind.Value is not null || _search.Length > 0)
+            // V7 · También se recarga si el documento no está en la lista (recién emitido en la caja o filtrado por sucursal, punto de venta o
+            // emisión): antes «Ver documento» y «Anular» desde Ventas no hacían nada en ese caso
+            var visible = Rows.Cast<FiscalDocumentItem>().Any(i => i.Id == focus.DocumentId);
+            if (_period is null || day < _period.From || day > _period.To || _status.Value is not null || _kind.Value is not null || _search.Length > 0
+                || !visible)
             {
                 var option = new PeriodOption($"Día {Fmt.Date(day)}", day, day);
                 Periods.ReplaceAll(PeriodOption.Presets(BillingClock.Today(App)).Prepend(option));
@@ -396,10 +476,18 @@ public sealed class FiscalDocumentsViewModel : PageViewModel
                 _status = AllStatuses;
                 _kind = AllKinds;
                 _search = string.Empty;
-                OnPropertiesChanged(nameof(Period), nameof(Status), nameof(Kind), nameof(Search));
+                _branch = Branches[0];
+                _pointOfSale = PointsOfSale[0];
+                _emission = Emissions[0];
+                OnPropertiesChanged(nameof(Period), nameof(Status), nameof(Kind), nameof(Search), nameof(Branch), nameof(PointOfSale), nameof(Emission));
                 await LoadAsync(force: true);
             }
             Selected = _items.FirstOrDefault(i => i.Id == focus.DocumentId);
+            if (Selected is null)
+            {
+                App.Notify.Warning("No se encontró el documento", $"{FiscalText.Kind(detail.Row.Kind)} N° {detail.Row.Number} no está en la lista de su sucursal.");
+                return;
+            }
             if (focus.StartVoid && Selected is not null)
             {
                 await LoadDetailAsync();
@@ -444,6 +532,12 @@ public sealed class FiscalDocumentsViewModel : PageViewModel
             Detail = null;
             QrUrl = string.Empty;
             return;
+        }
+        if (_detail is not null && _detail.Row.Id != item.Id)
+        {
+            // V7 · Mientras llega el detalle nuevo, los botones no actúan sobre el documento anterior
+            Detail = null;
+            QrUrl = string.Empty;
         }
         try
         {

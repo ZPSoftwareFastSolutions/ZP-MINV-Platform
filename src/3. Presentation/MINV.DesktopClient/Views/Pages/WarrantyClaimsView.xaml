@@ -18,6 +18,8 @@
 
         <DockPanel Grid.ColumnSpan="2" Margin="0,0,0,14">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button Content="Exportar CSV" c:Ui.Icon="{x:Static c:Glyphs.Download}" Command="{Binding Export}" Margin="0,0,8,0"
+                        ToolTip="Los casos que muestra la lista, con sus filtros, en un archivo para Excel" />
                 <Button Style="{StaticResource PrimaryButton}" Content="Abrir caso" c:Ui.Icon="{x:Static c:Glyphs.Add}" Command="{Binding OpenNew}" Margin="0,0,8,0"
                         c:Ui.IsBusy="{Binding OpenNew.IsRunning}" Visibility="{Binding CanOpen, Converter={StaticResource Visible}}"
                         ToolTip="Recibir un equipo en garantía (escanee su serie o IMEI)" />
@@ -36,10 +38,23 @@
             <ContentControl Content="{Binding ClosedKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
         </UniformGrid>
 
-        <DockPanel Grid.Row="2" Margin="0,0,0,4">
-            <TextBlock DockPanel.Dock="Right" Text="{Binding Summary}" Style="{StaticResource Caption}" VerticalAlignment="Top" Margin="10,8,0,0" />
-            <ItemsControl ItemsSource="{Binding Filters}" ItemTemplate="{StaticResource FilterChipTemplate}" ItemsPanel="{StaticResource WrapPanelTemplate}" Focusable="False" />
-        </DockPanel>
+        <StackPanel Grid.Row="2" Margin="0,0,0,4">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Right" Text="{Binding Summary}" Style="{StaticResource Caption}" VerticalAlignment="Top" Margin="10,8,0,0" />
+                <ItemsControl ItemsSource="{Binding Filters}" ItemTemplate="{StaticResource FilterChipTemplate}" ItemsPanel="{StaticResource WrapPanelTemplate}" Focusable="False" />
+            </DockPanel>
+            <!-- V7 · Búsqueda, sucursal y cobertura en listas desplegables -->
+            <WrapPanel Margin="0,6,0,0">
+                <TextBox Width="300" Margin="0,0,10,8" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}" c:Ui.Icon="{x:Static c:Glyphs.Search}"
+                         c:Ui.Placeholder="Caso, serie, producto, cliente o falla" AutomationProperties.Name="Buscar" />
+                <ComboBox Width="190" Margin="0,0,10,8" ItemsSource="{Binding Branches}" SelectedItem="{Binding Branch}" ToolTip="Sucursal"
+                          AutomationProperties.Name="Sucursal" />
+                <ComboBox Width="230" Margin="0,0,10,8" ItemsSource="{Binding Coverages}" SelectedItem="{Binding Coverage}" ToolTip="Cobertura"
+                          AutomationProperties.Name="Cobertura" />
+                <Button Style="{StaticResource GhostButton}" Content="Limpiar filtros" c:Ui.Icon="{x:Static c:Glyphs.ClearFilter}" Command="{Binding ClearFilters}"
+                        Margin="0,0,10,8" Visibility="{Binding HasFilters, Converter={StaticResource Visible}}" />
+            </WrapPanel>
+        </StackPanel>
 
         <Border Grid.Row="3" Style="{StaticResource CardFlat}" Padding="4,2,4,4">
             <Grid>
@@ -98,6 +113,8 @@
                         <TextBlock Text="{Binding EmptyTitle}" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" HorizontalAlignment="Center" />
                         <TextBlock Text="Reciba un equipo en garantía con «Abrir caso» o desde «Series e IMEI»." Style="{StaticResource Caption}"
                                    HorizontalAlignment="Center" Margin="0,4,0,0" />
+                        <Button Style="{StaticResource LinkButton}" Content="Ver todos los casos" HorizontalAlignment="Center" Margin="0,8,0,0"
+                                Command="{Binding ClearFilters}" Visibility="{Binding HasFilters, Converter={StaticResource Visible}}" />
                     </StackPanel>
                 </ContentControl>
             </Grid>

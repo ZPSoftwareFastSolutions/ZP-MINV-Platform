@@ -10,8 +10,11 @@
         </Grid.RowDefinitions>
 
         <DockPanel Margin="0,0,0,16">
-            <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Refresh}" Command="{Binding Refresh}"
-                    ToolTip="Actualizar (F5)" VerticalAlignment="Center" />
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button Content="Exportar CSV" c:Ui.Icon="{x:Static c:Glyphs.Download}" Command="{Binding Export}" Margin="0,0,8,0"
+                        ToolTip="Los registros que muestra la lista, con sus filtros, en un archivo para Excel" />
+                <Button Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Refresh}" Command="{Binding Refresh}" ToolTip="Actualizar (F5)" />
+            </StackPanel>
             <StackPanel>
                 <TextBlock Text="{Binding Title}" Style="{StaticResource H1}" />
                 <TextBlock Text="Registro inmutable: cada operación queda guardada con su resultado, también las rechazadas"
@@ -19,15 +22,26 @@
             </StackPanel>
         </DockPanel>
 
-        <DockPanel Grid.Row="1" Margin="0,0,0,10">
-            <TextBlock DockPanel.Dock="Right" Style="{StaticResource Caption}" VerticalAlignment="Center">
-                <Run Text="{Binding VisibleCount, Mode=OneWay}" /> <Run Text="registros" />
-            </TextBlock>
-            <TextBox Width="380" HorizontalAlignment="Left" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}"
-                     c:Ui.Icon="{x:Static c:Glyphs.Search}" c:Ui.Placeholder="Buscar por persona, acción o detalle" Margin="0,0,14,0" />
-            <ItemsControl ItemsSource="{Binding Filters}" ItemTemplate="{StaticResource FilterChipTemplate}" ItemsPanel="{StaticResource WrapPanelTemplate}"
-                          Focusable="False" VerticalAlignment="Center" Margin="0,8,0,0" />
-        </DockPanel>
+        <StackPanel Grid.Row="1" Margin="0,0,0,6">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Right" Text="{Binding Summary}" Style="{StaticResource Caption}" VerticalAlignment="Center" />
+                <ItemsControl ItemsSource="{Binding Filters}" ItemTemplate="{StaticResource FilterChipTemplate}" ItemsPanel="{StaticResource WrapPanelTemplate}"
+                              Focusable="False" VerticalAlignment="Center" />
+            </DockPanel>
+            <!-- V7 · Usuario, acción y fecha en listas desplegables -->
+            <WrapPanel Margin="0,8,0,0">
+                <TextBox Width="300" Margin="0,0,10,8" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}"
+                         c:Ui.Icon="{x:Static c:Glyphs.Search}" c:Ui.Placeholder="Buscar por persona, acción o detalle" AutomationProperties.Name="Buscar" />
+                <ComboBox Width="210" Margin="0,0,10,8" ItemsSource="{Binding Users}" SelectedItem="{Binding User}" ToolTip="Usuario"
+                          AutomationProperties.Name="Usuario" />
+                <ComboBox Width="260" Margin="0,0,10,8" ItemsSource="{Binding ActionsFilter}" SelectedItem="{Binding ActionChoice}" ToolTip="Acción"
+                          AutomationProperties.Name="Acción" />
+                <ComboBox Width="180" Margin="0,0,10,8" ItemsSource="{Binding Periods}" SelectedItem="{Binding Period}" ToolTip="Fecha"
+                          AutomationProperties.Name="Fecha" />
+                <Button Style="{StaticResource GhostButton}" Content="Limpiar filtros" c:Ui.Icon="{x:Static c:Glyphs.ClearFilter}" Command="{Binding ClearFilters}"
+                        Margin="0,0,10,8" Visibility="{Binding HasFilters, Converter={StaticResource Visible}}" />
+            </WrapPanel>
+        </StackPanel>
 
         <Border Grid.Row="2" Style="{StaticResource CardFlat}" Padding="8,6,4,6">
             <Grid>
@@ -40,8 +54,15 @@
                         </Style>
                     </ListBox.ItemContainerStyle>
                 </ListBox>
-                <ContentControl Style="{StaticResource EmptyState}" Tag="{x:Static c:Glyphs.History}" Content="No hay registros con ese filtro"
-                                Visibility="{Binding IsEmpty, Converter={StaticResource Visible}}" />
+                <ContentControl Style="{StaticResource EmptyState}" Tag="{x:Static c:Glyphs.History}"
+                                Visibility="{Binding IsEmpty, Converter={StaticResource Visible}}">
+                    <StackPanel>
+                        <TextBlock Text="No hay registros con ese filtro" FontWeight="SemiBold" HorizontalAlignment="Center"
+                                   Foreground="{DynamicResource TextPrimary}" />
+                        <Button Style="{StaticResource LinkButton}" Content="Limpiar filtros" HorizontalAlignment="Center" Margin="0,8,0,0"
+                                Command="{Binding ClearFilters}" Visibility="{Binding HasFilters, Converter={StaticResource Visible}}" />
+                    </StackPanel>
+                </ContentControl>
             </Grid>
         </Border>
     </Grid>
