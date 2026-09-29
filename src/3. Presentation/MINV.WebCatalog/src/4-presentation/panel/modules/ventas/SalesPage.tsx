@@ -217,12 +217,12 @@ export function SalesPage() {
   const view = viewOf(params.get('vista'));
 
   // «Ver sus ventas» (desde Clientes) llega con `?cliente=` y sin fechas: se muestran TODAS las ventas del cliente.
+  // El efecto escribe «todas las fechas» en la dirección; cuando la dirección ya las tiene, el pendiente se apaga.
   const [pendingAllDates, setPendingAllDates] = useState(() => params.has('cliente') && !params.has('desde') && !params.has('hasta'));
+  if (pendingAllDates && (params.has('desde') || params.has('hasta'))) setPendingAllDates(false);
   const setDateRange = table.setDateRange;
   useEffect(() => {
-    if (!pendingAllDates) return;
-    setDateRange(EMPTY_RANGE);
-    setPendingAllDates(false);
+    if (pendingAllDates) setDateRange(EMPTY_RANGE);
   }, [pendingAllDates, setDateRange]);
   const range = pendingAllDates ? EMPTY_RANGE : table.dateRange();
   const salesRange = serverRange(range, today);
@@ -276,7 +276,7 @@ export function SalesPage() {
   // Detalles y diálogos. Cada diálogo se monta de nuevo en cada apertura (`key`): su formulario empieza vacío.
   const [detail, setDetail] = useState<Shown<SaleItem> | null>(null);
   const [returnDetail, setReturnDetail] = useState<Shown<ReturnItem> | null>(null);
-  const [session_, setDialogSession] = useState(0);
+  const [dialogSession, setDialogSession] = useState(0);
   const [voiding, setVoiding] = useState<SaleItem | null>(null);
   const [returning, setReturning] = useState<ReturnTarget | null>(null);
   const [reprinting, setReprinting] = useState<InvoiceTarget | null>(null);
@@ -303,9 +303,17 @@ export function SalesPage() {
       { replace: true },
     );
 
-  // `?devolver=` (tablero «Registrar una devolución»): abre el diálogo y se quita de la dirección.
+  // `?devolver=` (tablero «Registrar una devolución»): abre el diálogo (una vez por pedido) y se quita de la dirección.
   const devolver = params.get('devolver');
   const canReturn = abilities.returns;
+  const [handledReturn, setHandledReturn] = useState<string | null>(null);
+  if (devolver !== handledReturn) {
+    setHandledReturn(devolver);
+    if (devolver !== null && canReturn) {
+      setDialogSession((count) => count + 1);
+      setReturning({ invoiceNumber: /^[a-z]+-/i.test(devolver) ? normalizeSaleNumber(devolver) : null });
+    }
+  }
   useEffect(() => {
     if (devolver === null) return;
     setParams(
@@ -316,10 +324,7 @@ export function SalesPage() {
       },
       { replace: true },
     );
-    if (!canReturn) return;
-    setDialogSession((count) => count + 1);
-    setReturning({ invoiceNumber: /^[a-z]+-/i.test(devolver) ? normalizeSaleNumber(devolver) : null });
-  }, [devolver, canReturn, setParams]);
+  }, [devolver, setParams]);
 
   // ---------------------------------------------------------------------------------------------- acciones
   const openDetail = (item: SaleItem) => setDetail({ item, open: true });
@@ -681,9 +686,9 @@ export function SalesPage() {
         )}
       </SidePanel>
 
-      <VoidSaleDialog key={`anular-${session_}`} target={voiding} onClose={() => setVoiding(null)} onVoided={reloadAll} />
+      <VoidSaleDialog key={`anular-${dialogSession}`} target={voiding} onClose={() => setVoiding(null)} onVoided={reloadAll} />
       <ReturnDialog
-        key={`devolver-${session_}`}
+        key={`devolver-${dialogSession}`}
         target={returning}
         onClose={() => setReturning(null)}
         onReturned={() => {
@@ -692,8 +697,8 @@ export function SalesPage() {
           setView(VIEWS.returns);
         }}
       />
-      <ReprintDialog key={`reimprimir-${session_}`} target={reprinting} onClose={() => setReprinting(null)} />
-      <SendInvoiceDialog key={`correo-${session_}`} target={emailing} onClose={() => setEmailing(null)} />
+      <ReprintDialog key={`reimprimir-${dialogSession}`} target={reprinting} onClose={() => setReprinting(null)} />
+      <SendInvoiceDialog key={`correo-${dialogSession}`} target={emailing} onClose={() => setEmailing(null)} />
     </Page>
   );
 }
