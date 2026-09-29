@@ -17,10 +17,10 @@ Estado de cada tarea: `[x]` terminada · `[ ]` pendiente.
 - [ ] 7. Base de datos: migración V7 y comprobación de normalización con informe.
 - [x] 8. Web: botón «Ingresar» y pantallas de inicio de sesión y registro.
 - [x] 9. Web: carrito de compras y página de reserva con los datos del cliente.
-- [ ] 10. Web: panel por rol separado por módulos, con botones, listas desplegables y filtros.
+- [x] 10. Web: panel por rol separado por módulos, con botones, listas desplegables y filtros.
 - [ ] 11. Web: las funciones del escritorio (stock, catálogo, caja, ventas, clientes, compras, proveedores,
       transferencias, reservas, series y garantías, facturación, reportes, contabilidad, usuarios).
-- [ ] 12. Web: tablero simplificado (funciones como botones; estadísticas solo al pulsar «Ver»).
+- [x] 12. Web: tablero simplificado (funciones como botones; estadísticas solo al pulsar «Ver»).
 - [x] 13. Web: panel del cliente (mis reservas, mis datos).
 - [ ] 14. Escritorio: arreglos, más botones, filtros y funciones.
 - [ ] 15. Calidad: pruebas del servidor, de la web y recorrido completo en un navegador real.
