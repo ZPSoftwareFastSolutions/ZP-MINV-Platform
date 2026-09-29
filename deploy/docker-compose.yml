@@ -118,8 +118,10 @@ services:
         VITE_API_URL: ${MINV_WEB_API_URL:-/}
     image: minv-webcatalog:7.0.0-alpha.1
     restart: unless-stopped
+    # V7 · El nginx del catálogo reenvía /storefront/ al gateway y /api/v1/web/ (sesión web y panel) al servidor en la nube
     depends_on:
       - apigateway
+      - cloudserver
     ports:
       - "${MINV_BIND:-127.0.0.1}:5173:80"
 
