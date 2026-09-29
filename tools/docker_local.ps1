@@ -6,7 +6,7 @@
     subir      Detiene los servidores locales (tools\servidores_locales.ps1) y lo que ocupe 5080/5090/5095/5173, apaga el
                catalogo V5 de prueba (minv-webcatalog-test) si esta encendido, escribe deploy\.env (NO se versiona) con el
                rol minv_server de la base local (via host.docker.internal) y las claves de %LOCALAPPDATA%\M-INV (sin
-               mostrarlas), construye las imagenes 6.0.0-alpha.1 y levanta: servidor en la nube :5080, API Gateway :5090,
+               mostrarlas), construye las imagenes 7.0.0-alpha.1 y levanta: servidor en la nube :5080, API Gateway :5090,
                simulador del SIN :5095, catalogo web :5173 y el TUNEL publico (Cloudflare). Al final muestra el enlace.
     reanudar   Lo que corre al iniciar sesion en Windows (tarea programada): enciende PostgreSQL, espera a Docker Desktop,
                levanta los contenedores (sin construir) y guarda el enlace nuevo del tunel.
@@ -209,7 +209,7 @@ $lineas = @(
 [IO.File]::WriteAllLines($envFile, $lineas, (New-Object System.Text.UTF8Encoding($false)))
 Write-Output 'deploy\.env escrito con las claves de este equipo (no se muestra ni se versiona).'
 
-# 3) Imagenes 6.0.0-alpha.1 (la primera vez tarda varios minutos)
+# 3) Imagenes 7.0.0-alpha.1 (la primera vez tarda varios minutos)
 Write-Output 'Construyendo las imagenes (nube, gateway, simulador y catalogo web)...'
 Dc build
 

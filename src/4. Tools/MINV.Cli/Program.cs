@@ -220,12 +220,12 @@ internal static class Cli
     }
 
     /// <summary>Comprobaciones de la base: tablas, triggers append-only, RLS y conservación (Σ existencias = Σ movimientos).
-    /// Mínimos de la V4.2: 152 tablas en 10 esquemas (27 de facturación en <c>billing</c>, 2 de garantías en
-    /// <c>service</c>), 29 libros append-only, RLS por empresa en las 150 tablas con <c>tenant_id</c> y política restrictiva
-    /// por sucursal en 62; con empresa, además, series en stock = stock (<c>inventory.v_serial_breaches</c>).</summary>
+    /// Mínimos de la V7 (migración V7WebPlatform): 157 tablas en 10 esquemas (27 de facturación en <c>billing</c>, 2 de
+    /// garantías en <c>service</c>), 32 libros append-only, RLS por empresa en las 155 tablas con <c>tenant_id</c> y política
+    /// restrictiva por sucursal en 64; con empresa, además, series en stock = stock (<c>inventory.v_serial_breaches</c>).</summary>
     private static async Task<int> VerifyAsync(MinvWriteDbContext db, ITenantContext tenantContext, string? tenantCode)
     {
-        const int MinTables = 152, MinBilling = 27, MinService = 2, MinLedgers = 29, MinRls = 150, MinBranch = 62;
+        const int MinTables = 157, MinBilling = 27, MinService = 2, MinLedgers = 32, MinRls = 155, MinBranch = 64;
         var schemas = string.Join(",", Schemas.All.Select(s => $"'{s}'"));
         async Task<int> Scalar(string sql) => await db.Database.SqlQueryRaw<int>(sql).SingleAsync();
         var tables = await Scalar($"SELECT count(*)::int AS \"Value\" FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_schema IN ({schemas}) AND table_name <> '__ef_migrations_history'");

@@ -25,17 +25,18 @@ public sealed class ModelTests
     private static string Name(IEntityType e) => $"{e.GetSchema()}.{e.GetTableName()}";
 
     [Fact]
-    public void El_modelo_tiene_153_tablas_en_10_esquemas()
+    public void El_modelo_tiene_157_tablas_en_10_esquemas()
     {
         var tables = Entities.Select(e => (e.GetSchema(), e.GetTableName())).Distinct().ToList();
         Assert.True(tables.Count >= 80, $"solo {tables.Count} tablas");
         // 96 de la V3 + product_images (V3.1) + 13 de la V4 (sucursales, integración, idempotencia) + 30 de la V4.1 (facturación)
-        // + 12 de la V4.2 (edición Tecnología) + 1 de la V6 (bitácora de los armados)
-        Assert.Equal(153, tables.Count);
+        // + 12 de la V4.2 (edición Tecnología) + 1 de la V6 (bitácora de los armados) + 4 de la V7 (cuentas de cliente y correo)
+        Assert.Equal(157, tables.Count);
         Assert.Equal(10, Schemas.All.Count);
         Assert.Equal(Schemas.All.OrderBy(s => s), tables.Select(t => t.Item1!).Distinct().OrderBy(s => s));
         Assert.Equal(27, tables.Count(t => t.Item1 == Schemas.Billing));
         Assert.Equal(2, tables.Count(t => t.Item1 == Schemas.Service));
+        Assert.Equal(10, tables.Count(t => t.Item1 == Schemas.Integration));   // V7: + outgoing_mails, outgoing_mail_dispatch y outgoing_mail_attempts
     }
 
     /// <summary>
@@ -61,17 +62,120 @@ public sealed class ModelTests
         var before = new Persistence.Migrations.V41CafcNumbering().TargetModel.GetEntityTypes()
             .Select(e => $"{e.GetSchema()}.{e.GetTableName()}").ToHashSet(StringComparer.Ordinal);
         Assert.Equal(v42.Length, v42.Distinct().Count());
-        var sinceV6 = Persistence.Migrations.V6Storefront.NewTablesV6;
+        var sinceV6 = Persistence.Migrations.V6Storefront.NewTablesV6.Concat(Persistence.Migrations.V7WebPlatform.NewTablesV7).ToList();
         Assert.Equal(Entities.Select(Name).Where(t => !before.Contains(t) && !sinceV6.Contains(t)).Order(), v42.Order());
         Assert.All(Persistence.Migrations.V42TechRetail.BranchTablesV42.Concat(Persistence.Migrations.V42TechRetail.InterBranchTablesV42)
             .Concat(Persistence.Migrations.V42TechRetail.AppendOnlyTablesV42), t => Assert.Contains(t, v42));
-        // V6 · la tabla nueva es exactamente la que el modelo tiene y la migración V4.2 no
+        // V6 · la tabla nueva es exactamente la que el modelo tiene y la migración V4.2 no (sin contar las de la V7)
         var v6 = Persistence.Migrations.V6Storefront.NewTablesV6;
+        var v7 = Persistence.Migrations.V7WebPlatform.NewTablesV7;
         var beforeV6 = new Persistence.Migrations.V42TechRetail().TargetModel.GetEntityTypes()
             .Select(e => $"{e.GetSchema()}.{e.GetTableName()}").ToHashSet(StringComparer.Ordinal);
-        Assert.Equal(Entities.Select(Name).Where(t => !beforeV6.Contains(t)).Order(), v6.Order());
+        Assert.Equal(Entities.Select(Name).Where(t => !beforeV6.Contains(t) && !v7.Contains(t)).Order(), v6.Order());
         Assert.All(Persistence.Migrations.V6Storefront.BranchTablesV6.Concat(Persistence.Migrations.V6Storefront.AppendOnlyTablesV6),
             t => Assert.Contains(t, v6));
+        // V7 · las tablas nuevas son exactamente las que el modelo tiene y la migración V6 no
+        var beforeV7 = new Persistence.Migrations.V6Storefront().TargetModel.GetEntityTypes()
+            .Select(e => $"{e.GetSchema()}.{e.GetTableName()}").ToHashSet(StringComparer.Ordinal);
+        Assert.Equal(v7.Length, v7.Distinct().Count());
+        Assert.Equal(Entities.Select(Name).Where(t => !beforeV7.Contains(t)).Order(), v7.Order());
+        Assert.All(Persistence.Migrations.V7WebPlatform.BranchTablesV7.Concat(Persistence.Migrations.V7WebPlatform.AppendOnlyTablesV7),
+            t => Assert.Contains(t, v7));
+    }
+
+    /// <summary>V7 · La migración siembra en las empresas existentes los mismos permisos de la cuenta de cliente, la misma matriz
+    /// rol-permiso y el mismo rol CLIENTE que el aprovisionamiento.</summary>
+    [Fact]
+    public void Los_datos_de_la_plataforma_web_de_la_migracion_coinciden_con_el_dominio()
+    {
+        var account = PermissionCodes.All.Where(p => p.Code.StartsWith(PermissionCodes.AccountPrefix, StringComparison.Ordinal)).ToList();
+        Assert.Equal(2, account.Count);
+        Assert.Equal(account.OrderBy(p => p.Code), Persistence.Migrations.V7WebPlatform.AccountPermissions.OrderBy(p => p.Code));
+        var expected = RoleCodes.All.SelectMany(r => PermissionCodes.ForRole(r.Code)
+            .Where(p => p.StartsWith(PermissionCodes.AccountPrefix, StringComparison.Ordinal)).Select(p => (r.Code, p))).Order();
+        Assert.Equal(expected, Persistence.Migrations.V7WebPlatform.AccountRolePermissions.Order());
+        Assert.Equal((RoleCodes.Customer, RoleCodes.All.Single(r => r.Code == RoleCodes.Customer).Name),
+            (Persistence.Migrations.V7WebPlatform.CustomerRoleCode, Persistence.Migrations.V7WebPlatform.CustomerRoleName));
+        // El rol CLIENTE solo tiene los permisos de su cuenta (lo que la guardia de la migración exige a un CLIENTE que ya existiera)
+        Assert.All(PermissionCodes.ForRole(RoleCodes.Customer), p => Assert.StartsWith(PermissionCodes.AccountPrefix, p, StringComparison.Ordinal));
+        // La reversa pone las piezas sin ranura en una ranura que existe
+        Assert.Equal(nameof(Domain.Catalog.PcSlot.Peripheral), Persistence.Migrations.V7WebPlatform.DowngradeSlot);
+    }
+
+    /// <summary>V7 · El correo pedido es de la sucursal de su reserva y append-only, igual que sus intentos; la cola es la única tabla
+    /// mutable del correo (OCC, de la empresa); la cuenta de cliente une un usuario y un cliente 1 a 1 (de la empresa).</summary>
+    [Fact]
+    public void El_correo_y_las_cuentas_de_cliente_respetan_sucursal_empresa_y_unicidad()
+    {
+        Assert.True(typeof(IBranchScoped).IsAssignableFrom(typeof(Domain.Integration.OutgoingMail))
+                    && typeof(IAppendOnly).IsAssignableFrom(typeof(Domain.Integration.OutgoingMail)));
+        Assert.True(typeof(IAppendOnly).IsAssignableFrom(typeof(Domain.Integration.OutgoingMailAttempt)));
+        Assert.False(typeof(IBranchScoped).IsAssignableFrom(typeof(Domain.Integration.OutgoingMailAttempt)));
+        Assert.True(typeof(IConcurrencyAware).IsAssignableFrom(typeof(Domain.Integration.OutgoingMailDispatch)));
+        Assert.False(typeof(IBranchScoped).IsAssignableFrom(typeof(Domain.Integration.OutgoingMailDispatch))
+                     || typeof(IAppendOnly).IsAssignableFrom(typeof(Domain.Integration.OutgoingMailDispatch)));
+        Assert.False(typeof(IBranchScoped).IsAssignableFrom(typeof(CustomerAccount)));
+        var mails = Model.FindEntityType(typeof(Domain.Integration.OutgoingMail))!;
+        Assert.Contains(mails.GetForeignKeys(), fk => fk.PrincipalEntityType.ClrType == typeof(PcBuild)
+                                                      && fk.Properties.Select(p => p.Name).SequenceEqual(["TenantId", "BranchId", "PcBuildId"]));
+        var dispatch = Model.FindEntityType(typeof(Domain.Integration.OutgoingMailDispatch))!;
+        Assert.Contains(dispatch.GetIndexes(), i => i.GetFilter() == "status = 'Pending'");
+        var attempts = Model.FindEntityType(typeof(Domain.Integration.OutgoingMailAttempt))!;
+        Assert.Contains(attempts.GetIndexes(), i => i.IsUnique && i.Properties.Select(p => p.Name)
+            .SequenceEqual([nameof(Domain.Integration.OutgoingMailAttempt.OutgoingMailId), nameof(Domain.Integration.OutgoingMailAttempt.Attempt)]));
+        var accounts = Model.FindEntityType(typeof(CustomerAccount))!;
+        Assert.Equal("sales.customer_accounts", Name(accounts));
+        Assert.Contains(accounts.GetIndexes(), i => i.IsUnique && i.Properties.Select(p => p.Name)
+            .SequenceEqual([nameof(CustomerAccount.TenantId), nameof(CustomerAccount.UserId)]));
+        Assert.Contains(accounts.GetIndexes(), i => i.IsUnique && i.Properties.Select(p => p.Name)
+            .SequenceEqual([nameof(CustomerAccount.TenantId), nameof(CustomerAccount.CustomerId)]));
+    }
+
+    /// <summary>V7 · El SQL propio de la migración (sin PostgreSQL: el script que genera EF): la guardia va primero, el relleno del
+    /// tipo antes de sus CHECK y los triggers del carrito después del relleno; la función del despachador es SECURITY DEFINER con
+    /// search_path fijo, sin EXECUTE para PUBLIC y con EXECUTE solo para minv_server; y la reversa deja la V6 como estaba.</summary>
+    [Fact]
+    public void La_migracion_V7_rellena_el_tipo_protege_el_carrito_y_crea_la_funcion_del_correo()
+    {
+        var migrator = Db.GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>();
+        static string Lf(string text) => text.Replace("\r\n", "\n", StringComparison.Ordinal);
+        var up = Lf(migrator.GenerateScript("20260927173304_V6Storefront", "20260929025923_V7WebPlatform"));
+        var down = Lf(migrator.GenerateScript("20260929025923_V7WebPlatform", "20260927173304_V6Storefront"));
+        int At(string script, string fragment)
+        {
+            var index = script.IndexOf(fragment, StringComparison.Ordinal);
+            Assert.True(index >= 0, $"Falta en el script: {fragment}");
+            return index;
+        }
+        Assert.True(At(up, "M-INV V7: % empresas ya tienen un rol CLIENTE") < At(up, "ADD kind character varying(10) NOT NULL DEFAULT ''"));
+        Assert.True(At(up, "UPDATE sales.pc_builds SET kind = 'Build' WHERE kind = ''") < At(up, "ADD CONSTRAINT ck_pc_builds_tipo CHECK"));
+        Assert.True(At(up, "ALTER COLUMN kind DROP DEFAULT") < At(up, "CREATE TRIGGER trg_pc_build_kind_immutable BEFORE UPDATE OF kind ON sales.pc_builds"));
+        At(up, "CREATE TRIGGER trg_pc_build_line_slot BEFORE INSERT OR UPDATE OF slot, pc_build_id ON sales.pc_build_lines");
+        At(up, "FOR EACH ROW WHEN (NEW.slot IS NULL) EXECUTE FUNCTION sales.minv_pc_build_line_slot()");
+        At(up, "FOR EACH ROW WHEN (OLD.kind IS DISTINCT FROM NEW.kind) EXECUTE FUNCTION sales.minv_pc_build_kind_immutable()");
+        At(up, "CREATE OR REPLACE FUNCTION integration.claim_outgoing_mails(p_limit integer, p_lease_seconds integer)");
+        At(up, "LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, integration AS $$\n#variable_conflict use_column");
+        At(up, "FOR UPDATE SKIP LOCKED)");
+        At(up, "REVOKE ALL ON FUNCTION integration.claim_outgoing_mails(integer, integer) FROM PUBLIC;");
+        At(up, "GRANT EXECUTE ON FUNCTION integration.claim_outgoing_mails(integer, integer) TO minv_server;");
+        Assert.DoesNotContain("TO minv_app", up[At(up, "GRANT EXECUTE ON FUNCTION integration.claim_outgoing_mails")..], StringComparison.Ordinal);
+        foreach (var table in Persistence.Migrations.V7WebPlatform.AppendOnlyTablesV7)
+        {
+            At(up, $"CREATE TRIGGER trg_append_only BEFORE UPDATE OR DELETE ON {table}");
+            At(up, $"CREATE TRIGGER trg_append_only_truncate BEFORE TRUNCATE ON {table}");
+        }
+        At(up, "CREATE POLICY branch_isolation ON integration.outgoing_mails AS RESTRICTIVE");
+        At(up, "ADD CONSTRAINT ck_audit_logs_canal CHECK (channel IS NULL OR channel IN ('desktop', 'cloud', 'api', 'storefront', 'web'))");
+        At(up, "SELECT gen_random_uuid(), t.id, 'CLIENTE', 'Cliente web', true");
+        // Reversa: guardia de la auditoría web, triggers y función fuera, piezas sin ranura a Periféricos y sin valor por defecto
+        Assert.True(At(down, "no se puede volver a la V6") < At(down, "DROP TABLE sales.customer_accounts"));
+        Assert.True(At(down, "UPDATE sales.pc_build_lines SET slot = 'Peripheral' WHERE slot IS NULL") <
+                    At(down, "ALTER TABLE sales.pc_build_lines ALTER COLUMN slot SET NOT NULL"));
+        Assert.True(At(down, "DROP TRIGGER IF EXISTS trg_pc_build_kind_immutable ON sales.pc_builds") <
+                    At(down, "ALTER TABLE sales.pc_builds DROP COLUMN kind"));
+        Assert.True(At(down, "ALTER COLUMN slot SET DEFAULT ''") < At(down, "ALTER TABLE sales.pc_build_lines ALTER COLUMN slot DROP DEFAULT"));
+        At(down, "DROP FUNCTION IF EXISTS integration.claim_outgoing_mails(integer, integer)");
+        At(down, "DELETE FROM iam.roles WHERE code = 'CLIENTE'");
     }
 
     /// <summary>V6 · La migración siembra en las empresas existentes los mismos permisos, la misma matriz rol-permiso, el mismo rol
@@ -152,20 +256,21 @@ public sealed class ModelTests
         }
     }
 
-    /// <summary>Tablas de sucursal de todas las migraciones (V4 + V4.1 + V4.2 + V6).</summary>
+    /// <summary>Tablas de sucursal de todas las migraciones (V4 + V4.1 + V4.2 + V6 + V7).</summary>
     internal static IEnumerable<string> AllBranchTables =>
         Persistence.Migrations.V4MultiBranchCloud.BranchTables.Concat(Persistence.Migrations.V41SiatBilling.BranchTablesV41)
-            .Concat(Persistence.Migrations.V42TechRetail.BranchTablesV42).Concat(Persistence.Migrations.V6Storefront.BranchTablesV6);
+            .Concat(Persistence.Migrations.V42TechRetail.BranchTablesV42).Concat(Persistence.Migrations.V6Storefront.BranchTablesV6)
+            .Concat(Persistence.Migrations.V7WebPlatform.BranchTablesV7);
 
     /// <summary>Tablas entre sucursales de todas las migraciones (V4 + V4.2).</summary>
     internal static IEnumerable<string> AllInterBranchTables =>
         Persistence.Migrations.V4MultiBranchCloud.InterBranchTables.Concat(Persistence.Migrations.V42TechRetail.InterBranchTablesV42);
 
-    /// <summary>Libros append-only de todas las migraciones (V3 + V4 + V4.1 + V4.2 + V6).</summary>
+    /// <summary>Libros append-only de todas las migraciones (V3 + V4 + V4.1 + V4.2 + V6 + V7).</summary>
     internal static IEnumerable<string> AllAppendOnlyTables =>
         Persistence.Migrations.GuardsRlsAndViews.AppendOnlyTables.Concat(Persistence.Migrations.V4MultiBranchCloud.AppendOnlyTablesV4)
             .Concat(Persistence.Migrations.V41SiatBilling.AppendOnlyTablesV41).Concat(Persistence.Migrations.V42TechRetail.AppendOnlyTablesV42)
-            .Concat(Persistence.Migrations.V6Storefront.AppendOnlyTablesV6);
+            .Concat(Persistence.Migrations.V6Storefront.AppendOnlyTablesV6).Concat(Persistence.Migrations.V7WebPlatform.AppendOnlyTablesV7);
 
     /// <summary>V4.2 · La migración siembra en las empresas existentes los mismos permisos, la misma matriz rol-permiso, el
     /// mismo tipo de movimiento de reposición por garantía y la misma cuenta 5.1.10 que el aprovisionamiento.</summary>
@@ -427,8 +532,17 @@ public sealed class ModelTests
     [InlineData("CONSTRAINT ck_stock_reservations_origen CHECK (num_nonnulls(pos_session_id, sales_order_line_id, pc_build_line_id) <= 1)")]
     [InlineData("CONSTRAINT ck_pc_builds_reserva CHECK (status <> 'Reserved' OR (reserved_at IS NOT NULL AND reserved_until IS NOT NULL))")]
     [InlineData("CONSTRAINT ck_pc_builds_contacto CHECK (channel <> 'Web' OR (contact_name IS NOT NULL AND contact_phone IS NOT NULL))")]
-    [InlineData("CONSTRAINT ck_audit_logs_canal CHECK (channel IS NULL OR channel IN ('desktop', 'cloud', 'api', 'storefront'))")]
+    [InlineData("CONSTRAINT ck_audit_logs_canal CHECK (channel IS NULL OR channel IN ('desktop', 'cloud', 'api', 'storefront', 'web'))")]
     [InlineData("REFERENCES sales.pc_build_lines (tenant_id, branch_id, id)")]
+    [InlineData("CREATE TABLE sales.customer_accounts")]
+    [InlineData("CREATE UNIQUE INDEX ux_customer_accounts_tenant_id_user_id ON sales.customer_accounts (tenant_id, user_id)")]
+    [InlineData("CREATE UNIQUE INDEX ux_customer_accounts_tenant_id_customer_id ON sales.customer_accounts (tenant_id, customer_id)")]
+    [InlineData("CREATE TABLE integration.outgoing_mails")]
+    [InlineData("CONSTRAINT fk_outgoing_mails_tenant_id_branch_id_pc_build_id FOREIGN KEY (tenant_id, branch_id, pc_build_id) REFERENCES sales.pc_builds (tenant_id, branch_id, id)")]
+    [InlineData("CONSTRAINT ck_outgoing_mail_dispatch_fin CHECK ((status = 'Pending') = (completed_at IS NULL))")]
+    [InlineData("CONSTRAINT ck_outgoing_mail_attempts_error CHECK (succeeded = (error IS NULL))")]
+    [InlineData("CREATE UNIQUE INDEX ux_outgoing_mail_attempts_outgoing_mail_id_attempt ON integration.outgoing_mail_attempts (outgoing_mail_id, attempt)")]
+    [InlineData("REFERENCES integration.outgoing_mails (tenant_id, id)")]
     public void El_DDL_generado_contiene_las_restricciones_clave(string fragment) =>
         Assert.Contains(fragment, Ddl, StringComparison.Ordinal);
 

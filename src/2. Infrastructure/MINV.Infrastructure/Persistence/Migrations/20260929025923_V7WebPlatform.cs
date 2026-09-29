@@ -5,12 +5,21 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace MINV.Infrastructure.Persistence.Migrations
 {
-    /// <inheritdoc />
+    /// <summary>
+    /// V7 · Plataforma web: carrito de compras sobre el armado (<c>sales.pc_builds.kind</c>, datos para la factura de la reserva
+    /// <c>buyer_*</c> y ranura opcional en <c>sales.pc_build_lines</c>), cuentas de cliente (<c>sales.customer_accounts</c>),
+    /// correo de la reserva (<c>integration.outgoing_mails</c>, <c>outgoing_mail_dispatch</c> y <c>outgoing_mail_attempts</c>)
+    /// y el canal <c>web</c> en la auditoría. 153 → 157 tablas en 10 esquemas. El SQL propio de PostgreSQL (guardia, relleno del
+    /// tipo, RLS, append-only, triggers del carrito, función del despachador del correo, rol CLIENTE y permisos, privilegios)
+    /// está en <c>V7WebPlatform.Sql.cs</c>.
+    /// </summary>
     public partial class V7WebPlatform : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            V7Guard(migrationBuilder);
+
             migrationBuilder.DropCheckConstraint(
                 name: "ck_pc_build_lines_ranura",
                 schema: "sales",
@@ -239,6 +248,8 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         onDelete: ReferentialAction.Restrict);
                 });
 
+            V7Backfill(migrationBuilder);
+
             migrationBuilder.AddCheckConstraint(
                 name: "ck_pc_builds_factura_complemento",
                 schema: "sales",
@@ -351,11 +362,15 @@ namespace MINV.Infrastructure.Persistence.Migrations
                 schema: "integration",
                 table: "outgoing_mails",
                 columns: new[] { "tenant_id", "requested_by_user_id" });
+
+            V7Guards(migrationBuilder);
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            V7DropGuards(migrationBuilder);
+
             migrationBuilder.DropTable(
                 name: "customer_accounts",
                 schema: "sales");
@@ -461,6 +476,8 @@ namespace MINV.Infrastructure.Persistence.Migrations
                 schema: "iam",
                 table: "audit_logs",
                 sql: "channel IS NULL OR channel IN ('desktop', 'cloud', 'api', 'storefront')");
+
+            V7DropSlotDefault(migrationBuilder);
         }
     }
 }

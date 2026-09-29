@@ -221,7 +221,8 @@ Migración `V7WebPlatform`: 153 → **157 tablas** (4 nuevas), mismos 10 esquema
 | Columnas | `sales.pc_builds`: `kind`, `buyer_document_type`, `buyer_document_number`, `buyer_complement`, `buyer_name` |
 | Cambia | `sales.pc_build_lines.slot` admite nulo (solo carritos: trigger) · `iam.audit_logs.channel` admite `web` |
 | Función | `integration.claim_outgoing_mails(integer, integer)` |
-| Datos | Rol `CLIENTE`, permisos `account.manage` y `account.reserve` en las empresas existentes |
+| Triggers | `trg_pc_build_line_slot` (ranura nula solo en un carrito) · `trg_pc_build_kind_immutable` (el tipo no cambia después de insertar) |
+| Datos | Rol `CLIENTE`, permisos `account.manage` y `account.reserve` en las empresas existentes (relleno: `kind = 'Build'`; guardia: un rol `CLIENTE` previo que no sea de sistema o tenga permisos del personal detiene la migración) |
 
 Comprobación de normalización: `docs/database/normalizacion-v7.md` (método, hallazgos y redundancias controladas) y
 `scripts/verificar_normalizacion.sql` (consultas sobre `pg_catalog` para repetirla contra cualquier base).

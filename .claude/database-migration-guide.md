@@ -206,15 +206,19 @@ base V3.1 (97 tablas, una sucursal por empresa) a la V4 (110 tablas, 8 esquemas)
 | `V42TechRetail.InterBranchTablesV42` (1) | entidades `IInterBranch` nuevas de la V4.2 (6 en total) | `branch_isolation` sobre `from_branch_id OR to_branch_id` |
 | `V42TechRetail.AppendOnlyTablesV42` (5) | entidades `IAppendOnly` nuevas de la V4.2 (29 libros en total) | `trg_append_only`, `REVOKE UPDATE, DELETE, TRUNCATE` |
 | `V42TechRetail.NewTablesV42` (12) | tablas creadas por la V4.2 (la prueba las compara con las que el modelo tiene y `V41CafcNumbering` no) | `GRANT` a `minv_app` y `minv_server` |
+| `V6Storefront.BranchTablesV6` / `AppendOnlyTablesV6` / `NewTablesV6` (1 cada una) | `sales.pc_build_events` (57 de sucursal y 30 libros en total) | `branch_isolation`, `trg_append_only`, `GRANT` |
+| `V7WebPlatform.BranchTablesV7` (1) | `integration.outgoing_mails` (58 de sucursal en total) | `branch_isolation` RESTRICTIVA sobre `branch_id` |
+| `V7WebPlatform.AppendOnlyTablesV7` (2) | `integration.outgoing_mails`, `integration.outgoing_mail_attempts` (32 libros en total) | `trg_append_only`, `REVOKE UPDATE, DELETE, TRUNCATE` |
+| `V7WebPlatform.NewTablesV7` (4) | las tablas que el modelo tiene y `V6Storefront` no (`sales.customer_accounts` y las 3 del correo) | `GRANT` a `minv_app` y `minv_server` |
 
 - Son listas **explícitas** a propósito: una migración publicada es inmutable y su resultado no debe cambiar si mañana
   aparece otra tabla con esas columnas. La política de empresa sí se genera por descubrimiento (`tenant_id`), porque
   toda tabla la necesita.
 - Una tabla nueva de sucursal, entre sucursales o append-only DEBE agregarse en una lista de la **migración nueva** que
   la crea (con su política, trigger y `REVOKE`), y la prueba de modelo DEBE comparar la unión de todas las listas con
-  las entidades del modelo (regla B-15). `ModelTests.Los_libros_mayores_son_append_only` fija los 29 libros y
-  `ModelTests.Las_listas_de_las_migraciones_coinciden_con_el_modelo` compara la unión de las listas V4 + V4.1 + V4.2
-  con el modelo.
+  las entidades del modelo (regla B-15). `ModelTests.Los_libros_mayores_son_append_only` fija los 32 libros (V7) y
+  `ModelTests.Las_listas_de_las_migraciones_coinciden_con_el_modelo` compara la unión de las listas V4 + V4.1 + V4.2 + V6 +
+  V7 con el modelo.
 
 ## 7. Revertir
 
@@ -378,3 +382,57 @@ Reversa (`Down`): libera las reservas de armados (el reservado vuelve a las exis
 despublica, quita permisos, matriz y rol, y desactiva el usuario técnico (sus filas de auditoría lo referencian). Después
 de migrar configure el gateway (`Minv:Storefront:TenantCode`) y, si la tienda no atiende desde la casa matriz,
 `Minv:Storefront:BranchCode`.
+
+## 11. Migrar una base V6 a la V7 (`V7WebPlatform`)
+
+`V7WebPlatform` (`20260929025923_V7WebPlatform.cs` + `.Sql.cs`) agrega la plataforma web: 153 → **157 tablas en 10 esquemas**
+(`sales.customer_accounts`, `integration.outgoing_mails`, `integration.outgoing_mail_dispatch`,
+`integration.outgoing_mail_attempts`), 5 columnas a `sales.pc_builds` (`kind` y los datos para la factura `buyer_*`), la ranura
+opcional de `sales.pc_build_lines`, el canal `web` de `iam.audit_logs` y la función `integration.claim_outgoing_mails`. Se aplica
+sobre una base de la V6 CON datos, sin recrearla.
+
+**Qué hace, en orden** (`Up`):
+
+1. **Guardia** (`V7Guard`): se detiene («M-INV V7: …», sin cambios) si una empresa ya tiene un rol `CLIENTE` que no es de
+   sistema o que tiene permisos que no son `account.*` (el registro de la tienda asigna ese rol a cualquier visitante).
+2. Generado por EF: columnas `buyer_*` (nulas) y `kind` con el valor provisional `''`; `slot` admite nulo; las 4 tablas nuevas.
+3. **Relleno** (`V7Backfill`): `kind = 'Build'` en todos los armados existentes, retiro del valor provisional y verificación de
+   que ninguno quedó sin tipo. `pc_builds` no tiene triggers: no se pausa nada.
+4. Generado por EF: CHECK del tipo y de los datos para la factura, `ck_pc_build_lines_ranura` con nulo, `ck_audit_logs_canal`
+   con `web`, índices.
+5. **Defensas y datos** (`V7Guards`): `trg_append_only` en `AppendOnlyTablesV7`; `tenant_isolation` por descubrimiento (155 en
+   total); `branch_isolation` RESTRICTIVA en `BranchTablesV7` (64 en total); triggers del carrito `trg_pc_build_line_slot` (ranura
+   nula solo en un carrito) y `trg_pc_build_kind_immutable` (el tipo no cambia); función SECURITY DEFINER
+   `integration.claim_outgoing_mails(integer, integer)` (`search_path` fijo, `REVOKE ALL … FROM PUBLIC`); permisos
+   `account.manage` y `account.reserve`, rol `CLIENTE` («Cliente web», de sistema) y su matriz (ADMIN y CLIENTE) en las empresas
+   existentes; privilegios de `minv_app` y `minv_server` (solo si existen) y EXECUTE de la función solo para `minv_server`.
+
+`Down` (`V7DropGuards` + lo generado + `V7DropSlotDefault`): se niega si la auditoría ya tiene filas del canal `web` (es
+append-only: restaure el respaldo); si no, quita la función y los triggers, pasa las piezas sin ranura (solo de carritos) a
+`Peripheral`, quita permisos, matriz y rol `CLIENTE` (desactiva las cuentas de cliente; el personal no se toca), borra las
+tablas y columnas nuevas y deja `slot` obligatoria y sin valor por defecto, como en la V6.
+
+```powershell
+dotnet run --project "src/4. Tools/MINV.Cli" -- migrate --conexion "<cadena del rol dueño>"
+dotnet run --project "src/4. Tools/MINV.Cli" -- verify --codigo <EMPRESA> --conexion "<cadena del rol dueño>"   # V7: 157 tablas, 32 libros, 155 RLS, 64 por sucursal
+```
+
+Verificación en una copia (como dueño):
+
+```sql
+SELECT count(*) FROM information_schema.tables WHERE table_type = 'BASE TABLE'
+  AND table_schema IN ('iam','catalog','warehouse','inventory','purchasing','sales','accounting','integration','billing','service')
+  AND table_name <> '__ef_migrations_history';                            -- 157
+SELECT count(*) FROM pg_policies WHERE policyname = 'tenant_isolation';   -- 155
+SELECT count(*) FROM pg_policies WHERE policyname = 'branch_isolation';   -- 64
+SELECT count(*) FROM pg_trigger  WHERE tgname = 'trg_append_only';        -- 32
+SELECT count(*) FROM sales.pc_builds WHERE kind NOT IN ('Build', 'Cart'); -- 0
+SELECT count(*) FROM iam.roles WHERE code = 'CLIENTE';                    -- una por empresa
+SELECT has_function_privilege('minv_server', 'integration.claim_outgoing_mails(integer, integer)', 'EXECUTE');   -- true
+```
+
+La prueba `V7WebPlatformPostgresTests.V7_la_migracion_rellena_el_tipo_de_una_base_V6_con_datos_y_su_guardia_protege_el_rol_CLIENTE`
+(con `MINV_TEST_PG`) migra una base de la V6 con armados (borrador, cotizado y publicado, reserva web con su reserva de stock,
+anulado) a la V7, comprueba el relleno y los datos agregados, guarda un carrito sin ranura, revierte a la V6, vuelve a migrar y
+comprueba que la guardia detiene la migración con un rol CLIENTE del personal. Después de migrar configure la sesión web del
+servidor en la nube (`Minv:Web:*`) y, si se quiere el correo, el despachador del gateway (`Minv:Mail:*`).

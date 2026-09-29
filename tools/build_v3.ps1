@@ -13,7 +13,7 @@
                                                 temporal y verifica /health, el WSDL y el corte simulado (/control).
     4. dotnet ef migrations has-pending-model-changes   El modelo no puede tener cambios sin migracion.
     5. scripts\db_init.sql                      Se regenera: cabecera + "dotnet ef migrations script --idempotent"
-                                                (V6: 153 tablas en 10 esquemas + historial de migraciones).
+                                                (V7: 157 tablas en 10 esquemas + historial de migraciones).
     6. -Capturas                                Cliente de escritorio V6: M-INV.exe --capturas con la demostracion
                                                 -> docs\product\capturas\v6 (claro, oscuro y por rol; reglas A-11, T-10 y S-08;
                                                 reservas de la tienda web en el armador y stock con reservado).
@@ -97,7 +97,7 @@ Paso 'Regenerar scripts\db_init.sql' {
         [IO.File]::WriteAllText((Join-Path $root 'scripts\db_init.sql'), $header + $body.Replace("`r`n", "`n"), $utf8)
         Remove-Item $tmp -Force
         $tablas = (Select-String -Path (Join-Path $root 'scripts\db_init.sql') -Pattern 'CREATE TABLE' | Measure-Object).Count
-        Write-Output ('scripts\db_init.sql regenerado: ' + $tablas + ' sentencias CREATE TABLE (V6: 153 tablas en 10 esquemas + historial de migraciones)')
+        Write-Output ('scripts\db_init.sql regenerado: ' + $tablas + ' sentencias CREATE TABLE (V7: 157 tablas en 10 esquemas + historial de migraciones)')
     }
 }
 

@@ -9,7 +9,9 @@ esquemas, la V4 110 en 8 y la V4.1 140 en 9; los cambios de la V4 (sucursal en l
 transferencias rediseñadas, integraciones, idempotencia y modelo de lectura) están resumidos en el §7 y ya incorporados
 en el §4; la facturación SIAT de la V4.1 (esquema `billing`, devoluciones de venta, datos fiscales de compras y del
 cliente) está en el §8; la edición Tecnología de la V4.2 (fichas técnicas, series e IMEI con su bitácora, armador de PC
-y garantías y RMA en el esquema `service`) está en el §9.
+y garantías y RMA en el esquema `service`) está en el §9; la tienda web conectada de la V6 (153 tablas) en el §10 y la
+plataforma web de la V7 (carrito, cuentas de cliente y correo de la reserva: **157 tablas en 10 esquemas**, 32 libros
+append-only) en el §11.
 Arquitectura: `docs/architecture/arquitectura-v4.md`, `docs/architecture/facturacion-siat-v4.1.md` y
 `docs/architecture/edicion-tecnologia-v4.2.md`.
 
@@ -2427,3 +2429,150 @@ determinista de su `Idempotency-Key` (SHA-256), con el hash del contenido y la r
 `minv_server` y `minv_app` (solo si existen al migrar): SELECT e INSERT en `sales.pc_build_events` (UPDATE, DELETE y TRUNCATE
 revocados: append-only). Ninguna función SECURITY DEFINER nueva: el principal de la tienda se construye leyendo `iam.tenants`
 (sin `tenant_id`, sin RLS) y después las tablas de la empresa con la sesión fijada.
+
+## 11. V7 · Plataforma web (carrito, cuentas de cliente, correo de la reserva, canal web)
+
+Migración `V7WebPlatform` (`Persistence/Migrations/20260929025923_V7WebPlatform.cs` y su parcial `.Sql.cs`). Reglas P-01 a P-14:
+`.claude/v7-web-platform-rules.md`; diseño: `docs/architecture/plataforma-web-v7.md` §10. La V7 agrega **4 tablas**
+(`sales.customer_accounts`, `integration.outgoing_mails`, `integration.outgoing_mail_dispatch` e
+`integration.outgoing_mail_attempts`), 5 columnas a `sales.pc_builds`, la ranura opcional de `sales.pc_build_lines`, el canal
+`web` de la auditoría y la función `integration.claim_outgoing_mails`. Resultado: **157 tablas en 10 esquemas** (`sales` 28,
+`integration` 10), 155 políticas `tenant_isolation`, 64 `branch_isolation` RESTRICTIVAS (58 por sucursal y 6 entre sucursales),
+32 triggers append-only y 6 funciones SECURITY DEFINER.
+
+### 11.1 Carrito sobre el armado · esquema `sales`
+
+El carrito de compras reutiliza el agregado del armado (`PcBuild` con `kind = 'Cart'`, regla P-05): la reserva todo o nada, el
+vencimiento, la cancelación, la venta que consume la reserva, la bitácora y los eventos son los mismos; la compatibilidad (T-06)
+solo se evalúa en los armados. Numeración: carrito web `RES-WEB-000001`, carrito de mostrador `RES-<sucursal>-000001`.
+
+```mermaid
+erDiagram
+    pc_builds {
+        varchar kind "Build | Cart"
+        smallint buyer_document_type
+        varchar buyer_document_number
+        varchar buyer_complement
+        varchar buyer_name
+    }
+    pc_build_lines {
+        varchar slot "NULL solo en un carrito"
+    }
+    pc_builds ||--o{ pc_build_lines : "(branch_id, pc_build_id)"
+```
+
+| Tabla / columna | Descripción | Referencias (FK) | Únicos / CHECK |
+|---|---|---|---|
+| `sales.pc_builds.kind` | V7 · Tipo de la reserva: `Build` (armado de PC, con ranuras y compatibilidad) o `Cart` (carrito: uno o varios productos cualesquiera). Los armados existentes al migrar quedan `Build`. **No cambia después de insertar** (trigger `trg_pc_build_kind_immutable`: una línea sin ranura nunca queda colgando de un armado). | — | CHECK kind IN ('Build', 'Cart')<br>CHECK NOT published_to_web OR kind = 'Build' (un carrito nunca se publica como armado sugerido) |
+| `sales.pc_builds.buyer_document_type`, `buyer_document_number`, `buyer_complement`, `buyer_name` | V7 · Datos para la factura que dejó el visitante al reservar (instantánea, regla P-05): tipo de documento del SIN (1 CI, 2 CEX, 3 pasaporte, 4 otro, 5 NIT), número, complemento (solo con CI) y razón social. Mismas reglas que `Customer.SetFiscalIdentity`; la caja los precarga al cobrar si el cajero no captura otro comprador. Se enmascaran en la auditoría y solo los ve quien tiene `sales.pcbuild.manage` (S-06). | — | CHECK buyer_document_type IS NULL OR buyer_document_type BETWEEN 1 AND 5<br>CHECK (buyer_document_type IS NULL) = (buyer_document_number IS NULL)<br>CHECK buyer_complement IS NULL OR buyer_document_type = 1<br>CHECK buyer_name IS NULL OR buyer_document_type IS NOT NULL |
+| `sales.pc_build_lines.slot` | V7 · La ranura admite nulo, **solo en las líneas de un carrito** (regla que cruza dos tablas: la exigen el dominio y el trigger `trg_pc_build_line_slot`); en un armado sigue siendo obligatoria y única por ranura (dominio). Un carrito puede llevar dos productos de la misma ranura. | — | CHECK slot IS NULL OR slot IN (12 ranuras) |
+
+### 11.2 Cuentas de cliente · esquema `sales` (1 tabla)
+
+```mermaid
+erDiagram
+    customer_accounts {
+        uuid id PK
+        uuid tenant_id FK
+        uuid user_id FK
+        uuid customer_id FK
+        timestamptz created_at
+    }
+    users ||--o| customer_accounts : "(tenant_id, user_id)"
+    customers ||--o| customer_accounts : "(tenant_id, customer_id)"
+```
+
+| Tabla | Descripción | Clave | Referencias (FK) | Únicos / CHECK |
+|---|---|---|---|---|
+| `sales.customer_accounts` | V7 · Cuenta de cliente de la tienda web (regla P-04): une **1 a 1** el usuario con el que ingresa (`iam.users`, rol `CLIENTE`) con su cliente (`sales.customers`, código `WEB-000001`, a cuyo nombre quedan sus reservas y sus facturas). Los casos de uso `account.*` llegan al cliente SOLO por esta fila y el usuario de la sesión: nunca reciben un identificador de cliente. No guarda nada derivable (nombre, correo, teléfono y documento viven en el usuario y en el cliente). · **de la empresa** (clientes y usuarios no se filtran por sucursal, B-02) | (id) | (tenant_id, user_id) → iam.users<br>(tenant_id, customer_id) → sales.customers | único (tenant_id, user_id)<br>único (tenant_id, customer_id) |
+
+### 11.3 Correo de la reserva · esquema `integration` (3 tablas)
+
+El correo **no** se envía dentro del caso de uso (B-08, P-06): se encola en la misma transacción que la reserva y lo envía el
+despachador del gateway (`MailDispatcher`) después del COMMIT. No se guarda el asunto ni el cuerpo: se derivan al enviar desde la
+reserva (precios congelados).
+
+```mermaid
+erDiagram
+    outgoing_mails {
+        uuid id PK
+        uuid tenant_id FK
+        uuid branch_id FK
+        varchar kind
+        uuid pc_build_id FK
+        varchar recipient
+        timestamptz requested_at
+        uuid requested_by_user_id FK
+    }
+    outgoing_mail_dispatch {
+        uuid outgoing_mail_id PK
+        uuid tenant_id FK
+        varchar status
+        integer attempts
+        timestamptz next_attempt_at
+        timestamptz completed_at
+        varchar last_error
+    }
+    outgoing_mail_attempts {
+        uuid id PK
+        uuid tenant_id FK
+        uuid outgoing_mail_id FK
+        integer attempt
+        boolean succeeded
+        varchar error
+        timestamptz attempted_at
+        integer duration_ms
+    }
+    pc_builds ||--o{ outgoing_mails : "(branch_id, pc_build_id)"
+    outgoing_mails ||--|| outgoing_mail_dispatch : "(tenant_id, outgoing_mail_id)"
+    outgoing_mails ||--o{ outgoing_mail_attempts : "(tenant_id, outgoing_mail_id)"
+```
+
+| Tabla | Descripción | Clave | Referencias (FK) | Únicos / CHECK |
+|---|---|---|---|---|
+| `integration.outgoing_mails` | V7 · **Hecho** «se pidió un correo»: tipo (`ReservationConfirmed`), reserva de la que sale el contenido, destinatario (una sola dirección, en minúsculas: así lo cuentan los topes de 3 por destinatario y 300 por empresa cada 24 h), cuándo y quién lo pidió (el principal de la tienda, el cliente de la cuenta o el personal). Se crea en el MISMO `SaveChanges` que la reserva (`ReservationMail.EnqueueAsync`). · **append-only** · **por sucursal** (la de su reserva) | (id) | (branch_id, pc_build_id) → sales.pc_builds<br>requested_by_user_id → iam.users | índice (tenant_id, recipient, requested_at)<br>índice (tenant_id, requested_at)<br>CHECK kind IN ('ReservationConfirmed')<br>CHECK recipient = lower(recipient) AND recipient ~ '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$' |
+| `integration.outgoing_mail_dispatch` | V7 · **Cola** del correo (1:1, la única tabla mutable del correo, regla B-06): estado (`Pending`, `Sent`, `Exhausted`, `Cancelled`), intentos gastados (0 a 5), próximo intento (esperas 0, 1 min, 5 min, 30 min y 2 h), cuándo terminó y el último error (una línea, sin contraseña, usuario, servidor ni remitente). Solo cambia por los métodos de `OutgoingMailDispatch`; la reclama `integration.claim_outgoing_mails`. · OCC xmin · **de la empresa** | (outgoing_mail_id) | (tenant_id, outgoing_mail_id) → integration.outgoing_mails | único (tenant_id, outgoing_mail_id)<br>índice (next_attempt_at) WHERE status = 'Pending'<br>CHECK status IN (4 estados)<br>CHECK (status = 'Pending') = (completed_at IS NULL)<br>CHECK attempts BETWEEN 0 AND 5<br>CHECK status NOT IN ('Sent', 'Exhausted') OR attempts >= 1 |
+| `integration.outgoing_mail_attempts` | V7 · **Bitácora** de intentos de envío: número de intento (1 a 5), si salió, el error (siempre en un fallo, nunca en un éxito), cuándo y cuánto tardó. Una falla del SERVIDOR de correo (no conecta, credenciales) no gasta intento: pospone la cola y no deja fila. · **append-only** · **de la empresa** | (id) | (tenant_id, outgoing_mail_id) → integration.outgoing_mails | único (outgoing_mail_id, attempt)<br>CHECK attempt BETWEEN 1 AND 5<br>CHECK duration_ms >= 0<br>CHECK succeeded = (error IS NULL) |
+| `iam.audit_logs.channel` | V7 · Canal `web` (panel y cuentas de cliente por `/api/v1/web/*`, sesión por cookie). | — | CHECK channel IS NULL OR channel IN ('desktop', 'cloud', 'api', 'storefront', 'web') |
+
+**Función** `integration.claim_outgoing_mails(p_limit integer, p_lease_seconds integer)` → `TABLE (tenant_id uuid,
+outgoing_mail_id uuid)`: SECURITY DEFINER, `search_path = pg_catalog, integration`, sin EXECUTE para PUBLIC y EXECUTE solo para
+`minv_server` (regla B-13). Toma hasta `least(p_limit, 500)` correos pendientes vencidos de todas las empresas con
+`FOR UPDATE SKIP LOCKED` (varias réplicas del gateway no toman el mismo) y adelanta su próximo intento
+`greatest(30, least(p_lease_seconds, 3600))` segundos (arrendamiento: si el proceso cae, el correo vuelve solo). Devuelve solo la
+empresa y el correo; después el despachador fija `minv.tenant_id` y trabaja con RLS.
+
+### 11.4 Sucursal, append-only y normalización
+
+**Por sucursal** (1 tabla nueva, 58 en total; lista `BranchTablesV7`): `integration.outgoing_mails`. **Append-only** (2 libros
+nuevos, 32 en total; lista `AppendOnlyTablesV7`): `integration.outgoing_mails`, `integration.outgoing_mail_attempts`. Sin tablas
+entre sucursales nuevas. Tablas nuevas (privilegios, lista `NewTablesV7`): las 4.
+
+**Normalización y redundancia controlada.** `kind` es un atributo propio del agregado. La ranura nula en un carrito evita guardar
+un valor derivable de la categoría del producto; la regla «un armado exige ranura» cruza dos tablas y va en un trigger (A-06).
+Los datos para la factura de la reserva son una instantánea deliberada del visitante (no dependen del cliente, que puede no
+existir): redundancia comercial documentada, igual que el precio cotizado. La cuenta de cliente no repite datos del usuario ni del
+cliente. El correo separa el hecho inmutable (`outgoing_mails`), el estado que cambia (`outgoing_mail_dispatch`, estado
+materializado) y la bitácora de intentos (`outgoing_mail_attempts`), como el outbox de la V4; el asunto y el cuerpo NO se guardan
+(se derivan de la reserva).
+
+### 11.5 Datos que agrega la migración
+
+- Guardia: si una empresa ya tuviera un rol `CLIENTE` que no es el del sistema o que tiene permisos del personal, la migración se
+  detiene sin cambios (el registro de la tienda asigna ese rol a cualquier visitante, P-03).
+- Relleno: `pc_builds.kind = 'Build'` en todos los armados existentes (con verificación y retiro del valor provisional). Las
+  columnas `buyer_*` quedan nulas. `pc_builds` no tiene triggers que pausar.
+- Permisos `account.manage` y `account.reserve` en todas las empresas, con la matriz de `PermissionCodes.ForRole`: ADMIN (por
+  tener todos) y el rol nuevo `CLIENTE` («Cliente web», de sistema) con solo esos dos. Las empresas nuevas los reciben del
+  aprovisionamiento. Sin usuarios nuevos: las cuentas de cliente las crea el registro de la tienda (`RegisterCustomerAccountCommand`).
+- Triggers `trg_pc_build_line_slot` (función `sales.minv_pc_build_line_slot`) y `trg_pc_build_kind_immutable` (función
+  `sales.minv_pc_build_kind_immutable`).
+- Reversa (`Down`): se niega si la auditoría ya tiene filas del canal `web` (append-only: restaure el respaldo); si no, quita la
+  función y los triggers, pasa las piezas sin ranura a Periféricos (`Peripheral`), quita permisos, matriz y rol `CLIENTE` (las
+  cuentas de cliente se desactivan; el personal no se toca) y borra las 4 tablas y las columnas nuevas.
+
+### 11.6 Roles
+
+`minv_server` y `minv_app` (solo si existen al migrar): SELECT, INSERT, UPDATE y DELETE en las 4 tablas nuevas, salvo UPDATE,
+DELETE y TRUNCATE en `integration.outgoing_mails` e `integration.outgoing_mail_attempts` (append-only); EXECUTE de
+`integration.claim_outgoing_mails` solo para `minv_server`.

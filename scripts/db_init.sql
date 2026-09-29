@@ -11534,3 +11534,483 @@ BEGIN
 END $EF$;
 COMMIT;
 
+START TRANSACTION;
+
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    DO $$
+    DECLARE n bigint;
+    BEGIN
+        SELECT count(*) INTO n FROM iam.roles r
+        WHERE r.code = 'CLIENTE'
+          AND (NOT r.is_system OR EXISTS (
+              SELECT 1 FROM iam.role_permissions rp JOIN iam.permissions p ON p.id = rp.permission_id
+              WHERE rp.role_id = r.id AND p.code NOT LIKE 'account.%'));
+        IF n > 0 THEN
+            RAISE EXCEPTION 'M-INV V7: % empresas ya tienen un rol CLIENTE que no es el del sistema o que tiene permisos del personal (el registro de la tienda web asigna ese rol a cualquier visitante): cámbiele el código o quítele esos permisos antes de migrar.', n;
+        END IF;
+    END;
+    $$;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE sales.pc_build_lines DROP CONSTRAINT ck_pc_build_lines_ranura;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE iam.audit_logs DROP CONSTRAINT ck_audit_logs_canal;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE sales.pc_builds ADD buyer_complement character varying(5);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE sales.pc_builds ADD buyer_document_number character varying(20);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE sales.pc_builds ADD buyer_document_type smallint;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE sales.pc_builds ADD buyer_name character varying(150);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE sales.pc_builds ADD kind character varying(10) NOT NULL DEFAULT '';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE sales.pc_build_lines ALTER COLUMN slot DROP NOT NULL;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    CREATE TABLE sales.customer_accounts (
+        id uuid NOT NULL,
+        user_id uuid NOT NULL,
+        customer_id uuid NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        updated_at timestamp with time zone,
+        updated_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_customer_accounts PRIMARY KEY (id),
+        CONSTRAINT ak_customer_accounts_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT fk_customer_accounts_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_customer_accounts_tenant_id_customer_id FOREIGN KEY (tenant_id, customer_id) REFERENCES sales.customers (tenant_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_customer_accounts_tenant_id_user_id FOREIGN KEY (tenant_id, user_id) REFERENCES iam.users (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    CREATE TABLE integration.outgoing_mails (
+        id uuid NOT NULL,
+        branch_id uuid NOT NULL,
+        kind character varying(40) NOT NULL,
+        pc_build_id uuid NOT NULL,
+        recipient character varying(254) NOT NULL,
+        requested_at timestamp with time zone NOT NULL,
+        requested_by_user_id uuid NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_outgoing_mails PRIMARY KEY (id),
+        CONSTRAINT ak_outgoing_mails_tenant_id_branch_id_id UNIQUE (tenant_id, branch_id, id),
+        CONSTRAINT ak_outgoing_mails_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_outgoing_mails_destinatario CHECK (recipient = lower(recipient) AND recipient ~ '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$'),
+        CONSTRAINT ck_outgoing_mails_tipo CHECK (kind IN ('ReservationConfirmed')),
+        CONSTRAINT fk_outgoing_mails_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_outgoing_mails_tenant_id_branch_id_pc_build_id FOREIGN KEY (tenant_id, branch_id, pc_build_id) REFERENCES sales.pc_builds (tenant_id, branch_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_outgoing_mails_tenant_id_requested_by_user_id FOREIGN KEY (tenant_id, requested_by_user_id) REFERENCES iam.users (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    CREATE TABLE integration.outgoing_mail_attempts (
+        id uuid NOT NULL,
+        outgoing_mail_id uuid NOT NULL,
+        attempt integer NOT NULL,
+        succeeded boolean NOT NULL,
+        error character varying(500),
+        attempted_at timestamp with time zone NOT NULL,
+        duration_ms integer NOT NULL,
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_outgoing_mail_attempts PRIMARY KEY (id),
+        CONSTRAINT ak_outgoing_mail_attempts_tenant_id_id UNIQUE (tenant_id, id),
+        CONSTRAINT ck_outgoing_mail_attempts_duracion CHECK (duration_ms >= 0),
+        CONSTRAINT ck_outgoing_mail_attempts_error CHECK (succeeded = (error IS NULL)),
+        CONSTRAINT ck_outgoing_mail_attempts_intento CHECK (attempt BETWEEN 1 AND 5),
+        CONSTRAINT fk_outgoing_mail_attempts_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_outgoing_mail_attempts_tenant_id_outgoing_mail_id FOREIGN KEY (tenant_id, outgoing_mail_id) REFERENCES integration.outgoing_mails (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    CREATE TABLE integration.outgoing_mail_dispatch (
+        outgoing_mail_id uuid NOT NULL,
+        status character varying(20) NOT NULL,
+        attempts integer NOT NULL,
+        next_attempt_at timestamp with time zone NOT NULL,
+        completed_at timestamp with time zone,
+        last_error character varying(500),
+        created_at timestamp with time zone NOT NULL DEFAULT (now()),
+        created_by uuid,
+        updated_at timestamp with time zone,
+        updated_by uuid,
+        tenant_id uuid NOT NULL,
+        CONSTRAINT pk_outgoing_mail_dispatch PRIMARY KEY (outgoing_mail_id),
+        CONSTRAINT ck_outgoing_mail_dispatch_estado CHECK (status IN ('Pending', 'Sent', 'Exhausted', 'Cancelled')),
+        CONSTRAINT ck_outgoing_mail_dispatch_fin CHECK ((status = 'Pending') = (completed_at IS NULL)),
+        CONSTRAINT ck_outgoing_mail_dispatch_intentado CHECK (status NOT IN ('Sent', 'Exhausted') OR attempts >= 1),
+        CONSTRAINT ck_outgoing_mail_dispatch_intentos CHECK (attempts BETWEEN 0 AND 5),
+        CONSTRAINT fk_outgoing_mail_dispatch_tenant_id FOREIGN KEY (tenant_id) REFERENCES iam.tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_outgoing_mail_dispatch_tenant_id_outgoing_mail_id FOREIGN KEY (tenant_id, outgoing_mail_id) REFERENCES integration.outgoing_mails (tenant_id, id) ON DELETE RESTRICT
+    );
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    UPDATE sales.pc_builds SET kind = 'Build' WHERE kind = '';
+    ALTER TABLE sales.pc_builds ALTER COLUMN kind DROP DEFAULT;
+    DO $$
+    DECLARE n bigint;
+    BEGIN
+        SELECT count(*) INTO n FROM sales.pc_builds WHERE kind NOT IN ('Build', 'Cart');
+        IF n > 0 THEN
+            RAISE EXCEPTION 'M-INV V7: % armados quedaron sin tipo', n;
+        END IF;
+    END;
+    $$;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE sales.pc_builds ADD CONSTRAINT ck_pc_builds_factura_complemento CHECK (buyer_complement IS NULL OR buyer_document_type = 1);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE sales.pc_builds ADD CONSTRAINT ck_pc_builds_factura_documento CHECK ((buyer_document_type IS NULL) = (buyer_document_number IS NULL));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE sales.pc_builds ADD CONSTRAINT ck_pc_builds_factura_nombre CHECK (buyer_name IS NULL OR buyer_document_type IS NOT NULL);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE sales.pc_builds ADD CONSTRAINT ck_pc_builds_factura_tipo CHECK (buyer_document_type IS NULL OR buyer_document_type BETWEEN 1 AND 5);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE sales.pc_builds ADD CONSTRAINT ck_pc_builds_tipo CHECK (kind IN ('Build', 'Cart'));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE sales.pc_builds ADD CONSTRAINT ck_pc_builds_tipo_publicado CHECK (NOT published_to_web OR kind = 'Build');
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE sales.pc_build_lines ADD CONSTRAINT ck_pc_build_lines_ranura CHECK (slot IS NULL OR slot IN ('Cpu', 'Motherboard', 'Ram', 'Gpu', 'Storage', 'Psu', 'Case', 'Cooler', 'Monitor', 'Peripheral', 'Software', 'Service'));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE iam.audit_logs ADD CONSTRAINT ck_audit_logs_canal CHECK (channel IS NULL OR channel IN ('desktop', 'cloud', 'api', 'storefront', 'web'));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    CREATE UNIQUE INDEX ux_customer_accounts_tenant_id_customer_id ON sales.customer_accounts (tenant_id, customer_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    CREATE UNIQUE INDEX ux_customer_accounts_tenant_id_user_id ON sales.customer_accounts (tenant_id, user_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    CREATE INDEX ix_outgoing_mail_attempts_tenant_id_outgoing_mail_id ON integration.outgoing_mail_attempts (tenant_id, outgoing_mail_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    CREATE UNIQUE INDEX ux_outgoing_mail_attempts_outgoing_mail_id_attempt ON integration.outgoing_mail_attempts (outgoing_mail_id, attempt);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    CREATE INDEX ix_outgoing_mail_dispatch_next_attempt_at ON integration.outgoing_mail_dispatch (next_attempt_at) WHERE status = 'Pending';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    CREATE UNIQUE INDEX ux_outgoing_mail_dispatch_tenant_id_outgoing_mail_id ON integration.outgoing_mail_dispatch (tenant_id, outgoing_mail_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    CREATE INDEX ix_outgoing_mails_tenant_id_branch_id_pc_build_id ON integration.outgoing_mails (tenant_id, branch_id, pc_build_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    CREATE INDEX ix_outgoing_mails_tenant_id_recipient_requested_at ON integration.outgoing_mails (tenant_id, recipient, requested_at);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    CREATE INDEX ix_outgoing_mails_tenant_id_requested_at ON integration.outgoing_mails (tenant_id, requested_at);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    CREATE INDEX ix_outgoing_mails_tenant_id_requested_by_user_id ON integration.outgoing_mails (tenant_id, requested_by_user_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    CREATE TRIGGER trg_append_only BEFORE UPDATE OR DELETE ON integration.outgoing_mails
+        FOR EACH ROW EXECUTE FUNCTION iam.minv_append_only();
+    CREATE TRIGGER trg_append_only_truncate BEFORE TRUNCATE ON integration.outgoing_mails
+        FOR EACH STATEMENT EXECUTE FUNCTION iam.minv_append_only();
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    CREATE TRIGGER trg_append_only BEFORE UPDATE OR DELETE ON integration.outgoing_mail_attempts
+        FOR EACH ROW EXECUTE FUNCTION iam.minv_append_only();
+    CREATE TRIGGER trg_append_only_truncate BEFORE TRUNCATE ON integration.outgoing_mail_attempts
+        FOR EACH STATEMENT EXECUTE FUNCTION iam.minv_append_only();
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    DO $$
+    DECLARE r record;
+    BEGIN
+        FOR r IN
+            SELECT c.table_schema, c.table_name
+            FROM information_schema.columns c
+            JOIN information_schema.tables t
+              ON t.table_schema = c.table_schema AND t.table_name = c.table_name AND t.table_type = 'BASE TABLE'
+            WHERE c.column_name = 'tenant_id' AND c.table_schema IN ('iam', 'catalog', 'warehouse', 'inventory', 'purchasing', 'sales', 'accounting', 'integration', 'billing', 'service')
+              AND NOT EXISTS (SELECT 1 FROM pg_policies p
+                              WHERE p.schemaname = c.table_schema AND p.tablename = c.table_name AND p.policyname = 'tenant_isolation')
+        LOOP
+            EXECUTE format('ALTER TABLE %I.%I ENABLE ROW LEVEL SECURITY', r.table_schema, r.table_name);
+            EXECUTE format('CREATE POLICY tenant_isolation ON %I.%I USING (tenant_id = iam.current_tenant_id()) '
+                           'WITH CHECK (tenant_id = iam.current_tenant_id())', r.table_schema, r.table_name);
+        END LOOP;
+    END;
+    $$;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    CREATE POLICY branch_isolation ON integration.outgoing_mails AS RESTRICTIVE
+        USING (iam.branch_visible(branch_id)) WITH CHECK (iam.branch_visible(branch_id));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    CREATE OR REPLACE FUNCTION sales.minv_pc_build_line_slot() RETURNS trigger
+    LANGUAGE plpgsql AS $$
+    DECLARE b record;
+    BEGIN
+        SELECT p.number, p.kind INTO b FROM sales.pc_builds p WHERE p.id = NEW.pc_build_id;
+        IF FOUND AND b.kind <> 'Cart' THEN
+            RAISE EXCEPTION 'M-INV: cada pieza del armado % debe tener su ranura (solo un carrito admite productos sin ranura)',
+                b.number USING ERRCODE = 'P0001';
+        END IF;
+        RETURN NEW;
+    END;
+    $$;
+    CREATE TRIGGER trg_pc_build_line_slot BEFORE INSERT OR UPDATE OF slot, pc_build_id ON sales.pc_build_lines
+        FOR EACH ROW WHEN (NEW.slot IS NULL) EXECUTE FUNCTION sales.minv_pc_build_line_slot();
+
+    CREATE OR REPLACE FUNCTION sales.minv_pc_build_kind_immutable() RETURNS trigger
+    LANGUAGE plpgsql AS $$
+    BEGIN
+        RAISE EXCEPTION 'M-INV: el tipo de % (armado o carrito) no cambia después de crearlo', OLD.number
+            USING ERRCODE = 'P0001';
+    END;
+    $$;
+    CREATE TRIGGER trg_pc_build_kind_immutable BEFORE UPDATE OF kind ON sales.pc_builds
+        FOR EACH ROW WHEN (OLD.kind IS DISTINCT FROM NEW.kind) EXECUTE FUNCTION sales.minv_pc_build_kind_immutable();
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    CREATE OR REPLACE FUNCTION integration.claim_outgoing_mails(p_limit integer, p_lease_seconds integer)
+    RETURNS TABLE (tenant_id uuid, outgoing_mail_id uuid)
+    LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, integration AS $$
+    #variable_conflict use_column
+    BEGIN
+        RETURN QUERY
+        WITH due AS (
+            SELECT d.outgoing_mail_id AS id
+            FROM integration.outgoing_mail_dispatch d
+            WHERE d.status = 'Pending' AND d.next_attempt_at <= now()
+            ORDER BY d.next_attempt_at
+            LIMIT greatest(1, least(p_limit, 500))
+            FOR UPDATE SKIP LOCKED)
+        UPDATE integration.outgoing_mail_dispatch d
+           SET next_attempt_at = now() + make_interval(secs => greatest(30, least(p_lease_seconds, 3600)))
+        FROM due
+        WHERE d.outgoing_mail_id = due.id
+        RETURNING d.tenant_id, d.outgoing_mail_id;
+    END;
+    $$;
+    REVOKE ALL ON FUNCTION integration.claim_outgoing_mails(integer, integer) FROM PUBLIC;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    INSERT INTO iam.permissions (id, tenant_id, code, description)
+    SELECT gen_random_uuid(), t.id, p.code, p.description
+    FROM iam.tenants t
+    CROSS JOIN (VALUES ('account.manage', 'Cuenta de cliente: ver y actualizar sus datos y ver o cancelar sus propias reservas'), ('account.reserve', 'Cuenta de cliente: reservar productos con los datos de su cuenta')) AS p(code, description)
+    WHERE NOT EXISTS (SELECT 1 FROM iam.permissions x WHERE x.tenant_id = t.id AND x.code = p.code);
+
+    INSERT INTO iam.roles (id, tenant_id, code, name, is_system)
+    SELECT gen_random_uuid(), t.id, 'CLIENTE', 'Cliente web', true
+    FROM iam.tenants t
+    WHERE NOT EXISTS (SELECT 1 FROM iam.roles x WHERE x.tenant_id = t.id AND x.code = 'CLIENTE');
+
+    INSERT INTO iam.role_permissions (tenant_id, role_id, permission_id)
+    SELECT r.tenant_id, r.id, p.id
+    FROM iam.roles r
+    JOIN (VALUES ('ADMIN', 'account.manage'), ('ADMIN', 'account.reserve'), ('CLIENTE', 'account.manage'), ('CLIENTE', 'account.reserve')) AS m(role_code, permission_code) ON m.role_code = r.code
+    JOIN iam.permissions p ON p.tenant_id = r.tenant_id AND p.code = m.permission_code
+    WHERE NOT EXISTS (SELECT 1 FROM iam.role_permissions x WHERE x.role_id = r.id AND x.permission_id = p.id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    DO $$
+    DECLARE r text;
+    BEGIN
+        FOREACH r IN ARRAY ARRAY['minv_app', 'minv_server'] LOOP
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
+                EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON sales.customer_accounts, integration.outgoing_mails, integration.outgoing_mail_dispatch, integration.outgoing_mail_attempts TO %I', r);
+                EXECUTE format('REVOKE UPDATE, DELETE, TRUNCATE ON integration.outgoing_mails, integration.outgoing_mail_attempts FROM %I', r);
+            END IF;
+        END LOOP;
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'minv_server') THEN
+            GRANT EXECUTE ON FUNCTION integration.claim_outgoing_mails(integer, integer) TO minv_server;
+        END IF;
+    END;
+    $$;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    INSERT INTO iam.__ef_migrations_history ("MigrationId", "ProductVersion")
+    VALUES ('20260929025923_V7WebPlatform', '8.0.31');
+    END IF;
+END $EF$;
+COMMIT;
+
