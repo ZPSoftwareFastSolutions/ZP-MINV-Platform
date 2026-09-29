@@ -8,3 +8,11 @@ export function useServices(): Services {
   if (!services) throw new Error('useServices() debe usarse dentro de <ServicesProvider>.');
   return services;
 }
+
+/**
+ * Los casos de uso del catálogo, o null mientras la instantánea no llegó (o si falló). V7 · W3b: para lo que vive fuera
+ * de las páginas de la tienda (armado, carrito, estructura del sitio), que se dibuja también sin catálogo.
+ */
+export function useOptionalServices(): Services | null {
+  return useContext(ServicesContext);
+}

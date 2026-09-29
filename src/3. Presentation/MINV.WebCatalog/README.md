@@ -1,4 +1,4 @@
-# MINV.WebCatalog · Tienda web de Tech Zone Gaming (V6 · V7 en construcción)
+# MINV.WebCatalog · Tienda web y panel de Tech Zone Gaming (V7 · 7.0.0-alpha.1, en construcción)
 
 Catálogo web de **Tech Zone Gaming S.R.L.** (tienda boliviana de tecnología: componentes de PC, computadoras, monitores,
 periféricos, consolas, videojuegos, accesorios, redes y software) con la experiencia **«Armá tu PC»**: el visitante
@@ -432,3 +432,34 @@ import { formatMoney, formatDateTime, exportCsv, csvColumnsOf } from '@/4-presen
 - **Pruebas**: `npx vitest run src/4-presentation/panel` (tabla, filtros y campos, combobox con teclado y carga
   asíncrona, diálogos, plegable, CSV, formatos, useRpcQuery, useRpcCommand, useTableState, permisos y la muestra).
   `renderPanel(ui, { web, route })` de `src/test-utils.tsx` dibuja una pantalla del panel con la sesión del personal.
+
+## V7 · Esqueleto del panel y módulos (paquete W3b)
+
+**Guía para escribir un módulo: [`src/4-presentation/panel/README.md`](src/4-presentation/panel/README.md)** (estructura,
+`module.tsx`, contrato generado, lista con filtros, comandos, tablero, pruebas y qué no hacer).
+
+```text
+src/4-presentation/panel/
+  PanelRoot.tsx   /panel/* (fragmento aparte) → PanelApp con el registro real
+  registry/       defineModule · lazyScreen · secciones · permisos any/all · menú · tablero · buscador · migas
+                  discovery.ts: import.meta.glob('../modules/*/module.tsx') (cada módulo se registra solo)
+  shell/          menú lateral por secciones plegables con buscador (cajón en el teléfono) · barra superior con
+                  migas, sucursal activa (SelectBranchCommand) y usuario · «No tiene acceso a esta pantalla»
+  modules/
+    inicio/       General › Inicio (/panel): saludo, «¿Qué quiere hacer?» con botones y «Ver estadísticas» plegado
+    actividad/    Administración › Actividad (EJEMPLO completo: GetActivityQuery + ResetUserPasswordCommand)
+```
+
+- **Menú por rol**: cada módulo declara `permissions: { any?, all? }`; el menú, el buscador y el tablero muestran solo
+  lo que la sesión permite. Una pantalla sin permiso dice qué permiso falta, en palabras.
+- **La tienda caída no bloquea el sitio**: `App.tsx` usa `CatalogStateProvider` (carga el catálogo sin bloquear) y solo
+  las páginas de la tienda lo esperan (`CatalogGate` en `routeTable.tsx`). `/ingresar`, `/registrarse`,
+  `/cambiar-contrasena`, `/mi-cuenta` y `/panel` funcionan aunque la tienda falle; mientras tanto la estructura de la
+  tienda muestra una cabecera liviana (logotipo e «Ingresar»). «Mi armado» y el carrito siguen arriba del enrutador.
+- **Modo mock**: además del administrador y del cliente, el servidor en memoria conoce un usuario del personal por rol
+  (`bodega@`, `ventas@`, `cajero@`, `gerencia@` y `consulta@techzone.example`, contraseña de la demostración `Demo1234`)
+  con la matriz `ROLE_PERMISSIONS`, y atiende `GetActivityQuery` (actividad de muestra más lo que pasa en la pestaña,
+  sin contraseñas) y `ResetUserPasswordCommand`.
+- **Pruebas**: `npx vitest run src/4-presentation/panel` (registro, esqueleto con el menú de cada rol, sucursal activa,
+  tablero, módulo de ejemplo) y `src/4-presentation/app/catalogIndependence.test.tsx`. En `src/test-utils.tsx`:
+  `signedInAs(rol)`, `failingSources()`, `preloadPanel()` y `renderRoutes({ waitForCatalog })`.

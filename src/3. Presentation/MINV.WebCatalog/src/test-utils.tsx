@@ -2,29 +2,64 @@
 // web en memoria (V7), carrito en memoria (V7) y un render con todos los proveedores (sesión → catálogo → avisos →
 // armado → carrito → enrutador en memoria). V7 · W3a: `renderPanel` dibuja una pantalla del panel (sesión del personal,
 // avisos y enrutador en memoria, sin catálogo). Solo lo importan las pruebas: ninguna toca la red ni el almacenamiento.
+//
+// V7 · W3b: `renderRoutes` arma la aplicación como `App.tsx` (el catálogo ya no bloquea el enrutador: solo las páginas de
+// la tienda lo esperan) y por defecto espera a que el catálogo esté listo; con `waitForCatalog: false` no espera (el
+// catálogo puede fallar: `failingSources()`). `signedInAs(rol)` ingresa con el usuario de muestra de cada rol (matriz
+// `ROLE_PERMISSIONS`) y `preloadPanel()` descarga el panel una vez antes de las pruebas que navegan a él.
+//
+// La regla de recarga en caliente (solo exportar componentes) no aplica: este archivo es solo de pruebas y nunca se
+// recarga en caliente; tiene un componente propio (`CatalogReadyMark`) junto a las funciones que exporta.
+/* oxlint-disable react/only-export-components */
 
-import { render, screen, type RenderResult } from '@testing-library/react';
+import { render, screen, waitFor, type RenderResult } from '@testing-library/react';
+import { expect } from 'vitest';
 import type { ReactNode } from 'react';
 import { createMemoryRouter, MemoryRouter, Route, RouterProvider, Routes } from 'react-router-dom';
 import { RequireSession } from '@/4-presentation/components/auth/RequireSession';
 import type { SessionKind } from '@/1-domain/auth/types';
 import type { CartItem } from '@/1-domain/cart/types';
+import type { ICatalogSource } from '@/1-domain/ports/ICatalogSource';
+import { StorefrontError } from '@/1-domain/storefront/errors';
 import type { CartUseCases } from '@/2-application';
 import { createCartServices, createMockSources, createWebServicesFrom, type Sources, type WebGateways, type WebServices } from '@/4-presentation/app/container';
 import { createAppRoutes } from '@/4-presentation/app/routeTable';
 import { ToastProvider } from '@/4-presentation/components/feedback/ToastProvider';
+import { useOptionalServices } from '@/4-presentation/hooks/useServices';
 import { BuilderProvider } from '@/4-presentation/state/BuilderProvider';
 import { CartProvider } from '@/4-presentation/state/CartProvider';
-import { CatalogProvider } from '@/4-presentation/state/CatalogProvider';
+import { CatalogProvider, CatalogStateProvider } from '@/4-presentation/state/CatalogProvider';
 import { SessionProvider } from '@/4-presentation/state/SessionProvider';
 import { InMemoryReservationGateway, MOCK_CATALOG, MockCatalogSource } from '@/3-infrastructure/data/mockCatalog';
-import { DEMO_USERS, InMemoryWebBackend, type InMemoryWebOptions } from '@/3-infrastructure/data/mockWeb';
+import { DEMO_USERS, InMemoryWebBackend, ROLE_SAMPLE_USERS, type InMemoryWebOptions, type StaffRole } from '@/3-infrastructure/data/mockWeb';
 import type { InMemoryCatalogData } from '@/3-infrastructure/InMemoryCatalogRepository';
 import { InMemoryCartStore } from '@/3-infrastructure/storage/memoryCartStore';
+
+export { ROLE_PERMISSIONS, ROLE_SAMPLE_USERS, type StaffRole } from '@/3-infrastructure/data/mockWeb';
 
 /** Orígenes en memoria sobre el mock (o sobre datos propios): la fuente ve lo que reserva la pasarela. */
 export function mockSources(data: InMemoryCatalogData = MOCK_CATALOG): Sources {
   return createMockSources(data, { MockCatalogSource, InMemoryReservationGateway });
+}
+
+/** Orígenes cuya tienda está caída: la carga del catálogo falla siempre (sin red: responde al instante). */
+export function failingSources(): Sources {
+  const source: ICatalogSource = {
+    load: async () => {
+      throw new StorefrontError({ kind: 'network', status: 0, detail: 'No hubo respuesta de la tienda.' });
+    },
+    product: async () => undefined,
+    presets: async () => [],
+  };
+  return { ...mockSources(), source };
+}
+
+/**
+ * Descarga el panel (esqueleto, registro y módulos) antes de las pruebas que navegan a `/panel`: es un fragmento grande y
+ * su PRIMERA transformación en la prueba puede tardar más que la espera de las búsquedas. `beforeAll(preloadPanel, 30_000)`.
+ */
+export async function preloadPanel(): Promise<void> {
+  await import('@/4-presentation/panel/PanelRoot');
 }
 
 export interface MockWeb {
@@ -58,6 +93,24 @@ export async function signedInWeb(kind: SessionKind, options: InMemoryWebOptions
   return web;
 }
 
+/** Usuario de muestra de un rol del personal (el ADMIN es el de `DEMO_USERS`). */
+export function roleUser(role: StaffRole) {
+  const user = role === 'ADMIN' ? demoUser('staff') : ROLE_SAMPLE_USERS.find((item) => item.role === role);
+  if (!user) throw new Error(`No hay un usuario de muestra con el rol ${role}.`);
+  return user;
+}
+
+/**
+ * Sesión web en memoria con el usuario de muestra de ese ROL ya ingresado. El servidor en memoria conoce a todos los
+ * usuarios de muestra (los dos de la pantalla de ingreso y uno por rol), así la actividad los nombra a todos.
+ */
+export async function signedInAs(role: StaffRole, options: InMemoryWebOptions = {}): Promise<MockWeb> {
+  const web = mockWeb({ users: [...DEMO_USERS, ...ROLE_SAMPLE_USERS], ...options });
+  const user = roleUser(role);
+  await web.backend.session.login({ email: user.email, password: user.password });
+  return web;
+}
+
 export interface MockCart {
   /** Almacén en memoria: `store.changeFromElsewhere(items)` simula que otra pestaña cambió el carrito. */
   store: InMemoryCartStore;
@@ -82,19 +135,25 @@ export interface RenderAppOptions {
   path?: string;
 }
 
-/** Todos los proveedores de la aplicación alrededor de `children` (no es un componente: devuelve el árbol ya armado). */
-function withProviders(sources: Sources | Promise<Sources>, web: WebServices | Promise<WebServices>, cart: CartUseCases, children: ReactNode): ReactNode {
-  return (
-    <SessionProvider web={web}>
-      <CatalogProvider sources={sources}>
-        <ToastProvider>
-          <BuilderProvider>
-            <CartProvider cart={cart}>{children}</CartProvider>
-          </BuilderProvider>
-        </ToastProvider>
-      </CatalogProvider>
-    </SessionProvider>
+/**
+ * Todos los proveedores de la aplicación alrededor de `children` (no es un componente: devuelve el árbol ya armado).
+ * `gate`: el catálogo espera a cargar antes de dibujar `children` (para dibujar una página suelta de la tienda); sin
+ * `gate`, como `App.tsx` (el enrutador se dibuja enseguida y las páginas de la tienda esperan solas).
+ */
+function withProviders(sources: Sources | Promise<Sources>, web: WebServices | Promise<WebServices>, cart: CartUseCases, children: ReactNode, gate = true): ReactNode {
+  const inner = (
+    <ToastProvider>
+      <BuilderProvider>
+        <CartProvider cart={cart}>{children}</CartProvider>
+      </BuilderProvider>
+    </ToastProvider>
   );
+  return <SessionProvider web={web}>{gate ? <CatalogProvider sources={sources}>{inner}</CatalogProvider> : <CatalogStateProvider sources={sources}>{inner}</CatalogStateProvider>}</SessionProvider>;
+}
+
+/** Marca invisible que aparece cuando el catálogo está listo (la aplicación ya no espera el catálogo para dibujarse). */
+function CatalogReadyMark() {
+  return useOptionalServices() ? <span data-testid="catalogo-listo" hidden /> : null;
 }
 
 /** Dibuja `ui` dentro de la aplicación completa y espera a que el catálogo esté listo. */
@@ -124,16 +183,22 @@ export interface RenderRoutesResult extends RenderResult {
   router: ReturnType<typeof createMemoryRouter>;
 }
 
+export interface RenderRoutesOptions extends Omit<RenderAppOptions, 'path'> {
+  /** Esperar a que el catálogo esté listo (por defecto sí). Con false, la prueba sigue enseguida (el catálogo puede fallar). */
+  waitForCatalog?: boolean;
+}
+
 /**
  * Dibuja la aplicación con la tabla de rutas REAL (guardas, carga diferida y vigilante de la sesión) en un enrutador en
- * memoria, y espera a que el catálogo esté listo.
+ * memoria, compuesta como `App.tsx` (el catálogo no bloquea el enrutador), y espera a que el catálogo esté listo.
  */
 export async function renderRoutes({
   sources = mockSources(),
   web = mockWeb().services,
   cart = mockCart().cart,
   route = '/',
-}: Omit<RenderAppOptions, 'path'> = {}): Promise<RenderRoutesResult> {
+  waitForCatalog = true,
+}: RenderRoutesOptions = {}): Promise<RenderRoutesResult> {
   // jsdom no implementa `scrollTo`, que usa <ScrollRestoration> de la tienda: se deja sin efecto para no ensuciar la salida.
   window.scrollTo = (() => undefined) as typeof window.scrollTo;
   const router = createMemoryRouter(createAppRoutes(), { initialEntries: [route] });
@@ -143,12 +208,16 @@ export async function renderRoutes({
       web,
       cart,
       <>
-        <span data-testid="catalogo-listo" hidden />
+        <CatalogReadyMark />
         <RouterProvider router={router} />
       </>,
+      false,
     ),
   );
-  await screen.findByTestId('catalogo-listo');
+  if (waitForCatalog) await screen.findByTestId('catalogo-listo');
+  // La ruta inicial puede ser diferida (se descarga antes de dibujarse): con la suite completa en paralelo, esa primera
+  // descarga puede tardar más que la espera de las búsquedas. Se espera a que el enrutador termine su carga inicial.
+  if (!router.state.initialized) await waitFor(() => expect(router.state.initialized).toBe(true), { timeout: 15_000 });
   const location = () => `${router.state.location.pathname}${router.state.location.search}${router.state.location.hash}`;
   return Object.assign(result, { router, location });
 }

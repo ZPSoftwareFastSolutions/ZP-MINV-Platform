@@ -5,11 +5,15 @@
 //
 // A diferencia del armado («Armá tu PC», en memoria), el carrito SÍ se conserva entre visitas: los casos de uso lo
 // guardan por el puerto ICartStore (solo SKU y cantidad) y lo sincronizan entre pestañas.
+//
+// V7 · W3b: vive arriba del enrutador aunque el catálogo todavía no haya llegado (o haya fallado). Sin catálogo, el
+// carrito se conserva tal cual (unidades en la cabecera) y NO se ajusta: ajustar sin saber qué hay disponible quitaría
+// todo. Las páginas del carrito solo se abren con el catálogo listo.
 
 import { useCallback, useMemo, useSyncExternalStore, type ReactNode } from 'react';
 import { isInCart, quantityInCart } from '@/1-domain/cart/cart';
 import { reviewCart, type CartUseCases } from '@/2-application';
-import { useServices } from '@/4-presentation/hooks/useServices';
+import { useOptionalServices } from '@/4-presentation/hooks/useServices';
 import { CartActionsContext, CartStateContext, type CartActionsApi, type CartStateApi } from './CartContext';
 
 export interface CartProviderProps {
@@ -19,11 +23,11 @@ export interface CartProviderProps {
 }
 
 export function CartProvider({ cart: useCases, children }: CartProviderProps) {
-  const { catalog } = useServices();
+  const catalog = useOptionalServices()?.catalog ?? null;
   const cart = useSyncExternalStore(useCases.subscribe, useCases.current);
   const persistent = useSyncExternalStore(useCases.subscribe, useCases.isPersistent);
 
-  const lookup = useCallback((sku: string) => catalog.getProductBySku(sku), [catalog]);
+  const lookup = useCallback((sku: string) => catalog?.getProductBySku(sku), [catalog]);
 
   const review = useMemo(() => reviewCart(cart, lookup), [cart, lookup]);
 
@@ -53,9 +57,10 @@ export function CartProvider({ cart: useCases, children }: CartProviderProps) {
       clear: () => {
         useCases.clear();
       },
-      adjust: (sku) => useCases.adjust(lookup, sku),
+      // Sin catálogo no se sabe qué hay disponible: no se toca el carrito.
+      adjust: (sku) => (catalog ? useCases.adjust(lookup, sku) : { cart: useCases.current(), changes: [] }),
     }),
-    [useCases, lookup],
+    [useCases, lookup, catalog],
   );
 
   return (

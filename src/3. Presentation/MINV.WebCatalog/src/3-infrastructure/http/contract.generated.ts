@@ -5,8 +5,9 @@
 // ese momento no se edita a mano y una prueba falla si queda desactualizado (regla P-07).
 //
 // Tiene la MISMA forma que tendrá el generado, pero solo con las operaciones que la web ya usa (sesión y cuenta del
-// cliente). Nadie lo importa directamente: todo pasa por el adaptador `./contract.ts`. Si el generado nombra distinto
-// alguna lista u operación, se ajusta SOLO ese adaptador.
+// cliente) y, desde W3b, las del módulo de ejemplo del panel (Administración › Actividad: `GetActivityQuery` y
+// `ResetUserPasswordCommand`, copiadas del C# de MINV.Application.Iam). Nadie lo importa directamente: todo pasa por el
+// adaptador `./contract.ts`. Si el generado nombra distinto alguna lista u operación, se ajusta SOLO ese adaptador.
 // =====================================================================================================================
 
 // ---------------------------------------------------------------------------------------------------- sesión y RPC
@@ -133,6 +134,32 @@ export interface SelectBranchCommand {
   branchId: string | null;
 }
 
+// ---------------------------------------------------------------------------------------------------- actividad y usuarios (MINV.Application.Iam)
+/** Resultado de una operación auditada (enumeración `AuditOutcome`, viaja como texto). */
+export type AuditOutcome = 'Succeeded' | 'Rejected' | 'Failed';
+
+/** `GetActivityQuery(int Take = 200)`: la actividad más reciente (el servidor acota `take` entre 1 y 5000). */
+export interface GetActivityQuery {
+  take?: number;
+}
+
+/** `ActivityRow`: una fila de la auditoría (quién hizo qué, cuándo y con qué resultado). */
+export interface ActivityRow {
+  occurredAt: string;
+  userEmail: string | null;
+  userName: string | null;
+  action: string;
+  outcome: AuditOutcome;
+  details: string | null;
+}
+
+/** `ResetUserPasswordCommand(string Email, string NewPassword, bool MustChange = true)`: contraseña temporal y desbloqueo. */
+export interface ResetUserPasswordCommand {
+  email: string;
+  newPassword: string;
+  mustChange?: boolean;
+}
+
 // ---------------------------------------------------------------------------------------------------- operaciones
 /** Nombre corto → petición y respuesta. */
 export interface RpcOperations {
@@ -143,6 +170,8 @@ export interface RpcOperations {
   CreateMyReservationCommand: { request: CreateMyReservationCommand; response: StorefrontReservationView };
   ChangePasswordCommand: { request: ChangePasswordCommand; response: boolean };
   SelectBranchCommand: { request: SelectBranchCommand; response: BranchAccess };
+  GetActivityQuery: { request: GetActivityQuery; response: ActivityRow[] };
+  ResetUserPasswordCommand: { request: ResetUserPasswordCommand; response: boolean };
 }
 
 export interface RpcOperationMeta {
@@ -166,6 +195,8 @@ export const RPC_META = {
   CreateMyReservationCommand: { type: 'MINV.Application.Accounts.CreateMyReservationCommand', command: true, permissions: ['account.reserve'], modules: [], customer: true },
   ChangePasswordCommand: { type: 'MINV.Application.Iam.ChangePasswordCommand', command: true, permissions: [], modules: [], customer: true },
   SelectBranchCommand: { type: 'MINV.Application.Iam.SelectBranchCommand', command: true, permissions: [], modules: [], customer: false },
+  GetActivityQuery: { type: 'MINV.Application.Iam.GetActivityQuery', command: false, permissions: ['iam.audit.view'], modules: [], customer: false },
+  ResetUserPasswordCommand: { type: 'MINV.Application.Iam.ResetUserPasswordCommand', command: true, permissions: ['iam.users.manage'], modules: [], customer: false },
 } as const satisfies Record<keyof RpcOperations, RpcOperationMeta>;
 
 // ---------------------------------------------------------------------------------------------------- permisos y roles
