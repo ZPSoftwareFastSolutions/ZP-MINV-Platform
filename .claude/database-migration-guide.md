@@ -399,7 +399,9 @@ sobre una base de la V6 CON datos, sin recrearla.
 3. **Relleno** (`V7Backfill`): `kind = 'Build'` en todos los armados existentes, retiro del valor provisional y verificación de
    que ninguno quedó sin tipo. `pc_builds` no tiene triggers: no se pausa nada.
 4. Generado por EF: CHECK del tipo y de los datos para la factura, `ck_pc_build_lines_ranura` con nulo, `ck_audit_logs_canal`
-   con `web`, índices.
+   con `web`, índices. Además (comprobación de normalización, paquete B4c): 25 CHECK de dominio en tablas anteriores a la V7
+   (14 estados y 11 listas cerradas: `ck_<tabla>_estado`, `_tipo`, `_trazabilidad`, `_resultado`, `_sentido`, `_ambiente`,
+   `_dominio`) y el índice `ix_warranty_claims_tenant_id_serial_number_id` (lista completa en el ERD §11.7).
 5. **Defensas y datos** (`V7Guards`): `trg_append_only` en `AppendOnlyTablesV7`; `tenant_isolation` por descubrimiento (155 en
    total); `branch_isolation` RESTRICTIVA en `BranchTablesV7` (64 en total); triggers del carrito `trg_pc_build_line_slot` (ranura
    nula solo en un carrito) y `trg_pc_build_kind_immutable` (el tipo no cambia); función SECURITY DEFINER
@@ -429,7 +431,59 @@ SELECT count(*) FROM pg_trigger  WHERE tgname = 'trg_append_only';        -- 32
 SELECT count(*) FROM sales.pc_builds WHERE kind NOT IN ('Build', 'Cart'); -- 0
 SELECT count(*) FROM iam.roles WHERE code = 'CLIENTE';                    -- una por empresa
 SELECT has_function_privilege('minv_server', 'integration.claim_outgoing_mails(integer, integer)', 'EXECUTE');   -- true
+SELECT count(*) FROM pg_constraint k JOIN pg_namespace n ON n.oid = k.connamespace
+ WHERE k.contype = 'c' AND n.nspname IN ('iam','catalog','warehouse','inventory','purchasing','sales','accounting','integration','billing','service');   -- 244
 ```
+
+**Normalización (paquete B4c).** Los 25 CHECK de dominio nuevos se validan contra las filas que ya existen: los datos que
+escribió M-INV los cumplen (vienen de los mismos enums, sin cambios desde la V3) y así se comprobó sobre una base con 20 días
+de datos de prueba. Si alguien editó la base a mano y una fila tiene un estado o un tipo fuera de la lista, el CHECK detiene la
+migración ENTERA y la base queda en la V6 sin cambios (corre en una transacción). Para saberlo antes, en la base de la V6 (o en
+su copia), como dueño y de solo lectura:
+
+```sql
+SELECT v.tabla, v.columna,
+       (xpath('/row/n/text()', query_to_xml(format('SELECT count(*) AS n FROM %s WHERE %I::text NOT IN (%s)', v.tabla, v.columna, v.valores),
+                                            false, true, '')))[1]::text::int AS filas_fuera_de_la_lista
+FROM (VALUES
+    ('accounting.fiscal_periods', 'status', $$'Open', 'Closed'$$),
+    ('accounting.journal_entries', 'status', $$'Draft', 'Posted'$$),
+    ('accounting.accounts', 'account_type', $$'Asset', 'Liability', 'Equity', 'Revenue', 'Expense'$$),
+    ('inventory.physical_counts', 'status', $$'Open', 'Posted', 'Cancelled'$$),
+    ('inventory.stock_adjustments', 'status', $$'Draft', 'Posted', 'Cancelled'$$),
+    ('inventory.stock_reservations', 'status', $$'Active', 'Consumed', 'Released', 'Expired'$$),
+    ('inventory.stock_transfer_events', 'status', $$'Pending', 'Dispatched', 'Received', 'Cancelled'$$),
+    ('inventory.movement_types', 'domain', $$'Warehouse', 'Sales'$$),
+    ('purchasing.goods_receipts', 'status', $$'Draft', 'Posted'$$),
+    ('purchasing.purchase_orders', 'status', $$'Draft', 'Approved', 'PartiallyReceived', 'Received', 'Cancelled'$$),
+    ('purchasing.purchase_returns', 'status', $$'Draft', 'Posted'$$),
+    ('purchasing.supplier_invoices', 'status', $$'Draft', 'Posted', 'Paid', 'Cancelled'$$),
+    ('purchasing.supplier_addresses', 'address_type', $$'Fiscal', 'Billing', 'Shipping', 'Pickup'$$),
+    ('sales.invoices', 'status', $$'Draft', 'Issued', 'Voided'$$),
+    ('sales.pos_sessions', 'status', $$'Open', 'Closed'$$),
+    ('sales.sales_orders', 'status', $$'Draft', 'Confirmed', 'Fulfilled', 'Invoiced', 'Cancelled'$$),
+    ('sales.customer_addresses', 'address_type', $$'Fiscal', 'Billing', 'Shipping', 'Pickup'$$),
+    ('sales.cash_movements', 'direction', $$'In', 'Out'$$),
+    ('catalog.products', 'tracking_mode', $$'None', 'Batch', 'Serial'$$),
+    ('iam.audit_logs', 'outcome', $$'Succeeded', 'Rejected', 'Failed'$$),
+    ('iam.hardware_tokens', 'kind', $$'Workstation', 'PosTerminal', 'Scanner', 'Printer'$$),
+    ('billing.fiscal_packages', 'document_type', $$'1', '3'$$),
+    ('billing.siat_service_calls', 'environment', $$'1', '2'$$),
+    ('billing.siat_sync_runs', 'environment', $$'1', '2'$$),
+    ('service.warranty_claim_events', 'status', $$'Received', 'Diagnosing', 'SentToSupplier', 'Repaired', 'Replaced', 'Rejected', 'Delivered'$$)
+) AS v(tabla, columna, valores);   -- 25 filas, todas en 0
+```
+
+Después de migrar, la comprobación de normalización completa (solo lectura, con el dueño; método, resultados y excepciones
+documentadas en `docs/database/normalizacion-v7.md`):
+
+```powershell
+psql -X -v ON_ERROR_STOP=1 -d <base> -f scripts/verificar_normalizacion.sql   # PGHOST/PGPORT/PGUSER/PGPASSWORD en el entorno
+```
+
+Las consultas «problema» (E01-E19 y D01-D10) solo deben devolver las filas de la tabla «Excepciones documentadas» de ese
+informe (32, todas de estructura); D01-D10 (coherencia de los datos con sus redundancias controladas) deben salir vacías. La
+prueba `NormalizationTests` (con `MINV_TEST_PG`) hace lo mismo sobre una base temporal.
 
 La prueba `V7WebPlatformPostgresTests.V7_la_migracion_rellena_el_tipo_de_una_base_V6_con_datos_y_su_guardia_protege_el_rol_CLIENTE`
 (con `MINV_TEST_PG`) migra una base de la V6 con armados (borrador, cotizado y publicado, reserva web con su reserva de stock,

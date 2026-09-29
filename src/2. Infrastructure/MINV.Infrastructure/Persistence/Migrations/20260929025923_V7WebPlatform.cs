@@ -12,7 +12,7 @@ namespace MINV.Infrastructure.Persistence.Migrations
     /// y el canal <c>web</c> en la auditoría. 153 → 157 tablas en 10 esquemas. El SQL propio de PostgreSQL (guardia, relleno del
     /// tipo, RLS, append-only, triggers del carrito, función del despachador del correo, rol CLIENTE y permisos, privilegios)
     /// está en <c>V7WebPlatform.Sql.cs</c>. Correcciones de la comprobación de normalización (paquete B4c,
-    /// <c>docs/database/normalizacion-v7.md</c>): CHECK del dominio de 14 columnas de estado y de 10 listas cerradas de tablas
+    /// <c>docs/database/normalizacion-v7.md</c>): CHECK del dominio de 14 columnas de estado y de 11 listas cerradas de tablas
     /// anteriores a la V7 (sus valores salen de los enums, sin cambios desde la V3) y el índice completo de la FK de las
     /// garantías a la serie.
     /// </summary>
@@ -448,6 +448,12 @@ namespace MINV.Infrastructure.Persistence.Migrations
                 table: "accounts",
                 sql: "account_type IN ('Asset', 'Liability', 'Equity', 'Revenue', 'Expense')");
 
+            migrationBuilder.AddCheckConstraint(
+                name: "ck_movement_types_dominio",
+                schema: "inventory",
+                table: "movement_types",
+                sql: "domain IN ('Warehouse', 'Sales')");
+
             migrationBuilder.CreateIndex(
                 name: "ux_customer_accounts_tenant_id_customer_id",
                 schema: "sales",
@@ -654,6 +660,11 @@ namespace MINV.Infrastructure.Persistence.Migrations
                 name: "ck_accounts_tipo",
                 schema: "accounting",
                 table: "accounts");
+
+            migrationBuilder.DropCheckConstraint(
+                name: "ck_movement_types_dominio",
+                schema: "inventory",
+                table: "movement_types");
 
             migrationBuilder.DropTable(
                 name: "customer_accounts",

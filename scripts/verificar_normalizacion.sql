@@ -384,7 +384,7 @@ ORDER BY 1, 2;
 -- ---------------------------------------------------------------------------------------------------------------------
 -- @comprobacion E14 · problema · Columnas enumeradas sin CHECK
 -- Igual que E13 para los demás valores de una lista cerrada (kind, type, direction, outcome, channel, action,
--- environment, scope, method y *_type, *_kind, *_mode, …) guardados como código corto (texto de hasta 40 caracteres o
+-- environment, scope, method, domain y *_type, *_kind, *_mode, …) guardados como código corto (texto de hasta 40 caracteres o
 -- número entero): un CHECK con la lista (IN (…)) o con el rango de códigos (BETWEEN) define su dominio. Los textos más
 -- largos con esos nombres son listas abiertas (acción y entidad de la auditoría, tipo de petición, tipo de evento, canal
 -- de un pedido externo) y no se revisan. Las listas cerradas sin CHECK por diseño son excepciones documentadas.
@@ -400,7 +400,7 @@ WITH col AS (
       AND a.attnum > 0 AND NOT a.attisdropped
       AND (a.atttypid IN ('int2'::regtype, 'int4'::regtype)
            OR (a.atttypid IN ('varchar'::regtype, 'bpchar'::regtype) AND a.atttypmod BETWEEN 5 AND 44))
-      AND a.attname ~ '(^|_)(kind|type|direction|outcome|channel|action|environment|scope|method|mode)$'
+      AND a.attname ~ '(^|_)(kind|type|direction|outcome|channel|action|environment|scope|method|mode|domain)$'
       AND a.attname <> 'mode'
 )
 SELECT tabla, attname AS columna, 'valor de una lista cerrada sin un CHECK que limite sus valores (IN (…) o BETWEEN)' AS detalle

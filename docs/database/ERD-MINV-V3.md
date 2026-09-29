@@ -2576,3 +2576,51 @@ materializado) y la bitácora de intentos (`outgoing_mail_attempts`), como el ou
 `minv_server` y `minv_app` (solo si existen al migrar): SELECT, INSERT, UPDATE y DELETE en las 4 tablas nuevas, salvo UPDATE,
 DELETE y TRUNCATE en `integration.outgoing_mails` e `integration.outgoing_mail_attempts` (append-only); EXECUTE de
 `integration.claim_outgoing_mails` solo para `minv_server`.
+
+### 11.7 Comprobación de normalización (paquete B4c)
+
+Método, resultados y clasificación de cada hallazgo: `docs/database/normalizacion-v7.md`; consultas para repetirla contra
+cualquier base: `scripts/verificar_normalizacion.sql` (prueba automática `NormalizationTests`). La misma migración
+`V7WebPlatform` agrega a tablas anteriores a la V7 el dominio que les faltaba (los valores salen de los enums, sin cambios
+desde la V3; con una fila fuera de la lista la migración se detiene sin cambios):
+
+| Tabla | Nuevo | Regla |
+|---|---|---|
+| `accounting.fiscal_periods` | CHECK `ck_fiscal_periods_estado` | status IN ('Open', 'Closed') |
+| `accounting.journal_entries` | CHECK `ck_journal_entries_estado` | status IN ('Draft', 'Posted') |
+| `accounting.accounts` | CHECK `ck_accounts_tipo` | account_type IN ('Asset', 'Liability', 'Equity', 'Revenue', 'Expense') |
+| `inventory.physical_counts` | CHECK `ck_physical_counts_estado` | status IN ('Open', 'Posted', 'Cancelled') |
+| `inventory.stock_adjustments` | CHECK `ck_stock_adjustments_estado` | status IN ('Draft', 'Posted', 'Cancelled') |
+| `inventory.stock_reservations` | CHECK `ck_stock_reservations_estado` | status IN ('Active', 'Consumed', 'Released', 'Expired') |
+| `inventory.stock_transfer_events` | CHECK `ck_stock_transfer_events_estado` | status IN ('Pending', 'Dispatched', 'Received', 'Cancelled') |
+| `inventory.movement_types` | CHECK `ck_movement_types_dominio` | domain IN ('Warehouse', 'Sales') |
+| `purchasing.goods_receipts` | CHECK `ck_goods_receipts_estado` | status IN ('Draft', 'Posted') |
+| `purchasing.purchase_orders` | CHECK `ck_purchase_orders_estado` | status IN ('Draft', 'Approved', 'PartiallyReceived', 'Received', 'Cancelled') |
+| `purchasing.purchase_returns` | CHECK `ck_purchase_returns_estado` | status IN ('Draft', 'Posted') |
+| `purchasing.supplier_invoices` | CHECK `ck_supplier_invoices_estado` | status IN ('Draft', 'Posted', 'Paid', 'Cancelled') |
+| `purchasing.supplier_addresses` | CHECK `ck_supplier_addresses_tipo` | address_type IN ('Fiscal', 'Billing', 'Shipping', 'Pickup') |
+| `sales.invoices` | CHECK `ck_invoices_estado` | status IN ('Draft', 'Issued', 'Voided') |
+| `sales.pos_sessions` | CHECK `ck_pos_sessions_estado` | status IN ('Open', 'Closed') |
+| `sales.sales_orders` | CHECK `ck_sales_orders_estado` | status IN ('Draft', 'Confirmed', 'Fulfilled', 'Invoiced', 'Cancelled') |
+| `sales.customer_addresses` | CHECK `ck_customer_addresses_tipo` | address_type IN ('Fiscal', 'Billing', 'Shipping', 'Pickup') |
+| `sales.cash_movements` | CHECK `ck_cash_movements_sentido` | direction IN ('In', 'Out') |
+| `catalog.products` | CHECK `ck_products_trazabilidad` | tracking_mode IN ('None', 'Batch', 'Serial') |
+| `iam.audit_logs` | CHECK `ck_audit_logs_resultado` | outcome IN ('Succeeded', 'Rejected', 'Failed') |
+| `iam.hardware_tokens` | CHECK `ck_hardware_tokens_tipo` | kind IN ('Workstation', 'PosTerminal', 'Scanner', 'Printer') |
+| `billing.fiscal_packages` | CHECK `ck_fiscal_packages_tipo` | document_type IN (1, 3) |
+| `billing.siat_service_calls` | CHECK `ck_siat_service_calls_ambiente` | environment IN (1, 2) |
+| `billing.siat_sync_runs` | CHECK `ck_siat_sync_runs_ambiente` | environment IN (1, 2) |
+| `service.warranty_claim_events` | CHECK `ck_warranty_claim_events_estado` | status IN (los 7 estados del caso) |
+| `service.warranty_claims` | índice `ix_warranty_claims_tenant_id_serial_number_id` | (tenant_id, serial_number_id): la FK a la serie solo tenía el índice único parcial de los casos abiertos |
+
+**Redundancias y excepciones que la comprobación dejó documentadas** (no estaban nombradas antes en este ERD):
+
+- Datos derivables protegidos por un CHECK (no pueden contradecirse; pendientes de quitar en una versión futura):
+  `billing.fiscal_documents.is_reverted` (= `reverted_at IS NOT NULL`), `integration.webhook_endpoints.is_active`
+  (= `disabled_at IS NULL`), `integration.outgoing_mail_attempts.succeeded` (= `error IS NULL`) y los estados de dos valores
+  `sales.pos_sessions.status` (Closed ⇔ `closed_at`) y `sales.invoices.status` (Draft ⇔ sin `issued_at`, Voided ⇔ `voided_at`).
+- `billing.fiscal_packages.messages`: mensajes de validación del SIN en JSON (`text` sin límite; documento opaco que no se
+  consulta por sus partes). Pendiente de acotar.
+- `iam.user_credentials.failed_attempts` y `billing.siat_points_of_sale.consecutive_failures`: contadores de estado propios
+  (bloqueo por intentos, paso a fuera de línea), no copias de otra tabla.
+- `integration.api_key_scopes.scope`: lista cerrada en el código (`ApiScopes.All`) sin CHECK en la base. Pendiente.

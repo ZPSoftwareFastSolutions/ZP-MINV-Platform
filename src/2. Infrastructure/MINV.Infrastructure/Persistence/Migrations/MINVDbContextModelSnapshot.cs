@@ -6797,6 +6797,8 @@ namespace MINV.Infrastructure.Persistence.Migrations
 
                     b.ToTable("movement_types", "inventory", t =>
                         {
+                            t.HasCheckConstraint("ck_movement_types_dominio", "domain IN ('Warehouse', 'Sales')");
+
                             t.HasCheckConstraint("ck_movement_types_factor", "stock_factor IN (-1, 1)");
                         });
                 });

@@ -11786,6 +11786,181 @@ END $EF$;
 DO $EF$
 BEGIN
     IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE service.warranty_claim_events ADD CONSTRAINT ck_warranty_claim_events_estado CHECK (status IN ('Received', 'Diagnosing', 'SentToSupplier', 'Repaired', 'Replaced', 'Rejected', 'Delivered'));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE purchasing.supplier_invoices ADD CONSTRAINT ck_supplier_invoices_estado CHECK (status IN ('Draft', 'Posted', 'Paid', 'Cancelled'));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE purchasing.supplier_addresses ADD CONSTRAINT ck_supplier_addresses_tipo CHECK (address_type IN ('Fiscal', 'Billing', 'Shipping', 'Pickup'));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE inventory.stock_transfer_events ADD CONSTRAINT ck_stock_transfer_events_estado CHECK (status IN ('Pending', 'Dispatched', 'Received', 'Cancelled'));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE inventory.stock_reservations ADD CONSTRAINT ck_stock_reservations_estado CHECK (status IN ('Active', 'Consumed', 'Released', 'Expired'));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE inventory.stock_adjustments ADD CONSTRAINT ck_stock_adjustments_estado CHECK (status IN ('Draft', 'Posted', 'Cancelled'));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE billing.siat_sync_runs ADD CONSTRAINT ck_siat_sync_runs_ambiente CHECK (environment IN (1, 2));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE billing.siat_service_calls ADD CONSTRAINT ck_siat_service_calls_ambiente CHECK (environment IN (1, 2));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE sales.sales_orders ADD CONSTRAINT ck_sales_orders_estado CHECK (status IN ('Draft', 'Confirmed', 'Fulfilled', 'Invoiced', 'Cancelled'));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE purchasing.purchase_returns ADD CONSTRAINT ck_purchase_returns_estado CHECK (status IN ('Draft', 'Posted'));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE purchasing.purchase_orders ADD CONSTRAINT ck_purchase_orders_estado CHECK (status IN ('Draft', 'Approved', 'PartiallyReceived', 'Received', 'Cancelled'));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE catalog.products ADD CONSTRAINT ck_products_trazabilidad CHECK (tracking_mode IN ('None', 'Batch', 'Serial'));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE sales.pos_sessions ADD CONSTRAINT ck_pos_sessions_estado CHECK (status IN ('Open', 'Closed'));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE inventory.physical_counts ADD CONSTRAINT ck_physical_counts_estado CHECK (status IN ('Open', 'Posted', 'Cancelled'));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE accounting.journal_entries ADD CONSTRAINT ck_journal_entries_estado CHECK (status IN ('Draft', 'Posted'));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE sales.invoices ADD CONSTRAINT ck_invoices_estado CHECK (status IN ('Draft', 'Issued', 'Voided'));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE iam.hardware_tokens ADD CONSTRAINT ck_hardware_tokens_tipo CHECK (kind IN ('Workstation', 'PosTerminal', 'Scanner', 'Printer'));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE purchasing.goods_receipts ADD CONSTRAINT ck_goods_receipts_estado CHECK (status IN ('Draft', 'Posted'));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE accounting.fiscal_periods ADD CONSTRAINT ck_fiscal_periods_estado CHECK (status IN ('Open', 'Closed'));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE billing.fiscal_packages ADD CONSTRAINT ck_fiscal_packages_tipo CHECK (document_type IN (1, 3));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE sales.customer_addresses ADD CONSTRAINT ck_customer_addresses_tipo CHECK (address_type IN ('Fiscal', 'Billing', 'Shipping', 'Pickup'));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE sales.cash_movements ADD CONSTRAINT ck_cash_movements_sentido CHECK (direction IN ('In', 'Out'));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE iam.audit_logs ADD CONSTRAINT ck_audit_logs_resultado CHECK (outcome IN ('Succeeded', 'Rejected', 'Failed'));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE accounting.accounts ADD CONSTRAINT ck_accounts_tipo CHECK (account_type IN ('Asset', 'Liability', 'Equity', 'Revenue', 'Expense'));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    ALTER TABLE inventory.movement_types ADD CONSTRAINT ck_movement_types_dominio CHECK (domain IN ('Warehouse', 'Sales'));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
     CREATE UNIQUE INDEX ux_customer_accounts_tenant_id_customer_id ON sales.customer_accounts (tenant_id, customer_id);
     END IF;
 END $EF$;
@@ -11850,6 +12025,13 @@ DO $EF$
 BEGIN
     IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
     CREATE INDEX ix_outgoing_mails_tenant_id_requested_by_user_id ON integration.outgoing_mails (tenant_id, requested_by_user_id);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
+    CREATE INDEX ix_warranty_claims_tenant_id_serial_number_id ON service.warranty_claims (tenant_id, serial_number_id);
     END IF;
 END $EF$;
 

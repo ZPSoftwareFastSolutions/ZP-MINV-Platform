@@ -11,6 +11,8 @@ internal sealed class MovementTypeConfiguration : IEntityTypeConfiguration<Movem
         builder.ToTable("movement_types", Schemas.Inventory, t =>
         {
             t.HasCheckConstraint("ck_movement_types_factor", "stock_factor IN (-1, 1)");
+            // V7 · Dominio del ámbito del tipo (bodega o ventas) (comprobación de normalización E14, docs/database/normalizacion-v7.md)
+            t.HasCheckConstraint("ck_movement_types_dominio", BillingChecks.In<MovementDomain>("domain"));
         });
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Code).HasMaxLength(30);
