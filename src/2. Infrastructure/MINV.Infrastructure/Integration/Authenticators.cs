@@ -88,13 +88,20 @@ public sealed class ApiKeyAuthenticator(MinvWriteDbContext db, ITenantContext te
     }
 }
 
-/// <summary>Sesión del servidor en la nube resuelta a partir de su token.</summary>
-public sealed record CloudPrincipal(Guid SessionId, Guid TenantId, Guid UserId, BranchAccess Access, IReadOnlyList<string> Permissions);
+/// <summary>Sesión del servidor en la nube resuelta a partir de su token. V7: también los roles (una sesión cuyo único rol
+/// es CLIENTE solo ejecuta los casos de uso de su cuenta, regla P-04), el correo, el nombre y el vencimiento vigente.</summary>
+public sealed record CloudPrincipal(Guid SessionId, Guid TenantId, Guid UserId, BranchAccess Access, IReadOnlyList<string> Permissions,
+    IReadOnlyList<string> Roles, string Email, string DisplayName, DateTimeOffset ExpiresAt)
+{
+    /// <summary>V7 · ¿Sesión de cliente? (su ÚNICO rol es CLIENTE).</summary>
+    public bool IsCustomer => RoleCodes.IsCustomerOnly(Roles);
+}
 
 /// <summary>
 /// V4 · Autentica el token de sesión del escritorio en modo nube: busca la sesión por el hash del token
 /// (<c>iam.resolve_session</c>, SECURITY DEFINER), exige que esté abierta y vigente (vencimiento deslizante), recalcula
-/// permisos y alcance EN EL SERVIDOR (el escritorio no decide qué ve) y deja el contexto con el canal <c>cloud</c>.
+/// permisos y alcance EN EL SERVIDOR (el escritorio no decide qué ve) y deja el contexto con el canal <c>cloud</c>. V7: el
+/// mismo token llega por la cookie de la sesión web; entonces el canal es <c>web</c>.
 /// </summary>
 public sealed class CloudSessionAuthenticator(MinvWriteDbContext db, ITenantContext tenant, ICurrentUser user, IRequestOrigin origin, IClock clock)
 {
@@ -102,7 +109,10 @@ public sealed class CloudSessionAuthenticator(MinvWriteDbContext db, ITenantCont
 
     private sealed record SessionRow(Guid SessionId, Guid TenantId, Guid UserId, Guid? ActiveBranchId, DateTimeOffset? ExpiresAt, DateTimeOffset? EndedAt);
 
-    public async Task<CloudPrincipal?> AuthenticateAsync(string? token, CancellationToken ct)
+    public Task<CloudPrincipal?> AuthenticateAsync(string? token, CancellationToken ct) => AuthenticateAsync(token, RequestChannels.Cloud, ct);
+
+    /// <summary>V7 · Igual, indicando el canal de la petición (<c>cloud</c> = escritorio con token Bearer; <c>web</c> = cookie).</summary>
+    public async Task<CloudPrincipal?> AuthenticateAsync(string? token, string channel, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(token) || !token.StartsWith("mses_", StringComparison.Ordinal) || token.Length > 200)
         {
@@ -122,7 +132,7 @@ public sealed class CloudSessionAuthenticator(MinvWriteDbContext db, ITenantCont
         {
             return null;
         }
-        var (_, permissions) = await UserAccess.PermissionsAsync(db, account.Id, ct);
+        var (roles, permissions) = await UserAccess.PermissionsAsync(db, account.Id, ct);
         BranchAccess access;
         try
         {
@@ -138,16 +148,18 @@ public sealed class CloudSessionAuthenticator(MinvWriteDbContext db, ITenantCont
         }
         user.SignIn(account.Id, account.Email, account.DisplayName, permissions);
         tenant.SetBranches(access.ToScope());
-        origin.Set(RequestChannels.Cloud, null);
+        origin.Set(channel, null);
         // Vencimiento deslizante: se renueva a lo sumo una vez por minuto
-        if (row.ExpiresAt - now < SlidingExpiration - TimeSpan.FromMinutes(1))
+        var expiresAt = row.ExpiresAt.Value;
+        if (expiresAt - now < SlidingExpiration - TimeSpan.FromMinutes(1))
         {
             var session = await db.Sessions.FirstAsync(s => s.Id == row.SessionId, ct);
-            session.Extend(now + SlidingExpiration);
+            expiresAt = now + SlidingExpiration;
+            session.Extend(expiresAt);
             await db.SaveChangesAsync(ct);
             db.ChangeTracker.Clear();
         }
-        return new CloudPrincipal(row.SessionId, row.TenantId, account.Id, access, permissions);
+        return new CloudPrincipal(row.SessionId, row.TenantId, account.Id, access, permissions, roles, account.Email, account.DisplayName, expiresAt);
     }
 
     private async Task<SessionRow?> FindAsync(string hash, CancellationToken ct)

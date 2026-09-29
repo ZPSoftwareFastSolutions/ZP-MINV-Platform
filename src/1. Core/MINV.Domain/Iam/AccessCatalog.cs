@@ -13,11 +13,19 @@ public static class RoleCodes
     /// <summary>V6 · Usuario técnico de la tienda web (principal de las rutas públicas <c>/storefront/v1</c>, regla S-02).</summary>
     public const string Storefront = "TIENDA_WEB";
 
+    /// <summary>V7 · Cliente con cuenta en la tienda web (regla P-04): solo ve y opera SUS datos y SUS reservas. Es el único
+    /// rol que se obtiene al registrarse; el personal lo crea el Administrador.</summary>
+    public const string Customer = "CLIENTE";
+
     public static readonly IReadOnlyList<(string Code, string Name)> All =
     [
         (Admin, "Administrador"), (Warehouse, "Bodega"), (Sales, "Ventas"), (ReadOnly, "Consulta"),
-        (Cashier, "Cajero"), (Management, "Gerencia"), (Storefront, "Tienda web"),
+        (Cashier, "Cajero"), (Management, "Gerencia"), (Storefront, "Tienda web"), (Customer, "Cliente web"),
     ];
+
+    /// <summary>V7 · ¿Es una sesión de CLIENTE? Lo es cuando el ÚNICO rol del usuario es <see cref="Customer"/>: quien además
+    /// tiene un rol del personal es personal.</summary>
+    public static bool IsCustomerOnly(IReadOnlyCollection<string> roles) => roles.Count == 1 && roles.First() == Customer;
 }
 
 /// <summary>Permisos granulares (código estable en minúsculas con puntos).</summary>
@@ -63,6 +71,13 @@ public static class PermissionCodes
     public const string StorefrontRead = "storefront.read";
     public const string StorefrontReserve = "storefront.reserve";
 
+    // V7 · Cuentas de cliente de la tienda web (regla P-04: siempre sobre el cliente ligado al usuario de la sesión)
+    public const string AccountManage = "account.manage";
+    public const string AccountReserve = "account.reserve";
+
+    /// <summary>V7 · Prefijo de los permisos de la cuenta de cliente: lo único que puede ejecutar una sesión de cliente.</summary>
+    public const string AccountPrefix = "account.";
+
     public static readonly IReadOnlyList<(string Code, string Description)> All =
     [
         (CatalogManage, "Crear y modificar productos, categorías, unidades y proveedores"),
@@ -96,13 +111,16 @@ public static class PermissionCodes
         (PcBuildManage, "Armador de PC: armar, cotizar y anular armados (cotizaciones con precio congelado)"),
         (StorefrontRead, "Tienda web: leer el catálogo público (productos, precios, disponibilidad, imágenes y armados sugeridos)"),
         (StorefrontReserve, "Tienda web: reservar armados con reserva de stock y consultar o cancelar una reserva con su teléfono"),
+        (AccountManage, "Cuenta de cliente: ver y actualizar sus datos y ver o cancelar sus propias reservas"),
+        (AccountReserve, "Cuenta de cliente: reservar productos con los datos de su cuenta"),
     ];
 
     /// <summary>Matriz rol → permisos (RBAC por defecto de un tenant nuevo). V3.1: cada rol suma las funciones de su
     /// puesto (ventas y caja venden y atienden clientes, bodega compra y ve reportes, gerencia aprueba y contabiliza).
     /// V4.2: bodega lleva series, fichas técnicas y RMA; ventas y caja arman PC, consultan series y abren RMA; gerencia
     /// todo lo de la edición Tecnología; consulta solo lee series y casos. V6: administración y gerencia también leen y
-    /// reservan por la tienda web; TIENDA_WEB (usuario técnico) solo eso más la consulta de stock.</summary>
+    /// reservan por la tienda web; TIENDA_WEB (usuario técnico) solo eso más la consulta de stock. V7: CLIENTE solo los dos
+    /// permisos de su cuenta (la administración los recibe por tener todos).</summary>
     public static IReadOnlyList<string> ForRole(string roleCode) => roleCode switch
     {
         RoleCodes.Admin => All.Select(p => p.Code).ToList(),
@@ -117,6 +135,7 @@ public static class PermissionCodes
             PcBuildManage, StorefrontRead, StorefrontReserve],
         RoleCodes.ReadOnly => [StockView, ReportsView, BillingView, SerialsView],
         RoleCodes.Storefront => [StorefrontRead, StorefrontReserve, StockView],
+        RoleCodes.Customer => [AccountManage, AccountReserve],
         _ => [],
     };
 }

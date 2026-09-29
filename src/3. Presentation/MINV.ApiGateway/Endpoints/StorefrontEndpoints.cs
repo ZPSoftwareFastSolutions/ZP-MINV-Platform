@@ -5,14 +5,19 @@ using MINV.Application.Storefront;
 
 namespace MINV.ApiGateway.Endpoints;
 
-/// <summary>Reserva de un armado desde la tienda web (cuerpo de <c>POST /storefront/v1/reservations</c>).</summary>
-/// <param name="Lines">Piezas: SKU, cantidad (1 a 16) y ranura de la web (opcional: se deduce de la ficha).</param>
+/// <summary>Reserva de un armado o de un carrito desde la tienda web (cuerpo de <c>POST /storefront/v1/reservations</c>).</summary>
+/// <param name="Lines">Piezas: SKU, cantidad (1 a 16) y ranura de la web (opcional: en un armado se deduce de la ficha; en un
+/// carrito la línea queda sin ranura).</param>
 /// <param name="Contact">Nombre y teléfono (Bolivia: 7 u 8 dígitos, con o sin +591) obligatorios; correo opcional.</param>
-/// <param name="Notes">Notas para la tienda (≤ 500).</param>
-/// <param name="Name">Nombre del armado (por defecto «Armado web de &lt;nombre&gt;»).</param>
+/// <param name="Notes">Notas para la tienda (≤ 500, una sola línea).</param>
+/// <param name="Name">Nombre de la reserva (por defecto «Armado web de &lt;nombre&gt;» o «Reserva de &lt;nombre&gt;»).</param>
 /// <param name="IdempotencyKey">Alternativa a la cabecera <c>Idempotency-Key</c>.</param>
+/// <param name="Kind">V7 · <c>"build"</c> (armado de PC, por defecto) o <c>"cart"</c> (carrito: cualquier producto).</param>
+/// <param name="HoldDays">V7 · Días para recoger la reserva (1 a 3); sin valor, las horas configuradas en el servidor.</param>
+/// <param name="Buyer">V7 · Datos para la factura (opcionales): tipo de documento (1 CI … 5 NIT), número, complemento y nombre o
+/// razón social. Nunca se devuelven.</param>
 public sealed record StorefrontReservationRequest(IReadOnlyList<StorefrontReservationLineInput> Lines, StorefrontContactInput Contact, string? Notes = null,
-    string? Name = null, string? IdempotencyKey = null);
+    string? Name = null, string? IdempotencyKey = null, string? Kind = null, int? HoldDays = null, ReservationBuyerInput? Buyer = null);
 
 /// <summary>El cliente cancela su reserva con el teléfono con que la hizo.</summary>
 public sealed record StorefrontCancelRequest(string Phone);
@@ -43,13 +48,16 @@ public static class StorefrontEndpoints
                 http.Response.Headers.CacheControl = "public, max-age=30";
                 return Results.Ok(snapshot);
             })
-            .WithSummary("Instantánea del catálogo web: empresa, sucursal de la tienda, categorías, marcas, productos con ficha y disponibilidad, armados publicados");
+            .Produces<StorefrontCatalogView>()
+            .WithSummary("Instantánea del catálogo web: empresa, sucursal de la tienda, categorías, marcas, productos con ficha y disponibilidad, armados publicados, " +
+                         "horas de una reserva (reservationHours) y días que puede pedir quien reserva (maxHoldDays)");
         sf.MapGet("/products/{slug}", async Task<IResult> (ISender s, HttpContext http, string slug, CancellationToken ct) =>
             {
                 var product = await s.Send(new GetStorefrontProductQuery(slug), ct);
                 http.Response.Headers.CacheControl = "no-cache";
                 return Results.Ok(product);
             })
+            .Produces<StorefrontProduct>().ProducesProblem(StatusCodes.Status404NotFound)
             .WithSummary("Un producto por su slug (el SKU en minúsculas) con la disponibilidad fresca");
         sf.MapGet("/products/{sku}/image", async Task<IResult> (ISender s, HttpContext http, string sku, CancellationToken ct) =>
             {
@@ -70,7 +78,8 @@ public static class StorefrontEndpoints
                 {
                     key = body.IdempotencyKey ?? string.Empty;
                 }
-                var result = await s.Send(new CreateStorefrontReservationCommand(body.Lines, body.Contact, body.Notes, key, body.Name), ct);
+                var result = await s.Send(new CreateStorefrontReservationCommand(body.Lines, body.Contact, body.Notes, key, body.Name,
+                    StorefrontKinds.Parse(body.Kind), body.HoldDays, body.Buyer), ct);
                 if (result.Replayed)
                 {
                     http.Response.Headers["Idempotent-Replayed"] = "true";
@@ -79,7 +88,11 @@ public static class StorefrontEndpoints
                 return Results.Created($"{Prefix}/reservations/{Uri.EscapeDataString(result.Reservation.Number)}", result.Reservation);
             })
             .RequireRateLimiting(ReservePolicy)
-            .WithSummary("Reserva un armado: cotización ARM-WEB con el stock de cada pieza reservado 48 h (idempotente por Idempotency-Key; 409 si falta stock)");
+            .Produces<StorefrontReservationView>(StatusCodes.Status201Created).Produces<StorefrontReservationView>()
+            .ProducesProblem(StatusCodes.Status400BadRequest).ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict).ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .WithSummary("Reserva un armado (kind = build, ARM-WEB) o un carrito con cualquier producto (kind = cart, RES-WEB): el stock de cada línea queda " +
+                         "reservado los días pedidos (holdDays 1 a 3; sin valor, 48 h). Idempotente por Idempotency-Key; 409 si falta stock");
         sf.MapGet("/reservations/{number}", (ISender s, string number, string phone, CancellationToken ct) =>
                 s.Send(new GetStorefrontReservationQuery(number, phone), ct))
             .WithSummary("Estado de una reserva (Reserved, Sold, Cancelled o Expired) con el número y el teléfono con que se hizo");

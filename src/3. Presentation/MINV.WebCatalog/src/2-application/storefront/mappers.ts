@@ -204,7 +204,7 @@ export function toReservation(dto: StorefrontReservationViewDto, replayed = fals
     notes: dto.notes ?? null,
     hasCompatibilityWarnings: Boolean(dto.hasCompatibilityWarnings),
     lines: dto.lines.map((line) => ({
-      slot: line.slot,
+      slot: line.slot ?? '',
       sku: line.sku,
       name: line.name,
       quantity: line.quantity,

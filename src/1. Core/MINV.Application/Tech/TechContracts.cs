@@ -222,9 +222,12 @@ public sealed record IssueWarrantyReplacementCommand(string Number, string Repla
 }
 
 // --------------------------------------------------------------------------------------------------- armador de PC
-public sealed record PcBuildItemInput(PcSlot Slot, string Sku, int Quantity = 1);
+/// <summary>Pieza de un armado. V7: <paramref name="Slot"/> es null en el producto sin ranura de un carrito (en un armado la
+/// ranura es obligatoria: <c>pcbuild.slot</c>).</summary>
+public sealed record PcBuildItemInput(PcSlot? Slot, string Sku, int Quantity = 1);
 
-public sealed record PcBuildItemView(PcSlot Slot, string Sku, string Name, int Quantity, decimal UnitPrice, decimal Subtotal, decimal Stock,
+/// <summary>V7: <paramref name="Slot"/> es null en el producto sin ranura de un carrito.</summary>
+public sealed record PcBuildItemView(PcSlot? Slot, string Sku, string Name, int Quantity, decimal UnitPrice, decimal Subtotal, decimal Stock,
     Guid? ImageId, IReadOnlyList<string> KeySpecs);
 
 public sealed record PcBuildCheckView(IReadOnlyList<PcBuildItemView> Items, IReadOnlyList<PcIssue> Issues, bool IsCompatible, int EstimatedDrawW,
@@ -246,29 +249,48 @@ public sealed record GetPcBuildCandidatesQuery(PcSlot Slot, IReadOnlyList<PcBuil
     string? CategoryCode = null) : IRequest<IReadOnlyList<PcBuildCandidate>>;
 
 /// <summary>Fila de un armado. V6: canal (escritorio o web), contacto (teléfono y correo solo para quien tiene
-/// <c>sales.pcbuild.manage</c>, regla S-06), reserva vigente hasta, publicado en la web, motivo del cierre y unidades reservadas.</summary>
+/// <c>sales.pcbuild.manage</c>, regla S-06), reserva vigente hasta, publicado en la web, motivo del cierre y unidades reservadas.
+/// V7: tipo (armado o carrito; en un carrito <see cref="IsCompatible"/> es siempre verdadero porque no se evalúa) y datos para
+/// la factura de quien reserva (<c>Buyer…</c>, solo para quien tiene <c>sales.pcbuild.manage</c>, reglas S-06 y P-05).</summary>
 public sealed record PcBuildRow(Guid Id, string Number, string Name, string BranchCode, string? Customer, PcBuildStatus Status, DateOnly ValidUntil,
     bool IsExpired, decimal Total, int Items, bool IsCompatible, DateTimeOffset CreatedAt, string? InvoiceNumber, bool QuotedWithErrors = false,
     PcBuildChannel Channel = PcBuildChannel.Desktop, string? ContactName = null, string? ContactPhone = null, string? ContactEmail = null,
-    DateTimeOffset? ReservedUntil = null, bool PublishedToWeb = false, string? CancelReason = null, string? Notes = null, decimal Reserved = 0)
+    DateTimeOffset? ReservedUntil = null, bool PublishedToWeb = false, string? CancelReason = null, string? Notes = null, decimal Reserved = 0,
+    PcBuildKind Kind = PcBuildKind.Build, int? BuyerDocumentType = null, string? BuyerDocumentNumber = null, string? BuyerComplement = null,
+    string? BuyerName = null) : IAuditableResponse
 {
     /// <summary>V6 · Reserva vigente (reservado y no vencido a <paramref name="now"/>).</summary>
     public bool IsReservationActive(DateTimeOffset now) => Status == PcBuildStatus.Reserved && ReservedUntil is { } until && until > now;
+
+    /// <summary>V7 · En la auditoría el teléfono y el documento van enmascarados (solo los 3 últimos caracteres) y el correo, el
+    /// complemento y la razón social ocultos, igual que en el comando de la tienda (reglas S-06 y P-05).</summary>
+    object IAuditableResponse.AuditResult => this with
+    {
+        ContactPhone = ContactPhone is null ? null : Storefront.CreateStorefrontReservationCommand.Mask(ContactPhone),
+        ContactEmail = ContactEmail is null ? null : "***",
+        BuyerDocumentNumber = BuyerDocumentNumber is null ? null : Storefront.CreateStorefrontReservationCommand.Mask(BuyerDocumentNumber),
+        BuyerComplement = BuyerComplement is null ? null : "***",
+        BuyerName = BuyerName is null ? null : "***",
+    };
 }
 
 /// <summary>Guarda el armado (nuevo en la sucursal activa o un borrador existente) con los precios de la lista vigente; con
 /// Quote = true lo emite como cotización con vigencia de <see cref="ValidDays"/> días (precios congelados). Un armado con
-/// errores de compatibilidad solo se cotiza con <see cref="AcceptIncompatible"/> = true (queda marcado, regla T-06).</summary>
+/// errores de compatibilidad solo se cotiza con <see cref="AcceptIncompatible"/> = true (queda marcado, regla T-06).
+/// V7: con <see cref="Kind"/> = <c>Cart</c> guarda un carrito (RES-&lt;sucursal&gt;-000001, productos sin ranura, sin
+/// compatibilidad). El tipo se fija al crear: guardar un borrador existente con otro tipo se rechaza (<c>pcbuild.kind</c>).</summary>
 [RequiresPermission(PermissionCodes.PcBuildManage)]
 public sealed record SavePcBuildCommand(Guid? Id, string Name, string? CustomerCode, IReadOnlyList<PcBuildItemInput> Items, bool Quote = false,
-    int ValidDays = 7, bool AcceptIncompatible = false) : IRequest<PcBuildRow>, IAuditableRequest
+    int ValidDays = 7, bool AcceptIncompatible = false, PcBuildKind Kind = PcBuildKind.Build) : IRequest<PcBuildRow>, IAuditableRequest
 {
-    public object AuditDetails => new { Id, Name, CustomerCode, Items, Quote, ValidDays, AcceptIncompatible };
+    public object AuditDetails => new { Id, Name, CustomerCode, Items, Quote, ValidDays, AcceptIncompatible, Kind };
 }
 
-/// <summary>Armados de las sucursales visibles (los 500 más recientes), por estado y, V6, por canal (web o escritorio).</summary>
+/// <summary>Armados de las sucursales visibles (los 500 más recientes), por estado y, V6, por canal (web o escritorio). V7: y
+/// por tipo (armados de PC o carritos).</summary>
 [RequiresPermission(PermissionCodes.SalesView)]
-public sealed record GetPcBuildsQuery(PcBuildStatus? Status = null, PcBuildChannel? Channel = null) : IRequest<IReadOnlyList<PcBuildRow>>;
+public sealed record GetPcBuildsQuery(PcBuildStatus? Status = null, PcBuildChannel? Channel = null, PcBuildKind? Kind = null)
+    : IRequest<IReadOnlyList<PcBuildRow>>;
 
 /// <summary>V6 · Fila de la bitácora del armado.</summary>
 public sealed record PcBuildEventView(DateTimeOffset OccurredAt, PcBuildEventAction Action, PcBuildStatus Status, string Detail, string User);
@@ -294,6 +316,31 @@ public sealed record ReservePcBuildCommand(string Number, int Hours = 48) : IReq
     public object AuditDetails => new { Number, Hours };
 }
 
+/// <summary>V7 · Producto de un carrito de mostrador (sin ranura).</summary>
+public sealed record CartItemInput(string Sku, int Quantity = 1);
+
+/// <summary>
+/// V7 · El personal crea y RESERVA un carrito en el mostrador para un cliente (regla P-05): cualquier producto, a los
+/// precios vigentes, con el stock de cada línea reservado en la sucursal activa (todo o nada, misma transacción, regla
+/// S-03), número RES-&lt;sucursal&gt;-000001. El nombre y el teléfono de quien lo recoge son obligatorios; el correo, las
+/// notas y los datos para la factura, opcionales. <see cref="HoldDays"/> (1 a 3) son los días para recogerlo; sin valor,
+/// las horas configuradas (48). <see cref="CustomerCode"/> lo liga a un cliente registrado.
+/// </summary>
+[RequiresPermission(PermissionCodes.PcBuildManage)]
+public sealed record ReserveCartCommand(IReadOnlyList<CartItemInput> Items, string ContactName, string ContactPhone, string? ContactEmail = null,
+    string? Notes = null, int? HoldDays = null, Storefront.ReservationBuyerInput? Buyer = null, string? CustomerCode = null, string? Name = null)
+    : IRequest<PcBuildRow>, IAuditableRequest
+{
+    // El teléfono, el correo y los datos para la factura no van a la auditoría completos (reglas S-06 y P-05)
+    public object AuditDetails => new
+    {
+        Items, ContactName, ContactPhone = Storefront.CreateStorefrontReservationCommand.Mask(ContactPhone), ContactEmail = ContactEmail is null ? null : "***",
+        Notes, HoldDays, Buyer = Buyer?.Masked, CustomerCode, Name,
+    };
+
+    public override string ToString() => $"ReserveCartCommand {{ Items = {Items?.Count ?? 0} }}";
+}
+
 /// <summary>V6 · Libera la reserva de un armado (web o escritorio): pasa a Anulado con motivo y el stock vuelve.</summary>
 [RequiresPermission(PermissionCodes.PcBuildManage)]
 public sealed record ReleasePcBuildReservationCommand(string Number, string Reason) : IRequest<PcBuildRow>, IAuditableRequest
@@ -312,7 +359,8 @@ public sealed record PublishPcBuildCommand(string Number, bool Published = true)
 /// Cobra en la caja (turno abierto del usuario, en la sucursal del armado) una cotización VIGENTE a sus precios cotizados,
 /// con los casos de uso normales de venta (poka-yoke, series, factura del SIN, pago y asiento), y la marca vendida con la
 /// venta vinculada, todo en la MISMA transacción. Las series de las piezas serializadas van en <see cref="Serials"/>. El
-/// cliente es el del armado (o <see cref="CustomerCode"/>, o consumidor final).
+/// cliente es el del armado (o <see cref="CustomerCode"/>, o consumidor final). V7: vende también carritos y, si el cajero
+/// no capturó comprador (<see cref="Buyer"/>), factura con los datos para la factura que dejó quien reservó.
 /// </summary>
 [RequiresPermission(PermissionCodes.PosOperate)]
 [RequiresPermission(PermissionCodes.MovementsRegisterSales)]

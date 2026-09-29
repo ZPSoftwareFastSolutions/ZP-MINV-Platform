@@ -108,6 +108,50 @@ public sealed class ModelTests
         Assert.Null(builds.FindProperty(nameof(PcBuild.IsReservationActive)));
     }
 
+    /// <summary>V7 · Carrito (regla P-05): el tipo y los datos para la factura de la reserva son columnas de <c>sales.pc_builds</c>
+    /// con sus CHECK (tipo; datos de factura coherentes; un carrito nunca publicado) y la ranura de la línea admite nulo. Que sea
+    /// nula SOLO en un carrito cruza dos tablas: lo exige el dominio y, en la base, el trigger de la migración V7.</summary>
+    [Fact]
+    public void El_carrito_tiene_su_tipo_sus_datos_de_factura_y_la_ranura_opcional()
+    {
+        var builds = Model.FindEntityType(typeof(PcBuild))!;
+        var kind = builds.FindProperty(nameof(PcBuild.Kind))!;
+        Assert.Equal(("kind", "character varying(10)", false), (kind.GetColumnName(), kind.GetColumnType(), kind.IsNullable));
+        var type = builds.FindProperty(nameof(PcBuild.BuyerDocumentType))!;
+        Assert.Equal(("buyer_document_type", "smallint", true), (type.GetColumnName(), type.GetColumnType(), type.IsNullable));
+        Assert.Equal(("buyer_document_number", 20, true), Column(builds, nameof(PcBuild.BuyerDocumentNumber)));
+        Assert.Equal(("buyer_complement", 5, true), Column(builds, nameof(PcBuild.BuyerComplement)));
+        Assert.Equal(("buyer_name", 150, true), Column(builds, nameof(PcBuild.BuyerName)));
+        Assert.Null(builds.FindProperty(nameof(PcBuild.IsCart)));
+        Assert.Null(builds.FindProperty(nameof(PcBuild.HasBuyer)));
+        var slot = Model.FindEntityType(typeof(PcBuildLine))!.FindProperty(nameof(PcBuildLine.Slot))!;
+        Assert.Equal(("slot", "character varying(20)", true), (slot.GetColumnName(), slot.GetColumnType(), slot.IsNullable));
+        foreach (var fragment in new[]
+                 {
+                     "CONSTRAINT ck_pc_builds_tipo CHECK (kind IN ('Build', 'Cart'))",
+                     "CONSTRAINT ck_pc_builds_tipo_publicado CHECK (NOT published_to_web OR kind = 'Build')",
+                     "CONSTRAINT ck_pc_builds_factura_tipo CHECK (buyer_document_type IS NULL OR buyer_document_type BETWEEN 1 AND 5)",
+                     "CONSTRAINT ck_pc_builds_factura_documento CHECK ((buyer_document_type IS NULL) = (buyer_document_number IS NULL))",
+                     "CONSTRAINT ck_pc_builds_factura_complemento CHECK (buyer_complement IS NULL OR buyer_document_type = 1)",
+                     "CONSTRAINT ck_pc_builds_factura_nombre CHECK (buyer_name IS NULL OR buyer_document_type IS NOT NULL)",
+                     "CONSTRAINT ck_pc_build_lines_ranura CHECK (slot IS NULL OR slot IN ('Cpu', 'Motherboard', 'Ram', 'Gpu', 'Storage', 'Psu', 'Case', " +
+                     "'Cooler', 'Monitor', 'Peripheral', 'Software', 'Service'))",
+                     "kind character varying(10) NOT NULL",
+                     "slot character varying(20),",
+                 })
+        {
+            Assert.Contains(fragment, Ddl, StringComparison.Ordinal);
+        }
+        // Sin tablas nuevas: el carrito reutiliza las del armado (el recuento de tablas lo vigila El_modelo_tiene_…)
+        Assert.Equal("sales.pc_builds", Name(builds));
+
+        static (string Column, int? MaxLength, bool Nullable) Column(IEntityType entity, string property)
+        {
+            var p = entity.FindProperty(property)!;
+            return (p.GetColumnName(), p.GetMaxLength(), p.IsNullable);
+        }
+    }
+
     /// <summary>Tablas de sucursal de todas las migraciones (V4 + V4.1 + V4.2 + V6).</summary>
     internal static IEnumerable<string> AllBranchTables =>
         Persistence.Migrations.V4MultiBranchCloud.BranchTables.Concat(Persistence.Migrations.V41SiatBilling.BranchTablesV41)

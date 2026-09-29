@@ -202,6 +202,9 @@ public sealed class MinvWriteDbContext : DbContext, IMinvDbContext
     public DbSet<WarrantyClaim> WarrantyClaims => Set<WarrantyClaim>();
     public DbSet<WarrantyClaimEvent> WarrantyClaimEvents => Set<WarrantyClaimEvent>();
 
+    // ---- V7 · Plataforma web: cuentas de cliente de la tienda (sales)
+    public DbSet<CustomerAccount> CustomerAccounts => Set<CustomerAccount>();
+
     /// <summary>V4 · Alcance por sucursal de la sesión (implementación explícita: <see cref="Branches"/> es la tabla).</summary>
     BranchScope IMinvDbContext.Branches => _tenant.Branches;
 

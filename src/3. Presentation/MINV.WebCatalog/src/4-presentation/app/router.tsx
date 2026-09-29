@@ -1,28 +1,9 @@
 import { createBrowserRouter } from 'react-router-dom';
-import { AppShell } from '@/4-presentation/components/layout/AppShell';
-import { BuilderPage } from '@/4-presentation/pages/builder/BuilderPage';
-import { CatalogPage } from '@/4-presentation/pages/catalog/CatalogPage';
-import { HomePage } from '@/4-presentation/pages/home/HomePage';
-import { NotFoundPage } from '@/4-presentation/pages/NotFoundPage';
-import { ProductPage } from '@/4-presentation/pages/product/ProductPage';
-import { ReservationPage } from '@/4-presentation/pages/reservation/ReservationPage';
-import { RouteErrorPage } from '@/4-presentation/pages/RouteErrorPage';
+import { createAppRoutes } from './routeTable';
 
-/** Rutas del catálogo: «/», «/catalogo», «/catalogo/:categoria», «/producto/:slug», «/arma-tu-pc», «/reserva[/:numero]» y 404. */
-export const router = createBrowserRouter([
-  {
-    path: '/',
-    element: <AppShell />,
-    errorElement: <RouteErrorPage />,
-    children: [
-      { index: true, element: <HomePage /> },
-      { path: 'catalogo', element: <CatalogPage /> },
-      { path: 'catalogo/:categoria', element: <CatalogPage /> },
-      { path: 'producto/:slug', element: <ProductPage /> },
-      { path: 'arma-tu-pc', element: <BuilderPage /> },
-      { path: 'reserva', element: <ReservationPage /> },
-      { path: 'reserva/:numero', element: <ReservationPage /> },
-      { path: '*', element: <NotFoundPage /> },
-    ],
-  },
-]);
+/**
+ * Rutas del sitio (definidas en routeTable.tsx): la tienda («/», «/catalogo», «/catalogo/:categoria», «/producto/:slug»,
+ * «/arma-tu-pc», «/reserva[/:numero]»), el acceso («/ingresar», «/registrarse», «/cambiar-contrasena»), la cuenta del
+ * cliente («/mi-cuenta/*»), el carrito («/carrito», «/reservar»), el panel del personal («/panel/*») y 404.
+ */
+export const router = createBrowserRouter(createAppRoutes());

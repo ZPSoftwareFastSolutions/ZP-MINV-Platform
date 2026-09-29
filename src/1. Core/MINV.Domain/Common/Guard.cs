@@ -39,6 +39,41 @@ public static partial class Guard
         return t.Length > maxLength ? throw new DomainException("guard.text", $"{name} supera {maxLength} caracteres.") : t;
     }
 
+    /// <summary>
+    /// V7 · ¿El texto lleva caracteres de control (CR, LF, tabulador, NUL y los demás de C0 y C1) o los separadores de
+    /// línea y de párrafo de Unicode (U+2028, U+2029)? Un texto de UNA línea que después viaja a un correo, a un ticket o
+    /// a una factura no los admite.
+    /// </summary>
+    public static bool HasControlCharacters(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return false;
+        }
+        foreach (var c in value)
+        {
+            if (char.IsControl(c) || c is '\u2028' or '\u2029')
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>V7 · Texto obligatorio de UNA línea: como <see cref="Text"/> y, además, sin caracteres de control
+    /// (<c>guard.control_chars</c>). Los espacios y saltos de los extremos se recortan antes de comprobarlo.</summary>
+    public static string PlainText(string? value, string name, int maxLength, int minLength = 1) =>
+        WithoutControlCharacters(Text(value, name, maxLength, minLength), name);
+
+    /// <summary>V7 · Texto opcional de UNA línea: como <see cref="OptionalText"/> y, además, sin caracteres de control.</summary>
+    public static string? OptionalPlainText(string? value, string name, int maxLength) =>
+        OptionalText(value, name, maxLength) is { } t ? WithoutControlCharacters(t, name) : null;
+
+    private static string WithoutControlCharacters(string value, string name) =>
+        HasControlCharacters(value)
+            ? throw new DomainException("guard.control_chars", $"{name} no admite saltos de línea, tabuladores ni otros caracteres de control.")
+            : value;
+
     /// <summary>Código en mayúsculas sin espacios (A-Z, 0-9, guion y guion bajo).</summary>
     public static string Code(string? value, string name, int maxLength)
     {

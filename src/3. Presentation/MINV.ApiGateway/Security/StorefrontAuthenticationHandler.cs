@@ -30,8 +30,11 @@ public sealed class StorefrontSettings
     /// <summary>Orígenes del catálogo web autorizados por CORS (p. ej. http://localhost:5173).</summary>
     public string[] AllowedOrigins { get; set; } = [];
 
-    /// <summary>Horas que dura una reserva web (48).</summary>
+    /// <summary>Horas que dura una reserva web que no indica los días para recogerla (48).</summary>
     public int ReservationHours { get; set; } = 48;
+
+    /// <summary>V7 · Tope en horas de una reserva web (72): quien reserva puede pedir de 1 a 3 días mientras quepan en el tope.</summary>
+    public int MaxReservationHours { get; set; } = 72;
 
     /// <summary>Lecturas por minuto y por IP (300).</summary>
     public int ReadsPerMinute { get; set; } = 300;

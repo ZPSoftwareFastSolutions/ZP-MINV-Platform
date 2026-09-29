@@ -10,8 +10,12 @@ import { CategoryNav } from './CategoryNav';
 import { Logo } from './Logo';
 import { MobileMenu } from './MobileMenu';
 import { SearchBox } from './SearchBox';
+import { UserMenu } from './UserMenu';
 
-/** Cabecera fija: logotipo, buscador, «Armá tu PC» con contador, «Mi armado» (cajón) y navegación por categorías. */
+/**
+ * Cabecera fija: logotipo, buscador, «Armá tu PC» con contador, «Mi armado» (cajón), «Mi reserva», el acceso («Ingresar»
+ * o el menú de la sesión, V7) y la navegación por categorías.
+ */
 export function Header() {
   const { count, openDrawer } = useBuilder();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -22,7 +26,7 @@ export function Header() {
     <header className="sticky top-0 z-30 border-b border-border bg-bg/85 backdrop-blur-md">
       <Container className="flex h-16 items-center gap-2 sm:gap-4">
         <IconButton label="Abrir menú" icon={<Menu />} className="lg:hidden" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)} />
-        <Logo />
+        <Logo compactOnNarrow />
         <SearchBox className="mx-auto max-w-2xl flex-1 max-md:hidden" />
         <div className="ml-auto flex items-center gap-1 sm:gap-2">
           <IconButton
@@ -52,6 +56,7 @@ export function Header() {
           <Button to={ROUTES.reservations} variant="ghost" leftIcon={<TicketCheck />} className="max-lg:hidden" aria-label="Consultar mi reserva">
             Mi reserva
           </Button>
+          <UserMenu />
         </div>
       </Container>
       {searchOpen && (

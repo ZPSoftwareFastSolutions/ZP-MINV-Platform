@@ -23,7 +23,7 @@ namespace MINV.Application.Storefront;
 /// reservado), popularidad por las ventas de 90 días, etiquetas, descripción generada y armados publicados. Todo acotado por
 /// los filtros globales (empresa y sucursales del principal).
 /// </summary>
-internal sealed partial class StorefrontCatalogReader(IMinvDbContext db, ITenantContext tenant, IClock clock)
+internal sealed partial class StorefrontCatalogReader(IMinvDbContext db, ITenantContext tenant, IClock clock, StorefrontOptions? options = null)
 {
     /// <summary>Ícono de Lucide por categoría (nombre del componente en lucide-react), como en la web de la V5.</summary>
     internal static readonly IReadOnlyDictionary<string, string> Icons = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -95,8 +95,10 @@ internal sealed partial class StorefrontCatalogReader(IMinvDbContext db, ITenant
         var brands = products.GroupBy(p => p.Brand, StringComparer.Ordinal).Select(g => new StorefrontBrand(BrandCode(g.Key), g.Key, g.Count()))
             .OrderBy(b => b.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
         var presets = Presets(await db.Set<PcBuild>().AsNoTracking().Include(b => b.Lines).Where(b => b.PublishedToWeb).ToListAsync(ct), set);
+        // V7 · La vigencia de una reserva y los días que puede pedir quien reserva los fija el servidor (la web no los supone)
+        var reservation = options ?? new StorefrontOptions();
         return new StorefrontCatalogView(new StorefrontCompany(company.Code, company.LegalName, branches), store, categories, brands, products, presets,
-            clock.UtcNow);
+            clock.UtcNow, reservation.EffectiveHours, reservation.MaxHoldDays);
     }
 
     public async Task<StorefrontProduct> ProductAsync(string slug, CancellationToken ct)
@@ -119,18 +121,19 @@ internal sealed partial class StorefrontCatalogReader(IMinvDbContext db, ITenant
     }
 
     /// <summary>Armados publicados con sus piezas (solo las que siguen en el catálogo web); un armado sin piezas visibles no sale.
-    /// <c>available</c>: todas sus piezas tienen disponible en la sucursal de la tienda.</summary>
+    /// <c>available</c>: todas sus piezas tienen disponible en la sucursal de la tienda. V7: un carrito nunca es un armado
+    /// sugerido (regla P-05; el dominio no deja publicarlo y aquí se descarta igual).</summary>
     private static IReadOnlyList<StorefrontPreset> Presets(IReadOnlyList<PcBuild> published, ProductSet set) =>
         published
-            .Where(b => b.Status is PcBuildStatus.Quoted or PcBuildStatus.Reserved or PcBuildStatus.Sold && b.Lines.Count > 0)
+            .Where(b => !b.IsCart && b.Status is PcBuildStatus.Quoted or PcBuildStatus.Reserved or PcBuildStatus.Sold && b.Lines.Count > 0)
             .OrderBy(b => b.Total)
             .Select(b =>
             {
                 var lines = b.Lines.OrderBy(l => l.Slot).ThenBy(l => l.Id).Select(l => (Line: l, Product: set.ByVariant.GetValueOrDefault(l.VariantId))).ToList();
                 var available = lines.All(x => x.Product is not null && x.Product.Available >= x.Line.Quantity);
                 return new StorefrontPreset(b.Number.ToLowerInvariant(), b.Number, b.Name, Tier(b.Name, b.Total), b.Total, available,
-                    lines.Where(x => x.Product is not null)
-                        .Select(x => new StorefrontPresetLine(WebSlots[x.Line.Slot], x.Product!.Sku, x.Line.Quantity, x.Line.QuotedUnitPrice)).ToList());
+                    lines.Where(x => x.Product is not null && x.Line.Slot is not null)
+                        .Select(x => new StorefrontPresetLine(WebSlots[x.Line.Slot!.Value], x.Product!.Sku, x.Line.Quantity, x.Line.QuotedUnitPrice)).ToList());
             })
             .Where(p => p.Lines.Count > 0)
             .ToList();
@@ -431,11 +434,11 @@ internal sealed partial class StorefrontCatalogReader(IMinvDbContext db, ITenant
     private static partial Regex TrailingParenthesis();
 }
 
-public sealed class GetStorefrontCatalogHandler(IMinvDbContext db, ITenantContext tenant, IClock clock)
+public sealed class GetStorefrontCatalogHandler(IMinvDbContext db, ITenantContext tenant, IClock clock, StorefrontOptions? options = null)
     : IRequestHandler<GetStorefrontCatalogQuery, StorefrontCatalogView>
 {
     public Task<StorefrontCatalogView> Handle(GetStorefrontCatalogQuery request, CancellationToken ct) =>
-        new StorefrontCatalogReader(db, tenant, clock).SnapshotAsync(ct);
+        new StorefrontCatalogReader(db, tenant, clock, options).SnapshotAsync(ct);
 }
 
 public sealed class GetStorefrontProductHandler(IMinvDbContext db, ITenantContext tenant, IClock clock)

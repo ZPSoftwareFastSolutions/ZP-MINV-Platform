@@ -37,6 +37,9 @@ public sealed record PcIssue(string Code, bool IsError, string Message);
 /// <summary>V4.2 · Informe del armador: problemas, consumo estimado y fuente recomendada.</summary>
 public sealed record PcCompatibilityReport(IReadOnlyList<PcIssue> Issues, int EstimatedDrawW, int RecommendedPsuW, int? PsuW)
 {
+    /// <summary>V7 · Informe vacío: el de un carrito, donde la compatibilidad NO se evalúa (regla P-05).</summary>
+    public static PcCompatibilityReport Empty { get; } = new([], 0, 0, null);
+
     public bool IsCompatible => Issues.All(i => !i.IsError);
 
     public int Errors => Issues.Count(i => i.IsError);

@@ -13,7 +13,8 @@ public sealed class RequestOrigin : IRequestOrigin
 
     public void Set(string channel, Guid? apiKeyId)
     {
-        if (channel is not (RequestChannels.Desktop or RequestChannels.Cloud or RequestChannels.Api or RequestChannels.Storefront))
+        if (channel is not (RequestChannels.Desktop or RequestChannels.Cloud or RequestChannels.Api or RequestChannels.Storefront
+            or RequestChannels.Web))
         {
             throw new ArgumentOutOfRangeException(nameof(channel), channel, "Canal desconocido.");
         }

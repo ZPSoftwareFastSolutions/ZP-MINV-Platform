@@ -91,8 +91,8 @@ public interface ICurrentUser
 
 /// <summary>
 /// V4 · Por dónde llegó la petición: <c>desktop</c> (escritorio con conexión directa), <c>cloud</c> (escritorio a través
-/// del servidor en la nube), <c>api</c> (API Gateway B2B, con la API Key usada) o, V6, <c>storefront</c> (tienda web pública).
-/// Va en la auditoría.
+/// del servidor en la nube), <c>api</c> (API Gateway B2B, con la API Key usada), V6, <c>storefront</c> (tienda web pública) o,
+/// V7, <c>web</c> (sesión web por cookie: panel del personal y cuenta de cliente). Va en la auditoría.
 /// </summary>
 public interface IRequestOrigin
 {
@@ -111,6 +111,10 @@ public static class RequestChannels
 
     /// <summary>V6 · Tienda web pública (principal técnico <c>tienda-web</c> del gateway, sin API Key).</summary>
     public const string Storefront = "storefront";
+
+    /// <summary>V7 · Sesión web por cookie del servidor en la nube (<c>/api/v1/web</c>): el panel del personal y la cuenta del
+    /// cliente (regla P-02).</summary>
+    public const string Web = "web";
 }
 
 /// <summary>

@@ -85,12 +85,14 @@ public sealed record SaleReturnedEvent(string ReturnNumber, string InvoiceNumber
     public override string EventType => IntegrationEvents.SaleReturned;
 }
 
-/// <summary>V6 · Línea de un armado en un evento (variante, ranura, cantidad y precio cotizado; nunca datos del contacto).</summary>
-public sealed record PcBuildEventLine(Guid VariantId, string Slot, int Quantity, decimal QuotedUnitPrice);
+/// <summary>V6 · Línea de un armado en un evento (variante, ranura, cantidad y precio cotizado; nunca datos del contacto).
+/// V7: <paramref name="Slot"/> es null en la línea sin ranura de un carrito.</summary>
+public sealed record PcBuildEventLine(Guid VariantId, string? Slot, int Quantity, decimal QuotedUnitPrice);
 
-/// <summary>V6 · Un armado (cotización) reservó el stock de sus piezas (desde la tienda web o el escritorio).</summary>
+/// <summary>V6 · Un armado (cotización) reservó el stock de sus piezas (desde la tienda web o el escritorio). V7: los tres
+/// eventos <c>pcbuild.*</c> llevan <c>Kind</c> (campo nuevo, regla B-08): <c>Build</c> (armado) o <c>Cart</c> (carrito).</summary>
 public sealed record PcBuildReservedEvent(Guid PcBuildId, string Number, Guid BranchIdOfBuild, string Channel, decimal Total,
-    DateTimeOffset ReservedUntil, IReadOnlyList<PcBuildEventLine> Lines, DateTimeOffset OccurredAt)
+    DateTimeOffset ReservedUntil, IReadOnlyList<PcBuildEventLine> Lines, DateTimeOffset OccurredAt, string Kind = PcBuildEventKinds.Build)
     : DomainEvent(OccurredAt, BranchIdOfBuild)
 {
     public override string EventType => IntegrationEvents.PcBuildReserved;
@@ -98,7 +100,7 @@ public sealed record PcBuildReservedEvent(Guid PcBuildId, string Number, Guid Br
 
 /// <summary>V6 · La reserva de un armado se liberó (el cliente desistió, el vendedor la liberó o venció): el stock volvió.</summary>
 public sealed record PcBuildReleasedEvent(Guid PcBuildId, string Number, Guid BranchIdOfBuild, string Channel, decimal Total, string Reason,
-    bool Expired, IReadOnlyList<PcBuildEventLine> Lines, DateTimeOffset OccurredAt)
+    bool Expired, IReadOnlyList<PcBuildEventLine> Lines, DateTimeOffset OccurredAt, string Kind = PcBuildEventKinds.Build)
     : DomainEvent(OccurredAt, BranchIdOfBuild)
 {
     public override string EventType => IntegrationEvents.PcBuildReleased;
@@ -106,8 +108,15 @@ public sealed record PcBuildReleasedEvent(Guid PcBuildId, string Number, Guid Br
 
 /// <summary>V6 · Un armado se vendió en la caja (si estaba reservado, la reserva se consumió).</summary>
 public sealed record PcBuildSoldEvent(Guid PcBuildId, string Number, Guid BranchIdOfBuild, string Channel, decimal Total, Guid InvoiceId,
-    bool WasReserved, IReadOnlyList<PcBuildEventLine> Lines, DateTimeOffset OccurredAt)
+    bool WasReserved, IReadOnlyList<PcBuildEventLine> Lines, DateTimeOffset OccurredAt, string Kind = PcBuildEventKinds.Build)
     : DomainEvent(OccurredAt, BranchIdOfBuild)
 {
     public override string EventType => IntegrationEvents.PcBuildSold;
+}
+
+/// <summary>V7 · Valores de <c>Kind</c> en los eventos <c>pcbuild.*</c> (los nombres de <c>PcBuildKind</c>).</summary>
+public static class PcBuildEventKinds
+{
+    public const string Build = "Build";
+    public const string Cart = "Cart";
 }

@@ -154,7 +154,10 @@ internal static class StorefrontReservationViews
         _ => status,
     };
 
-    public static async Task<StorefrontReservationView> ViewAsync(IMinvDbContext db, PcBuild build, DateTimeOffset now, CancellationToken ct)
+    /// <summary>V7: <paramref name="mailQueued"/> lo decide quien encola el correo de confirmación (al reservar); las
+    /// consultas posteriores no lo informan. Los datos para la factura NUNCA salen en esta vista (regla P-05).</summary>
+    public static async Task<StorefrontReservationView> ViewAsync(IMinvDbContext db, PcBuild build, DateTimeOffset now, CancellationToken ct,
+        bool mailQueued = false)
     {
         var names = await PcBuildStock.NamesAsync(db, build.Lines.Select(l => l.VariantId).Distinct().ToList(), ct);
         var branch = db.Set<Branch>().Local.FirstOrDefault(b => b.Id == build.BranchId)?.Code
@@ -165,13 +168,15 @@ internal static class StorefrontReservationViews
             build.Lines.OrderBy(l => l.Slot).ThenBy(l => l.Id).Select(l =>
             {
                 var (sku, name) = names.GetValueOrDefault(l.VariantId, ("?", "?"));
-                return new StorefrontReservationLine(StorefrontCatalogReader.WebSlots[l.Slot], sku, name, l.Quantity, l.QuotedUnitPrice, l.Subtotal);
-            }).ToList(), build.CancelReason);
+                return new StorefrontReservationLine(l.Slot is { } slot ? StorefrontCatalogReader.WebSlots[slot] : null, sku, name, l.Quantity,
+                    l.QuotedUnitPrice, l.Subtotal);
+            }).ToList(), build.CancelReason, StorefrontKinds.Text(build.Kind), mailQueued);
     }
 }
 
 /// <summary>V6 · Ranura del dominio para cada pieza de la web: la indicada por la web o, si no viene, la que dice la ficha
-/// técnica (clave de compatibilidad que identifica la ranura) o la categoría (monitor, software, servicio, periférico).</summary>
+/// técnica (clave de compatibilidad que identifica la ranura) o la categoría (monitor, software, servicio, periférico).
+/// V7: en un carrito (<c>deduce = false</c>) la ranura NO se deduce: la línea queda sin ranura salvo que la web la mande.</summary>
 internal static class StorefrontSlots
 {
     private static readonly IReadOnlyDictionary<string, PcSlot> FromWeb = new Dictionary<string, PcSlot>(StringComparer.OrdinalIgnoreCase)
@@ -182,7 +187,7 @@ internal static class StorefrontSlots
     };
 
     public static async Task<IReadOnlyList<PcBuildItemInput>> ResolveAsync(IMinvDbContext db, IReadOnlyList<StorefrontReservationLineInput> lines,
-        CancellationToken ct)
+        CancellationToken ct, bool deduce = true)
     {
         var skus = lines.Select(l => l.Sku.Trim().ToUpperInvariant()).Distinct().ToList();
         var products = await (from v in db.Set<ProductVariant>()
@@ -206,14 +211,15 @@ internal static class StorefrontSlots
         {
             var sku = line.Sku.Trim().ToUpperInvariant();
             var product = products.First(p => p.Sku == sku);
-            PcSlot slot;
+            PcSlot? slot;
             if (line.Slot is { Length: > 0 } web)
             {
-                Guard.That(FromWeb.TryGetValue(web.Trim(), out slot), "pcbuild.slot", $"La ranura «{web}» no existe.");
-                if (slot == PcSlot.Software && await IsServiceAsync(product.CategoryId))
-                {
-                    slot = PcSlot.Service;
-                }
+                Guard.That(FromWeb.TryGetValue(web.Trim(), out var given), "pcbuild.slot", $"La ranura «{web}» no existe.");
+                slot = given == PcSlot.Software && await IsServiceAsync(product.CategoryId) ? PcSlot.Service : given;
+            }
+            else if (!deduce)
+            {
+                slot = null;
             }
             else
             {
@@ -250,11 +256,109 @@ internal static class StorefrontSlots
     }
 }
 
+/// <summary>V7 · Lo que hace falta para crear una reserva (armado o carrito) desde cualquier canal: la tienda web, el mostrador
+/// del escritorio o la cuenta de un cliente. <paramref name="CustomerId"/> liga la reserva a un cliente registrado.</summary>
+internal sealed record ReservationSpec(PcBuildKind Kind, PcBuildChannel Channel, IReadOnlyList<StorefrontReservationLineInput> Lines,
+    string? ContactName, string? ContactPhone, string? ContactEmail, string? Notes, string? Name, int? HoldDays = null,
+    ReservationBuyerInput? Buyer = null, Guid? CustomerId = null);
+
+/// <summary>
+/// V7 · Crea una reserva (reglas S-03 y P-05): el armado o el carrito cotizado a los precios vigentes y RESERVADO, con una
+/// reserva de stock por línea en la sucursal activa (todo o nada). No guarda: quien llama agrega lo suyo (idempotencia,
+/// correo) y guarda todo en UN <c>SaveChanges</c>, con su reintento optimista. Punto único de las reservas nuevas de la
+/// tienda (<see cref="CreateStorefrontReservationHandler"/>) y del mostrador (<c>ReserveCartCommand</c>).
+/// </summary>
+internal static class ReservationWriter
+{
+    public static async Task<PcBuild> CreateAsync(IMinvDbContext db, IClock clock, StorefrontOptions? options, ReservationSpec spec, Guid userId,
+        DateTimeOffset now, CancellationToken ct)
+    {
+        var config = await new InventoryLookups(db).ConfigAsync(ct);
+        var today = clock.TodayIn(config.TimeZoneId);
+        var branchId = await BranchContext.ResolveAsync(db, null, ct);
+        var until = now.AddHours((options ?? new StorefrontOptions()).HoursFor(spec.HoldDays));
+        var zone = TimeZoneInfo.FindSystemTimeZoneById(config.TimeZoneId);
+        var validUntil = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(until, zone).DateTime);
+        if (validUntil < today)
+        {
+            validUntil = today;
+        }
+        var cart = spec.Kind == PcBuildKind.Cart;
+        // En un carrito la ranura no se deduce: la línea queda sin ranura salvo que la web la mande (regla P-05)
+        var items = await StorefrontSlots.ResolveAsync(db, spec.Lines, ct, deduce: !cart);
+        var parts = await new PcParts(db).ResolveAsync(items, ct);
+        var unpriced = parts.Where(p => p.ListPrice <= 0).Select(p => p.Item.Variant.Sku).ToList();
+        Guard.That(unpriced.Count == 0, "price.missing", $"{string.Join(", ", unpriced)} no tiene precio en la lista de precios.");
+        var prefix = PcBuild.NumberPrefixOf(spec.Kind, spec.Channel);
+        var number = spec.Channel == PcBuildChannel.Web
+            ? await Documents.NextNumberAsync(db.Set<PcBuild>(), b => b.Number, prefix, ct)
+            : await Documents.NextForBranchAsync<PcBuild>(db, b => b.Number, prefix, branchId, ct);
+        var name = NameOf(spec);
+        PcBuild build;
+        if (spec.Channel == PcBuildChannel.Web)
+        {
+            build = cart
+                ? PcBuild.CreateWebCart(config.TenantId, branchId, number, name, spec.ContactName ?? string.Empty, spec.ContactPhone ?? string.Empty,
+                    spec.ContactEmail, spec.Notes, validUntil, userId, now, spec.CustomerId)
+                : PcBuild.CreateWeb(config.TenantId, branchId, number, name, spec.ContactName ?? string.Empty, spec.ContactPhone ?? string.Empty,
+                    spec.ContactEmail, spec.Notes, validUntil, userId, now);
+            if (!cart && spec.CustomerId is { } customerId)
+            {
+                build.Rename(name, customerId);
+            }
+        }
+        else
+        {
+            build = cart
+                ? PcBuild.CreateDesktopCart(config.TenantId, branchId, number, name, spec.CustomerId, validUntil, userId, now)
+                : new PcBuild(config.TenantId, branchId, number, name, spec.CustomerId, validUntil, userId, now);
+            build.SetContact(spec.ContactName, spec.ContactPhone, spec.ContactEmail, spec.Notes);
+        }
+        if (spec.Buyer is { } buyer)
+        {
+            build.SetBuyer(buyer.DocumentType, buyer.DocumentNumber, buyer.Complement, buyer.Name);
+        }
+        foreach (var part in parts)
+        {
+            build.AddLine(part.Slot, part.Item.Variant.Id, part.Component.Quantity, part.ListPrice);
+        }
+        if (cart)
+        {
+            build.QuoteCart(validUntil, today, now, userId);
+        }
+        else
+        {
+            // Compatibilidad: se calcula y queda marcada si hay errores, nunca bloquea una reserva (el vendedor la revisa)
+            build.Quote(validUntil, today, PcCompatibility.Check(parts.Select(p => p.Component).ToList()), acceptIncompatible: true, now, userId);
+        }
+        build.Reserve(now, until, today, userId);
+        await PcBuildStock.ReserveAsync(db, build, now, until, ct);
+        db.Set<PcBuild>().Add(build);
+        return build;
+    }
+
+    /// <summary>Nombre de la reserva: el que llega o «Armado web de …» / «Reserva de …» con el nombre de contacto (≤ 150).</summary>
+    private static string NameOf(ReservationSpec spec)
+    {
+        var contact = spec.ContactName?.Trim();
+        var name = spec.Name?.Trim() is { Length: > 0 } custom ? custom
+            : (spec.Kind, spec.Channel) switch
+            {
+                (PcBuildKind.Cart, _) => string.IsNullOrEmpty(contact) ? "Reserva" : $"Reserva de {contact}",
+                (_, PcBuildChannel.Web) => $"Armado web de {contact}",
+                _ => string.IsNullOrEmpty(contact) ? "Armado" : $"Armado de {contact}",
+            };
+        return name.Length > 150 ? name[..150] : name;
+    }
+}
+
 /// <summary>
 /// Reserva web (regla S-03): armado del canal Web cotizado a los precios vigentes (compatibilidad informada, nunca bloquea),
 /// reservado por <see cref="StorefrontOptions.ReservationHours"/> horas con una reserva de stock por línea en la sucursal de
 /// la tienda, numerado ARM-WEB-000001, todo en UNA transacción con reintento optimista e idempotente por la llave
-/// (<c>processed_requests</c>, como el RPC del servidor en la nube).
+/// (<c>processed_requests</c>, como el RPC del servidor en la nube). V7: con <c>Kind = Cart</c> crea un carrito
+/// (RES-WEB-000001, líneas sin ranura salvo que la web la mande, sin compatibilidad), el vencimiento sale de
+/// <c>HoldDays</c> y la reserva guarda los datos para la factura (<see cref="ReservationWriter"/>).
 /// </summary>
 public sealed class CreateStorefrontReservationHandler(IMinvDbContext db, ICurrentUser user, ITenantContext tenant, IClock clock,
     StorefrontOptions? options = null)
@@ -279,7 +383,8 @@ public sealed class CreateStorefrontReservationHandler(IMinvDbContext db, ICurre
                     }
                     var replayed = JsonSerializer.Deserialize<StorefrontReservationView>(existing.Response, RpcJson.Options)
                                    ?? throw new InvalidOperationException("La respuesta guardada de la reserva no se pudo leer.");
-                    return new StorefrontReservationResult(replayed, true);
+                    // Una respuesta guardada antes de la V7 no trae el tipo: era un armado
+                    return new StorefrontReservationResult(replayed.Kind is null ? replayed with { Kind = StorefrontKinds.Build } : replayed, true);
                 }
                 var now = clock.UtcNow;
                 var view = await CreateAsync(request, userId, now, ct);
@@ -299,35 +404,10 @@ public sealed class CreateStorefrontReservationHandler(IMinvDbContext db, ICurre
 
     private async Task<StorefrontReservationView> CreateAsync(CreateStorefrontReservationCommand request, Guid userId, DateTimeOffset now, CancellationToken ct)
     {
-        var config = await new InventoryLookups(db).ConfigAsync(ct);
-        var today = clock.TodayIn(config.TimeZoneId);
-        var branchId = await BranchContext.ResolveAsync(db, null, ct);
-        var hours = (options ?? new StorefrontOptions()).EffectiveHours;
-        var until = now.AddHours(hours);
-        var zone = TimeZoneInfo.FindSystemTimeZoneById(config.TimeZoneId);
-        var validUntil = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(until, zone).DateTime);
-        if (validUntil < today)
-        {
-            validUntil = today;
-        }
-        var items = await StorefrontSlots.ResolveAsync(db, request.Lines, ct);
-        var parts = await new PcParts(db).ResolveAsync(items, ct);
-        var unpriced = parts.Where(p => p.ListPrice <= 0).Select(p => p.Item.Variant.Sku).ToList();
-        Guard.That(unpriced.Count == 0, "price.missing", $"{string.Join(", ", unpriced)} no tiene precio en la lista de precios.");
-        var number = await Documents.NextNumberAsync(db.Set<PcBuild>(), b => b.Number, PcBuild.WebNumberPrefix, ct);
-        var name = request.Name?.Trim() is { Length: > 0 } custom ? custom : $"Armado web de {request.Contact.Name.Trim()}";
-        var build = PcBuild.CreateWeb(config.TenantId, branchId, number, name.Length > 150 ? name[..150] : name, request.Contact.Name, request.Contact.Phone,
-            request.Contact.Email, request.Notes, validUntil, userId, now);
-        foreach (var part in parts)
-        {
-            build.AddLine(part.Slot, part.Item.Variant.Id, part.Component.Quantity, part.ListPrice);
-        }
-        // Compatibilidad: se calcula y queda marcada si hay errores, nunca bloquea una reserva (el vendedor la revisa)
-        build.Quote(validUntil, today, PcCompatibility.Check(parts.Select(p => p.Component).ToList()), acceptIncompatible: true, now, userId);
-        build.Reserve(now, until, today, userId);
-        await PcBuildStock.ReserveAsync(db, build, now, until, ct);
-        db.Set<PcBuild>().Add(build);
-        return await StorefrontReservationViews.ViewAsync(db, build, now, ct);
+        var build = await ReservationWriter.CreateAsync(db, clock, options, new ReservationSpec(request.Kind, PcBuildChannel.Web, request.Lines,
+            request.Contact.Name, request.Contact.Phone, request.Contact.Email, request.Notes, request.Name, request.HoldDays, request.Buyer), userId, now, ct);
+        // V7 · El correo de confirmación se encola aquí, en la misma transacción (regla P-06): hasta entonces, mailQueued = false
+        return await StorefrontReservationViews.ViewAsync(db, build, now, ct, mailQueued: false);
     }
 
     /// <summary>Id determinista de la llave de idempotencia (los 16 primeros bytes de su SHA-256), único por empresa en
@@ -335,7 +415,9 @@ public sealed class CreateStorefrontReservationHandler(IMinvDbContext db, ICurre
     public static Guid IdempotencyId(string key) =>
         new(SHA256.HashData(Encoding.UTF8.GetBytes("storefront-reservation:" + key.Trim())).AsSpan(0, 16));
 
-    /// <summary>SHA-256 del contenido normalizado (líneas ordenadas, contacto y notas) para detectar la misma llave con otro contenido.</summary>
+    /// <summary>SHA-256 del contenido normalizado (líneas ordenadas, contacto y notas) para detectar la misma llave con otro
+    /// contenido. V7: también el tipo, los días para recogerla y los datos para la factura; se agregan SOLO cuando vienen, así
+    /// una reserva sin los campos nuevos conserva el hash de la V6 (una repetición de antes de actualizar sigue coincidiendo).</summary>
     public static string ContentHash(CreateStorefrontReservationCommand r)
     {
         var text = new StringBuilder();
@@ -346,6 +428,19 @@ public sealed class CreateStorefrontReservationHandler(IMinvDbContext db, ICurre
         }
         text.Append('|').Append(r.Contact.Name.Trim()).Append('|').Append(new string(r.Contact.Phone.Where(char.IsDigit).ToArray()))
             .Append('|').Append(r.Contact.Email?.Trim().ToLowerInvariant()).Append('|').Append(r.Notes?.Trim()).Append('|').Append(r.Name?.Trim());
+        if (r.Kind != PcBuildKind.Build)
+        {
+            text.Append("|kind:").Append(StorefrontKinds.Text(r.Kind));
+        }
+        if (r.HoldDays is { } days)
+        {
+            text.Append("|hold:").Append(days.ToString(CultureInfo.InvariantCulture));
+        }
+        if (r.Buyer is { } buyer)
+        {
+            text.Append("|buyer:").Append(buyer.DocumentType.ToString(CultureInfo.InvariantCulture)).Append(':').Append(buyer.DocumentNumber?.Trim())
+                .Append(':').Append(buyer.Complement?.Trim().ToUpperInvariant()).Append(':').Append(buyer.Name?.Trim());
+        }
         return ApiKeyTokens.Hash(text.ToString());
     }
 }

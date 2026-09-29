@@ -113,7 +113,8 @@ export interface StorefrontReservationRequestDto {
 }
 
 export interface StorefrontReservationLineDto {
-  slot: string;
+  /** Ranura del armado; null en las líneas de un carrito (V7). */
+  slot: string | null;
   sku: string;
   name: string;
   quantity: number;

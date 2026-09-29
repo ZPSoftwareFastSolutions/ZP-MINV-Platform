@@ -1,4 +1,4 @@
-# MINV.WebCatalog · Tienda web de Tech Zone Gaming (V6)
+# MINV.WebCatalog · Tienda web de Tech Zone Gaming (V6 · V7 en construcción)
 
 Catálogo web de **Tech Zone Gaming S.R.L.** (tienda boliviana de tecnología: componentes de PC, computadoras, monitores,
 periféricos, consolas, videojuegos, accesorios, redes y software) con la experiencia **«Armá tu PC»**: el visitante
@@ -8,8 +8,11 @@ Desde la V6 la web está **conectada a la base de datos en la nube del escritori
 del API Gateway (`/storefront/v1`, contrato en `docs/integration/storefront-api-v1.md`): categorías, marcas, productos,
 fichas, precios, imágenes, **disponibilidad = existencias − reservado** y armados sugeridos salen de ahí. «Reservar
 armado» crea una cotización `ARM-WEB-000001` en la base con el stock de cada pieza reservado 48 horas; el cliente la
-consulta o la libera con su teléfono, y la tienda la confirma y cobra en persona. No hay pagos en línea, sesión,
-carrito persistente ni validación de compatibilidad en la web (la revisa un técnico en el escritorio).
+consulta o la libera con su teléfono, y la tienda la confirma y cobra en persona. No hay pagos en línea ni validación de
+compatibilidad en la web (la revisa un técnico en el escritorio).
+
+La **V7** agrega la **sesión web** (botón «Ingresar», registro de clientes, «Mi cuenta» y el punto de entrada del panel
+del personal) contra el servidor en la nube por `/api/v1/web`: ver la sección [V7 · Sesión web](#v7--sesión-web-acceso-y-cuenta-del-cliente).
 
 ## Cómo correrlo
 
@@ -161,3 +164,75 @@ ajuste) y la página de consulta (404, estado y liberación). `src/architecture.
   Grotesk + Inter, contraste AA, foco visible, objetivos táctiles ≥ 44 px, animaciones solo con transform/opacity y
   respeto de `prefers-reduced-motion`. Íconos de Lucide (sin emojis). Avisos, cajones y diálogos se montan en portales
   sobre `<body>`.
+
+## V7 · Sesión web, acceso y cuenta del cliente
+
+Reglas: `.claude/v7-web-platform-rules.md` (P-01 a P-14) · diseño: `docs/architecture/plataforma-web-v7.md`.
+
+### Qué hay
+
+| Ruta | Quién entra | Pantalla |
+|---|---|---|
+| `/ingresar` | todos | Correo y contraseña (mostrar u ocultar), mensaje único del servidor, aviso de cuenta bloqueada, enlace a registrarse. Con credenciales incorrectas NO se sale de la pantalla |
+| `/registrarse` | todos | Nombre, correo, teléfono, contraseña y repetirla; indicador de requisitos; errores por campo; aviso si el correo ya tiene cuenta. Crea SIEMPRE una cuenta de cliente |
+| `/cambiar-contrasena` | cualquier sesión | Cambio de contraseña; obligatoria cuando la sesión llega con `mustChangePassword` |
+| `/mi-cuenta` · `/mi-cuenta/reservas` · `/datos` · `/contrasena` | sesión de **cliente** | «Mis reservas» (filtro por estado, detalle, liberar), «Mis datos» (nombre, teléfono, documento para la factura) y «Cambiar contraseña» |
+| `/panel/*` | sesión del **personal** | Punto de montaje del panel: `4-presentation/panel/PanelRoot.tsx` (provisional «Panel en construcción»; lo reemplaza el paquete W3) |
+| `/carrito` · `/reservar` | todos | Provisionales (`pages/cart/CartPage.tsx` y `CheckoutPage.tsx`; los reemplaza el paquete W2) |
+
+Después de ingresar: el personal va a `/panel` y el cliente a `/mi-cuenta`, o a `volver` si es una ruta interna que su
+tipo de sesión puede ver. Las pantallas de la V7 se descargan solo al visitarlas (carga diferida en
+`4-presentation/app/routeTable.tsx`).
+
+### Seguridad de la sesión
+
+- El token viaja SOLO en una cookie `HttpOnly` que pone y borra el servidor: el JavaScript no la ve. La sesión vive en
+  la memoria de React (`SessionProvider`); **nada de la sesión se guarda en el navegador** y al recargar se vuelve a
+  preguntar con `GET /api/v1/web/session`.
+- Toda petición a `/api/v1/web/*` va al **mismo origen** (`mode` y `credentials: 'same-origin'`) con la cabecera
+  `X-MINV-Client-Version: 7.0.0`. En producción el nginx del catálogo reenvía esa ruta al servidor en la nube; en
+  desarrollo lo hace el proxy de Vite (`vite.config.ts`, destino `MINV_CLOUD_URL`, por defecto `http://localhost:5080`).
+- `volver` solo acepta rutas internas que empiezan con una sola «/»: `//evil.example`, `https://…`, `/\evil` o
+  `javascript:…` se ignoran (`2-application/auth/navigation.ts`, `safeReturnPath`).
+- Un 401 en cualquier pedido RPC limpia la sesión y manda a ingresar conservando a dónde iba la persona. El cambio de
+  contraseña responde 401 cuando la contraseña ACTUAL es incorrecta: antes de dar la sesión por vencida se comprueba
+  con el servidor (`2-application/auth/watchedRpc.ts`).
+- Las guardas de ruta y los botones ocultos son comodidad: permisos, módulo, sucursal y validación los decide el
+  servidor en cada pedido (regla P-01).
+
+### Cómo se usa desde otra pantalla
+
+```tsx
+import { useSession } from '@/4-presentation/hooks/useSession';
+import { useRpc, useAccount } from '@/4-presentation/hooks/useRpc';
+import type { RpcResponseOf } from '@/4-presentation/app/contract';
+
+const { session, can, login, logout } = useSession();          // session: Session | null
+const rpc = useRpc();                                           // IRpcGateway<RpcOperations>, vigilado (401 → ingresar)
+const filas: RpcResponseOf<'GetMyReservationsQuery'> = await rpc.send('GetMyReservationsQuery', {});
+```
+
+- **Idempotencia.** `rpc.send(operación, payload, { requestId })`: un UUID nuevo por intento de la persona y el MISMO si
+  se reintenta por red caída. `AttemptKey` (`2-application/auth/requestId.ts`) lo lleva por usted:
+  `attempt.run((requestId) => rpc.send('…', payload, { requestId }))`.
+- **Errores.** Toda falla llega como `WebApiError` (`1-domain/auth/errors.ts`) con `kind`, `message`, `errors`, `code`,
+  `status` y `requestId`; `describeWebApiError(error, 'store' | 'panel')` da el texto para mostrar.
+- **Contrato.** `3-infrastructure/http/contract.generated.ts` lo genera `minv contrato-web` (hoy es un archivo
+  PROVISIONAL con la misma forma). Solo lo importa el adaptador `3-infrastructure/http/contract.ts`; la presentación
+  toma los tipos de `@/4-presentation/app/contract`.
+
+### Modo mock (`VITE_API_URL=mock`)
+
+Sesión y RPC en memoria (`3-infrastructure/data/mockWeb.ts`) con dos usuarios de muestra que la pantalla de ingreso
+ofrece con un botón: uno del personal (administrador) y un cliente con reservas en distintos estados. Se comporta como
+el servidor (mensaje único, bloqueo a los 5 intentos, registro siempre como cliente, idempotencia por `requestId`). Todo
+se pierde al recargar la página.
+
+### Pruebas de la V7
+
+Funciones puras (`1-domain/auth`, `1-domain/account`, `2-application/auth`), adaptador HTTP con `fetch` simulado
+(`3-infrastructure/http/webApi.test.ts`: cabecera propia, `credentials`, las dos formas de respuesta, errores, 429 y
+401), servidor en memoria, `SessionProvider`, tabla de rutas real con sus guardas (`app/routeTable.test.tsx`: `volver`
+malicioso, cambio de contraseña obligatorio, sesión vencida) y las pantallas. `src/architecture.test.ts` vigila el único
+adaptador del contrato, los dos únicos archivos con `fetch`, que `localStorage` exista solo en
+`3-infrastructure/storage/*` (el carrito) y que nada de la sesión toque el almacenamiento.

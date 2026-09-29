@@ -47,7 +47,7 @@ public static class ApiGatewayApp
         var storefront = builder.Configuration.GetSection(StorefrontSettings.Section).Get<StorefrontSettings>() ?? new StorefrontSettings();
         builder.Services.Configure<StorefrontSettings>(builder.Configuration.GetSection(StorefrontSettings.Section));
         builder.Services.AddScoped<StorefrontAuthenticator>();
-        builder.Services.AddSingleton(new StorefrontOptions(storefront.ReservationHours));
+        builder.Services.AddSingleton(new StorefrontOptions(storefront.ReservationHours, storefront.MaxReservationHours));
         if (storefront.IsConfigured)
         {
             builder.Services.AddHostedService<StorefrontReservationExpiryService>();

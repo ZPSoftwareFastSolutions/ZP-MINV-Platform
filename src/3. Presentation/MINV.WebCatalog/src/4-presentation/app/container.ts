@@ -2,16 +2,52 @@
 // `createSources()` elige el origen según VITE_API_URL (la API pública de tienda, o el mock de la V5 con «mock»);
 // `createServices()` arma los casos de uso sobre una instantánea ya cargada. El resto de la presentación llega a todo
 // por `useServices()`; CatalogProvider es quien carga la instantánea y la refresca.
+//
+// V7: `createWebServices()` arma la sesión web, el RPC y la cuenta del cliente (servidor en la nube por `/api/v1/web`, o
+// todo en memoria con «mock»). La presentación los usa con `useSession()`, `useRpc()` y `useAccount()`. El contrato
+// generado también sale a la presentación por aquí (ver `./contract.ts`).
 
+import type { SessionKind } from '@/1-domain/auth/types';
 import type { Product } from '@/1-domain/catalog/types';
 import type { ICatalogSource } from '@/1-domain/ports/ICatalogSource';
 import type { IReservationGateway } from '@/1-domain/ports/IReservationGateway';
+import type { IRpcGateway } from '@/1-domain/ports/IRpcGateway';
+import type { ISessionGateway } from '@/1-domain/ports/ISessionGateway';
 import type { CatalogSnapshot } from '@/1-domain/storefront/types';
-import { createCatalogUseCases, createReservationUseCases, type CatalogUseCases, type ReservationUseCases } from '@/2-application';
+import {
+  createAccountUseCases,
+  createCatalogUseCases,
+  createReservationUseCases,
+  createSessionUseCases,
+  watchSession,
+  type AccountUseCases,
+  type CatalogUseCases,
+  type ReservationUseCases,
+  type SessionUseCases,
+} from '@/2-application';
+import { ACCOUNT_OPERATIONS, type RpcOperations } from '@/3-infrastructure/http/contract';
 import { HttpCatalogSource } from '@/3-infrastructure/http/HttpCatalogSource';
 import { HttpReservationGateway } from '@/3-infrastructure/http/HttpReservationGateway';
+import { HttpRpcGateway } from '@/3-infrastructure/http/HttpRpcGateway';
+import { HttpSessionGateway } from '@/3-infrastructure/http/HttpSessionGateway';
+import { RpcAccountGateway } from '@/3-infrastructure/http/RpcAccountGateway';
 import { isMockApiUrl, StorefrontApi } from '@/3-infrastructure/http/api';
+import { WebApi } from '@/3-infrastructure/http/webApi';
 import { InMemoryCatalogRepository, type InMemoryCatalogData } from '@/3-infrastructure/InMemoryCatalogRepository';
+
+// Contrato generado del servidor (tipos de cada petición y respuesta, operaciones, permisos y roles): la presentación
+// lo importa desde `@/4-presentation/app/contract`, que reexporta esto. Nadie declara a mano un tipo del servidor (P-07).
+export type * from '@/3-infrastructure/http/contract';
+export {
+  ACCOUNT_OPERATIONS,
+  PERMISSION_LIST,
+  ROLE_LIST,
+  RPC_OPERATIONS,
+  isRpcOperation,
+  permissionName,
+  roleName,
+  rpcOperation,
+} from '@/3-infrastructure/http/contract';
 
 export type CatalogMode = 'api' | 'mock';
 
@@ -81,4 +117,77 @@ export function createServices(snapshot: CatalogSnapshot, sources: Sources, refr
     generatedAt: snapshot.generatedAt,
     refresh,
   };
+}
+
+// ==================================================================================================== V7 · sesión web
+
+/** RPC tipado con las operaciones del contrato: `rpc.send('GetMyAccountQuery', {})`. */
+export type WebRpc = IRpcGateway<RpcOperations>;
+
+/** Pasarelas de la sesión web ya elegidas (servidor en la nube o memoria). */
+export interface WebGateways {
+  session: ISessionGateway;
+  rpc: WebRpc;
+}
+
+/** Usuario de muestra del modo mock (la pantalla de ingreso lo ofrece en la demostración). */
+export interface DemoUser {
+  kind: SessionKind;
+  label: string;
+  name: string;
+  email: string;
+  password: string;
+}
+
+export interface WebServices {
+  mode: CatalogMode;
+  session: SessionUseCases;
+  /** RPC VIGILADO: si el servidor responde 401, avisa a quien escuche `onSessionExpired`. */
+  rpc: WebRpc;
+  account: AccountUseCases;
+  /** Avisa cuando un pedido descubre que la sesión venció. Devuelve cómo dejar de escuchar. */
+  onSessionExpired(listener: () => void): () => void;
+  /** Usuarios de muestra (solo en modo mock; vacío contra el servidor). */
+  demoUsers: readonly DemoUser[];
+}
+
+/** Arma los casos de uso de la sesión sobre unas pasarelas (las pruebas pasan las suyas). */
+export function createWebServicesFrom(gateways: WebGateways, mode: CatalogMode, demoUsers: readonly DemoUser[] = []): WebServices {
+  const listeners = new Set<() => void>();
+  const rpc = watchSession(gateways.rpc, {
+    isSessionAlive: async () => (await gateways.session.current()) !== null,
+    onExpired: () => {
+      for (const listener of [...listeners]) listener();
+    },
+    // Cambiar la contraseña responde 401 cuando la contraseña ACTUAL es incorrecta: no es una sesión vencida.
+    credentialOperations: [ACCOUNT_OPERATIONS.changePassword],
+  });
+  return {
+    mode,
+    session: createSessionUseCases(gateways.session),
+    rpc,
+    account: createAccountUseCases(new RpcAccountGateway(rpc)),
+    onSessionExpired(listener) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    demoUsers,
+  };
+}
+
+/**
+ * Sesión web según `VITE_API_URL`: «mock» usa una sesión y un RPC en memoria con dos usuarios de muestra (fragmento
+ * aparte); cualquier otro valor usa el servidor en la nube por `/api/v1/web`, SIEMPRE en el mismo origen de la página
+ * (el nginx del catálogo lo reenvía; en desarrollo, el proxy de Vite).
+ */
+export async function createWebServices(apiUrl: string | undefined = import.meta.env.VITE_API_URL): Promise<WebServices> {
+  if (isMockApiUrl(apiUrl)) {
+    const [web, catalog] = await Promise.all([import('@/3-infrastructure/data/mockWeb'), import('@/3-infrastructure/data/mockCatalog')]);
+    const backend = new web.InMemoryWebBackend({ products: catalog.MOCK_CATALOG.products });
+    return createWebServicesFrom({ session: backend.session, rpc: backend.rpc }, 'mock', web.DEMO_USERS);
+  }
+  const api = new WebApi();
+  return createWebServicesFrom({ session: new HttpSessionGateway(api), rpc: new HttpRpcGateway(api) }, 'api');
 }

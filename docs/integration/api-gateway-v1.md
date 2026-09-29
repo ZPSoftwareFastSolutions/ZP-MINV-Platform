@@ -831,7 +831,12 @@ Cuerpo (sobre común):
 
 **`pcbuild.reserved`** · V6 · un armado (cotización) reservó el stock de sus piezas; `channel` = `Web` (tienda web) o `Desktop`
 (escritorio). Las líneas identifican la pieza por `variantId` (el SKU está en `GET /v1/catalog`); nunca viajan datos del
-contacto del cliente:
+contacto del cliente ni sus datos para la factura.
+
+V7 · Los tres eventos `pcbuild.*` llevan un campo nuevo, `kind`: `Build` (armado de PC, `ARM-…`) o `Cart` (carrito con
+cualquier producto, `RES-WEB-…` de la tienda o `RES-<sucursal>-…` del mostrador). En un carrito, la línea de un producto sin
+ranura lleva `"slot": null`. El significado de los eventos no cambia (regla B-08: solo se agregan campos); un consumidor que
+no distingue el tipo puede ignorarlo.
 
 ```json
 {
@@ -842,6 +847,7 @@ contacto del cliente:
   "total": 6842.00,
   "reservedUntil": "2026-09-29T14:05:12.55+00:00",
   "lines": [ { "variantId": "01926b3f-0001-7000-8000-00000000f0a1", "slot": "Cpu", "quantity": 1, "quotedUnitPrice": 1399.00 } ],
+  "kind": "Build",
   "eventType": "pcbuild.reserved",
   "occurredAt": "2026-09-27T14:05:12.55+00:00",
   "branchId": "01926b3e-7a10-7c2e-9d41-5b0f2a8e1c01"
@@ -861,6 +867,7 @@ stock volvió a estar disponible:
   "reason": "Vencida",
   "expired": true,
   "lines": [ { "variantId": "01926b3f-0001-7000-8000-00000000f0a1", "slot": "Cpu", "quantity": 1, "quotedUnitPrice": 1399.00 } ],
+  "kind": "Build",
   "eventType": "pcbuild.released",
   "occurredAt": "2026-09-29T14:10:00+00:00",
   "branchId": "01926b3e-7a10-7c2e-9d41-5b0f2a8e1c01"
@@ -880,8 +887,27 @@ aparte con la venta):
   "invoiceId": "01927a11-0d2e-7f10-8a2b-3c4d5e6f7a8b",
   "wasReserved": true,
   "lines": [ { "variantId": "01926b3f-0001-7000-8000-00000000f0a1", "slot": "Cpu", "quantity": 1, "quotedUnitPrice": 1399.00 } ],
+  "kind": "Build",
   "eventType": "pcbuild.sold",
   "occurredAt": "2026-09-28T16:20:31+00:00",
+  "branchId": "01926b3e-7a10-7c2e-9d41-5b0f2a8e1c01"
+}
+```
+
+V7 · El mismo `pcbuild.reserved` de un carrito de la tienda (un monitor sin ranura):
+
+```json
+{
+  "pcBuildId": "01927f42-1b7c-7d20-8e3a-5f6a7b8c9d0e",
+  "number": "RES-WEB-000001",
+  "branchIdOfBuild": "01926b3e-7a10-7c2e-9d41-5b0f2a8e1c01",
+  "channel": "Web",
+  "total": 1699.00,
+  "reservedUntil": "2026-09-29T20:50:00.64+00:00",
+  "lines": [ { "variantId": "01926b3f-0001-7000-8000-00000000c3d2", "slot": null, "quantity": 1, "quotedUnitPrice": 1699.00 } ],
+  "kind": "Cart",
+  "eventType": "pcbuild.reserved",
+  "occurredAt": "2026-09-28T20:50:00.64+00:00",
   "branchId": "01926b3e-7a10-7c2e-9d41-5b0f2a8e1c01"
 }
 ```

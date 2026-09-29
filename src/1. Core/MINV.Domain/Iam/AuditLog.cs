@@ -42,8 +42,8 @@ public sealed class AuditLog : Entity, IAppendOnly
 
     public string? LegacyReference { get; private set; }
 
-    /// <summary>V4 · Por dónde llegó el comando: <c>desktop</c> (conexión local), <c>cloud</c> (escritorio vía servidor)
-    /// o <c>api</c> (API Gateway B2B).</summary>
+    /// <summary>V4 · Por dónde llegó el comando: <c>desktop</c> (conexión local), <c>cloud</c> (escritorio vía servidor),
+    /// <c>api</c> (API Gateway B2B), <c>storefront</c> (V6, tienda web pública) o <c>web</c> (V7, sesión web por cookie).</summary>
     public string? Channel { get; private set; }
 
     /// <summary>V4 · API Key usada (si llegó por el gateway): permite reconstruir lo que hizo una integración.</summary>

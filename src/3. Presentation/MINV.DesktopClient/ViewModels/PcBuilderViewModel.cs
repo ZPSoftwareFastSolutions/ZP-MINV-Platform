@@ -1012,8 +1012,10 @@ public sealed class PcBuilderViewModel : PageViewModel
             var items = frozen ? detail.QuotedItems : detail.Check.Items;
             foreach (var item in items)
             {
-                var slot = AllSlots.First(s => s.Slot == item.Slot);
-                slot.Parts.Add(new PcPartItem(item.Slot, item.Sku, item.Name, item.UnitPrice, item.Stock, item.KeySpecs, _images.GetValueOrDefault(item.Sku),
+                // V7 · El producto sin ranura de un carrito se muestra entre los periféricos del armador
+                var place = item.Slot ?? PcSlot.Peripheral;
+                var slot = AllSlots.First(s => s.Slot == place);
+                slot.Parts.Add(new PcPartItem(place, item.Sku, item.Name, item.UnitPrice, item.Stock, item.KeySpecs, _images.GetValueOrDefault(item.Sku),
                     item.Quantity, slot.IsMulti, () => _ = RecheckAsync()));
             }
             // V6 · Detalle de una reserva: cada pieza con lo que hay disponible ADEMÁS de lo reservado (regla S-03)

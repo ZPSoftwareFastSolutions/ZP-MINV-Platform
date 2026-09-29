@@ -1,7 +1,8 @@
-// Menú móvil en un cajón izquierdo: accesos rápidos, categorías en acordeón y contacto. Se cierra al navegar.
+// Menú móvil en un cajón izquierdo: la sesión (ingresar o las opciones de la cuenta), accesos rápidos, categorías en
+// acordeón y contacto. Se cierra al navegar.
 
 import clsx from 'clsx';
-import { BadgePercent, ChevronDown, Cpu, MessageCircle, Phone, Sparkles, TicketCheck } from 'lucide-react';
+import { BadgePercent, ChevronDown, Cpu, LogIn, LogOut, MessageCircle, Phone, Sparkles, TicketCheck, UserPlus } from 'lucide-react';
 import { useState } from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import type { CategoryNode } from '@/1-domain/catalog/categories';
@@ -10,8 +11,11 @@ import { Button } from '@/4-presentation/components/ui/Button';
 import { CategoryIcon } from '@/4-presentation/components/ui/CategoryIcon';
 import { Drawer } from '@/4-presentation/components/ui/Drawer';
 import { useBuilder } from '@/4-presentation/hooks/useBuilder';
+import { useLogout } from '@/4-presentation/hooks/useLogout';
 import { useServices } from '@/4-presentation/hooks/useServices';
+import { useSession } from '@/4-presentation/hooks/useSession';
 import { STORE } from '@/shared/constants';
+import { sessionLinks } from './sessionLinks';
 
 const LINK = 'flex min-h-12 items-center gap-3 rounded-xl px-3 text-base font-medium transition-colors duration-200';
 const LINK_IDLE = 'text-text hover:bg-surface-2';
@@ -55,6 +59,57 @@ function AccordionRoot({ node, open, onToggle }: { node: CategoryNode; open: boo
   );
 }
 
+/** La sesión dentro del menú móvil: «Ingresar» y «Crear cuenta», o el nombre con las opciones de la cuenta. */
+function SessionBlock({ onClose }: { onClose: () => void }) {
+  const { status, session } = useSession();
+  const { logout, leaving } = useLogout();
+  if (status === 'loading') return null;
+  if (!session) {
+    return (
+      <div className="grid grid-cols-2 gap-2">
+        <Button to={ROUTES.login} variant="outline" fullWidth leftIcon={<LogIn />}>
+          Ingresar
+        </Button>
+        <Button to={ROUTES.register} variant="subtle" fullWidth leftIcon={<UserPlus />}>
+          Crear cuenta
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <nav aria-label="Tu cuenta" className="rounded-xl border border-border bg-surface-2 p-2">
+      <div className="px-3 pt-1 pb-2">
+        <p className="truncate text-sm font-semibold text-text">{session.displayName}</p>
+        <p className="truncate text-xs text-text-muted">{session.email}</p>
+      </div>
+      <ul className="space-y-0.5">
+        {sessionLinks(session).map(({ id, label, to, icon: Icon }) => (
+          <li key={id}>
+            <Link to={to} className={clsx(LINK, LINK_IDLE, 'min-h-11 text-sm')}>
+              <Icon aria-hidden="true" className="size-4 text-accent" />
+              {label}
+            </Link>
+          </li>
+        ))}
+        <li>
+          <button
+            type="button"
+            disabled={leaving}
+            className={clsx(LINK, LINK_IDLE, 'min-h-11 w-full cursor-pointer text-sm disabled:cursor-not-allowed disabled:opacity-50')}
+            onClick={() => {
+              onClose();
+              void logout();
+            }}
+          >
+            <LogOut aria-hidden="true" className="size-4 text-accent" />
+            Cerrar sesión
+          </button>
+        </li>
+      </ul>
+    </nav>
+  );
+}
+
 export function MobileMenu({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { catalog } = useServices();
   const { count } = useBuilder();
@@ -64,6 +119,7 @@ export function MobileMenu({ open, onClose }: { open: boolean; onClose: () => vo
   return (
     <Drawer open={open} onClose={onClose} title="Menú" side="left" size="sm">
       <div className="space-y-6">
+        <SessionBlock onClose={onClose} />
         <div className="space-y-2">
           <Button to={ROUTES.builder} variant="brand" fullWidth leftIcon={<Cpu />}>
             Armá tu PC

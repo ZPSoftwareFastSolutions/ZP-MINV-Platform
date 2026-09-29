@@ -1,10 +1,15 @@
-# Contrato de la API pública de tienda · M-INV `/storefront/v1` (V6)
+# Contrato de la API pública de tienda · M-INV `/storefront/v1` (V6 · V7)
 
 > Es lo que consume el catálogo web (`src/3. Presentation/MINV.WebCatalog`) y lo ÚNICO que la web necesita saber del
 > servidor. Lo publica `MINV.ApiGateway` (`src/3. Presentation/MINV.ApiGateway/Endpoints/StorefrontEndpoints.cs`) sobre los
 > casos de uso de `MINV.Application/Storefront`. Diseño: `docs/architecture/tienda-web-conectada-v6.md`; reglas S-01 a S-10:
 > `.claude/v6-storefront-rules.md`. Los JSON de ejemplo se copiaron de una ejecución real contra una base temporal cargada con
 > `minv datos-prueba` (empresa TECHZONE, sucursal CM): los ids, números y fechas cambian en cada carga.
+>
+> **V7 · carrito** (diseño `docs/architecture/plataforma-web-v7.md` §5, regla P-05 de `.claude/v7-web-platform-rules.md`): la
+> misma ruta de reservas admite un **carrito** con cualquier producto (`kind = "cart"`), los **días para recogerlo**
+> (`holdDays`) y los **datos para la factura** (`buyer`). Es un cambio **compatible**: solo se agregan campos opcionales a la
+> petición y campos nuevos a las respuestas; una web de la V6 sigue funcionando sin tocar nada. Resumen en §7.
 
 ## 1. Conexión
 
@@ -28,8 +33,9 @@
 | Instantánea | `Cache-Control: public, max-age=30`: la web la refresca al volver a la pestaña y cada 60 s. |
 | Producto | `Cache-Control: no-cache`: la ficha consulta la disponibilidad fresca al abrirse. |
 | Imagen | `Cache-Control: public, max-age=3600` y `ETag` (el id de la imagen): con `If-None-Match` responde `304`. |
-| Reserva | Vale `Minv:Storefront:ReservationHours` horas (48). Vencida, el gateway la cierra solo (cada 5 minutos) y el stock vuelve. |
-| Tamaño de una reserva | 1 a 20 líneas; 1 a 16 unidades por línea; notas ≤ 500; nombre ≤ 120; teléfono ≤ 30. |
+| Reserva | Vale los días que pide quien reserva (`holdDays` 1 a 3: 24, 48 o 72 h) o, sin ese campo, `Minv:Storefront:ReservationHours` horas (48). Ninguna reserva pasa de `Minv:Storefront:MaxReservationHours` (72): con un tope menor, `maxHoldDays` baja y las horas por defecto se acotan. Vencida, el gateway la cierra solo (cada 5 minutos) y el stock vuelve. |
+| Tamaño de una reserva | 1 a 20 líneas; 1 a 16 unidades por línea; notas ≤ 500; nombre ≤ 120; teléfono ≤ 30; documento ≤ 20; complemento ≤ 5; razón social ≤ 150. |
+| Textos de una línea (V7) | El nombre de contacto, las notas, el nombre de la reserva y la razón social **no admiten saltos de línea, tabuladores ni otros caracteres de control** (`400 validation`). Los espacios y saltos de los extremos se recortan; si la web usa un área de texto para las notas, debe unir las líneas antes de enviar. |
 
 ## 3. Errores
 
@@ -38,10 +44,10 @@ Los errores salen como `application/problem+json` (RFC 7807) con `status`, `titl
 
 | HTTP | `title` | Cuándo |
 |---|---|---|
-| 400 | `validation` | Cuerpo inválido o campos que no pasan la validación (`errors[]`): sin líneas, cantidad fuera de 1-16, sin nombre o teléfono, sin `Idempotency-Key`… |
+| 400 | `validation` | Cuerpo inválido o campos que no pasan la validación (`errors[]`): sin líneas, cantidad fuera de 1-16, sin nombre o teléfono, sin `Idempotency-Key`… V7: `kind` que no es `build` ni `cart`, `holdDays` fuera de 1 a 3, `buyer` mal formado (tipo fuera de 1 a 5, sin número, textos demasiado largos) o un texto con saltos de línea. |
 | 404 | `not_found` | Producto o imagen inexistentes; reserva inexistente **o teléfono que no coincide** (no se distingue, regla S-06). |
 | 409 | `insufficient_stock` | `code` = `storefront.insufficient_stock`: falta stock de una o más piezas; **no se reservó nada** y `shortages[]` dice qué falta y cuánto hay. |
-| 422 | `domain` | Regla del dominio: `code` = `pcbuild.contact_phone` (teléfono no boliviano), `pcbuild.slot` (dos piezas en una ranura única), `pcbuild.state` (la reserva ya no está reservada: no se cancela dos veces), `price.missing`, `product.inactive`… |
+| 422 | `domain` | Regla del dominio: `code` = `pcbuild.contact_phone` (teléfono no boliviano), `pcbuild.slot` (en un armado, dos piezas en una ranura única; en cualquier reserva, una ranura que no existe), `pcbuild.state` (la reserva ya no está reservada: no se cancela dos veces), `price.missing`, `product.inactive`… V7: `buyer.doc_type`, `buyer.doc_number`, `buyer.doc_numeric` (CI y NIT solo dígitos), `buyer.complement` (el complemento solo con CI, ≤ 5), `storefront.hold_days` (más días de los que admite el servidor, ver `maxHoldDays`), `guard.control_chars`. |
 | 422 | `idempotency` | La misma `Idempotency-Key` con otro contenido. |
 | 429 | — | Límite por IP superado. |
 | 503 | `Tienda web no disponible` | La tienda no está configurada en el servidor. |
@@ -86,6 +92,8 @@ Todo lo que la web necesita para pintar el sitio en una sola llamada. Devuelve `
 | `products[]` | ver 4.2 | Productos activos con precio en la lista por defecto, ordenados por SKU. |
 | `presets[]` | ver 4.4 | Armados sugeridos publicados desde el escritorio (de la sucursal de la tienda). |
 | `generatedAt` | fecha | Cuándo se generó la instantánea. |
+| `reservationHours` | entero | V7 · Horas que vale una reserva que no indica `holdDays` (48; `Minv:Storefront:ReservationHours` acotado por el tope). La web muestra ESTE valor: no lo supone. |
+| `maxHoldDays` | entero | V7 · Días que puede pedir quien reserva en `holdDays`: de 1 a este número (3; los que caben en `Minv:Storefront:MaxReservationHours`, nunca más de 3). |
 
 Ejemplo real (recortado a un producto, una categoría, una marca y un armado):
 
@@ -315,7 +323,9 @@ Ejemplo real (recortado a un producto, una categoría, una marca y un armado):
       ]
     }
   ],
-  "generatedAt": "2026-09-27T18:39:56.0601584+00:00"
+  "generatedAt": "2026-09-27T18:39:56.0601584+00:00",
+  "reservationHours": 48,
+  "maxHoldDays": 3
 }
 ```
 
@@ -631,26 +641,36 @@ el mismo arreglo que `catalog.presets`. Cada `StorefrontPreset`:
 // … 3 armados en total
 ```
 
-### 4.5 `POST /storefront/v1/reservations` · reservar un armado
+### 4.5 `POST /storefront/v1/reservations` · reservar un armado o un carrito
 
-Crea la cotización `ARM-WEB-000001` en el canal Web con el stock de cada pieza reservado por 48 h, todo en una transacción
-(regla S-03). Cabecera **obligatoria** `Idempotency-Key` (texto ≤ 100, único por reserva: la web genera un UUID por
-intento). Cuerpo (`StorefrontReservationRequest`):
+Crea la cotización `ARM-WEB-000001` (armado) o la reserva `RES-WEB-000001` (carrito, V7) en el canal Web con el stock de
+cada línea reservado por 48 h (o por los días de `holdDays`), todo en una transacción (regla S-03). Cabecera
+**obligatoria** `Idempotency-Key` (texto ≤ 100, único por reserva: la web genera un UUID por intento). Cuerpo
+(`StorefrontReservationRequest`):
 
 | Campo | Obligatorio | Significado |
 |---|---|---|
 | `lines[].sku` | sí | SKU de la pieza. |
 | `lines[].quantity` | no (1) | 1 a 16. |
-| `lines[].slot` | no | Ranura de la web (`cpu`, `motherboard`, `ram`, `gpu`, `storage`, `psu`, `case`, `cooler`, `monitor`, `peripherals`, `software`); si falta se deduce de la ficha técnica o de la categoría. Dos piezas en una ranura única (CPU, placa, fuente, gabinete, refrigeración) → `422 pcbuild.slot`. |
-| `contact.name` | sí | Quien reserva (≤ 120). |
+| `lines[].slot` | no | Ranura de la web (`cpu`, `motherboard`, `ram`, `gpu`, `storage`, `psu`, `case`, `cooler`, `monitor`, `peripherals`, `software`). **Armado:** si falta se deduce de la ficha técnica o de la categoría, y dos piezas en una ranura única (CPU, placa, fuente, gabinete, refrigeración) → `422 pcbuild.slot`. **Carrito:** si falta, la línea queda SIN ranura (`slot: null`); si viene, se conserva; no hay ranura única. Una ranura que no existe → `422 pcbuild.slot`. |
+| `contact.name` | sí | Quien reserva (≤ 120, una línea). |
 | `contact.phone` | sí | Teléfono o WhatsApp de Bolivia: 7 u 8 dígitos, con o sin `+591`, espacios o guiones (`+591 71234567`, `7123-4567`). Se guarda normalizado y es la «clave» para consultar o cancelar. |
-| `contact.email` | no | Correo válido. |
-| `notes` | no | Para la tienda (≤ 500). |
-| `name` | no | Nombre del armado (por defecto «Armado web de <nombre>»). |
+| `contact.email` | no | Correo válido. V7: con correo, la reserva encola el correo de confirmación (`mailQueued`). |
+| `notes` | no | Para la tienda (≤ 500, una línea). |
+| `name` | no | Nombre de la reserva (≤ 150, una línea; por defecto «Armado web de <nombre>» o, en un carrito, «Reserva de <nombre>»). |
 | `idempotencyKey` | no | Alternativa a la cabecera. |
+| `kind` | no (`"build"`) | V7 · `"build"` = armado de PC · `"cart"` = carrito con cualquier producto (un solo monitor, una consola y dos juegos…). Otro valor → `400`. |
+| `holdDays` | no | V7 · Días para recoger la reserva: 1, 2 o 3 (24, 48 o 72 h). Sin valor, `reservationHours` del catálogo. Fuera de 1 a 3 → `400`; más que `maxHoldDays` → `422 storefront.hold_days`. Vale para armados y carritos. |
+| `buyer` | no | V7 · Datos para la factura (la caja los precarga al cobrar). Si viene, `documentType` y `documentNumber` son obligatorios. |
+| `buyer.documentType` | con `buyer` | Tipo de documento del SIN: 1 CI · 2 CEX · 3 pasaporte · 4 otro documento · 5 NIT. |
+| `buyer.documentNumber` | con `buyer` | Número (≤ 20). Con CI o NIT, solo dígitos (`422 buyer.doc_numeric`). |
+| `buyer.complement` | no | Complemento del SEGIP: solo con CI, ≤ 5 (`422 buyer.complement`). Se guarda en mayúsculas. |
+| `buyer.name` | no | Nombre o razón social para la factura (≤ 150, una línea). |
 
-La compatibilidad de las piezas se evalúa e informa (`hasCompatibilityWarnings`), nunca bloquea: el vendedor la revisa
-en el escritorio. Respuestas:
+La compatibilidad de las piezas de un **armado** se evalúa e informa (`hasCompatibilityWarnings`), nunca bloquea: el
+vendedor la revisa en el escritorio. En un **carrito** no se evalúa (`hasCompatibilityWarnings` es siempre `false`).
+Los datos de `buyer` **nunca se devuelven** por esta API (ni en esta respuesta ni al consultar): son una instantánea de
+quien reserva que solo ve el personal con `sales.pcbuild.manage` (reglas S-06 y P-05). Respuestas:
 
 - `201 Created` + `Location: /storefront/v1/reservations/{number}` con `StorefrontReservationView`.
 - `200 OK` + `Idempotent-Replayed: true` con la MISMA reserva si se repite la llave con el mismo contenido.
@@ -661,17 +681,19 @@ en el escritorio. Respuestas:
 
 | Campo | Significado |
 |---|---|
-| `number` | `ARM-WEB-000001` (numeración por empresa). |
+| `number` | `ARM-WEB-000001` (armado) o `RES-WEB-000001` (carrito); cada numeración es por empresa y no se mezclan. |
 | `status` | `Reserved`, `Sold`, `Cancelled` o `Expired` (`Expired` también mientras la reserva vencida espera al trabajo que la cierra). |
 | `statusText` | «Reservada», «Vendida», «Cancelada», «Vencida». |
 | `createdAt`, `reservedUntil` | Cuándo se hizo y hasta cuándo vale. |
 | `total` | Bs, suma de las líneas. |
-| `contactName`, `branch`, `notes` | Nombre de quien reservó (nunca el teléfono ni el correo), sucursal donde se retira, notas. |
-| `hasCompatibilityWarnings` | La ficha técnica encontró errores de compatibilidad entre las piezas. |
-| `lines[]` | `{ slot, sku, name, quantity, unitPrice, subtotal }` a los precios cotizados (congelados). |
+| `contactName`, `branch`, `notes` | Nombre de quien reservó (nunca el teléfono, el correo ni los datos para la factura), sucursal donde se retira, notas. |
+| `hasCompatibilityWarnings` | La ficha técnica encontró errores de compatibilidad entre las piezas (solo en armados). |
+| `lines[]` | `{ slot, sku, name, quantity, unitPrice, subtotal }` a los precios cotizados (congelados). V7: `slot` es `null` en el producto sin ranura de un carrito. |
 | `cancelReason` | Motivo del cierre («Vencida», «Cancelada por el cliente desde la tienda web», el del vendedor) o null. |
+| `kind` | V7 · `"build"` o `"cart"`. |
+| `mailQueued` | V7 · `true` si al reservar se encoló el correo de confirmación (sale después, en segundo plano). Por ahora siempre `false`: lo activa el correo de la reserva (diseño §6). En la consulta y la cancelación no se informa (`false`). |
 
-Petición y respuesta reales:
+Petición y respuesta reales de un armado:
 
 ```http
 POST /storefront/v1/reservations
@@ -733,9 +755,88 @@ Idempotency-Key: 4f6a0c2e8d1b4c3e9a7f5b2d1e0c9a8b
       "subtotal": 2649.0
     }
   ],
-  "cancelReason": null
+  "cancelReason": null,
+  "kind": "build",
+  "mailQueued": false
 }
 ```
+
+Petición y respuesta reales de un **carrito** (V7): un monitor y dos juegos, sin ranura, 2 días para recogerlo y el CI para
+la factura. La respuesta no trae nada de `buyer`.
+
+```http
+POST /storefront/v1/reservations
+Content-Type: application/json
+Idempotency-Key: 9c1e4b7a2f0d4e6b8a3c5d7e9f1a2b3c
+```
+
+```json
+{
+  "kind": "cart",
+  "holdDays": 2,
+  "lines": [
+    {
+      "sku": "MON-LG-24GS60F",
+      "quantity": 1
+    },
+    {
+      "sku": "JUE-PS5-FC26",
+      "quantity": 2
+    }
+  ],
+  "contact": {
+    "name": "Valentina Aguirre",
+    "phone": "+591 71234567",
+    "email": "valentina.aguirre@correo.example"
+  },
+  "buyer": {
+    "documentType": 1,
+    "documentNumber": "4567890",
+    "complement": "1A",
+    "name": "Valentina Aguirre Rojas"
+  },
+  "notes": "Paso el sabado por la manana"
+}
+```
+
+```json
+{
+  "number": "RES-WEB-000001",
+  "status": "Reserved",
+  "statusText": "Reservada",
+  "createdAt": "2026-09-28T20:50:00.6416613+00:00",
+  "reservedUntil": "2026-09-30T20:50:00.6416613+00:00",
+  "total": 3357,
+  "contactName": "Valentina Aguirre",
+  "branch": "CM",
+  "notes": "Paso el sabado por la manana",
+  "hasCompatibilityWarnings": false,
+  "lines": [
+    {
+      "slot": null,
+      "sku": "MON-LG-24GS60F",
+      "name": "Monitor LG UltraGear 24GS60F-B 24\" Full HD IPS 180 Hz",
+      "quantity": 1,
+      "unitPrice": 1699,
+      "subtotal": 1699
+    },
+    {
+      "slot": null,
+      "sku": "JUE-PS5-FC26",
+      "name": "EA SPORTS FC 26 (PS5)",
+      "quantity": 2,
+      "unitPrice": 829,
+      "subtotal": 1658
+    }
+  ],
+  "cancelReason": null,
+  "kind": "cart",
+  "mailQueued": false
+}
+```
+
+La llave de idempotencia cubre también los campos nuevos: repetir con otro `kind`, otro `holdDays` u otros datos de
+`buyer` es «otro contenido» (`422 idempotency`).
 
 Repetida con la misma llave (`200`, `Idempotent-Replayed: true`): el mismo cuerpo. Misma llave con otro contenido:
 
@@ -780,10 +881,54 @@ Validación (`400`) y teléfono inválido (`422`):
 }
 ```
 
+V7 · Días fuera de rango o notas con un salto de línea (`400`) y CI con letras (`422`):
+
+```json
+{
+  "type": "https://minv.example/errores/validation",
+  "title": "validation",
+  "status": 400,
+  "detail": "Datos no válidos: Los días para recoger la reserva van de 1 a 3.",
+  "errors": [
+    "Los días para recoger la reserva van de 1 a 3."
+  ],
+  "code": null,
+  "traceId": "00-75d333c4e124e5276cacaef40004b388-962ab45c6d57eccd-00"
+}
+```
+
+```json
+{
+  "type": "https://minv.example/errores/validation",
+  "title": "validation",
+  "status": 400,
+  "detail": "Datos no válidos: Las notas van en una sola línea: no admite saltos de línea, tabuladores ni otros caracteres de control.",
+  "errors": [
+    "Las notas van en una sola línea: no admite saltos de línea, tabuladores ni otros caracteres de control."
+  ],
+  "code": null,
+  "traceId": "00-2932019a15b868271a95af6caf85b55a-653c28b534469558-00"
+}
+```
+
+```json
+{
+  "type": "https://minv.example/errores/domain",
+  "title": "domain",
+  "status": 422,
+  "detail": "Con CI o NIT el número de documento solo admite dígitos.",
+  "errors": null,
+  "code": "buyer.doc_numeric",
+  "traceId": "00-38a6b7e4c7ba2f797e82f9e0531c5f7e-8a5763fe3c1d3bd2-00"
+}
+```
+
 ### 4.6 `GET /storefront/v1/reservations/{number}?phone=…` · estado de una reserva
 
 Solo con el número **y** el teléfono con que se hizo (con o sin `+591`; en la URL codifique el `+` como `%2B`). Si no
-coinciden, `404` (no se revela si el número existe). Devuelve `StorefrontReservationView`:
+coinciden, `404` (no se revela si el número existe). Sirve igual para un armado (`ARM-WEB-…`) y para un carrito
+(`RES-WEB-…`); las reservas hechas en el mostrador (`RES-CM-…`) no se consultan por aquí. Devuelve
+`StorefrontReservationView` (con `kind` y, en esta ruta, `mailQueued` siempre `false`):
 
 ```json
 {
@@ -815,7 +960,9 @@ coinciden, `404` (no se revela si el número existe). Devuelve `StorefrontReserv
       "subtotal": 2649.0
     }
   ],
-  "cancelReason": null
+  "cancelReason": null,
+  "kind": "build",
+  "mailQueued": false
 }
 ```
 
@@ -867,7 +1014,9 @@ reservada (vendida, cancelada o vencida).
       "subtotal": 2649.0
     }
   ],
-  "cancelReason": "Cancelada por el cliente desde la tienda web"
+  "cancelReason": "Cancelada por el cliente desde la tienda web",
+  "kind": "build",
+  "mailQueued": false
 }
 ```
 
@@ -888,8 +1037,14 @@ reservada (vendida, cancelada o vencida).
 - Armador de PC › Cotizaciones: la reserva web aparece con canal **Web**, contacto (teléfono y correo solo para quien tiene
   `sales.pcbuild.manage`), «Reservado hasta» y las unidades reservadas; el vendedor la vende en caja (`SellPcBuildCommand`,
   que consume la reserva), la libera (`ReleasePcBuildReservationCommand`) o la deja vencer.
+- V7 · Carritos: `GetPcBuildsQuery(Kind: Cart)` los lista aparte de los armados; la fila (`PcBuildRow`) lleva el tipo y, para
+  quien tiene `sales.pcbuild.manage`, los datos para la factura (`BuyerDocumentType`, `BuyerDocumentNumber`,
+  `BuyerComplement`, `BuyerName`). `SellPcBuildCommand` cobra el carrito a sus precios congelados y, si el cajero no captura
+  comprador, factura con esos datos. El personal también reserva un carrito en el mostrador (`ReserveCartCommand`,
+  `RES-<sucursal>-000001`).
 - Stock, catálogo y caja: disponible = existencias − reservado. La web y el escritorio ven el MISMO número.
-- Webhooks B2B: `pcbuild.reserved`, `pcbuild.released` y `pcbuild.sold` (`docs/integration/api-gateway-v1.md` §7.2).
+- Webhooks B2B: `pcbuild.reserved`, `pcbuild.released` y `pcbuild.sold` (`docs/integration/api-gateway-v1.md` §7.2). V7: llevan
+  `kind` (`Build` o `Cart`) y la línea sin ranura de un carrito lleva `slot: null`.
 
 ## 6. Recorrido de referencia (regla S-10)
 
@@ -902,3 +1057,20 @@ reservada (vendida, cancelada o vencida).
    `reserved` volvió a lo de antes: la unidad se descontó UNA sola vez.
 
 Las pruebas `tests/MINV.Integration.Tests/StorefrontApiTests.cs` recorren exactamente esto sobre el gateway real.
+
+Con un carrito (V7) el recorrido es el mismo: `POST /reservations` con `"kind": "cart"` y los productos sin ranura →
+`201`, `RES-WEB-000001`, `reservedUntil` según `holdDays`; el cajero lo cobra con `SellPcBuildCommand("RES-WEB-000001", …)`;
+la consulta devuelve `status` = `Sold` y `kind` = `cart`. Lo recorren `tests/MINV.Integration.Tests/StorefrontCartApiTests.cs`
+(gateway real) y `tests/MINV.Infrastructure.Tests/CartFlowTests.cs` (casos de uso en memoria, con la factura).
+
+## 7. Qué cambió en la V7 (compatible con la V6)
+
+| Dónde | Cambio |
+|---|---|
+| Petición de `POST /reservations` | Campos opcionales nuevos: `kind`, `holdDays`, `buyer { documentType, documentNumber, complement, name }`. Sin ellos, todo sigue como en la V6 (armado, 48 h, sin datos de factura). |
+| Respuesta de reservas | Campos nuevos `kind` y `mailQueued`; `lines[].slot` puede ser `null` (solo en carritos). |
+| Catálogo | Campos nuevos `reservationHours` y `maxHoldDays`. |
+| Numeración | Carritos `RES-WEB-000001`; los armados conservan `ARM-WEB-000001`. |
+| Validación | Nombre de contacto, notas, nombre de la reserva y razón social: una sola línea, sin caracteres de control. Es el ÚNICO cambio que puede rechazar una petición que la V6 aceptaba (unas notas con saltos de línea). |
+| Configuración | `Minv:Storefront:MaxReservationHours` (72): tope de cualquier reserva de la tienda. |
+| Idempotencia | El contenido incluye los campos nuevos; una petición sin ellos conserva el mismo contenido que en la V6. |

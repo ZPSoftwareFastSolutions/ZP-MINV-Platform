@@ -1,6 +1,9 @@
 # Mapa V7 - Casos de uso de MINV.Application (generado por script)
 
-Total: 185 - comandos (IAuditableRequest): 91 - consultas: 94
+Total: 186 - comandos (IAuditableRequest): 92 - consultas: 94
+
+> Paquete B1 (carrito, V7): cambian `CreateStorefrontReservationCommand`, `SavePcBuildCommand` y `GetPcBuildsQuery` (campos
+> opcionales al final) y se agrega `ReserveCartCommand`. `PcBuildItemInput.Slot` y `PcBuildItemView.Slot` admiten nulo.
 
 El nombre con que viaja por RPC es el FullName: `<namespace>.<Tipo>`. C = comando, Q = consulta.
 
@@ -211,7 +214,7 @@ El nombre con que viaja por RPC es el FullName: `<namespace>.<Tipo>`. C = comand
 | Caso de uso (namespace MINV.Application.Storefront) | Tipo | Atributos | Respuesta | Archivo |
 |---|---|---|---|---|
 | `CancelStorefrontReservationCommand(string Number, string Phone)` | C | [RequiresPermission(PermissionCodes.StorefrontReserve)] | `StorefrontReservationView` | Storefront/StorefrontContracts.cs |
-| `CreateStorefrontReservationCommand(IReadOnlyList<StorefrontReservationLineInput> Lines, StorefrontContactInput Contact, string? Notes, string IdempotencyKey, string? Name = null)` | C | [RequiresPermission(PermissionCodes.StorefrontReserve)] | `StorefrontReservationResult` | Storefront/StorefrontContracts.cs |
+| `CreateStorefrontReservationCommand(IReadOnlyList<StorefrontReservationLineInput> Lines, StorefrontContactInput Contact, string? Notes, string IdempotencyKey, string? Name = null, PcBuildKind Kind = PcBuildKind.Build, int? HoldDays = null, ReservationBuyerInput? Buyer = null)` | C | [RequiresPermission(PermissionCodes.StorefrontReserve)] | `StorefrontReservationResult` | Storefront/StorefrontContracts.cs |
 | `ExpirePcBuildReservationsCommand` | C | [RequiresPermission(PermissionCodes.StorefrontReserve)] | `int` | Storefront/StorefrontContracts.cs |
 | `GetStorefrontCatalogQuery` | Q | [RequiresPermission(PermissionCodes.StorefrontRead)] | `StorefrontCatalogView` | Storefront/StorefrontContracts.cs |
 | `GetStorefrontPresetsQuery` | Q | [RequiresPermission(PermissionCodes.StorefrontRead)] | `IReadOnlyList<StorefrontPreset>` | Storefront/StorefrontContracts.cs |
@@ -230,7 +233,7 @@ El nombre con que viaja por RPC es el FullName: `<namespace>.<Tipo>`. C = comand
 | `GetAvailableSerialsQuery(string Sku, string? WarehouseCode = null)` | Q | [RequiresPermission(PermissionCodes.SerialsView)] | `IReadOnlyList<SerialRow>` | Tech/TechContracts.cs |
 | `GetPcBuildCandidatesQuery(PcSlot Slot, IReadOnlyList<PcBuildItemInput> Current, string? Text = null, bool OnlyInStock = false, string? CategoryCode = null)` | Q | [RequiresPermission(PermissionCodes.StockView)] | `IReadOnlyList<PcBuildCandidate>` | Tech/TechContracts.cs |
 | `GetPcBuildQuery(string Number)` | Q | [RequiresPermission(PermissionCodes.SalesView)] | `PcBuildDetail` | Tech/TechContracts.cs |
-| `GetPcBuildsQuery(PcBuildStatus? Status = null, PcBuildChannel? Channel = null)` | Q | [RequiresPermission(PermissionCodes.SalesView)] | `IReadOnlyList<PcBuildRow>` | Tech/TechContracts.cs |
+| `GetPcBuildsQuery(PcBuildStatus? Status = null, PcBuildChannel? Channel = null, PcBuildKind? Kind = null)` | Q | [RequiresPermission(PermissionCodes.SalesView)] | `IReadOnlyList<PcBuildRow>` | Tech/TechContracts.cs |
 | `GetProductTechQuery(string Sku)` | Q | [RequiresPermission(PermissionCodes.StockView)] | `ProductTechView` | Tech/TechContracts.cs |
 | `GetSerialSummaryQuery` | Q | [RequiresPermission(PermissionCodes.SerialsView)] | `SerialSummaryView` | Tech/TechContracts.cs |
 | `GetSerialTraceQuery(string Serial, string? Sku = null)` | Q | [RequiresPermission(PermissionCodes.SerialsView)] | `SerialTraceView` | Tech/TechContracts.cs |
@@ -246,8 +249,9 @@ El nombre con que viaja por RPC es el FullName: `<namespace>.<Tipo>`. C = comand
 | `PublishPcBuildCommand(string Number, bool Published = true)` | C | [RequiresPermission(PermissionCodes.PcBuildManage)] | `PcBuildRow` | Tech/TechContracts.cs |
 | `RegisterStockSerialsCommand(string Sku, IReadOnlyList<string> Serials, string? Note = null)` | C | [RequiresPermission(PermissionCodes.SerialsManage)] | `string` | Tech/TechContracts.cs |
 | `ReleasePcBuildReservationCommand(string Number, string Reason)` | C | [RequiresPermission(PermissionCodes.PcBuildManage)] | `PcBuildRow` | Tech/TechContracts.cs |
+| `ReserveCartCommand(IReadOnlyList<CartItemInput> Items, string ContactName, string ContactPhone, string? ContactEmail = null, string? Notes = null, int? HoldDays = null, Storefront.ReservationBuyerInput? Buyer = null, string? CustomerCode = null, string? Name = null)` | C | [RequiresPermission(PermissionCodes.PcBuildManage)] | `PcBuildRow` | Tech/TechContracts.cs |
 | `ReservePcBuildCommand(string Number, int Hours = 48)` | C | [RequiresPermission(PermissionCodes.PcBuildManage)] | `PcBuildRow` | Tech/TechContracts.cs |
-| `SavePcBuildCommand(Guid? Id, string Name, string? CustomerCode, IReadOnlyList<PcBuildItemInput> Items, bool Quote = false, int ValidDays = 7, bool AcceptIncompatible = false)` | C | [RequiresPermission(PermissionCodes.PcBuildManage)] | `PcBuildRow` | Tech/TechContracts.cs |
+| `SavePcBuildCommand(Guid? Id, string Name, string? CustomerCode, IReadOnlyList<PcBuildItemInput> Items, bool Quote = false, int ValidDays = 7, bool AcceptIncompatible = false, PcBuildKind Kind = PcBuildKind.Build)` | C | [RequiresPermission(PermissionCodes.PcBuildManage)] | `PcBuildRow` | Tech/TechContracts.cs |
 | `SaveProductTechCommand(string Sku, bool TrackSerials, SerialKind SerialKind, int WarrantyMonths, IReadOnlyList<ProductSpecInput> Specs)` | C | [RequiresPermission(PermissionCodes.SpecsManage)] | `string` | Tech/TechContracts.cs |
 | `SaveSpecDefinitionCommand(string CategoryCode, string Code, string Name, string? Unit, SpecDataType DataType, bool IsMultiValued, bool IsFilterable, bool IsRequired, string? CompatibilityKey, int SortOrder, IReadOnlyList<string> Options)` | C | [RequiresPermission(PermissionCodes.SpecsManage)] | `string` | Tech/TechContracts.cs |
 | `SearchSerialsQuery(string? Text = null, SerialNumberStatus? Status = null, string? Sku = null, int Max = 500)` | Q | [RequiresPermission(PermissionCodes.SerialsView)] | `IReadOnlyList<SerialRow>` | Tech/TechContracts.cs |

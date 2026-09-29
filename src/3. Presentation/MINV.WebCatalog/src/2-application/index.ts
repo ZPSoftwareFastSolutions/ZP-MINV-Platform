@@ -23,6 +23,8 @@ import type {
 export type * from './catalog/types';
 export type { ReservationUseCases, ReserveBuildInput } from './storefront/reservations';
 export { createReservationUseCases, newIdempotencyKey } from './storefront/reservations';
+// V7 · sesión web y cuenta del cliente.
+export * from './auth';
 
 export interface CatalogUseCases {
   /** Empresa y sucursal de la tienda (la disponibilidad y el retiro son de esa sucursal). */

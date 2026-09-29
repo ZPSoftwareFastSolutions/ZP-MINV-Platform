@@ -192,6 +192,9 @@ public static class TechText
         _ => "Servicios",
     };
 
+    /// <summary>V7 · La línea de un carrito puede venir sin ranura: es un producto suelto.</summary>
+    public static string Slot(PcSlot? slot) => slot is { } known ? Slot(known) : "Producto";
+
     public static string SlotGlyph(PcSlot slot) => slot switch
     {
         PcSlot.Cpu => Glyphs.Pulse,

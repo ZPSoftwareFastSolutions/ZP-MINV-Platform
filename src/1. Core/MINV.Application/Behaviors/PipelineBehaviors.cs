@@ -96,7 +96,9 @@ public sealed class AuditBehavior<TRequest, TResponse>(IAuditTrail trail) : IPip
     private async Task Write(string action, AuditOutcome outcome, IAuditableRequest request, object? response, string? error,
         Guid correlation, CancellationToken ct)
     {
-        var details = JsonSerializer.Serialize(new { request = request.AuditDetails, result = response, error }, Json);
+        // V7 · Una respuesta con datos personales se audita enmascarada (reglas S-06 y P-05)
+        var result = response is IAuditableResponse personal ? personal.AuditResult : response;
+        var details = JsonSerializer.Serialize(new { request = request.AuditDetails, result, error }, Json);
         await trail.WriteAsync(new AuditEntry(action, outcome, details, correlation), ct);
     }
 }

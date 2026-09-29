@@ -53,7 +53,9 @@ internal sealed class SalesReturnLineSerialConfiguration : IEntityTypeConfigurat
 /// V4.2 · Armado de PC (cotización) de una sucursal: número único por sucursal, xmin, venta que lo cobró de la MISMA
 /// sucursal (FK compuesta) y una sola cotización por venta. El total no se guarda (sale de las líneas). V6: canal, contacto
 /// (obligatorio en canal Web), reserva (<c>Reserved</c> exige <c>reserved_at</c> y <c>reserved_until</c>), motivo del cierre,
-/// publicación en la web y bitácora append-only <c>pc_build_events</c>.
+/// publicación en la web y bitácora append-only <c>pc_build_events</c>. V7 (regla P-05): tipo (<c>Build</c> o <c>Cart</c>; un
+/// carrito nunca está publicado) y datos para la factura de quien reserva, coherentes entre sí (tipo y número van juntos; el
+/// complemento solo con CI; la razón social solo con documento).
 /// </summary>
 internal sealed class PcBuildConfiguration : IEntityTypeConfiguration<PcBuild>
 {
@@ -69,6 +71,13 @@ internal sealed class PcBuildConfiguration : IEntityTypeConfiguration<PcBuild>
             t.HasCheckConstraint("ck_pc_builds_contacto", "channel <> 'Web' OR (contact_name IS NOT NULL AND contact_phone IS NOT NULL)");
             t.HasCheckConstraint("ck_pc_builds_reserva", "status <> 'Reserved' OR (reserved_at IS NOT NULL AND reserved_until IS NOT NULL)");
             t.HasCheckConstraint("ck_pc_builds_publicado", "NOT published_to_web OR (channel = 'Desktop' AND status IN ('Quoted', 'Reserved', 'Sold'))");
+            // V7 · Tipo del documento y datos para la factura de la reserva (mismas reglas que sales.customers)
+            t.HasCheckConstraint("ck_pc_builds_tipo", "kind IN ('Build', 'Cart')");
+            t.HasCheckConstraint("ck_pc_builds_tipo_publicado", "NOT published_to_web OR kind = 'Build'");
+            t.HasCheckConstraint("ck_pc_builds_factura_tipo", "buyer_document_type IS NULL OR buyer_document_type BETWEEN 1 AND 5");
+            t.HasCheckConstraint("ck_pc_builds_factura_documento", "(buyer_document_type IS NULL) = (buyer_document_number IS NULL)");
+            t.HasCheckConstraint("ck_pc_builds_factura_complemento", "buyer_complement IS NULL OR buyer_document_type = 1");
+            t.HasCheckConstraint("ck_pc_builds_factura_nombre", "buyer_name IS NULL OR buyer_document_type IS NOT NULL");
         });
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Number).HasMaxLength(40);
@@ -80,6 +89,11 @@ internal sealed class PcBuildConfiguration : IEntityTypeConfiguration<PcBuild>
         builder.Property(x => x.ContactEmail).HasMaxLength(254);
         builder.Property(x => x.Notes).HasMaxLength(500);
         builder.Property(x => x.CancelReason).HasMaxLength(250);
+        builder.Property(x => x.Kind).HasConversion<string>().HasMaxLength(10);
+        builder.Property(x => x.BuyerDocumentType).HasConversion<short?>().HasColumnType("smallint");
+        builder.Property(x => x.BuyerDocumentNumber).HasMaxLength(20);
+        builder.Property(x => x.BuyerComplement).HasMaxLength(5);
+        builder.Property(x => x.BuyerName).HasMaxLength(150);
         builder.HasOne<Branch>().WithMany()
             .HasForeignKey(x => new { x.TenantId, x.BranchId })
             .HasPrincipalKey(p => new { p.TenantId, p.Id })
@@ -109,6 +123,8 @@ internal sealed class PcBuildConfiguration : IEntityTypeConfiguration<PcBuild>
         builder.Ignore(x => x.Total);
         builder.Ignore(x => x.DomainEvents);
         builder.Ignore(x => x.IsReservationActive);
+        builder.Ignore(x => x.IsCart);
+        builder.Ignore(x => x.HasBuyer);
         builder.HasIndex(x => new { x.TenantId, x.BranchId, x.Number }).IsUnique();
         builder.HasIndex(x => new { x.TenantId, x.Status });
         builder.HasIndex(x => x.InvoiceId).IsUnique().HasFilter("invoice_id IS NOT NULL");
@@ -141,7 +157,9 @@ internal sealed class PcBuildEventConfiguration : IEntityTypeConfiguration<PcBui
     }
 }
 
-/// <summary>V4.2 · Pieza de un armado con su precio cotizado (redundancia comercial documentada: la oferta hecha).</summary>
+/// <summary>V4.2 · Pieza de un armado con su precio cotizado (redundancia comercial documentada: la oferta hecha). V7: la ranura
+/// admite nulo (línea de un carrito, regla P-05); que sea nula SOLO en un carrito cruza dos tablas: lo exige el dominio
+/// (<see cref="PcBuild.AddLine"/>) y, en la base, un trigger de la migración V7.</summary>
 internal sealed class PcBuildLineConfiguration : IEntityTypeConfiguration<PcBuildLine>
 {
     public void Configure(EntityTypeBuilder<PcBuildLine> builder)
@@ -149,7 +167,7 @@ internal sealed class PcBuildLineConfiguration : IEntityTypeConfiguration<PcBuil
         builder.ToTable("pc_build_lines", Schemas.Sales, t =>
         {
             t.HasCheckConstraint("ck_pc_build_lines_ranura",
-                "slot IN ('Cpu', 'Motherboard', 'Ram', 'Gpu', 'Storage', 'Psu', 'Case', 'Cooler', 'Monitor', 'Peripheral', 'Software', 'Service')");
+                "slot IS NULL OR slot IN ('Cpu', 'Motherboard', 'Ram', 'Gpu', 'Storage', 'Psu', 'Case', 'Cooler', 'Monitor', 'Peripheral', 'Software', 'Service')");
             t.HasCheckConstraint("ck_pc_build_lines_cantidad", $"quantity BETWEEN 1 AND {PcBuild.MaxQuantity}");
             t.HasCheckConstraint("ck_pc_build_lines_precio", "quoted_unit_price >= 0");
         });
