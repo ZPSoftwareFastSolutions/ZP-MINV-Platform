@@ -35,7 +35,12 @@ public sealed class StorefrontScreenTests
         var all = builder.Builds.Cast<PcBuildItem>().ToList();
         var web = all.Where(b => b.IsWeb).ToList();
         Assert.NotEmpty(web);
-        var active = Assert.Single(web, b => b.IsReservationActive);   // la demostración trae UNA reserva web vigente (regla S-09)
+        // La demostración trae UNA reserva web vigente de un armado sin cuenta (regla S-09) y una vencida, ya cerrada. V7: además,
+        // las reservas vigentes de la tienda web (el carrito de un solo monitor y las de las cuentas de cliente, ligadas a su
+        // cliente, regla P-13); el armador todavía las lista todas
+        var activeWeb = web.Where(b => b.IsReservationActive).ToList();
+        var active = Assert.Single(activeWeb, b => b.Row.Kind == PcBuildKind.Build && b.Row.Customer is null);
+        Assert.Equal(1 + demo.Seed.Web!.ActiveCarts + demo.Seed.Web.AccountReservations, activeWeb.Count);
         Assert.Contains(web, b => b.Row.Status == PcBuildStatus.Cancelled && b.Row.CancelReason == PcBuild.ExpiredReason);   // y una vencida, ya cerrada
         Assert.Equal("Web", active.ChannelText);
         Assert.StartsWith(PcBuild.WebNumberPrefix, active.Number, StringComparison.Ordinal);
@@ -44,15 +49,16 @@ public sealed class StorefrontScreenTests
         Assert.NotEqual("—", active.ReservedUntilText);
         Assert.False(active.IsReservationExpired);
         Assert.True(active.CanSell);
-        Assert.Equal("1", builder.WebKpi.Value);
-        Assert.Contains(Fmt.Money(active.Total), builder.WebKpi.Detail, StringComparison.Ordinal);
+        Assert.Equal(activeWeb.Count.ToString("N0", Fmt.Culture), builder.WebKpi.Value);
+        Assert.Contains(Fmt.Money(activeWeb.Sum(b => b.Total)), builder.WebKpi.Detail, StringComparison.Ordinal);
 
-        // Filtro rápido «Reservas web»: solo las de la tienda; con «Reservados» queda la vigente
+        // Filtro rápido «Reservas web»: solo las de la tienda; con «Reservados» quedan las vigentes
         builder.OnlyWebReservations = true;
         Assert.All(builder.Builds.Cast<PcBuildItem>(), b => Assert.True(b.IsWeb));
         Assert.False(builder.NoBuildsMatch);
         builder.StatusFilter = builder.Statuses.First(s => s.Value == PcBuildStatus.Reserved);
-        Assert.Equal([active.Number], builder.Builds.Cast<PcBuildItem>().Select(b => b.Number));
+        Assert.Equal(activeWeb.Select(b => b.Number).Order(StringComparer.Ordinal),
+            builder.Builds.Cast<PcBuildItem>().Select(b => b.Number).Order(StringComparer.Ordinal));
         builder.StatusFilter = builder.Statuses[0];
         builder.OnlyWebReservations = false;
         Assert.Equal(all.Count, builder.Builds.Cast<PcBuildItem>().Count());
@@ -82,8 +88,8 @@ public sealed class StorefrontScreenTests
         var dashboard = (DashboardViewModel)shell.Current;
         await dashboard.LoadAsync(force: true);
         Assert.True(dashboard.HasTech);
-        Assert.Equal("1", dashboard.WebReservationsKpi.Value);
-        Assert.Contains(Fmt.Money(active.Total), dashboard.WebReservationsKpi.Detail!, StringComparison.Ordinal);
+        Assert.Equal(activeWeb.Count.ToString("N0", Fmt.Culture), dashboard.WebReservationsKpi.Value);
+        Assert.Contains(Fmt.Money(activeWeb.Sum(b => b.Total)), dashboard.WebReservationsKpi.Detail!, StringComparison.Ordinal);
         dashboard.GoWebReservations.Execute(null);
         Assert.Same(builder, shell.Current);
         Assert.True(builder.IsQuotesTab);
@@ -134,7 +140,9 @@ public sealed class StorefrontScreenTests
         Assert.False(listed.IsWeb);
         Assert.Equal("Escritorio", listed.ChannelText);
         Assert.False(listed.HighlightReservation);   // 24 h: ni vencida ni por vencer
-        Assert.Equal("1", builder.WebKpi.Value);   // la reserva es del escritorio: no suma a la reserva web vigente de la demostración
+        // La reserva es del escritorio: no suma a las reservas web vigentes de la demostración (la del armado sin cuenta y, V7, las de
+        // la tienda web: el carrito de un solo monitor y las de las cuentas de cliente)
+        Assert.Equal((1 + demo.Seed.Web!.ActiveCarts + demo.Seed.Web.AccountReservations).ToString("N0", Fmt.Culture), builder.WebKpi.Value);
         Assert.True(int.Parse(builder.QuotedKpi.Value, Fmt.Culture) >= 1);   // las cotizaciones vigentes incluyen la reservada
 
         // Stock y caja ven lo reservado
@@ -215,7 +223,9 @@ public sealed class StorefrontScreenTests
         shell.Navigate("armador");
         var builder = (PcBuilderViewModel)shell.Current;
         await builder.LoadAsync(force: true);
-        var reservation = builder.Builds.Cast<PcBuildItem>().Single(b => b.IsWeb && b.IsReservationActive);
+        // La reserva web del armado sin cuenta de la demostración (V7: también hay carritos y reservas de cuentas de cliente vigentes)
+        var activeWeb = builder.Builds.Cast<PcBuildItem>().Count(b => b.IsWeb && b.IsReservationActive);
+        var reservation = builder.Builds.Cast<PcBuildItem>().Single(b => b.IsWeb && b.IsReservationActive && b.Row.Kind == PcBuildKind.Build && b.Row.Customer is null);
         Assert.Equal(shell.App.Session.Access.Active?.Code, reservation.Row.BranchCode);   // la tienda reserva en la casa matriz, la sucursal activa del administrador
         var detail = await shell.App.SendAsync(new GetPcBuildQuery(reservation.Number));
         var firstSku = detail.QuotedItems[0].Sku;
@@ -269,7 +279,7 @@ public sealed class StorefrontScreenTests
         Assert.Equal(PcBuildEventAction.Sold, history[^1].Action);
         Assert.Contains("reserva consumida", history[^1].Detail, StringComparison.Ordinal);
         await builder.LoadAsync(force: true);
-        Assert.Equal("0", builder.WebKpi.Value);
+        Assert.Equal((activeWeb - 1).ToString("N0", Fmt.Culture), builder.WebKpi.Value);   // la vendida ya no cuenta; las demás siguen vigentes
     });
 
     [Fact]
