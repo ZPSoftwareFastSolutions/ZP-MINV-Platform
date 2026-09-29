@@ -1,10 +1,12 @@
 // Utilidades de las pruebas de la presentación: orígenes en memoria (mock de la V5 con la pasarela de reservas), sesión
 // web en memoria (V7), carrito en memoria (V7) y un render con todos los proveedores (sesión → catálogo → avisos →
-// armado → carrito → enrutador en memoria). Solo lo importan las pruebas: ninguna toca la red ni el almacenamiento.
+// armado → carrito → enrutador en memoria). V7 · W3a: `renderPanel` dibuja una pantalla del panel (sesión del personal,
+// avisos y enrutador en memoria, sin catálogo). Solo lo importan las pruebas: ninguna toca la red ni el almacenamiento.
 
 import { render, screen, type RenderResult } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { createMemoryRouter, MemoryRouter, Route, RouterProvider, Routes } from 'react-router-dom';
+import { RequireSession } from '@/4-presentation/components/auth/RequireSession';
 import type { SessionKind } from '@/1-domain/auth/types';
 import type { CartItem } from '@/1-domain/cart/types';
 import type { CartUseCases } from '@/2-application';
@@ -147,6 +149,57 @@ export async function renderRoutes({
     ),
   );
   await screen.findByTestId('catalogo-listo');
+  const location = () => `${router.state.location.pathname}${router.state.location.search}${router.state.location.hash}`;
+  return Object.assign(result, { router, location });
+}
+
+// ==================================================================================================== V7 · panel (W3a)
+
+export interface RenderPanelOptions {
+  /** Sesión web (por defecto, la de muestra del personal ya ingresada, con su RPC en memoria). */
+  web?: WebServices | Promise<WebServices>;
+  /** Ruta inicial del enrutador en memoria (por defecto `/panel`). */
+  route?: string;
+  /** Patrón de la ruta que dibuja `ui` (por defecto cualquiera). */
+  path?: string;
+}
+
+export interface RenderPanelResult extends RenderResult {
+  /** Ruta actual del enrutador en memoria (`/panel/x?estado=pagada`). */
+  location(): string;
+  router: ReturnType<typeof createMemoryRouter>;
+}
+
+/**
+ * Dibuja `ui` como una pantalla del panel: sesión web (detrás de la guarda del personal), avisos y enrutador en
+ * memoria. Sin el catálogo de la tienda (el panel no lo usa). Espera a que la guarda deje pasar.
+ */
+export async function renderPanel(ui: ReactNode, { web, route = '/panel', path = '*' }: RenderPanelOptions = {}): Promise<RenderPanelResult> {
+  const services = web ?? (await signedInWeb('staff')).services;
+  const router = createMemoryRouter(
+    [
+      // Si la sesión vence, la guarda manda aquí (sin la pantalla real de ingreso).
+      { path: '/ingresar', element: <p data-testid="ingresar">Ingresar</p> },
+      {
+        path,
+        element: (
+          <RequireSession kind="staff">
+            <span data-testid="panel-listo" hidden />
+            {ui}
+          </RequireSession>
+        ),
+      },
+    ],
+    { initialEntries: [route] },
+  );
+  const result = render(
+    <SessionProvider web={services}>
+      <ToastProvider>
+        <RouterProvider router={router} />
+      </ToastProvider>
+    </SessionProvider>,
+  );
+  await screen.findByTestId('panel-listo');
   const location = () => `${router.state.location.pathname}${router.state.location.search}${router.state.location.hash}`;
   return Object.assign(result, { router, location });
 }

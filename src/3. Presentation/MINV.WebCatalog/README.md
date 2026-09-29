@@ -384,3 +384,51 @@ Reglas del formulario y de los plazos (`1-domain/storefront/checkout.test.ts`), 
 artículo suelto sin tocar el carrito, validaciones, notas en una línea, 409 y «Ajustar a lo disponible» conservando el
 formulario, misma llave al reintentar y otra al cambiar, 400 por campo y 429, cliente con sesión por RPC y confirmación
 con y sin correo).
+
+## V7 · Componentes del panel (paquete W3a)
+
+Pedido del cliente: «botones y combobox para todo, un sistema muy intuitivo, filtrados más profesionales; nada de
+estadísticas de golpe: si hay estadísticas, que sea una opción “Ver”, tipo menú desplegable con el símbolo ^». Los
+módulos del panel (caja, ventas, stock, catálogo, compras, facturación, reportes, usuarios…) se construyen SOLO con este
+conjunto, así todas las pantallas se ven y se usan igual (regla P-09: un módulo no modifica `kit/`).
+
+```text
+src/4-presentation/panel/
+  kit/        componentes (cada archivo empieza con su comentario de USO) · index.ts los exporta todos
+  hooks/      useRpcQuery · useRpcCommand · usePermissions · useTableState   (index.ts)
+  lib/        format (Bs, fechas y horas de La Paz, cantidades) · dates (rangos y atajos) · numbers · table (orden y
+              páginas) · csv (exportCsv) · rpc (requestId por intento, permiso que falta en palabras)   (index.ts)
+  showcase/   la muestra interna /panel/_componentes (solo en desarrollo)
+```
+
+```tsx
+import { Page, FilterBar, SearchField, SelectField, DataTable, type DataTableColumn } from '@/4-presentation/panel/kit';
+import { useRpcQuery, useRpcCommand, useTableState } from '@/4-presentation/panel/hooks';
+import { formatMoney, formatDateTime, exportCsv, csvColumnsOf } from '@/4-presentation/panel/lib';
+```
+
+| Grupo | Componentes |
+|---|---|
+| Pantalla | `Page` (migas, título, descripción, botones a la derecha) · `Toolbar` · `Section` · `DetailList` |
+| Filtros | `FilterBar` (contador de activos y «Limpiar filtros»; se pliega en el teléfono) · `SearchField` (espera 300 ms; Enter aplica; Escape borra) · `SelectField` (nativa, con «Todos») · `ComboBox` (búsqueda para listas largas; lista fija o carga asíncrona) · `DateRangeField` (atajos Hoy, Ayer, Últimos 7 días, Este mes, Mes anterior) |
+| Tabla | `DataTable` (columnas tipadas, orden, páginas y filas por página, selección, fila desplegable, totales con todas las filas, carga/vacío/error con «Reintentar», cabecera fija, tarjetas por debajo de 640 px) · `RowActions` (menú «⋯» accesible) · `SidePanel` (detalle lateral) |
+| Diálogos | `Dialog` · `ConfirmDialog` (foco atrapado, Escape, devuelve el foco; la confirmación enfoca «Cancelar» y sigue abierta si la acción falla) |
+| Formularios | `Form` · `FormGrid` · `Field` / `FieldGroup` · `TextField` · `TextArea` · `NumberField` · `MoneyField` · `Checkbox` · `Switch` · `RadioGroup` (todos trabajan con el VALOR, no con el evento) |
+| Datos y estados | `Tabs`/`TabPanel` (solo monta la pestaña elegida) · `StatusBadge` + `defineStatuses` · `Collapsible` («Ver …» con ^ que gira; su contenido NO se monta hasta abrirlo) · `StatCard` · `BarList` · `MiniBars` · `ActionButton` · `EmptyState` · `ErrorState` · `LoadingState` · `Skeleton` |
+| Avisos y permisos | `useNotify()` · `PermissionGate` · `AccessDenied` · y los de siempre: `Button`, `IconButton`, `Alert` |
+
+- **Consultas** (`useRpcQuery(operación, contenido, { enabled, keepPreviousData })`): carga, error y `reload`, descarta
+  respuestas viejas, cancela al desmontar y vuelve a consultar al cambiar la sucursal activa (el esqueleto llama a
+  `useSession().refresh()` después de `SelectBranchCommand`).
+- **Comandos** (`useRpcCommand(operación, { success, errorTitle, notifyError, onSuccess })`): `run(contenido)` nunca
+  lanza (`{ ok, result | error, message }`), el `requestId` es el mismo al reintentar lo mismo y nuevo tras un éxito o
+  si cambia el contenido; avisa el éxito y el error del servidor, y si falta un permiso lo dice en palabras.
+- **Estado de las listas en la dirección** (`useTableState`): `?q=…&estado=…&desde=…&hasta=…&orden=…&sentido=…&pagina=…&filas=…`.
+  Nada se guarda en el navegador.
+- **CSV** (`exportCsv(nombre, columnas, filas)`): BOM UTF-8, separador «;», CRLF, comillas escapadas, números con coma
+  decimal y neutraliza las celdas de texto que empiezan con =, +, -, @, tabulador o retorno (inyección de fórmulas).
+- **Muestra interna**: con una sesión del personal, `npm run dev` y `/panel/_componentes` (con `VITE_API_URL=mock`,
+  ingresar con el usuario de muestra del personal). La ruta solo existe en desarrollo (`import.meta.env.DEV`).
+- **Pruebas**: `npx vitest run src/4-presentation/panel` (tabla, filtros y campos, combobox con teclado y carga
+  asíncrona, diálogos, plegable, CSV, formatos, useRpcQuery, useRpcCommand, useTableState, permisos y la muestra).
+  `renderPanel(ui, { web, route })` de `src/test-utils.tsx` dibuja una pantalla del panel con la sesión del personal.

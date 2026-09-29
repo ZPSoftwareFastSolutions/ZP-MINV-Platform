@@ -64,7 +64,22 @@ export function createAppRoutes(): RouteObject[] {
         },
         // V7 · panel del personal, con su propia estructura (sin la cabecera de la tienda). La guarda es una ruta SIN
         // path (no coincide sola) y el panel toma `/panel` y todo lo que cuelga: dentro usa sus propias rutas.
-        { element: <RequireSession kind="staff" />, children: [{ path: '/panel/*', lazy: lazyPanel }] },
+        // `/panel/_componentes` (paquete W3a) es la muestra interna de los componentes del panel: SOLO en desarrollo
+        // (en la versión publicada la condición es falsa y el fragmento ni siquiera se genera).
+        {
+          element: <RequireSession kind="staff" />,
+          children: [
+            { path: '/panel/*', lazy: lazyPanel },
+            ...(import.meta.env.DEV
+              ? [
+                  {
+                    path: '/panel/_componentes',
+                    lazy: () => import('@/4-presentation/panel/showcase/ComponentsPage').then((module) => ({ Component: module.ComponentsPage })),
+                  },
+                ]
+              : []),
+          ],
+        },
       ],
     },
   ];

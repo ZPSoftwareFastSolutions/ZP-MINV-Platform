@@ -132,7 +132,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 <Icon aria-hidden="true" className={clsx('mt-0.5 size-5 shrink-0', TONE_CLASS[tone])} />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold text-text">{toast.title}</p>
-                  {toast.description && <p className="mt-0.5 line-clamp-2 text-sm text-text-muted">{toast.description}</p>}
+                  {/* Un error o una advertencia se leen completos (el panel explica ahí qué permiso falta); el resto, en dos líneas. */}
+                  {toast.description && (
+                    <p className={clsx('mt-0.5 text-sm text-text-muted', tone !== 'danger' && tone !== 'warning' && 'line-clamp-2')}>{toast.description}</p>
+                  )}
                   {toast.action && (
                     <button
                       type="button"
