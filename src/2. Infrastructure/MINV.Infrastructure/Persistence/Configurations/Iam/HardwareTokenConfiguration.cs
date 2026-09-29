@@ -12,6 +12,8 @@ internal sealed class HardwareTokenConfiguration : IEntityTypeConfiguration<Hard
         builder.ToTable("hardware_tokens", Schemas.Iam, t =>
         {
             t.HasCheckConstraint("ck_hardware_tokens_revocacion", "revoked_at IS NULL OR revoked_at >= registered_at");
+            // V7 · Dominio del tipo de equipo (comprobación de normalización E14, docs/database/normalizacion-v7.md)
+            t.HasCheckConstraint("ck_hardware_tokens_tipo", BillingChecks.In<HardwareTokenKind>("kind"));
         });
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Name).HasMaxLength(100);

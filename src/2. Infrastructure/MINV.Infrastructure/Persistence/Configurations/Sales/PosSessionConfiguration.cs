@@ -14,6 +14,8 @@ internal sealed class PosSessionConfiguration : IEntityTypeConfiguration<PosSess
             t.HasCheckConstraint("ck_pos_sessions_fondo", "opening_cash >= 0");
             t.HasCheckConstraint("ck_pos_sessions_cierre", "(status = 'Closed') = (closed_at IS NOT NULL)");
             t.HasCheckConstraint("ck_pos_sessions_fechas", "closed_at IS NULL OR closed_at >= opened_at");
+            // V7 · Dominio del estado (comprobación de normalización E13, docs/database/normalizacion-v7.md)
+            t.HasCheckConstraint("ck_pos_sessions_estado", BillingChecks.In<PosSessionStatus>("status"));
         });
         builder.HasKey(x => x.Id);
         builder.Property(x => x.OpeningCash).HasPrecision(19, 4);

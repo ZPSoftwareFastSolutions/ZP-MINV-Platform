@@ -12,6 +12,8 @@ internal sealed class CashMovementConfiguration : IEntityTypeConfiguration<CashM
         builder.ToTable("cash_movements", Schemas.Sales, t =>
         {
             t.HasCheckConstraint("ck_cash_movements_monto", "amount > 0");
+            // V7 · Dominio del sentido (comprobación de normalización E14, docs/database/normalizacion-v7.md)
+            t.HasCheckConstraint("ck_cash_movements_sentido", BillingChecks.In<CashDirection>("direction"));
         });
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Direction).HasConversion<string>().HasMaxLength(20);

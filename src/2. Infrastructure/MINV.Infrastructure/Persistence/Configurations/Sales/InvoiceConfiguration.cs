@@ -12,6 +12,8 @@ internal sealed class InvoiceConfiguration : IEntityTypeConfiguration<Invoice>
         {
             t.HasCheckConstraint("ck_invoices_emision", "(status = 'Draft') = (issued_at IS NULL)");
             t.HasCheckConstraint("ck_invoices_anulacion", "(status = 'Voided') = (voided_at IS NOT NULL)");
+            // V7 · Dominio del estado (comprobación de normalización E13, docs/database/normalizacion-v7.md)
+            t.HasCheckConstraint("ck_invoices_estado", BillingChecks.In<InvoiceStatus>("status"));
         });
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Number).HasMaxLength(40);

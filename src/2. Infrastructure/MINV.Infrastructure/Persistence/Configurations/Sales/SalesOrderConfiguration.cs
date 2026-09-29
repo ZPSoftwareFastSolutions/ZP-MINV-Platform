@@ -12,6 +12,8 @@ internal sealed class SalesOrderConfiguration : IEntityTypeConfiguration<SalesOr
         builder.ToTable("sales_orders", Schemas.Sales, t =>
         {
             t.HasCheckConstraint("ck_sales_orders_origen", "num_nonnulls(pos_session_id, warehouse_id) = 1");
+            // V7 · Dominio del estado (comprobación de normalización E13, docs/database/normalizacion-v7.md)
+            t.HasCheckConstraint("ck_sales_orders_estado", BillingChecks.In<SalesOrderStatus>("status"));
         });
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Number).HasMaxLength(30);

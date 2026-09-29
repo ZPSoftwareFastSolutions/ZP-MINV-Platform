@@ -10,7 +10,9 @@ internal sealed class SupplierAddressConfiguration : IEntityTypeConfiguration<Su
 {
     public void Configure(EntityTypeBuilder<SupplierAddress> builder)
     {
-        builder.ToTable("supplier_addresses", Schemas.Purchasing);
+        // V7 · Dominio del tipo de dirección (comprobación de normalización E14, docs/database/normalizacion-v7.md)
+        builder.ToTable("supplier_addresses", Schemas.Purchasing, t =>
+            t.HasCheckConstraint("ck_supplier_addresses_tipo", BillingChecks.In<AddressType>("address_type")));
         builder.HasKey(x => new { x.SupplierId, x.AddressId });
         builder.Property(x => x.AddressType).HasConversion<string>().HasMaxLength(20);
         builder.HasOne<Supplier>().WithMany()

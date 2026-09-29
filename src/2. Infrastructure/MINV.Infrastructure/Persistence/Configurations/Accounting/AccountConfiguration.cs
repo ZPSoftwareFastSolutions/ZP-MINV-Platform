@@ -11,6 +11,8 @@ internal sealed class AccountConfiguration : IEntityTypeConfiguration<Account>
         builder.ToTable("accounts", Schemas.Accounting, t =>
         {
             t.HasCheckConstraint("ck_accounts_padre", "parent_account_id IS NULL OR parent_account_id <> id");
+            // V7 · Dominio del tipo de cuenta (comprobación de normalización E14, docs/database/normalizacion-v7.md)
+            t.HasCheckConstraint("ck_accounts_tipo", BillingChecks.In<AccountType>("account_type"));
         });
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Code).HasMaxLength(20);

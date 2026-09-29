@@ -92,6 +92,8 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.ToTable("accounts", "accounting", t =>
                         {
                             t.HasCheckConstraint("ck_accounts_padre", "parent_account_id IS NULL OR parent_account_id <> id");
+
+                            t.HasCheckConstraint("ck_accounts_tipo", "account_type IN ('Asset', 'Liability', 'Equity', 'Revenue', 'Expense')");
                         });
                 });
 
@@ -429,6 +431,8 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("ck_fiscal_periods_anio", "year BETWEEN 2000 AND 2100");
 
+                            t.HasCheckConstraint("ck_fiscal_periods_estado", "status IN ('Open', 'Closed')");
+
                             t.HasCheckConstraint("ck_fiscal_periods_mes", "month BETWEEN 1 AND 12");
                         });
                 });
@@ -535,7 +539,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "PostedByUserId")
                         .HasDatabaseName("ix_journal_entries_tenant_id_posted_by_user_id");
 
-                    b.ToTable("journal_entries", "accounting");
+                    b.ToTable("journal_entries", "accounting", t =>
+                        {
+                            t.HasCheckConstraint("ck_journal_entries_estado", "status IN ('Draft', 'Posted')");
+                        });
                 });
 
             modelBuilder.Entity("MINV.Domain.Accounting.JournalLine", b =>
@@ -1784,6 +1791,8 @@ namespace MINV.Infrastructure.Persistence.Migrations
 
                             t.HasCheckConstraint("ck_fiscal_packages_sector", "document_sector BETWEEN 1 AND 99");
 
+                            t.HasCheckConstraint("ck_fiscal_packages_tipo", "document_type IN (1, 3)");
+
                             t.HasCheckConstraint("ck_fiscal_packages_validacion", "(status = 'Sent') = (validated_at IS NULL)");
                         });
                 });
@@ -2885,6 +2894,8 @@ namespace MINV.Infrastructure.Persistence.Migrations
 
                     b.ToTable("siat_service_calls", "billing", t =>
                         {
+                            t.HasCheckConstraint("ck_siat_service_calls_ambiente", "environment IN (1, 2)");
+
                             t.HasCheckConstraint("ck_siat_service_calls_duracion", "duration_ms >= 0");
                         });
                 });
@@ -3041,6 +3052,8 @@ namespace MINV.Infrastructure.Persistence.Migrations
 
                     b.ToTable("siat_sync_runs", "billing", t =>
                         {
+                            t.HasCheckConstraint("ck_siat_sync_runs_ambiente", "environment IN (1, 2)");
+
                             t.HasCheckConstraint("ck_siat_sync_runs_filas", "items >= 0");
                         });
                 });
@@ -3712,7 +3725,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "ModelId")
                         .HasDatabaseName("ix_products_tenant_id_model_id");
 
-                    b.ToTable("products", "catalog");
+                    b.ToTable("products", "catalog", t =>
+                        {
+                            t.HasCheckConstraint("ck_products_trazabilidad", "tracking_mode IN ('None', 'Batch', 'Serial')");
+                        });
                 });
 
             modelBuilder.Entity("MINV.Domain.Catalog.ProductBarcode", b =>
@@ -4870,6 +4886,8 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.ToTable("audit_logs", "iam", t =>
                         {
                             t.HasCheckConstraint("ck_audit_logs_canal", "channel IS NULL OR channel IN ('desktop', 'cloud', 'api', 'storefront', 'web')");
+
+                            t.HasCheckConstraint("ck_audit_logs_resultado", "outcome IN ('Succeeded', 'Rejected', 'Failed')");
                         });
                 });
 
@@ -4947,6 +4965,8 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.ToTable("hardware_tokens", "iam", t =>
                         {
                             t.HasCheckConstraint("ck_hardware_tokens_revocacion", "revoked_at IS NULL OR revoked_at >= registered_at");
+
+                            t.HasCheckConstraint("ck_hardware_tokens_tipo", "kind IN ('Workstation', 'PosTerminal', 'Scanner', 'Printer')");
                         });
                 });
 
@@ -6876,7 +6896,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "BranchId", "WarehouseId")
                         .HasDatabaseName("ix_physical_counts_tenant_id_branch_id_warehouse_id");
 
-                    b.ToTable("physical_counts", "inventory");
+                    b.ToTable("physical_counts", "inventory", t =>
+                        {
+                            t.HasCheckConstraint("ck_physical_counts_estado", "status IN ('Open', 'Posted', 'Cancelled')");
+                        });
                 });
 
             modelBuilder.Entity("MINV.Domain.Inventory.PhysicalCountLine", b =>
@@ -7369,7 +7392,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "BranchId", "WarehouseId")
                         .HasDatabaseName("ix_stock_adjustments_tenant_id_branch_id_warehouse_id");
 
-                    b.ToTable("stock_adjustments", "inventory");
+                    b.ToTable("stock_adjustments", "inventory", t =>
+                        {
+                            t.HasCheckConstraint("ck_stock_adjustments_estado", "status IN ('Draft', 'Posted', 'Cancelled')");
+                        });
                 });
 
             modelBuilder.Entity("MINV.Domain.Inventory.StockAdjustmentLine", b =>
@@ -7754,6 +7780,8 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("ck_stock_reservations_cantidad", "quantity > 0");
 
+                            t.HasCheckConstraint("ck_stock_reservations_estado", "status IN ('Active', 'Consumed', 'Released', 'Expired')");
+
                             t.HasCheckConstraint("ck_stock_reservations_origen", "num_nonnulls(pos_session_id, sales_order_line_id, pc_build_line_id) <= 1");
                         });
                 });
@@ -8085,7 +8113,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "FromBranchId", "ToBranchId", "TransferId")
                         .HasDatabaseName("ix_stock_transfer_events_tenant_id_from_branch_id_to_b_ed8553a1");
 
-                    b.ToTable("stock_transfer_events", "inventory");
+                    b.ToTable("stock_transfer_events", "inventory", t =>
+                        {
+                            t.HasCheckConstraint("ck_stock_transfer_events_estado", "status IN ('Pending', 'Dispatched', 'Received', 'Cancelled')");
+                        });
                 });
 
             modelBuilder.Entity("MINV.Domain.Inventory.StockTransferLine", b =>
@@ -8434,6 +8465,8 @@ namespace MINV.Infrastructure.Persistence.Migrations
 
                     b.ToTable("goods_receipts", "purchasing", t =>
                         {
+                            t.HasCheckConstraint("ck_goods_receipts_estado", "status IN ('Draft', 'Posted')");
+
                             t.HasCheckConstraint("ck_goods_receipts_origen", "num_nonnulls(purchase_order_id, supplier_id) = 1");
                         });
                 });
@@ -8629,6 +8662,8 @@ namespace MINV.Infrastructure.Persistence.Migrations
 
                     b.ToTable("purchase_orders", "purchasing", t =>
                         {
+                            t.HasCheckConstraint("ck_purchase_orders_estado", "status IN ('Draft', 'Approved', 'PartiallyReceived', 'Received', 'Cancelled')");
+
                             t.HasCheckConstraint("ck_purchase_orders_fechas", "expected_date IS NULL OR expected_date >= order_date");
                         });
                 });
@@ -8797,7 +8832,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "SupplierId")
                         .HasDatabaseName("ix_purchase_returns_tenant_id_supplier_id");
 
-                    b.ToTable("purchase_returns", "purchasing");
+                    b.ToTable("purchase_returns", "purchasing", t =>
+                        {
+                            t.HasCheckConstraint("ck_purchase_returns_estado", "status IN ('Draft', 'Posted')");
+                        });
                 });
 
             modelBuilder.Entity("MINV.Domain.Purchasing.PurchaseReturnLine", b =>
@@ -9000,7 +9038,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "SupplierId")
                         .HasDatabaseName("ix_supplier_addresses_tenant_id_supplier_id");
 
-                    b.ToTable("supplier_addresses", "purchasing");
+                    b.ToTable("supplier_addresses", "purchasing", t =>
+                        {
+                            t.HasCheckConstraint("ck_supplier_addresses_tipo", "address_type IN ('Fiscal', 'Billing', 'Shipping', 'Pickup')");
+                        });
                 });
 
             modelBuilder.Entity("MINV.Domain.Purchasing.SupplierContact", b =>
@@ -9159,6 +9200,8 @@ namespace MINV.Infrastructure.Persistence.Migrations
 
                     b.ToTable("supplier_invoices", "purchasing", t =>
                         {
+                            t.HasCheckConstraint("ck_supplier_invoices_estado", "status IN ('Draft', 'Posted', 'Paid', 'Cancelled')");
+
                             t.HasCheckConstraint("ck_supplier_invoices_vencimiento", "due_date IS NULL OR due_date >= invoice_date");
                         });
                 });
@@ -9455,6 +9498,8 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.ToTable("cash_movements", "sales", t =>
                         {
                             t.HasCheckConstraint("ck_cash_movements_monto", "amount > 0");
+
+                            t.HasCheckConstraint("ck_cash_movements_sentido", "direction IN ('In', 'Out')");
                         });
                 });
 
@@ -9776,7 +9821,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "CustomerId")
                         .HasDatabaseName("ix_customer_addresses_tenant_id_customer_id");
 
-                    b.ToTable("customer_addresses", "sales");
+                    b.ToTable("customer_addresses", "sales", t =>
+                        {
+                            t.HasCheckConstraint("ck_customer_addresses_tipo", "address_type IN ('Fiscal', 'Billing', 'Shipping', 'Pickup')");
+                        });
                 });
 
             modelBuilder.Entity("MINV.Domain.Sales.CustomerCategory", b =>
@@ -10018,6 +10066,8 @@ namespace MINV.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("ck_invoices_anulacion", "(status = 'Voided') = (voided_at IS NOT NULL)");
 
                             t.HasCheckConstraint("ck_invoices_emision", "(status = 'Draft') = (issued_at IS NULL)");
+
+                            t.HasCheckConstraint("ck_invoices_estado", "status IN ('Draft', 'Issued', 'Voided')");
                         });
                 });
 
@@ -10805,6 +10855,8 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("ck_pos_sessions_cierre", "(status = 'Closed') = (closed_at IS NOT NULL)");
 
+                            t.HasCheckConstraint("ck_pos_sessions_estado", "status IN ('Open', 'Closed')");
+
                             t.HasCheckConstraint("ck_pos_sessions_fechas", "closed_at IS NULL OR closed_at >= opened_at");
 
                             t.HasCheckConstraint("ck_pos_sessions_fondo", "opening_cash >= 0");
@@ -11088,6 +11140,8 @@ namespace MINV.Infrastructure.Persistence.Migrations
 
                     b.ToTable("sales_orders", "sales", t =>
                         {
+                            t.HasCheckConstraint("ck_sales_orders_estado", "status IN ('Draft', 'Confirmed', 'Fulfilled', 'Invoiced', 'Cancelled')");
+
                             t.HasCheckConstraint("ck_sales_orders_origen", "num_nonnulls(pos_session_id, warehouse_id) = 1");
                         });
                 });
@@ -11581,6 +11635,9 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         .IsUnique()
                         .HasDatabaseName("ux_warranty_claims_tenant_id_branch_id_number");
 
+                    b.HasIndex(new[] { "TenantId", "SerialNumberId" }, "ix_warranty_claims_tenant_id_serial_number_id")
+                        .HasDatabaseName("ix_warranty_claims_tenant_id_serial_number_id");
+
                     b.ToTable("warranty_claims", "service", t =>
                         {
                             t.HasCheckConstraint("ck_warranty_claims_cierre", "(status = 'Delivered') = (closed_at IS NOT NULL)");
@@ -11671,6 +11728,8 @@ namespace MINV.Infrastructure.Persistence.Migrations
                     b.ToTable("warranty_claim_events", "service", t =>
                         {
                             t.HasCheckConstraint("ck_warranty_claim_events_accion", "action IN ('Opened', 'StatusChanged', 'NoteAdded', 'ReplacementIssued', 'Closed')");
+
+                            t.HasCheckConstraint("ck_warranty_claim_events_estado", "status IN ('Received', 'Diagnosing', 'SentToSupplier', 'Repaired', 'Replaced', 'Rejected', 'Delivered')");
                         });
                 });
 

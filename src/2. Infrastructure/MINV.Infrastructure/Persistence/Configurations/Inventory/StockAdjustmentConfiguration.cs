@@ -10,7 +10,9 @@ internal sealed class StockAdjustmentConfiguration : IEntityTypeConfiguration<St
 {
     public void Configure(EntityTypeBuilder<StockAdjustment> builder)
     {
-        builder.ToTable("stock_adjustments", Schemas.Inventory);
+        // V7 · Dominio del estado (comprobación de normalización E13, docs/database/normalizacion-v7.md)
+        builder.ToTable("stock_adjustments", Schemas.Inventory, t =>
+            t.HasCheckConstraint("ck_stock_adjustments_estado", BillingChecks.In<AdjustmentStatus>("status")));
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Number).HasMaxLength(30);
         builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);

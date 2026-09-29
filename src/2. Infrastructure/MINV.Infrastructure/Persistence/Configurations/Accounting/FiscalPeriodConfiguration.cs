@@ -12,6 +12,8 @@ internal sealed class FiscalPeriodConfiguration : IEntityTypeConfiguration<Fisca
         {
             t.HasCheckConstraint("ck_fiscal_periods_mes", "month BETWEEN 1 AND 12");
             t.HasCheckConstraint("ck_fiscal_periods_anio", "year BETWEEN 2000 AND 2100");
+            // V7 · Dominio del estado (comprobación de normalización E13, docs/database/normalizacion-v7.md)
+            t.HasCheckConstraint("ck_fiscal_periods_estado", BillingChecks.In<FiscalPeriodStatus>("status"));
         });
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);

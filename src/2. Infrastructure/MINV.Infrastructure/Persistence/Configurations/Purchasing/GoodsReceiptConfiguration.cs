@@ -13,6 +13,8 @@ internal sealed class GoodsReceiptConfiguration : IEntityTypeConfiguration<Goods
         builder.ToTable("goods_receipts", Schemas.Purchasing, t =>
         {
             t.HasCheckConstraint("ck_goods_receipts_origen", "num_nonnulls(purchase_order_id, supplier_id) = 1");
+            // V7 · Dominio del estado (comprobación de normalización E13, docs/database/normalizacion-v7.md)
+            t.HasCheckConstraint("ck_goods_receipts_estado", BillingChecks.In<GoodsReceiptStatus>("status"));
         });
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Number).HasMaxLength(30);

@@ -8,7 +8,9 @@ internal sealed class ProductConfiguration : IEntityTypeConfiguration<Product>
 {
     public void Configure(EntityTypeBuilder<Product> builder)
     {
-        builder.ToTable("products", Schemas.Catalog);
+        // V7 · Dominio del modo de trazabilidad (comprobación de normalización E14, docs/database/normalizacion-v7.md)
+        builder.ToTable("products", Schemas.Catalog, t =>
+            t.HasCheckConstraint("ck_products_trazabilidad", BillingChecks.In<TrackingMode>("tracking_mode")));
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Code).HasMaxLength(40);
         builder.Property(x => x.Name).HasMaxLength(150);

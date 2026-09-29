@@ -1,6 +1,7 @@
 namespace MINV.Infrastructure.Persistence.Configurations;
 
-/// <summary>V4.1 · Fragmentos de CHECK compartidos por las configuraciones de la facturación.</summary>
+/// <summary>V4.1 · Fragmentos de CHECK compartidos por las configuraciones (nacieron con la facturación; V7: también el dominio de
+/// los estados y de las listas cerradas del resto del modelo, comprobación de normalización E13 y E14).</summary>
 internal static class BillingChecks
 {
     /// <summary>Estado guardado como texto: solo los nombres del enum (la lista sale del enum y no se desincroniza).</summary>

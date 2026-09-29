@@ -13,6 +13,8 @@ internal sealed class SupplierInvoiceConfiguration : IEntityTypeConfiguration<Su
         builder.ToTable("supplier_invoices", Schemas.Purchasing, t =>
         {
             t.HasCheckConstraint("ck_supplier_invoices_vencimiento", "due_date IS NULL OR due_date >= invoice_date");
+            // V7 · Dominio del estado (comprobación de normalización E13, docs/database/normalizacion-v7.md)
+            t.HasCheckConstraint("ck_supplier_invoices_estado", BillingChecks.In<SupplierInvoiceStatus>("status"));
         });
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Number).HasMaxLength(40);

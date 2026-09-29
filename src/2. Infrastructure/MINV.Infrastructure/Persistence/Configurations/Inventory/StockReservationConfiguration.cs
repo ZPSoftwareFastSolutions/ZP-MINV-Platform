@@ -14,6 +14,8 @@ internal sealed class StockReservationConfiguration : IEntityTypeConfiguration<S
             t.HasCheckConstraint("ck_stock_reservations_cantidad", "quantity > 0");
             // V6 · Arco de origen: caja | línea de pedido | línea de armado (a lo sumo uno)
             t.HasCheckConstraint("ck_stock_reservations_origen", "num_nonnulls(pos_session_id, sales_order_line_id, pc_build_line_id) <= 1");
+            // V7 · Dominio del estado (comprobación de normalización E13, docs/database/normalizacion-v7.md)
+            t.HasCheckConstraint("ck_stock_reservations_estado", BillingChecks.In<ReservationStatus>("status"));
         });
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Quantity).HasPrecision(18, 6);

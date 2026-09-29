@@ -92,6 +92,8 @@ internal sealed class SiatSyncRunConfiguration : IEntityTypeConfiguration<SiatSy
         builder.ToTable("siat_sync_runs", Schemas.Billing, t =>
         {
             t.HasCheckConstraint("ck_siat_sync_runs_filas", "items >= 0");
+            // V7 · Dominio del ambiente, igual que en el resto de la facturación (comprobación de normalización E14)
+            t.HasCheckConstraint("ck_siat_sync_runs_ambiente", BillingChecks.Environment());
         });
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Catalog).HasMaxLength(40);
@@ -195,6 +197,8 @@ internal sealed class SiatServiceCallConfiguration : IEntityTypeConfiguration<Si
         builder.ToTable("siat_service_calls", Schemas.Billing, t =>
         {
             t.HasCheckConstraint("ck_siat_service_calls_duracion", "duration_ms >= 0");
+            // V7 · Dominio del ambiente, igual que en el resto de la facturación (comprobación de normalización E14)
+            t.HasCheckConstraint("ck_siat_service_calls_ambiente", BillingChecks.Environment());
         });
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Resource).HasMaxLength(60);

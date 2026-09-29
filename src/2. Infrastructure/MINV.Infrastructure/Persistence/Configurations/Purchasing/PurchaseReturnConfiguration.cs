@@ -9,7 +9,9 @@ internal sealed class PurchaseReturnConfiguration : IEntityTypeConfiguration<Pur
 {
     public void Configure(EntityTypeBuilder<PurchaseReturn> builder)
     {
-        builder.ToTable("purchase_returns", Schemas.Purchasing);
+        // V7 · Dominio del estado (comprobación de normalización E13, docs/database/normalizacion-v7.md)
+        builder.ToTable("purchase_returns", Schemas.Purchasing, t =>
+            t.HasCheckConstraint("ck_purchase_returns_estado", BillingChecks.In<PurchaseReturnStatus>("status")));
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Number).HasMaxLength(30);
         builder.Property(x => x.Reason).HasMaxLength(200);

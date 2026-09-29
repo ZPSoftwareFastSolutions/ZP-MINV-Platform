@@ -70,6 +70,10 @@ internal sealed class WarrantyClaimConfiguration : IEntityTypeConfiguration<Warr
         builder.Ignore(x => x.IsOpen);
         builder.HasIndex(x => new { x.TenantId, x.BranchId, x.Number }).IsUnique();
         builder.HasIndex(x => new { x.TenantId, x.SerialNumberId }).IsUnique().HasFilter("status <> 'Delivered'");
+        // V7 · Índice completo de la FK a la serie (el único parcial solo cubre los casos abiertos): el historial de garantías de
+        // una serie y la comprobación de la FK no recorren la tabla (comprobación de normalización E06,
+        // docs/database/normalizacion-v7.md)
+        builder.HasIndex(x => new { x.TenantId, x.SerialNumberId }, "ix_warranty_claims_tenant_id_serial_number_id");
         builder.HasIndex(x => new { x.TenantId, x.Status });
     }
 }
@@ -82,6 +86,8 @@ internal sealed class WarrantyClaimEventConfiguration : IEntityTypeConfiguration
         builder.ToTable("warranty_claim_events", Schemas.Service, t =>
         {
             t.HasCheckConstraint("ck_warranty_claim_events_accion", "action IN ('Opened', 'StatusChanged', 'NoteAdded', 'ReplacementIssued', 'Closed')");
+            // V7 · Dominio del estado resultante (comprobación de normalización E13, docs/database/normalizacion-v7.md)
+            t.HasCheckConstraint("ck_warranty_claim_events_estado", BillingChecks.In<WarrantyClaimStatus>("status"));
         });
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Action).HasConversion<string>().HasMaxLength(20);

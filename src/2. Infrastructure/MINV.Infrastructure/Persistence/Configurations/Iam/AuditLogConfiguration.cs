@@ -14,6 +14,8 @@ internal sealed class AuditLogConfiguration : IEntityTypeConfiguration<AuditLog>
         {
             // V7 · «web»: sesión web por cookie del servidor en la nube (panel del personal y cuenta de cliente)
             t.HasCheckConstraint("ck_audit_logs_canal", "channel IS NULL OR channel IN ('desktop', 'cloud', 'api', 'storefront', 'web')");
+            // V7 · Dominio del resultado (comprobación de normalización E14, docs/database/normalizacion-v7.md)
+            t.HasCheckConstraint("ck_audit_logs_resultado", BillingChecks.In<AuditOutcome>("outcome"));
         });
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Action).HasMaxLength(100);

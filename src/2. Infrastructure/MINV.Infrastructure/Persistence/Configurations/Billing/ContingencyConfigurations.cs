@@ -69,6 +69,8 @@ internal sealed class FiscalPackageConfiguration : IEntityTypeConfiguration<Fisc
             t.HasCheckConstraint("ck_fiscal_packages_sector", "document_sector BETWEEN 1 AND 99");
             t.HasCheckConstraint("ck_fiscal_packages_huella", BillingChecks.Sha256("sha256"));
             t.HasCheckConstraint("ck_fiscal_packages_validacion", "(status = 'Sent') = (validated_at IS NULL)");
+            // V7 · Dominio del tipo de documento, igual que en fiscal_documents (comprobación de normalización E14)
+            t.HasCheckConstraint("ck_fiscal_packages_tipo", "document_type IN (1, 3)");
         });
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Cafc).HasMaxLength(50);

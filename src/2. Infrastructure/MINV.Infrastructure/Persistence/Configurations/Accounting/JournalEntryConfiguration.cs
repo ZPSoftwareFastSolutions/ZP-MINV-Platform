@@ -10,7 +10,9 @@ internal sealed class JournalEntryConfiguration : IEntityTypeConfiguration<Journ
 {
     public void Configure(EntityTypeBuilder<JournalEntry> builder)
     {
-        builder.ToTable("journal_entries", Schemas.Accounting);
+        // V7 · Dominio del estado (comprobación de normalización E13, docs/database/normalizacion-v7.md)
+        builder.ToTable("journal_entries", Schemas.Accounting, t =>
+            t.HasCheckConstraint("ck_journal_entries_estado", BillingChecks.In<JournalEntryStatus>("status")));
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Number).HasMaxLength(30);
         builder.Property(x => x.Description).HasMaxLength(250);

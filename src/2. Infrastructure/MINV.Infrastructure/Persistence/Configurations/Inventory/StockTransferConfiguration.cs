@@ -156,7 +156,9 @@ internal sealed class StockTransferEventConfiguration : IEntityTypeConfiguration
 {
     public void Configure(EntityTypeBuilder<StockTransferEvent> builder)
     {
-        builder.ToTable("stock_transfer_events", Schemas.Inventory);
+        // V7 · Dominio del estado resultante (comprobación de normalización E13, docs/database/normalizacion-v7.md)
+        builder.ToTable("stock_transfer_events", Schemas.Inventory, t =>
+            t.HasCheckConstraint("ck_stock_transfer_events_estado", BillingChecks.In<TransferStatus>("status")));
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
         builder.Property(x => x.Detail).HasMaxLength(250);

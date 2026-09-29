@@ -10,7 +10,9 @@ internal sealed class PhysicalCountConfiguration : IEntityTypeConfiguration<Phys
 {
     public void Configure(EntityTypeBuilder<PhysicalCount> builder)
     {
-        builder.ToTable("physical_counts", Schemas.Inventory);
+        // V7 · Dominio del estado (comprobación de normalización E13, docs/database/normalizacion-v7.md)
+        builder.ToTable("physical_counts", Schemas.Inventory, t =>
+            t.HasCheckConstraint("ck_physical_counts_estado", BillingChecks.In<PhysicalCountStatus>("status")));
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Number).HasMaxLength(30);
         builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);

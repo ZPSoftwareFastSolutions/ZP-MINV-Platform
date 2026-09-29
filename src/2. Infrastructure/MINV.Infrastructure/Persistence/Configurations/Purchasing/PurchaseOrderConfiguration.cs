@@ -13,6 +13,8 @@ internal sealed class PurchaseOrderConfiguration : IEntityTypeConfiguration<Purc
         builder.ToTable("purchase_orders", Schemas.Purchasing, t =>
         {
             t.HasCheckConstraint("ck_purchase_orders_fechas", "expected_date IS NULL OR expected_date >= order_date");
+            // V7 · Dominio del estado (comprobación de normalización E13, docs/database/normalizacion-v7.md)
+            t.HasCheckConstraint("ck_purchase_orders_estado", BillingChecks.In<PurchaseOrderStatus>("status"));
         });
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Number).HasMaxLength(30);
