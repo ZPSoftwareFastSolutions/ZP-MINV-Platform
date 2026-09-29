@@ -1,8 +1,11 @@
+using System.Text.RegularExpressions;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using MINV.Application;
+using MINV.Application.Abstractions;
 using MINV.Application.Accounting;
+using MINV.Application.Accounts;
 using MINV.Application.Billing;
 using MINV.Application.Catalog;
 using MINV.Application.Common;
@@ -15,11 +18,13 @@ using MINV.Application.Partners;
 using MINV.Application.Purchasing;
 using MINV.Application.Reports;
 using MINV.Application.Sales;
+using MINV.Application.Storefront;
 using MINV.Application.Tech;
 using MINV.Domain.Accounting;
 using MINV.Domain.Billing;
 using MINV.Domain.Common;
 using MINV.Domain.Iam;
+using MINV.Domain.Integration;
 using MINV.Domain.Inventory;
 using MINV.Domain.Purchasing;
 using MINV.Domain.Sales;
@@ -96,12 +101,19 @@ public sealed class LocalDataSeederTests
     {
         var (sp, result) = await SeedAsync();
         Assert.Equal("Tech Zone Gaming S.R.L.", result.CompanyName);
-        Assert.Equal(12, result.Users.Count);   // administrador + 11 usuarios repartidos en 3 sucursales
+        var staff = result.Users.Where(u => u.RoleCode != RoleCodes.Customer).ToList();
+        Assert.Equal(12, staff.Count);   // administrador + 11 usuarios repartidos en 3 sucursales
+        // V7 · Y, después del personal, las dos cuentas de cliente de la tienda web (regla P-13): cubren el rol CLIENTE
+        Assert.Equal(2, result.Users.Count(u => u.RoleCode == RoleCodes.Customer));
+        Assert.Equal(staff, result.Users.Take(staff.Count));
         // V6 · TIENDA_WEB es el usuario técnico de la tienda web: sin contraseña de prueba (no está en la lista de usuarios)
         Assert.All(RoleCodes.All.Where(r => r.Code != RoleCodes.Storefront), r => Assert.Contains(result.Users, u => u.RoleCode == r.Code));
         Assert.Equal("tienda-web@techzone.example", result.StorefrontUser);
         Assert.All(result.Users, u => Assert.Matches(@"^[A-Za-z]+-\d{4}$", u.Password));
-        Assert.All(result.Users, u => Assert.EndsWith("@techzone.example", u.Email, StringComparison.Ordinal));
+        Assert.All(staff, u => Assert.EndsWith("@techzone.example", u.Email, StringComparison.Ordinal));
+        // Los clientes no son de la empresa: correos ficticios .example fuera de su dominio
+        Assert.All(result.Users.Except(staff), u => Assert.True(u.Email.EndsWith(".example", StringComparison.Ordinal)
+                                                               && !u.Email.EndsWith("@techzone.example", StringComparison.Ordinal), u.Email));
         Assert.All(result.Users, u => Assert.DoesNotContain(u.Password, u.ToString(), StringComparison.Ordinal));
         Assert.Equal(159, result.Products);
         Assert.Equal(8, result.Suppliers);
@@ -151,7 +163,7 @@ public sealed class LocalDataSeederTests
             Assert.Contains(orders, o => o.Status == PurchaseOrderStatus.Draft);
             Assert.Equal(8, (await m.Send(new GetSuppliersQuery())).Count);
             Assert.True((await m.Send(new GetCustomersQuery())).Customers.Count >= 31);   // 30 del catálogo + CF (+ compradores facturados)
-            Assert.Equal(13, (await m.Send(new GetUsersQuery())).Count);   // V6: + el usuario técnico de la tienda web
+            Assert.Equal(15, (await m.Send(new GetUsersQuery())).Count);   // V6: + el usuario técnico de la tienda web; V7: + las 2 cuentas de cliente
         }
 
         // El cajero tiene su caja abierta hoy (los domingos la tienda no abre: la carga no deja turnos ese día) y productos para vender
@@ -422,6 +434,115 @@ public sealed class LocalDataSeederTests
             Assert.False((await m.Send(new GetSiatStatusQuery())).Configured);
             Assert.Empty(await m.Send(new GetFiscalDocumentsQuery(result.From, result.To)));
         }
+    }
+
+    /// <summary>
+    /// V7 · La tienda web de la empresa de prueba (regla P-13), hecha con los casos de uso: dos cuentas de cliente que ingresan con
+    /// su contraseña (solo con el rol CLIENTE) y ven SOLO sus reservas (un carrito y un armado cada una, ligadas a su cliente); un
+    /// carrito de la tienda vigente de un solo monitor con los datos para la factura, otro vencido (lo cerró el vencimiento) y uno de
+    /// mostrador; y los correos de confirmación en la cola, sin enviar. El archivo de usuarios de prueba lista las cuentas en su
+    /// propia sección y su lector (las capturas del escritorio con la base local) sigue encontrando al administrador y al cajero.
+    /// </summary>
+    [Fact]
+    public async Task V7_la_tienda_web_trae_cuentas_de_cliente_con_sus_reservas_carritos_y_correos_en_cola()
+    {
+        const string tenant = "TIENDAWEB";
+        var (sp, result) = await SeedAsync(days: 3, tenant: tenant, seed: 19);
+        var web = Assert.IsType<SeedWeb>(result.Web);
+        Assert.Equal((2, 4, 2, 1, 1, 1), (web.Accounts, web.AccountReservations, web.AccountBuilds, web.ActiveCarts, web.ExpiredCarts, web.CounterCarts));
+        var customers = result.Users.Where(u => u.RoleCode == RoleCodes.Customer).ToList();
+        Assert.Equal(2, customers.Count);
+        Assert.All(customers, c => Assert.Equal((LocalDataSeeder.CustomerRoleName, LocalDataSeeder.BranchMain), (c.RoleName, c.Branches)));
+
+        // Cada cuenta ingresa con su contraseña y ve SOLO sus reservas: un carrito y un armado, vigentes, en la sucursal de la tienda
+        var mine = new Dictionary<string, IReadOnlyList<StorefrontReservationView>>(StringComparer.Ordinal);
+        foreach (var customer in customers)
+        {
+            var (scope, m) = await SignInAsync(sp, customer, tenant);
+            using (scope)
+            {
+                Assert.Equal([PermissionCodes.AccountManage, PermissionCodes.AccountReserve],
+                    scope.ServiceProvider.GetRequiredService<ICurrentUser>().Permissions.Order(StringComparer.Ordinal));
+                var account = await m.Send(new GetMyAccountQuery());
+                Assert.Equal((customer.Name, customer.Email), (account.Name, account.Email));
+                Assert.StartsWith(AccountRules.CustomerCodePrefix + "-", account.CustomerCode, StringComparison.Ordinal);
+                var reservations = await m.Send(new GetMyReservationsQuery());
+                Assert.Equal(["build", "cart"], reservations.Select(r => r.Kind).Order(StringComparer.Ordinal));
+                Assert.All(reservations, r => Assert.Equal(("Reserved", LocalDataSeeder.BranchMain, customer.Name), (r.Status, r.Branch, r.ContactName)));
+                Assert.StartsWith(PcBuild.WebNumberPrefix + "-", reservations.Single(r => r.Kind == "build").Number, StringComparison.Ordinal);
+                Assert.StartsWith(PcBuild.WebCartNumberPrefix + "-", reservations.Single(r => r.Kind == "cart").Number, StringComparison.Ordinal);
+                mine[customer.Email] = reservations;
+                // Es un cliente: lo del personal no (regla P-04)
+                await Assert.ThrowsAsync<AccessDeniedException>(() => m.Send(new GetPcBuildsQuery()));
+            }
+        }
+        var (first, second) = (mine[customers[0].Email], mine[customers[1].Email]);
+        Assert.Empty(first.Select(r => r.Number).Intersect(second.Select(r => r.Number)));
+        var (other, om) = await SignInAsync(sp, customers[1], tenant);
+        using (other)
+        {
+            // La reserva de la otra cuenta «no existe» para cancelarla
+            await Assert.ThrowsAsync<NotFoundException>(() => om.Send(new CancelMyReservationCommand(first[0].Number)));
+        }
+
+        var admin = result.Users.First(u => u.RoleCode == RoleCodes.Admin);
+        var (adminScope, am) = await SignInAsync(sp, admin, tenant);
+        using (adminScope)
+        {
+            // Las reservas de las cuentas siguen vigentes y quedaron ligadas a su cliente; los armados, sin errores de compatibilidad
+            var numbers = mine.Values.SelectMany(v => v).Select(r => r.Number).ToHashSet(StringComparer.Ordinal);
+            var rows = (await am.Send(new GetPcBuildsQuery(Channel: PcBuildChannel.Web))).Where(r => numbers.Contains(r.Number)).ToList();
+            Assert.Equal(4, rows.Count);
+            Assert.All(rows, r => Assert.Equal((PcBuildStatus.Reserved, r.ContactName), (r.Status, r.Customer)));
+            Assert.All(rows.Where(r => r.Kind == PcBuildKind.Build), r => Assert.False(r.QuotedWithErrors, r.Number));
+
+            // Carritos: el de la tienda de un solo monitor (vigente, con el CI para la factura), el vencido y el de mostrador
+            var carts = await am.Send(new GetPcBuildsQuery(Kind: PcBuildKind.Cart));
+            var single = Assert.Single(carts, c => c.Channel == PcBuildChannel.Web && c.Customer is null && c.Status == PcBuildStatus.Reserved);
+            Assert.Equal((1, 1m, 1), (single.Items, single.Reserved, single.BuyerDocumentType));
+            var monitor = Assert.Single((await am.Send(new GetPcBuildQuery(single.Number))).QuotedItems);
+            Assert.Equal("MON", TechSeedCatalog.Current.Product(monitor.Sku).Category);
+            var expired = Assert.Single(carts, c => c.Status == PcBuildStatus.Cancelled && c.CancelReason == PcBuild.ExpiredReason);
+            Assert.Equal((PcBuildChannel.Web, 0m), (expired.Channel, expired.Reserved));   // el vencimiento devolvió el stock
+            var counter = Assert.Single(carts, c => c.Channel == PcBuildChannel.Desktop);
+            Assert.Equal((PcBuildStatus.Reserved, LocalDataSeeder.BranchMain, 1), (counter.Status, counter.BranchCode, counter.BuyerDocumentType));
+            Assert.StartsWith($"{PcBuild.CartNumberPrefix}-{LocalDataSeeder.BranchMain}-", counter.Number, StringComparison.Ordinal);
+            Assert.Equal(counter.ContactName, counter.Customer);   // para un cliente habitual de la casa matriz
+
+            // Correos: la confirmación de cada reserva quedó en la cola, sin intentos (nadie envía durante la carga, regla B-08)
+            var queue = await am.Send(new GetOutgoingMailsQuery(OutgoingMailStatus.Pending, Take: 500));
+            Assert.Equal(web.QueuedMails, queue.Count);
+            Assert.All(customers, c => Assert.Equal(mine[c.Email].Select(r => r.Number).Order(StringComparer.Ordinal),
+                queue.Where(q => q.Recipient == c.Email).Select(q => q.Reservation).Order(StringComparer.Ordinal)));
+            Assert.Contains(queue, q => q.Reservation == single.Number);
+            Assert.Contains(queue, q => q.Reservation == counter.Number);
+            Assert.Contains(queue, q => q.Reservation == expired.Number);   // lo cancelará el despachador: la reserva ya no está vigente
+            Assert.All(queue, q => Assert.Equal((0, (string?)null), (q.Attempts, q.LastError)));
+
+            // Los registros fueron por el canal web y la auditoría no guarda la contraseña (regla P-03)
+            var db = adminScope.ServiceProvider.GetRequiredService<MinvWriteDbContext>();
+            var audits = await db.AuditLogs.AsNoTracking().Where(a => a.Action == "RegisterCustomerAccount").ToListAsync();
+            Assert.Equal(2, audits.Count(a => a.Outcome == AuditOutcome.Succeeded && a.Channel == RequestChannels.Web));
+            Assert.All(customers, c => Assert.DoesNotContain(audits, a => (a.Details ?? string.Empty).Contains(c.Password, StringComparison.Ordinal)));
+        }
+
+        // El archivo de usuarios de prueba: el personal como siempre y las cuentas en su propia sección, con las mismas columnas
+        var text = SeedUsersFile.Text(result);
+        var lines = text.Split('\n').Select(l => l.TrimEnd('\r')).ToList();
+        var section = lines.FindIndex(l => l.StartsWith(SeedUsersFile.CustomersTitle, StringComparison.Ordinal));
+        Assert.True(section > lines.FindIndex(l => l.StartsWith($"{admin.RoleName,-15} {admin.Name,-26} {admin.Email,-44} ", StringComparison.Ordinal)));
+        Assert.All(customers, c => Assert.Contains($"{c.RoleName,-15} {c.Name,-26} {c.Email,-44} {c.Password}", lines.Skip(section)));
+        Assert.All(customers, c => Assert.DoesNotContain(lines.Take(section), l => l.Contains(c.Email, StringComparison.Ordinal)));
+        Assert.Contains($"Tienda web (V7): 2 cuentas de cliente con 4 reservas propias", text, StringComparison.Ordinal);
+        // Su lector (las capturas del escritorio con la base local, ScreenshotRunner.LocalUsers) sigue encontrando la empresa, el
+        // administrador y el cajero: la primera fila que empieza con el rol, el correo y la contraseña que siguen
+        (string, string)? Find(string role) => lines
+            .Select(l => Regex.Match(l, "^" + role + @"\s.*?\s(?<correo>[^\s@]+@[^\s@]+)\s+(?<clave>\S+)"))
+            .Where(x => x.Success).Select(x => ((string, string)?)(x.Groups["correo"].Value, x.Groups["clave"].Value)).FirstOrDefault();
+        Assert.Equal(tenant, Regex.Match(text, @"código de empresa: (\S+)").Groups[1].Value);
+        Assert.Equal((admin.Email, admin.Password), Find("Administrador"));
+        var cashier = result.Users.First(u => u.RoleCode == RoleCodes.Cashier);
+        Assert.Equal((cashier.Email, cashier.Password), Find("Cajero"));
     }
 
     [Fact]

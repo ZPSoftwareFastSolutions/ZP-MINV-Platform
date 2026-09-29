@@ -54,6 +54,17 @@ public sealed class CartFlowTests : IAsyncLifetime
         int? holdDays = null, ReservationBuyerInput? buyer = null, string? notes = null, string name = "Ana Quispe") =>
         new(lines, new StorefrontContactInput(name, phone, "ana@correo.example"), notes, key, null, PcBuildKind.Cart, holdDays, buyer);
 
+    /// <summary>Último correlativo de los números con ese prefijo (0 si todavía no hay ninguno): la carga de prueba ya trae
+    /// carritos de la tienda y de mostrador (V7, regla P-13), así que la numeración de las pruebas sigue a la suya.</summary>
+    private static async Task<int> LastNumberAsync(MinvWriteDbContext db, string prefix)
+    {
+        db.ChangeTracker.Clear();
+        return (await db.PcBuilds.AsNoTracking().Where(b => b.Number.StartsWith(prefix + "-")).Select(b => b.Number).ToListAsync())
+            .Select(n => int.Parse(n[(prefix.Length + 1)..], System.Globalization.CultureInfo.InvariantCulture)).DefaultIfEmpty(0).Max();
+    }
+
+    private static string Numbered(string prefix, int correlative) => $"{prefix}-{correlative:000000}";
+
     private static async Task<(decimal OnHand, decimal Reserved)> StockAsync(MinvWriteDbContext db, string sku)
     {
         db.ChangeTracker.Clear();
@@ -107,10 +118,15 @@ public sealed class CartFlowTests : IAsyncLifetime
         var game = snapshot.Products.Where(p => p.Category == "JUE" && p.Available >= 2).OrderBy(p => p.Sku, StringComparer.Ordinal).First();
         Assert.Equal(2, cases.Count);
         Assert.True(monitor.Serialized);
+        // V7 · La carga de prueba ya trae carritos (de la tienda, de las cuentas de cliente y de mostrador): la numeración sigue
+        var last = await LastNumberAsync(db, PcBuild.WebCartNumberPrefix);
+        var seededCarts = await db.PcBuilds.AsNoTracking().Where(b => b.Kind == PcBuildKind.Cart).Select(b => b.Number).ToListAsync();
+        string[] numbers = [Numbered(PcBuild.WebCartNumberPrefix, last + 1), Numbered(PcBuild.WebCartNumberPrefix, last + 2),
+            Numbered(PcBuild.WebCartNumberPrefix, last + 3)];
 
         // 1. Un solo monitor, sin pasar por el armador y sin ranura: 1 día para recogerlo
         var single = (await SendAsync(scope, Cart("c-monitor", [new StorefrontReservationLineInput(monitor.Sku)], holdDays: 1))).Reservation;
-        Assert.Equal("RES-WEB-000001", single.Number);
+        Assert.Equal(numbers[0], single.Number);
         // V7 (B3) · Con correo de contacto, la confirmación queda encolada (mailQueued de verdad)
         Assert.Equal(("Reserved", "cart", true, false, "CM"), (single.Status, single.Kind, single.MailQueued, single.HasCompatibilityWarnings, single.Branch));
         var only = Assert.Single(single.Lines);
@@ -128,7 +144,7 @@ public sealed class CartFlowTests : IAsyncLifetime
         var result = await SendAsync(scope, Cart("c-varios", lines, holdDays: 3, buyer: buyer, notes: " Paso el sábado \r\n"));
         Assert.False(result.Replayed);
         var view = result.Reservation;
-        Assert.Equal(("RES-WEB-000002", "cart", "Reserved", "Paso el sábado"), (view.Number, view.Kind, view.Status, view.Notes));
+        Assert.Equal((numbers[1], "cart", "Reserved", "Paso el sábado"), (view.Number, view.Kind, view.Status, view.Notes));
         Assert.InRange((view.ReservedUntil!.Value - clock.UtcNow).TotalHours, 71.9, 72.1);
         Assert.Equal(4, view.Lines.Count);
         Assert.Equal(2, view.Lines.Count(l => l.Slot == "case"));
@@ -169,7 +185,7 @@ public sealed class CartFlowTests : IAsyncLifetime
         await Assert.ThrowsAsync<IdempotencyConflictException>(() =>
             SendAsync(scope, Cart("c-varios", lines, holdDays: 3, buyer: buyer, notes: "Paso el sábado") with { Kind = PcBuildKind.Build }));
         Assert.Equal((before.OnHand, before.Reserved + 2), await StockAsync(db, cases[0].Sku));
-        Assert.Equal(2, await db.PcBuilds.AsNoTracking().CountAsync(b => b.Kind == PcBuildKind.Cart));
+        Assert.Equal(seededCarts.Count + 2, await db.PcBuilds.AsNoTracking().CountAsync(b => b.Kind == PcBuildKind.Cart));
 
         // 4. Los armados siguen igual: su numeración es aparte, deducen la ranura y dos gabinetes en un armado se rechazan
         var build = (await SendAsync(scope, new CreateStorefrontReservationCommand([new StorefrontReservationLineInput(cases[0].Sku, 1)],
@@ -180,15 +196,16 @@ public sealed class CartFlowTests : IAsyncLifetime
         Assert.Equal("pcbuild.slot", (await Assert.ThrowsAsync<DomainException>(() => SendAsync(scope, new CreateStorefrontReservationCommand(
             [new StorefrontReservationLineInput(cases[0].Sku, 1, "case"), new StorefrontReservationLineInput(cases[1].Sku, 1, "case")],
             new StorefrontContactInput("Mateo Condori", "76543210"), null, "a-dos-gabinetes")))).Code);
-        Assert.Equal("RES-WEB-000003", (await SendAsync(scope, Cart("c-tercero", [new StorefrontReservationLineInput(game.Sku)], phone: "70000002"))).Reservation.Number);
+        Assert.Equal(numbers[2], (await SendAsync(scope, Cart("c-tercero", [new StorefrontReservationLineInput(game.Sku)], phone: "70000002"))).Reservation.Number);
 
         // 5. El cliente consulta su carrito con el número y el teléfono; el escritorio lo filtra por tipo y ve los datos de factura
         var mine = await SendAsync(scope, new GetStorefrontReservationQuery(view.Number.ToLowerInvariant(), "+591 7123-4567"));
         Assert.Equal((view.Number, "cart", "Reserved", 4), (mine.Number, mine.Kind, mine.Status, mine.Lines.Count));
         await Assert.ThrowsAsync<NotFoundException>(() => SendAsync(scope, new GetStorefrontReservationQuery(view.Number, "79999999")));
         var carts = await SendAsync(scope, new GetPcBuildsQuery(Kind: PcBuildKind.Cart));
-        Assert.Equal(["RES-WEB-000001", "RES-WEB-000002", "RES-WEB-000003"], carts.Select(c => c.Number).Order(StringComparer.Ordinal));
-        Assert.All(carts, c => Assert.Equal((PcBuildKind.Cart, true, PcBuildChannel.Web), (c.Kind, c.IsCompatible, c.Channel)));
+        Assert.Equal(seededCarts.Concat(numbers).Order(StringComparer.Ordinal), carts.Select(c => c.Number).Order(StringComparer.Ordinal));
+        Assert.All(carts, c => Assert.Equal((PcBuildKind.Cart, true), (c.Kind, c.IsCompatible)));
+        Assert.All(carts.Where(c => numbers.Contains(c.Number)), c => Assert.Equal(PcBuildChannel.Web, c.Channel));
         var row = carts.Single(c => c.Number == view.Number);
         Assert.Equal((1, "4567890", "1A", "Ana Quispe Mamani", "71234567", 6m),
             (row.BuyerDocumentType, row.BuyerDocumentNumber, row.BuyerComplement, row.BuyerName, row.ContactPhone, row.Reserved));
@@ -293,6 +310,8 @@ public sealed class CartFlowTests : IAsyncLifetime
         var product = snapshot.Products.Where(p => !p.Serialized && p.Available >= 6 && p.Category == "JUE").OrderBy(p => p.Sku, StringComparer.Ordinal).First();
         var before = await StockAsync(db, product.Sku);
         StorefrontReservationLineInput[] Line(int quantity) => [new(product.Sku, quantity)];
+        // Las reservas vigentes de la carga (V6 y V7): de hace unas horas y de 48 h, vencen entre las 25 y las 49 horas
+        var seeded = await db.PcBuilds.AsNoTracking().CountAsync(b => b.Status == PcBuildStatus.Reserved);
 
         // 1. El cliente libera su carrito con el teléfono con que reservó: el stock vuelve
         var cancelled = (await SendAsync(scope, Cart("l-1", Line(2), phone: "76543210"))).Reservation;
@@ -324,8 +343,9 @@ public sealed class CartFlowTests : IAsyncLifetime
             Assert.Equal(("Expired", "Vencida", PcBuild.ExpiredReason, "cart"), (expired.Status, expired.StatusText, expired.CancelReason, expired.Kind));
             Assert.Equal((before.OnHand, before.Reserved + 3), await StockAsync(db, product.Sku));
             clock.StartAt(real.AddHours(73));
-            // Vence el de 3 días y, si la carga de prueba consiguió stock para ella, la reserva web activa de la carga (48 h)
-            Assert.InRange(await SendAsync(scope, new ExpirePcBuildReservationsCommand()), 1, 2);
+            // Vence el de 3 días y también las vigentes de la carga (48 h): la reserva web de la V6 y, V7, los carritos y las reservas
+            // de las cuentas de cliente
+            Assert.Equal(1 + seeded, await SendAsync(scope, new ExpirePcBuildReservationsCommand()));
             Assert.Equal(before, await StockAsync(db, product.Sku));
             Assert.Empty(await db.PcBuilds.AsNoTracking().Where(b => b.Status == PcBuildStatus.Reserved).ToListAsync());
             var history = (await SendAsync(scope, new GetPcBuildQuery(threeDays.Number))).History!;
@@ -402,12 +422,16 @@ public sealed class CartFlowTests : IAsyncLifetime
         var game = snapshot.Products.Where(p => p.Category == "JUE" && p.Available >= 3).OrderBy(p => p.Sku, StringComparer.Ordinal).First();
         Assert.Equal(2, psus.Count);
         var before = await StockAsync(db, game.Sku);
+        // V7 · La carga de prueba ya trae un carrito de mostrador en la casa matriz: la numeración sigue a la suya
+        var prefix = $"{PcBuild.CartNumberPrefix}-{LocalDataSeeder.BranchMain}";
+        var last = await LastNumberAsync(db, prefix);
+        var counterCarts = await db.PcBuilds.AsNoTracking().CountAsync(b => b.Kind == PcBuildKind.Cart && b.Channel == PcBuildChannel.Desktop);
 
         // 1. Carrito de mostrador: dos fuentes distintas y un juego, para un cliente que deja su nombre y su teléfono
         var row = await SendAsync(seller, new ReserveCartCommand(
             [new CartItemInput(psus[0].Sku), new CartItemInput(psus[1].Sku), new CartItemInput(game.Sku, 2)], " Luis Rojas ", "(2) 221-2345", "Luis@Correo.example",
             "Pasa el lunes", 2, new ReservationBuyerInput(5, "1023456029", null, "Comercial Andina S.R.L."), "CF"));
-        Assert.Equal($"RES-{LocalDataSeeder.BranchMain}-000001", row.Number);
+        Assert.Equal(Numbered(prefix, last + 1), row.Number);
         Assert.Equal((PcBuildKind.Cart, PcBuildChannel.Desktop, PcBuildStatus.Reserved, LocalDataSeeder.BranchMain, true, false),
             (row.Kind, row.Channel, row.Status, row.BranchCode, row.IsCompatible, row.QuotedWithErrors));
         Assert.Equal(("Reserva de Luis Rojas", "Luis Rojas", "22212345", "luis@correo.example", "Pasa el lunes"),
@@ -447,12 +471,12 @@ public sealed class CartFlowTests : IAsyncLifetime
             strict.Handle(new ReserveCartCommand([new CartItemInput(game.Sku)], "Luis Rojas", "76543210", HoldDays: 2), default))).Code);
         seller.ServiceProvider.GetRequiredService<IMinvDbContext>().ClearTracking();
         Assert.Equal(before, await StockAsync(db, game.Sku));
-        Assert.Equal(1, await db.PcBuilds.AsNoTracking().CountAsync(b => b.Kind == PcBuildKind.Cart && b.Channel == PcBuildChannel.Desktop));
+        Assert.Equal(counterCarts + 1, await db.PcBuilds.AsNoTracking().CountAsync(b => b.Kind == PcBuildKind.Cart && b.Channel == PcBuildChannel.Desktop));
 
         // 3. Guardar un carrito con el caso de uso del armador: borrador RES, cotización sin compatibilidad, reserva y anulación
         var draft = await SendAsync(seller, new SavePcBuildCommand(null, "Carrito de Carla", "CF",
             [new PcBuildItemInput(null, psus[0].Sku), new PcBuildItemInput(PcSlot.Psu, psus[1].Sku), new PcBuildItemInput(null, game.Sku, 3)], Kind: PcBuildKind.Cart));
-        Assert.Equal(($"RES-{LocalDataSeeder.BranchMain}-000002", PcBuildKind.Cart, PcBuildStatus.Draft, true), (draft.Number, draft.Kind, draft.Status, draft.IsCompatible));
+        Assert.Equal((Numbered(prefix, last + 2), PcBuildKind.Cart, PcBuildStatus.Draft, true), (draft.Number, draft.Kind, draft.Status, draft.IsCompatible));
         Assert.Equal("pcbuild.kind", (await Assert.ThrowsAsync<DomainException>(() => SendAsync(seller,
             new SavePcBuildCommand(draft.Id, "Carrito de Carla", "CF", [new PcBuildItemInput(PcSlot.Psu, psus[0].Sku)], Quote: true)))).Code);
         var quoted = await SendAsync(seller, new SavePcBuildCommand(draft.Id, "Carrito de Carla", "CF",

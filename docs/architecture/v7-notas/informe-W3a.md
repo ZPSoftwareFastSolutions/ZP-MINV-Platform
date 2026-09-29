@@ -1,0 +1,405 @@
+# Informe del paquete W3a · componentes del panel (V7)
+
+## Resumen
+
+W3a (tarea 10, primera parte) terminado y todo en verde. Al empezar, `git log` mostró que un intento anterior había dejado en el commit 3ab5bea solo `panel/lib/format.ts` y `panel/lib/dates.ts`; `git status` de la web estaba limpio. Revisé esos dos archivos, los conservé tal cual (salvo usarlos) y construí el resto. No hice commit ni toqué nada fuera de `src/3. Presentation/MINV.WebCatalog` (salvo este informe). Sin dependencias nuevas.
+
+Qué hay en `src/4-presentation/panel/`:
+
+1. **`kit/`** · 36 componentes propios más el hook de avisos, cada archivo con su comentario de USO al principio, todos exportados desde `kit/index.ts`:
+   - Pantalla: `Page`, `Toolbar`, `Section`, `DetailList`.
+   - Filtros: `FilterBar`, `SearchField`, `SelectField`, `ComboBox`, `DateRangeField`.
+   - Tabla: `DataTable`, `RowActions`, `SidePanel`.
+   - Diálogos: `Dialog`, `ConfirmDialog`.
+   - Formularios: `Form`, `FormGrid`, `Field`, `FieldGroup`, `TextField`, `TextArea`, `NumberField`, `MoneyField`, `Checkbox`, `Switch`, `RadioGroup`.
+   - Datos: `Tabs`, `TabPanel`, `StatusBadge` (+ `defineStatuses`), `Collapsible`, `StatCard`, `BarList`, `MiniBars`, `ActionButton`.
+   - Estados: `ErrorState`, y reexportados `EmptyState`, `LoadingState` y `Skeleton`.
+   - Avisos y permisos: `useNotify`, `PermissionGate`, `AccessDenied`.
+   - Reexportados del sistema visual: `Button`, `IconButton`, `Alert`. Así un módulo importa TODO desde el kit.
+2. **`hooks/`**:
+   - `useRpcQuery`, `useRpcCommand`, `usePermissions` (más `permissionsOf`) y `useTableState`.
+   - Todos exportados desde `hooks/index.ts`.
+3. **`lib/`** (funciones puras, exportadas desde `lib/index.ts`):
+   - `format` (ya existía): bolivianos, fechas y horas de La Paz, cantidades.
+   - `dates` (ya existía): rangos y atajos.
+   - `numbers`: leer números escritos a mano.
+   - `table`: orden, páginas, formato de celdas y búsqueda.
+   - `csv`: `exportCsv`.
+   - `rpc`: llave de contenido, `requestId` por intento y el permiso que falta, dicho en palabras.
+4. **`showcase/`** · la página interna `/panel/_componentes`, solo en desarrollo, con datos de ejemplo:
+   - 137 ventas inventadas.
+   - Todos los componentes en nueve bloques.
+   - Una pantalla de lista completa que sirve de modelo: filtros en la dirección, tabla, menú de fila, panel lateral con pestañas, confirmación con motivo y CSV.
+5. **Pruebas** · 13 archivos y 125 pruebas en la carpeta del panel, más `renderPanel` en `src/test-utils.tsx`.
+
+Cambios en archivos existentes de la web (mínimos):
+
+- `app/routeTable.tsx`: la ruta de desarrollo `/panel/_componentes`, detrás de la guarda del personal. Condición `import.meta.env.DEV`, así que no entra en la versión publicada. Lo comprobé: en `dist` no aparecen ni «_componentes» ni la página.
+- `components/feedback/ToastProvider.tsx`: los avisos de error y de advertencia muestran la descripción completa. Antes se cortaba a 2 líneas y se perdía el nombre del permiso que falta.
+- `src/test-utils.tsx`: nueva `renderPanel`.
+- `README.md`: nueva sección «V7 · Componentes del panel».
+
+Verificado en un navegador real (servidor de desarrollo con `VITE_API_URL=mock` en 127.0.0.1:5193, ya detenido; ingreso con el usuario de muestra del personal):
+
+- A 1024 px, los 105 controles visibles miden 44 px o más.
+- No hay desplazamiento horizontal de la página ni a 1024 ni a 360 px.
+- A 360 px la tabla pasa a tarjetas, los filtros se pliegan y los botones de la cabecera ocupan todo el ancho. Por debajo de 400 px, «Desde» y «Hasta» van una debajo de la otra: lo hace el CSS y no lo revisé con una captura.
+- Flujos probados, todos correctos:
+  - Menú «⋯» → «Ver detalle» (panel lateral) → «Anular venta».
+  - Confirmación con «Cancelar» enfocado y botón deshabilitado sin motivo → aviso «Venta anulada» y el estado pasa a «Anulada».
+  - Lista con búsqueda: se filtra con Enter y el filtro queda en la dirección (`?cliente=CLI-0001`).
+  - «Ver estadísticas» monta el contenido recién al abrir.
+  - Formulario vacío: el foco va al primer campo con error.
+  - Diálogo: el foco entra al campo con `data-autofocus`, `#root` queda inerte y Escape devuelve el foco.
+  - El aviso de permiso faltante se lee completo.
+- Consola sin errores después de la corrección del punto siguiente.
+
+**Hallazgo en el navegador (corregido):** el cajón existente `components/ui/Drawer` vuelve a ejecutar «cerrar al navegar» cada vez que cambia la identidad de `onClose`. Si una pantalla pasa una función nueva en cada dibujo y esa función crea un estado nuevo, navegar con el panel abierto arma un ciclo sin fin: React avisa «Maximum update depth exceeded» y aparece «Algo salió mal». Lo corregí sin tocar el Drawer compartido:
+
+- `SidePanel` y `Dialog` le pasan un cierre estable (`kit/stableClose.ts`).
+- Ese cierre usa siempre la última `onClose` y avisa solo si la capa está abierta.
+- Una prueba de regresión lo cubre (`kit/SidePanel.test.tsx`).
+
+## Contratos (nombres exactos)
+
+- IMPORTACIONES DE UN MÓDULO:
+  - `import { … } from '@/4-presentation/panel/kit'`
+  - `import { useRpcQuery, useRpcCommand, usePermissions, useTableState } from '@/4-presentation/panel/hooks'`
+  - `import { formatMoney, formatDateTime, exportCsv, csvColumnsOf, … } from '@/4-presentation/panel/lib'`
+  - Los tipos del servidor salen SOLO de `'@/4-presentation/app/contract'` (`RpcRequestOf<K>`, `RpcResponseOf<K>`, tipos generados). Regla P-07.
+- PATRÓN DE UNA PANTALLA DE LISTA · el modelo completo está en `panel/showcase/SalesDemo.tsx`:
+  - `const tabla = useTableState({ filters: { q: '', estado: '', desde: '', hasta: '' }, sort: { column: 'fecha', direction: 'desc' } })`
+  - `const lista = useRpcQuery('<Op>Query', { …filtros del servidor })`
+  - `<Page title actions>` → `<FilterBar activeCount={tabla.activeFilterCount} onClear={tabla.clearFilters}>` → `<Toolbar end={exportar}>` → `<DataTable {...tabla.tableProps} rows={filtradas} loading={lista.loading} refreshing={lista.fetching} error={lista.error} onRetry={lista.reload} …/>` → `<SidePanel>` y `<ConfirmDialog>`.
+  - Columnas definidas FUERA del componente (o con `useMemo`), para no volver a ordenar en cada dibujo.
+- Page:
+  - `Page({ title, description?, breadcrumbs?: PageCrumb[], actions?, badge?, children?, className? })`
+  - `PageCrumb { label; to? }`: la última miga no lleva `to`.
+  - Fija el título de la pestaña a «<title> · Panel · Tech Zone Gaming».
+  - NO agrega márgenes laterales: los pone el esqueleto.
+  - En el teléfono las migas se reducen a «‹ anterior» y los botones ocupan el ancho.
+- Toolbar, Section y DetailList:
+  - `Toolbar({ label? = 'Acciones de la lista', children (izquierda), end (derecha), className? })`. Tiene `role="group"`.
+  - `Section({ title, description?, actions?, level? 2|3, id?, children?, className? })`
+  - `DetailList({ items: DetailItem[], columns? 1|2, className? })`. `DetailItem { label; value; wide? }`. Un valor vacío se muestra como «—».
+- FilterBar:
+  - `FilterBar({ activeCount, onClear, children, title? = 'Filtros', extra?, className? })`.
+  - Grilla de 1, 2 o 4 columnas.
+  - «Limpiar filtros» queda `aria-disabled` con 0 activos: conserva el foco.
+  - En el teléfono se pliega con un botón que dice «Mostrar» u «Ocultar» y se anuncia como «Mostrar filtros» u «Ocultar filtros». Empieza abierta si hay filtros activos.
+  - `data-testid="filtros-activos"` muestra «Ninguno activo», «1 activo» o «N activos».
+- SearchField:
+  - `SearchField({ label, value, onChange(texto), placeholder?, delay? = SEARCH_DELAY_MS (300), hideLabel?, hint?, error?, autoFocus?, disabled?, ref?, className? })`
+  - `value` es el texto YA aplicado; el campo lo sigue si cambia desde afuera.
+  - Enter aplica al instante. Escape (con texto) y la «×» («Borrar la búsqueda») borran.
+  - Entrega el texto sin espacios en los extremos.
+  - Es `role="searchbox"`.
+- SelectField:
+  - `SelectField<T extends string>({ label, value: T | '', onChange(T | ''), options: SelectOption<T>[], allLabel? = 'Todos' | false, placeholder?, required?, optional?, hint?, error?, hideLabel?, disabled?, name?, autoFocus?, ref?, className? })`
+  - Usa la lista nativa. «Todos» vale ''.
+  - Con `allLabel={false}` la opción vacía queda deshabilitada y muestra el `placeholder` (por defecto «Elija una opción»).
+  - Un valor desconocido se sigue mostrando.
+- ComboBox:
+  - `ComboBox<T>({ label, value: ComboOption<T> | null, onChange(option | null), options? | loadOptions?(texto, signal), minChars? (2 con carga asíncrona, 0 con lista fija), delay? = 250, placeholder?, emptyText? = 'Sin resultados', maxResults? = 50, clearable? (por defecto !required), required?, optional?, hint?, error?, hideLabel?, disabled?, autoFocus?, ref?, className? })`
+  - `ComboOption<T> { value; label; description?; disabled?; data?: T }`.
+  - Teclado:
+    - ↓ y ↑ abren la lista y se mueven; ↓ la abre en la opción elegida y Alt+↓ la abre sin moverse.
+    - Enter elige. Con un error de búsqueda, Enter reintenta.
+    - Escape cierra; un segundo Escape deshace lo escrito.
+    - Tab cierra.
+  - Salir sin elegir deshace lo escrito. Borrar el texto y salir quita la selección.
+  - La «×» se anuncia como «Quitar <etiqueta en minúsculas>».
+  - Anuncia la cantidad de resultados en una región viva.
+  - Con más de `maxResults` resultados pide seguir escribiendo.
+  - `data-testid="combobox-mensaje"`.
+- DateRangeField:
+  - `DateRangeField({ label, value: DateRange, onChange(rango), shortcuts?: DateShortcutId[] | false, hint?, error?, now?, disabled?, className? })`.
+  - Es un `fieldset` con los chips «Todas», «Hoy», «Ayer», «Últimos 7 días», «Este mes» y «Mes anterior» (con `aria-pressed`) y las fechas «Desde» y «Hasta».
+  - Pulsar el atajo ya marcado quita el filtro.
+  - Avisa el rango al revés con «La fecha «Desde» no puede ser posterior a «Hasta».».
+  - Ocupa dos columnas desde 640 px.
+- DataTable · la columna es `DataTableColumn<T> { id; header; cell?; value?; sortable?; align? 'start'|'center'|'end'; footer?(todasLasFilas); className?; hideHeader?; card? 'title'|'hidden'; csv? }`.
+  - Sin `cell`, se muestra `value` con formato.
+  - Por defecto se ordena por la columna si tiene `value`.
+  - `footer` recibe TODAS las filas filtradas, no solo las de la página.
+- DataTable · props:
+  - `DataTable<T>({ caption, columns, rows, rowKey, rowLabel?, loading?, refreshing?, error?, onRetry?, operation?, empty?: DataTableEmpty, sort?, onSortChange?, defaultSort?, paginate? = true, page?, onPageChange?, pageSize?, onPageSizeChange?, pageSizes? = PAGE_SIZES, selection?, onSelectionChange?, renderExpanded?, rowActions?, onRowOpen?, activeRowKey?, footerLabel? = 'Totales', maxHeightClass? = 'sm:max-h-[70vh]', className? })`
+  - `DataTableEmpty { title; description?; action?; icon? }`.
+  - `rows` son las filas YA filtradas: la tabla solo ordena y pagina.
+- DataTable · comportamiento:
+  - Orden al pulsar el encabezado: ascendente → descendente → sin orden, con `aria-sort`.
+  - Pie con «Mostrando 1–25 de 230», «Filas por página» y la paginación.
+  - Selección:
+    - Casillas «Seleccionar <fila>» y «Seleccionar todas las filas de esta página» (con estado parcial).
+    - El pie muestra «N seleccionadas» y el botón «Quitar selección».
+  - Fila desplegable con el botón «Detalle de <fila>» (`aria-expanded`).
+  - Con `onRowOpen`, la columna principal se vuelve un botón y el clic en la fila abre el detalle. El clic en sus controles no.
+  - Totales: la fila de totales dice «Totales (las N filas)» si hay más de una página.
+  - Estados:
+    - Primera carga: esqueleto.
+    - Vacío: el estado vacío.
+    - Error sin filas: `ErrorState` con «Reintentar» (sin él si falta un permiso).
+    - Error con filas a la vista: un aviso «No se pudo actualizar la lista» y las filas siguen.
+    - `refreshing`: una barra fina arriba y el aviso «Actualizando …».
+  - Cabecera y pie fijos dentro de un área con desplazamiento propio desde 640 px.
+  - Por debajo de 640 px (`useMediaQuery`), tarjetas con «etiqueta: valor», la lista «Ordenar por» y un paginador compacto «Página N de M».
+  - `data-testid`:
+    - `tabla`, `tabla-totales`.
+    - Cada fila: `data-row-key` y `data-selected`.
+- RowActions:
+  - `RowActions({ label, actions: RowActionItem[], className? })`.
+  - `RowActionItem { label; icon?; onSelect; tone? 'default'|'danger'; disabled?; disabledReason?; permission?; hidden? }`.
+  - Las acciones con `permission` se ocultan si la sesión no lo tiene. Las peligrosas van al final, separadas.
+  - El menú se dibuja en un portal con posición fija, así la tabla no lo recorta. Se cierra al desplazar o al hacer clic afuera.
+  - Teclado del menú:
+    - ↓ y ↑ lo abren; Inicio y Fin se mueven al extremo.
+    - Una letra salta a la opción que empieza con ella.
+    - Escape cierra y devuelve el foco; Tab cierra y sigue desde el botón.
+  - `data-testid="menu-acciones"`.
+- SidePanel:
+  - `SidePanel({ open, onClose, title, description?, footer?, headerExtra?, size? 'md' (448 px) | 'lg' (512 px, por defecto), loading?, error?, onRetry?, children? })`.
+  - Envuelve el Drawer existente.
+  - `onClose` se llama UNA vez por cierre aunque sea una función nueva en cada dibujo.
+- Dialog:
+  - `Dialog({ open, onClose, title, description?, size? 'sm' (400 px) | 'md' (512 px) | 'lg' (672 px) | 'xl' (896 px), footer?, children?, alert?, dismissible? = true, closeLabel? = 'Cerrar' })`.
+  - El foco va al elemento con `data-autofocus` o, si no hay, al primer control.
+  - En el teléfono se abre como hoja inferior.
+  - `data-testid="dialogo-fondo"` es el fondo.
+- ConfirmDialog:
+  - `ConfirmDialog({ open, onClose, title, message, confirmLabel? = 'Confirmar', cancelLabel? = 'Cancelar', tone? 'primary'|'danger', onConfirm: () => unknown, error?, confirmDisabled?, children? })`.
+  - Es un `alertdialog` que enfoca «Cancelar».
+  - Mientras `onConfirm` trabaja queda ocupado y no se cierra.
+  - Se cierra solo si el resultado NO es `false` ni `{ ok: false }`. Pasar `() => comando.run(…)` funciona directamente.
+- Form y FormGrid:
+  - `Form({ onSubmit: () => unknown, error?, actions?, busy?, id?, …atributos de <form> })`.
+  - Usa `noValidate`. Después de enviar, el foco va al primer `[aria-invalid="true"]`.
+  - Dentro de un Dialog: `<Form id="x">` y `<Button type="submit" form="x">` en el pie del diálogo.
+  - `FormGrid({ children, className? })` usa 1 columna o 2 desde 640 px. Con `sm:col-span-2` un campo ocupa las dos.
+- Field y FieldGroup:
+  - `Field({ label, hint?, error?, required?, optional?, hideLabel?, labelExtra?, className?, children: (control: FieldControlProps) => ReactNode })`.
+  - `FieldControlProps { id; 'aria-describedby'?; 'aria-invalid'?; required? }`.
+  - `FieldGroup` es igual pero con `fieldset` y `legend`.
+  - `FieldFrameProps` = `{ label, hint?, error?, required?, optional?, hideLabel?, className? }`.
+- Campos de texto y número. TODOS trabajan con el VALOR, no con el evento:
+  - `TextField({ …FieldFrameProps, value: string, onChange(texto), leading?, trailing?, inputClassName?, ref?, …atributos de <input> })`.
+  - `TextArea({ …, value, onChange, maxLength? })`. Con `maxLength` muestra el contador «12 / 200». `rows` vale 4 por defecto.
+  - `NumberField({ …, value: number | null, onChange(número | null), decimals? = 0, allowNegative? = false, unit?, prefix?, fixedDecimals?, placeholder?, disabled?, readOnly?, name?, autoFocus?, onBlur?, ref? })`.
+  - `MoneyField` es un NumberField con `decimals` 2, prefijo «Bs» y los decimales siempre a la vista.
+  - Números:
+    - Aceptan «1.234,50» y «1234.5».
+    - Al salir del campo se muestran con formato.
+    - Entregan null si el texto está vacío o no sirve. El campo muestra el porqué: «Escriba un número, por ejemplo 1.500.», «Escriba un número entero.», «Escriba un número positivo.» o «Use como máximo N decimales.».
+- Casillas y opciones:
+  - `Checkbox({ label, description?, checked, onChange(boolean), indeterminate?, error?, className?, …atributos })`.
+  - `Switch({ label, description?, checked, onChange, disabled?, className? })`. Es `role="switch"`.
+  - `RadioGroup<T>({ …FieldFrameProps, value: T | null, onChange(T), options: RadioOption<T>[], orientation? 'vertical'|'horizontal', name?, disabled? })`.
+  - El nombre accesible es solo la etiqueta; la descripción se lee aparte.
+- Tabs y TabPanel:
+  - `Tabs<T>({ label, tabs: TabItem<T>[], value, onChange, children?, className? })`. `TabItem { id; label; icon?; count?; disabled? }`.
+  - `TabPanel({ id, keepMounted?, className?, children })`.
+  - Solo se monta el panel elegido.
+  - Teclado: ← → (salta las deshabilitadas), Inicio y Fin.
+  - Los ids son únicos por grupo, así dos grupos no chocan.
+- StatusBadge y estados:
+  - `StatusBadge({ tone?: StatusTone, children })` o `StatusBadge({ status, statuses: StatusMap })`.
+  - `StatusTone` = `'neutral'|'info'|'success'|'warning'|'danger'|'accent'`.
+  - `defineStatuses({ Codigo: { label, tone } })`.
+  - `statusOf(map, código)`: un código desconocido se muestra tal cual, en gris.
+  - `statusOptions(map)` da las opciones para una SelectField de filtro.
+- Collapsible:
+  - `Collapsible({ label, openLabel?, description?, icon?, open?, onOpenChange?, keepMounted?, level? 2|3, children, className? })`.
+  - Empieza CERRADO. El contenido NO se monta hasta abrirlo y se desmonta al cerrar, salvo `keepMounted`.
+  - El título es un encabezado con un botón (`aria-expanded` y `aria-controls`).
+  - El símbolo ^ lleva `data-testid="plegable-simbolo"`; tiene `rotate-180` cerrado y `rotate-0` abierto.
+  - La sección lleva `data-state` = `abierto` o `cerrado`.
+- StatCard:
+  - `StatCard({ label, value, hint?, icon?, trend?: StatTrend, tone? 'default'|'success'|'warning'|'danger', loading?, className? })`.
+  - `StatTrend { direction 'up'|'down'|'flat'; text; positive? }`.
+- Gráficos (con los colores del tema):
+  - `BarList({ label, items: BarListItem[], format?, max?, tone?: ChartTone, emptyText?, className? })`. `BarListItem { label; value; hint? }`.
+  - `MiniBars({ label, points: MiniBarsPoint[], format?, height? = 64, tone? = 'accent', showAxis?, className? })`. `MiniBarsPoint { label; value }`.
+  - `ChartTone` = `'primary'|'accent'|'success'|'warning'|'danger'`.
+  - MiniBars es un SVG con `role="img"`, título y resumen (máximo, mínimo y total), más una tabla oculta con los valores para lectores de pantalla.
+- ActionButton:
+  - `ActionButton({ title, description?, icon, to? | onClick?, tone? 'primary'|'accent'|'neutral', badge?, disabled?, className? })`.
+  - El nombre accesible es el título (más el distintivo). La descripción se lee aparte.
+- Estados:
+  - `ErrorState({ error, title?, operation?, onRetry?, retrying?, className? })`. Lleva `data-testid="estado-error"`.
+    - Sin permiso: el título es «No tiene permiso para ver esto», el texto dice cuál falta y no hay «Reintentar».
+    - Otros errores: «No se pudo cargar la información».
+  - `EmptyState`, `LoadingState` y `Skeleton` son los de la tienda, reexportados.
+- AVISOS:
+  - `useNotify()` devuelve `{ success(título, descripción?), info(…), warning(…), error(título, detalle?) }`.
+  - `detalle` puede ser un texto o un error: se describe en palabras y, si falta un permiso, se dice cuál.
+  - Los errores y las advertencias duran 8 s.
+- PERMISOS:
+  - `PermissionGate({ permission?: string | string[], mode? 'all'|'any', operation?: RpcOperationName, fallback? = null, children })`.
+  - `AccessDenied({ permissions?, operation?, title? = 'No tiene permiso para ver esto', className? })`. Tiene `role="alert"`.
+- useRpcQuery:
+  - Firma: `useRpcQuery(operación, contenido, { enabled? = true, keepPreviousData? = true })`.
+  - Devuelve `{ data, error, status: 'idle'|'loading'|'success'|'error', loading, fetching, reload(), setData(valor | (actual) => nuevo) }`.
+  - `loading` es solo la primera carga; `fetching` indica cualquier pedido en curso.
+  - El contenido se compara por VALOR (`stableKey`).
+  - Descarta las respuestas viejas y cancela al desmontar (le pasa `signal` al RPC).
+  - Vuelve a consultar cuando cambia `session.access.activeBranchId`, y mientras tanto NO muestra los datos de la otra sucursal.
+- useRpcCommand:
+  - Firma: `useRpcCommand(operación, { success?: texto | false | (resultado, contenido) => texto, errorTitle?, notifyError? = true, onSuccess? })`.
+  - Devuelve `{ run(contenido), sending, error, errorText, requestId, reset() }`.
+  - `run` NUNCA lanza. Devuelve `RpcCommandOutcome`: `{ ok: true, result, replayed }` o `{ ok: false, error, message }`.
+  - Un doble clic no envía dos veces.
+  - `requestId`: el MISMO mientras se repite el mismo contenido (también después de una falla), y nuevo tras un éxito o si cambia el contenido.
+  - Avisos:
+    - Éxito: el texto de `success`.
+    - Error: el título es `errorTitle` o «No se pudo completar la operación», y el detalle es el mensaje del servidor.
+    - `access_denied`: el título es «No tiene permiso para esta operación» y el texto «Falta el permiso «<nombre>». Pida al administrador que se lo asigne.».
+    - Un 401 no avisa: la sesión se cierra sola.
+- usePermissions:
+  - Devuelve `{ session, permissions, can(p), canAny(lista), canAll(lista), missing(lista), canRun(operación) }`.
+  - `canRun` exige TODOS los permisos que el contrato declara para la operación.
+  - Fuera de `SessionProvider` responde como si no hubiera sesión.
+  - `permissionsOf(session)` es la versión pura.
+- useTableState:
+  - Firma: `useTableState({ filters?, sort?, pageSize? = 25, prefix?, ranges? })`.
+  - Devuelve:
+    - Filtros: `filters`, `setFilter(clave, valor)`, `setFilters(parcial)`, `clearFilters()`, `activeFilterCount`.
+    - Orden y página: `sort`, `setSort`, `page`, `setPage`, `pageSize`, `setPageSize`.
+    - Fechas: `dateRange(desde? = 'desde', hasta? = 'hasta')`, `setDateRange(rango, …)`.
+    - Para la tabla: `tableProps` = `{ sort, onSortChange, page, onPageChange, pageSize, onPageSizeChange }`.
+  - Parámetros de la dirección:
+    - Los filtros van con su nombre. `TABLE_PARAMS` = `{ sort: 'orden', direction: 'sentido', page: 'pagina', pageSize: 'filas' }` (nombres reservados). `orden=` significa «sin orden».
+    - Los valores por defecto no se escriben.
+    - Un rango `desde` y `hasta` cuenta como UN filtro.
+  - Al filtrar, ordenar o cambiar las filas por página vuelve a la página 1.
+  - REEMPLAZA la entrada del historial.
+  - Con `prefix`, dos listas conviven en la misma pantalla.
+- LIB · format:
+  - Constantes: `PANEL_LOCALE` = `'es-BO'`, `PANEL_TIME_ZONE` = `'America/La_Paz'`, `LA_PAZ_OFFSET` = `'-04:00'`, `EMPTY_VALUE` = `'—'`.
+  - `formatMoney(valor, decimales = 2)` → «Bs 1.234,50».
+  - `formatQuantity(valor, { unit?, maxDecimals? = 3 })`.
+  - `formatNumber`, `formatPercent`, `toDate`.
+  - Fechas: `formatDate` («28/09/2026»), `formatTime`, `formatDateTime` («28/09/2026 21:30»), `formatDateLong`.
+  - `toIsoDate`, `laPazToday`.
+  - Una fecha sin hora («2026-09-28») nunca se corre de día.
+- LIB · dates:
+  - `DateRange { from; to }` (días ISO, los dos incluidos). `EMPTY_RANGE`.
+  - `DateShortcutId` = `'hoy'|'ayer'|'ultimos7'|'esteMes'|'mesAnterior'`. `DATE_SHORTCUTS`.
+  - `isIsoDate`, `addDays`, `monthStart`, `shortcutRange(id, ahora)`, `matchingShortcut`, `isRangeActive`, `rangeError`.
+  - `dayStart` y `dayEnd` dan los límites del día en la hora de La Paz, para enviar al servidor. `inRange`.
+- LIB · numbers: `parseLocaleNumber(texto)` devuelve número, `null` (vacío) o `NaN`. `roundTo(valor, decimales)` redondea la mitad hacia arriba sin errores del binario.
+- LIB · table:
+  - Tipos: `SortDirection`, `SortState { column; direction }`, `CellValue`.
+  - `PAGE_SIZES` = [10, 25, 50, 100]. `DEFAULT_PAGE_SIZE` = 25.
+  - `sortRows(filas, valor, sentido)`: estable, vacíos al final y números naturales en el texto.
+  - `nextSort`, `pageCountOf`, `clampPage`.
+  - `paginate` → `PageSlice { rows, page, pageCount, from, to, total }`. `rangeText`.
+  - `formatCellValue`.
+  - `matchesSearch(texto, valores)`: todas las palabras, sin acentos.
+  - `csvColumnsOf(columnas de la tabla)`.
+- LIB · csv:
+  - `CsvValue`, `CsvColumn<T> { header; value }`.
+  - Constantes: `CSV_SEPARATOR` = `';'`, `CSV_BOM` = `'﻿'`, `CSV_NEWLINE` = `'\r\n'`.
+  - `neutralizeFormula`, `csvCell`, `buildCsv(columnas, filas, { bom? })`, `csvFileName(nombre, ahora?)` → «ventas-del-dia-2026-09-28.csv».
+  - `exportCsv(nombre, columnas, filas, { now?, bom? })` devuelve el nombre del archivo y descarga con un enlace temporal `blob:`.
+  - Formato de las celdas:
+    - Números sin comillas, sin miles y con coma decimal.
+    - Texto entre comillas, con `"` duplicadas.
+    - Fechas con la hora de La Paz; sí/no en palabras.
+    - Un texto que empieza con =, +, -, @, tabulador, retorno o salto de línea lleva un apóstrofo delante. Un `number` negativo NO se toca.
+- LIB · rpc:
+  - `stableKey`.
+  - `CommandAttempt`: `take(llave)`, `succeeded()` y `current`.
+  - `permissionsInMessage`, `missingPermissions(error, { operation?, granted? })`, `missingPermissionsText(códigos)`, `ACCESS_DENIED_TITLE`.
+  - `describePanelError(error, contexto?)` da el texto del panel.
+  - `isAbort`.
+  - ErrorContext = `{ operation?, granted? }`.
+- RUTA DE LA MUESTRA:
+  - `/panel/_componentes` está en `app/routeTable.tsx`, dentro de la guarda `RequireSession kind="staff"`, solo con `import.meta.env.DEV`.
+  - Carga diferida de `panel/showcase/ComponentsPage` (exportación `ComponentsPage`).
+  - NO está en `PanelRoot`: el esqueleto puede reemplazar PanelRoot sin conservar nada.
+- PRUEBAS · `renderPanel(ui, { web?, route? = '/panel', path? = '*' })` de `@/test-utils`:
+  - Devuelve `RenderPanelResult` (`location()` y `router`).
+  - Arma la sesión del personal de muestra, los avisos y un enrutador en memoria con una ruta `/ingresar` de relleno (`data-testid="ingresar"`), sin catálogo.
+  - Espera a `data-testid="panel-listo"`.
+- PRUEBAS · testid de la muestra: `data-testid="estadisticas-montadas"` (bloque Tablero).
+
+## Desviaciones del diseño
+
+- **Dónde viven el formato y el CSV.**
+  - El diseño §7 pone «formato y exportar CSV» en `2-application/panel/`. Quedaron en `4-presentation/panel/lib/`, como pide el encargo y como ya lo había empezado el intento anterior.
+  - Así se descargan solo con el panel.
+  - Todo es puro salvo la descarga de `exportCsv`; se puede mover después sin cambiar nombres.
+- **La ruta de la muestra.** Se registró en `routeTable.tsx`, no dentro de `PanelRoot`, para que el paquete del esqueleto no tenga que conservar nada.
+- **Aviso compartido modificado.** En `ToastProvider` las descripciones de error y advertencia ya no se cortan a 2 líneas. También cambia en la tienda, pero solo para esos dos tonos.
+- **Componentes propios en vez de los de la tienda.**
+  - Migas: `Page` trae las suyas, de 44 px. Las `Breadcrumbs` de la tienda miden 32 px de alto desde 640 px.
+  - Pestañas: `Tabs` es propio del kit. Las de la tienda usan ids globales (`tab-${id}`) que chocarían entre dos grupos, y montan todos los paneles.
+  - Diálogo: `Dialog` es nuevo, pero usa la misma pila de capas (`modalLayer.ts`).
+  - Panel lateral: `SidePanel` envuelve el Drawer, que no tiene tamaño xl: 448 o 512 px.
+- **Cierre estable (`stableClose.ts`).** Existe por la falla del Drawer descrita en el Resumen. No modifiqué el Drawer porque es compartido.
+- **`requestId` después de un rechazo del servidor.** Se CONSERVA mientras el contenido no cambie: es la lectura literal de «estable por intento y nuevo tras éxito o cambio del contenido».
+  - W1 (`AttemptKey`) lo renueva ante cualquier respuesta del servidor.
+  - Es inofensivo si, como dice B-09, el servidor solo guarda el registro de idempotencia de los comandos que terminaron bien.
+  - Si no fuera así, basta cambiar `CommandAttempt` para renovar tras un error que no sea de red.
+- **Cómo se detecta el permiso que falta.**
+  - Se busca en el mensaje del servidor el patrón «permiso <código>». Hoy `PipelineBehaviors.cs` dice «Su rol no tiene el permiso {p.Permission}.».
+  - Si el mensaje no lo nombra, se usan los permisos que el contrato declara para la operación, menos los de la sesión.
+  - Otros rechazos (sucursal, módulo sin licencia) muestran el mensaje del servidor.
+- **Números con un solo punto.** «1.234» (grupo exacto de 3 cifras) se lee como 1234, y «12.5» como 12,5. En `NumberField` y `MoneyField`, más decimales de los permitidos es un error, no un redondeo silencioso.
+- **Una sola vista de la tabla.** Tabla y tarjetas se eligen con `useMediaQuery` y se dibuja solo una. En las pruebas sin `matchMedia` siempre sale la tabla; para probar las tarjetas se simula `matchMedia` (ver `DataTable.test.tsx`).
+- **CSV: un carácter más.** Además de los caracteres pedidos, también se neutraliza el salto de línea (`\n`) al inicio.
+
+## Pendientes
+
+- **CONTRATO (lo más importante para los 12 módulos).**
+  - `contract.generated.ts` sigue PROVISIONAL: solo trae las operaciones de la cuenta y de la sesión.
+  - `useRpcQuery`, `useRpcCommand`, `canRun` y `PermissionGate operation` están tipados con `RpcOperationName`. Ningún módulo puede llamar a sus casos de uso hasta que `minv contrato-web` genere el contrato completo de `RpcCatalog`.
+  - Al reemplazarlo, correr `npm run typecheck`. Si los nombres de las listas difieren, se corrige solo `3-infrastructure/http/contract.ts`.
+- **Servidor: código estable para los permisos.** Sería más firme que el servidor mandara un código estable para la falta de permiso (por ejemplo `access.permission`) y el permiso en un campo, en vez de leerlo del texto.
+- **Arreglar `components/ui/Drawer`.**
+  - Que `CloseOnNavigate` guarde `onClose` en una referencia en vez de depender de su identidad.
+  - Las pantallas de la tienda hoy no se rompen: sus `onClose` hacen `setOpen(false)` y React corta el ciclo. Pero es una trampa.
+- **Para el esqueleto (paquete siguiente).**
+  - Reemplazar el contenido de `PanelRoot.tsx` con el menú por permisos y el registro de módulos.
+  - Dar los márgenes laterales: `Page` no los pone.
+  - Llamar a `useSession().refresh()` después de `SelectBranchCommand`, para que las consultas se recarguen.
+  - Decidir si el panel debe cargar sin el catálogo de la tienda (pendiente heredado de W1).
+- **Tablas anchas.**
+  - Una tabla con 8 columnas o más tiene desplazamiento horizontal propio a 1024 px, y más aún con el menú lateral.
+  - La cabecera y los totales quedan fijos y la barra horizontal aparece al pie del área de la tabla.
+  - Conviene dejar los detalles en `renderExpanded` o en el `SidePanel`.
+- **No usar `Button size="sm"`.** Mide 36 px en escritorio. El kit no lo usa: los objetivos son de 44 px.
+- **Avisos sobre una capa abierta.** Con un diálogo o panel abierto, los avisos salen arriba y al centro y pueden tapar un momento la cabecera del panel lateral. Es el comportamiento que ya tenía `ToastProvider`.
+- **CSP.** `exportCsv` descarga con un enlace `blob:`. Un `default-src 'self'` no bloquea esa descarga en los navegadores actuales, pero conviene confirmarlo con la CSP real del nginx (regla P-11) en el recorrido de la regla P-14.
+- **Historial del navegador.** `useTableState` reemplaza la entrada del historial. Si se quiere que «Atrás» vuelva a la página anterior de la lista, se cambia a `push` solo en `setPage`.
+- **Solo tema oscuro.** Como ya advirtió W1, todo usa tokens.
+- **Verificación pendiente.** Todo se verificó con puertos simulados y en modo mock. Falta el recorrido contra el servidor real en Docker (P-14).
+- **Documentación fuera de la web sin actualizar.** Faltan `docs/product/plan-v7.md` (tarea 10), `CHANGELOG.md` y la mención de `2-application/panel/` en el diseño §7. Actualicé solo el README de la web.
+- **Sin commit.** Estaba prohibido: todos los cambios quedan sin confirmar en la carpeta de la web de la rama Inventario-V7.
+
+## Pruebas
+
+Ejecutado desde la carpeta de la web con PowerShell (node v26.7.0). La salida de vitest se redirigió a un archivo y se leyó el final.
+
+- **Línea base antes de empezar:** `npx vitest run` → Test Files 41 passed (41), Tests 537 passed (537).
+- **Carpetas del paquete:** `npx vitest run src/4-presentation/panel` → exit 0, Test Files 13 passed (13), Tests 125 passed (125), Duration 6.24s, sin avisos de React.
+  - `lib/format.test.ts`: formatos y fechas de La Paz, atajos (con cambio de año y año bisiesto), números y redondeo.
+  - `lib/csv.test.ts`: BOM, «;», CRLF, comillas, fórmulas neutralizadas, números, fechas, nombre del archivo y descarga simulada.
+  - `lib/table.test.ts`: orden, páginas, celdas, búsqueda y ayudas del RPC (llave, intento, permiso en palabras).
+  - `kit/DataTable.test.tsx`: orden y `aria-sort`, páginas controladas y propias, selección, totales, estados (carga, vacío, error, sin permiso, error con filas, recarga), fila desplegable, menú de fila con teclado, apertura del detalle y tarjetas a menos de 640 px.
+  - `kit/FilterBar.test.tsx`: contador y limpiar, pliegue en el teléfono, SelectField, SearchField con espera, Enter y Escape, DateRangeField, NumberField y MoneyField, TextField y TextArea, Checkbox, Switch y RadioGroup.
+  - `kit/ComboBox.test.tsx`: teclado, búsqueda sin acentos, opciones deshabilitadas, Escape, salir sin elegir, «×», clic, requerida, y carga asíncrona con espera, respuestas viejas descartadas y reintento.
+  - `kit/Dialog.test.tsx`: foco al abrir, Tab y Mayús+Tab atrapados, Escape y devolución del foco, fondo, `data-autofocus`, no cerrable; ConfirmDialog enfoca «Cancelar», queda ocupado y sigue abierto si falla.
+  - `kit/Collapsible.test.tsx`: no monta hasta abrir, gira, desmonta, `keepMounted`, controlado; Tabs solo monta la elegida y se recorre con flechas.
+  - `kit/SidePanel.test.tsx`: cierre único al navegar (regresión del ciclo), Escape, carga y error.
+  - `hooks/useRpcQuery.test.tsx`: carga, error y recarga, respuestas viejas descartadas y canceladas, datos anteriores, `keepPreviousData`, mismo contenido, desmontar, `enabled`, `setData`, cambio de sucursal activa y consulta dentro de un Collapsible.
+  - `hooks/useRpcCommand.test.tsx`: enviando y éxito, `requestId` por intento, error, permiso en palabras (nombrado por el servidor y deducido del contrato), doble clic, 401; usePermissions, PermissionGate y AccessDenied.
+  - `hooks/useTableState.test.tsx`: lectura, valores raros, escritura, rango como un filtro, limpiar, orden, página, filas y prefijo.
+  - `showcase/ComponentsPage.test.tsx`: la muestra con la tabla de rutas real y los filtros en la dirección.
+- **`npm run typecheck`** (tsc -b --noEmit): exit 0, sin errores.
+- **`npm run lint`** (oxlint): exit 0. Con `--format=default`: «Found 0 warnings and 0 errors. Finished in 74ms on 339 files with 116 rules using 12 threads.».
+- **`npx vitest run`** completo: exit 0, Test Files 54 passed (54), Tests 662 passed (662), Duration 21.78s.
+  - Son 13 archivos y 125 pruebas nuevos.
+  - Las 537 anteriores pasan sin cambiar lo que comprueban. En `test-utils.tsx` solo se agregó `renderPanel`; `architecture.test.ts` no se tocó y pasa.
+- **`npm run build`** (tsc -b && vite build): exit 0, «✓ 2105 modules transformed», «✓ built in 643ms».
+  - La muestra no genera fragmento: búsqueda de «_componentes» y «Componentes del panel» en `dist` → 0 coincidencias.
+- **Navegador** (modo mock, 127.0.0.1:5193, ya detenido): lo descrito en el Resumen.

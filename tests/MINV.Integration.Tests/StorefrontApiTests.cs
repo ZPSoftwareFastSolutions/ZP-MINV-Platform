@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using MINV.ApiGateway;
 using MINV.ApiGateway.Background;
+using MINV.Application.Abstractions;
 using MINV.Application.Common;
 using MINV.Application.Iam;
 using MINV.Application.Sales;
@@ -28,6 +29,10 @@ public sealed class StorefrontApiTests(ApiGatewayFixture server) : IClassFixture
     private const string Sku = "CASE-COR-4000D";   // gabinete sin serie con existencia en la casa matriz
 
     private HttpClient Client() => server.CreateClient();
+
+    /// <summary>Hora del servidor (el reloj simulado de la carga de prueba, no el del equipo): la vigencia de una reserva se mide
+    /// contra él.</summary>
+    private DateTimeOffset Now => server.Services.GetRequiredService<IClock>().UtcNow;
 
     private static object Reservation(string phone = "71234567", string name = "Valentina Aguirre", int quantity = 1, string sku = Sku, string? email = null) => new
     {
@@ -123,7 +128,7 @@ public sealed class StorefrontApiTests(ApiGatewayFixture server) : IClassFixture
         Assert.Equal("Valentina Aguirre", reservation.GetProperty("contactName").GetString());
         Assert.Equal("CM", reservation.GetProperty("branch").GetString());
         var until = reservation.GetProperty("reservedUntil").GetDateTimeOffset();
-        Assert.InRange((until - DateTimeOffset.UtcNow).TotalHours, 47, 49);
+        Assert.InRange((until - Now).TotalHours, 47, 49);
         var line = Assert.Single(reservation.GetProperty("lines").EnumerateArray());
         Assert.Equal((Sku, "case", 1), (line.GetProperty("sku").GetString(), line.GetProperty("slot").GetString(), line.GetProperty("quantity").GetInt32()));
         Assert.Equal(line.GetProperty("subtotal").GetDecimal(), reservation.GetProperty("total").GetDecimal());

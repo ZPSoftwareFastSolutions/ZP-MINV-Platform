@@ -1,6 +1,13 @@
-// Pantallas de la carga inicial del catálogo (antes de que exista el enrutador): esqueleto con el logotipo mientras
-// llega la instantánea, y el error con «Reintentar». No usan <Link>: se dibujan fuera del RouterProvider.
+// Pantallas de la carga del catálogo: esqueleto con el logotipo mientras llega la instantánea, y el error con
+// «Reintentar». No usan <Link>: las de pantalla completa se pueden dibujar fuera del RouterProvider.
+//
+// V7 · W3b: dos formas de cada una.
+// - Pantalla completa (`CatalogLoadingScreen`, `CatalogErrorScreen`), con su propia barra con el logotipo: las usa
+//   `CatalogProvider` cuando envuelve todo (así lo hacía la V6 y lo siguen usando las pruebas de componentes).
+// - Solo el cuerpo (`CatalogLoadingBody`, `CatalogErrorBody`): las usa `CatalogGate` DENTRO de la estructura de la tienda,
+//   que ya dibuja su cabecera (con «Ingresar»). Así, si la tienda está caída, igual se puede ir a ingresar y al panel.
 
+import clsx from 'clsx';
 import { CloudOff, RotateCcw } from 'lucide-react';
 import { Button } from '@/4-presentation/components/ui/Button';
 import { Skeleton } from '@/4-presentation/components/ui/Skeleton';
@@ -14,6 +21,44 @@ function StaticLogo() {
         <span className="font-display text-lg font-bold tracking-tight text-gradient-brand">{STORE.wordmark}</span>
         <span className="text-[0.625rem] font-semibold uppercase tracking-[0.32em] text-text-muted">Gaming</span>
       </span>
+    </div>
+  );
+}
+
+/** Esqueleto del contenido de la portada (hero y una grilla de tarjetas). */
+function LoadingSkeleton() {
+  return (
+    <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:py-16">
+      <p role="status" aria-live="polite" className="sr-only">
+        Cargando el catálogo de {STORE.shortName}…
+      </p>
+      <div className="grid gap-10 lg:grid-cols-[1.05fr_0.95fr] lg:items-center" aria-hidden="true">
+        <div className="space-y-5">
+          <Skeleton className="h-6 w-56 rounded-full" />
+          <Skeleton className="h-12 w-full max-w-xl" />
+          <Skeleton className="h-12 w-4/5 max-w-lg" />
+          <Skeleton className="h-5 w-full max-w-md" />
+          <div className="flex gap-3 pt-2">
+            <Skeleton className="h-12 w-40 rounded-xl" />
+            <Skeleton className="h-12 w-36 rounded-xl" />
+          </div>
+        </div>
+        <div className="mx-auto grid w-full max-w-md grid-cols-[1.3fr_1fr] gap-3 sm:gap-4">
+          <Skeleton className="row-span-2 aspect-[3/4] w-full rounded-2xl" />
+          <Skeleton className="aspect-square w-full rounded-2xl" />
+          <Skeleton className="aspect-square w-full rounded-2xl" />
+        </div>
+      </div>
+      <div className="mt-16 grid grid-cols-2 gap-4 md:grid-cols-4" aria-hidden="true">
+        {Array.from({ length: 4 }, (_, index) => (
+          <div key={index} className="rounded-card border border-border bg-surface p-3">
+            <Skeleton className="aspect-square w-full rounded-xl" />
+            <Skeleton className="mt-3 h-3 w-1/2" />
+            <Skeleton className="mt-2 h-4 w-full" />
+            <Skeleton className="mt-2 h-4 w-3/4" />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -32,38 +77,16 @@ export function CatalogLoadingScreen() {
           </div>
         </div>
       </div>
-      <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:py-16">
-        <p role="status" aria-live="polite" className="sr-only">
-          Cargando el catálogo de {STORE.shortName}…
-        </p>
-        <div className="grid gap-10 lg:grid-cols-[1.05fr_0.95fr] lg:items-center" aria-hidden="true">
-          <div className="space-y-5">
-            <Skeleton className="h-6 w-56 rounded-full" />
-            <Skeleton className="h-12 w-full max-w-xl" />
-            <Skeleton className="h-12 w-4/5 max-w-lg" />
-            <Skeleton className="h-5 w-full max-w-md" />
-            <div className="flex gap-3 pt-2">
-              <Skeleton className="h-12 w-40 rounded-xl" />
-              <Skeleton className="h-12 w-36 rounded-xl" />
-            </div>
-          </div>
-          <div className="mx-auto grid w-full max-w-md grid-cols-[1.3fr_1fr] gap-3 sm:gap-4">
-            <Skeleton className="row-span-2 aspect-[3/4] w-full rounded-2xl" />
-            <Skeleton className="aspect-square w-full rounded-2xl" />
-            <Skeleton className="aspect-square w-full rounded-2xl" />
-          </div>
-        </div>
-        <div className="mt-16 grid grid-cols-2 gap-4 md:grid-cols-4" aria-hidden="true">
-          {Array.from({ length: 4 }, (_, index) => (
-            <div key={index} className="rounded-card border border-border bg-surface p-3">
-              <Skeleton className="aspect-square w-full rounded-xl" />
-              <Skeleton className="mt-3 h-3 w-1/2" />
-              <Skeleton className="mt-2 h-4 w-full" />
-              <Skeleton className="mt-2 h-4 w-3/4" />
-            </div>
-          ))}
-        </div>
-      </div>
+      <LoadingSkeleton />
+    </div>
+  );
+}
+
+/** Solo el contenido del esqueleto: va dentro de la estructura de la tienda, que ya tiene su cabecera. */
+export function CatalogLoadingBody() {
+  return (
+    <div data-testid="catalogo-cargando">
+      <LoadingSkeleton />
     </div>
   );
 }
@@ -76,7 +99,30 @@ export interface CatalogErrorScreenProps {
   onRetry: () => void;
 }
 
-export function CatalogErrorScreen({ message, detail, retrying, onRetry }: CatalogErrorScreenProps) {
+function ErrorContent({ message, detail, retrying, onRetry, className }: CatalogErrorScreenProps & { className?: string }) {
+  return (
+    <div className={clsx('mx-auto flex max-w-2xl flex-col items-center justify-center px-4 py-16 text-center', className)}>
+      <span aria-hidden="true" className="flex size-20 items-center justify-center rounded-3xl bg-danger-soft text-danger-text">
+        <CloudOff className="size-10" />
+      </span>
+      <h1 className="mt-6 font-display text-3xl font-semibold text-text">No pudimos cargar el catálogo</h1>
+      <p role="alert" className="mt-3 max-w-md text-base text-text-muted">
+        {message}
+      </p>
+      {detail && detail !== message && <p className="mt-2 max-w-md text-sm text-text-faint">{detail}</p>}
+      <div className="mt-8">
+        <Button variant="brand" size="lg" leftIcon={<RotateCcw />} loading={retrying} onClick={onRetry}>
+          Reintentar
+        </Button>
+      </div>
+      <p className="mt-6 text-sm text-text-faint">
+        Si el problema sigue, escribinos por WhatsApp al {STORE.whatsapp} o llamá al {STORE.phone}.
+      </p>
+    </div>
+  );
+}
+
+export function CatalogErrorScreen(props: CatalogErrorScreenProps) {
   return (
     <div className="flex min-h-dvh flex-col" data-testid="catalogo-error">
       <div className="border-b border-border bg-bg/85">
@@ -84,24 +130,16 @@ export function CatalogErrorScreen({ message, detail, retrying, onRetry }: Catal
           <StaticLogo />
         </div>
       </div>
-      <div className="mx-auto flex max-w-2xl flex-1 flex-col items-center justify-center px-4 py-16 text-center">
-        <span aria-hidden="true" className="flex size-20 items-center justify-center rounded-3xl bg-danger-soft text-danger-text">
-          <CloudOff className="size-10" />
-        </span>
-        <h1 className="mt-6 font-display text-3xl font-semibold text-text">No pudimos cargar el catálogo</h1>
-        <p role="alert" className="mt-3 max-w-md text-base text-text-muted">
-          {message}
-        </p>
-        {detail && detail !== message && <p className="mt-2 max-w-md text-sm text-text-faint">{detail}</p>}
-        <div className="mt-8">
-          <Button variant="brand" size="lg" leftIcon={<RotateCcw />} loading={retrying} onClick={onRetry}>
-            Reintentar
-          </Button>
-        </div>
-        <p className="mt-6 text-sm text-text-faint">
-          Si el problema sigue, escribinos por WhatsApp al {STORE.whatsapp} o llamá al {STORE.phone}.
-        </p>
-      </div>
+      <ErrorContent {...props} className="flex-1" />
+    </div>
+  );
+}
+
+/** Solo el aviso de error con «Reintentar»: va dentro de la estructura de la tienda, que ya tiene su cabecera. */
+export function CatalogErrorBody(props: CatalogErrorScreenProps) {
+  return (
+    <div className="flex min-h-[60vh] flex-col" data-testid="catalogo-error">
+      <ErrorContent {...props} className="flex-1" />
     </div>
   );
 }

@@ -95,7 +95,10 @@ public sealed class V42TechSeedTests
         Assert.Equal(105, tech.SerializedProducts);
         Assert.True(tech.Serials > 1000 && tech.SerialsInStock > 500, $"{tech.Serials} series, {tech.SerialsInStock} en stock");
         Assert.InRange(tech.WarrantyClaims, 6, 8);
-        Assert.Equal(10, tech.PcBuilds);   // los 8 del catálogo + 2 reservas web de la V6 (una activa y una vencida)
+        // Los 8 del catálogo + 2 reservas web de la V6 (una activa y una vencida) + los 2 armados que reservaron las cuentas de cliente
+        // (V7; los carritos no son armados: van en SeedWeb)
+        Assert.Equal(12, tech.PcBuilds);
+        Assert.Equal(2, result.Web!.AccountBuilds);
         Assert.Equal(2, tech.PcBuildsSold);
         Assert.Equal((6, 1, 1), (tech.PcBuildsPublished, tech.WebReservationsActive, tech.WebReservationsExpired));   // V6
         Assert.True(tech.Returns >= 3, $"Solo {tech.Returns} devoluciones");
@@ -136,7 +139,8 @@ public sealed class V42TechSeedTests
 
             // Armados: los 8 del catálogo con sus números, 2 cobrados en la caja, uno incompatible en borrador y otro cotizado
             // con la confirmación del vendedor (T-06)
-            var builds = await m.Send(new GetPcBuildsQuery(Channel: PcBuildChannel.Desktop));   // V6: sin las reservas web
+            // V6: sin las reservas web; V7: sin los carritos (el de mostrador también es del canal del escritorio)
+            var builds = await m.Send(new GetPcBuildsQuery(Channel: PcBuildChannel.Desktop, Kind: PcBuildKind.Build));
             Assert.Equal(TechSeedCatalog.Current.Builds.Select(b => b.Number).Order(), builds.Select(b => b.Number).Order());
             Assert.Equal(2, builds.Count(b => b.Status == PcBuildStatus.Sold && b.InvoiceNumber is not null));
             Assert.Contains(builds, b => b is { Status: PcBuildStatus.Draft, IsCompatible: false });

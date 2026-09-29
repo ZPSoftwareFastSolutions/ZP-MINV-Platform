@@ -219,8 +219,14 @@ export function createWebServicesFrom(gateways: WebGateways, mode: CatalogMode, 
 export async function createWebServices(apiUrl: string | undefined = import.meta.env.VITE_API_URL): Promise<WebServices> {
   if (isMockApiUrl(apiUrl)) {
     const [web, world] = await Promise.all([import('@/3-infrastructure/data/mockWeb'), mockWorld()]);
-    // Las reservas de la cuenta descuentan el MISMO stock que las de la tienda (y que ve el catálogo).
-    const backend = new web.InMemoryWebBackend({ products: world.mock.MOCK_CATALOG.products, stock: world.gateway });
+    // Las reservas de la cuenta descuentan el MISMO stock que las de la tienda (y que ve el catálogo). V7 · W3b: además de
+    // los dos usuarios que ofrece la pantalla de ingreso, el servidor en memoria conoce un usuario del personal por rol
+    // (bodega@, ventas@, cajero@, gerencia@ y consulta@techzone.example) para recorrer el panel con cada rol.
+    const backend = new web.InMemoryWebBackend({
+      products: world.mock.MOCK_CATALOG.products,
+      stock: world.gateway,
+      users: [...web.DEMO_USERS, ...web.ROLE_SAMPLE_USERS],
+    });
     return createWebServicesFrom({ session: backend.session, rpc: backend.rpc }, 'mock', web.DEMO_USERS);
   }
   const api = new WebApi();

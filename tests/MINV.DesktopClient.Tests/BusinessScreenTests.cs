@@ -187,7 +187,7 @@ public sealed class BusinessScreenTests
         shell.Navigate("usuarios");
         var users = (UsersViewModel)shell.Current;
         await users.EnsureLoadedAsync();
-        Assert.Equal(7, users.Roles.Count);   // V6: + Tienda web (usuario técnico)
+        Assert.Equal(8, users.Roles.Count);   // V6: + Tienda web (usuario técnico); V7: + Cliente web (las cuentas de la tienda)
         Assert.NotEmpty(users.Rows.Cast<UserItem>());
         Assert.NotNull(users.Company);
     });

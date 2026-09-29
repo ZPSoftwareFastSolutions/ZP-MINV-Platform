@@ -4,11 +4,15 @@
 // del catálogo, las piezas del armado se sincronizan con su versión fresca (precio y disponibilidad).
 // El estado, las acciones y el cajón viajan en contextos separados (BuilderContext.ts): abrir «Mi armado» no vuelve a
 // dibujar las tarjetas de la grilla, que solo leen las acciones y el estado.
+//
+// V7 · W3b: vive arriba del enrutador aunque el catálogo todavía no haya llegado (o haya fallado): así el armado se
+// conserva al navegar y las pantallas que no son de la tienda (ingresar, panel) se dibujan igual. Sin catálogo no
+// sincroniza ni carga armados sugeridos; en cuanto llega la instantánea, sincroniza como siempre.
 
 import { useCallback, useEffect, useMemo, useReducer, useState, type ReactNode } from 'react';
 import { EMPTY_BUILD, buildReducer, isInBuild, summarizeBuild } from '@/1-domain/builder/build';
 import { slotByKey, slotForProduct } from '@/1-domain/builder/slots';
-import { useServices } from '@/4-presentation/hooks/useServices';
+import { useOptionalServices } from '@/4-presentation/hooks/useServices';
 import { useToast } from '@/4-presentation/hooks/useToast';
 import { BuildActionsContext, BuildDrawerContext, BuildStateContext, type BuildActionsApi, type BuildDrawerApi, type BuildStateApi } from './BuilderContext';
 
@@ -16,7 +20,7 @@ import { BuildActionsContext, BuildDrawerContext, BuildStateContext, type BuildA
 const ADD_TOAST_GROUP = 'armado:agregar';
 
 export function BuilderProvider({ children }: { children: ReactNode }) {
-  const { catalog } = useServices();
+  const catalog = useOptionalServices()?.catalog ?? null;
   const toast = useToast();
   const [state, dispatch] = useReducer(buildReducer, EMPTY_BUILD);
   const [isDrawerOpen, setDrawerOpen] = useState(false);
@@ -26,7 +30,7 @@ export function BuilderProvider({ children }: { children: ReactNode }) {
 
   // Instantánea nueva (refresco cada 60 s o al volver a la pestaña): las piezas elegidas toman su precio y stock frescos.
   useEffect(() => {
-    dispatch({ type: 'sync', lookup: (sku) => catalog.getProductBySku(sku) });
+    if (catalog) dispatch({ type: 'sync', lookup: (sku) => catalog.getProductBySku(sku) });
   }, [catalog]);
 
   const add = useCallback<BuildActionsApi['add']>(
@@ -63,7 +67,7 @@ export function BuilderProvider({ children }: { children: ReactNode }) {
 
   const loadPreset = useCallback<BuildActionsApi['loadPreset']>(
     (id, options) => {
-      const detail = catalog.getPreset(id);
+      const detail = catalog?.getPreset(id);
       if (!detail) return false;
       dispatch({ type: 'loadPreset', lines: detail.lines });
       if (!options?.silent) {

@@ -62,7 +62,9 @@ public sealed record SeedUser(string RoleCode, string RoleName, string Name, str
 }
 
 /// <summary>V4.2 · Resumen de la edición Tecnología de la empresa de prueba: fichas técnicas, series e IMEI, casos RMA,
-/// armados de PC y devoluciones.</summary>
+/// armados de PC y devoluciones. V7: <paramref name="PcBuilds"/> y <paramref name="PcBuildsSold"/> cuentan solo armados (los
+/// carritos van en <see cref="SeedWeb"/>); <paramref name="WebReservationsActive"/> y <paramref name="WebReservationsExpired"/>
+/// siguen siendo las dos reservas web de armados de la V6.</summary>
 public sealed record SeedTech(int Categories, int SpecDefinitions, int SpecValues, int Brands, int SerializedProducts, int Serials, int SerialsInStock,
     int WarrantyClaims, IReadOnlyList<string> ClaimStates, int PcBuilds, int PcBuildsSold, int PcBuildsIncompatible, int Returns,
     int PcBuildsPublished = 0, int WebReservationsActive = 0, int WebReservationsExpired = 0);
@@ -71,10 +73,12 @@ public sealed record SeedTech(int Categories, int SpecDefinitions, int SpecValue
 /// <paramref name="Tech"/> resume series, RMA y armados.</summary>
 /// <para>V6: <paramref name="StorefrontUser"/> es el correo del usuario técnico de la tienda web (rol TIENDA_WEB, sin
 /// contraseña utilizable: el API Gateway lo autentica por configuración).</para>
+/// <para>V7: <paramref name="Users"/> trae, después del personal, las cuentas de cliente de la tienda web (rol CLIENTE, con su
+/// contraseña de prueba) y <paramref name="Web"/> resume la plataforma web (regla P-13): cuentas, reservas, carritos y correos.</para>
 public sealed record SeedResult(string TenantCode, string CompanyName, IReadOnlyList<SeedUser> Users, int Products, int Suppliers, int Customers,
     int Tickets, int PurchaseOrders, int Movements, int JournalEntries, DateOnly From, DateOnly To, IReadOnlyList<string> Branches, int Transfers,
     int ExternalOrders, string ApiKeyName, string ApiKeyToken, string? WebhookSecret, SeedBilling? Billing = null, SeedTech? Tech = null,
-    string? StorefrontUser = null)
+    string? StorefrontUser = null, SeedWeb? Web = null)
 {
     // El token de la API Key y el secreto del webhook se muestran una sola vez (regla B-11): nunca en ToString
     public override string ToString() => $"SeedResult {TenantCode} · {Products} productos · {Tickets} ventas · {From:dd/MM/yyyy} a {To:dd/MM/yyyy}";
@@ -89,9 +93,11 @@ public sealed record SeedResult(string TenantCode, string CompanyName, IReadOnly
 /// operación: compras recibidas con series, transferencias con sus series (algunas con faltantes), ventas de caja y
 /// pedidos de la tienda en línea con las series escaneadas y el comprador, devoluciones (una por falla), casos RMA en
 /// todos sus estados, armados de PC (cotizados, dos vendidos en la caja y los incompatibles marcados), tomas físicas,
-/// contabilidad y (V4.1) facturación SIAT con el simulador del SIN en proceso (<see cref="BillingScenario"/>). TODO pasa
-/// por los mismos casos de uso de la aplicación (regla A-13: validación, permisos, alcance por sucursal, poka-yoke,
-/// series, auditoría y contabilidad): coherente por construcción.
+/// contabilidad y (V4.1) facturación SIAT con el simulador del SIN en proceso (<see cref="BillingScenario"/>). V6: armados
+/// publicados y reservas web (una vigente y una vencida). V7: la tienda web con dos cuentas de cliente que reservan desde su
+/// cuenta, carritos de la tienda (vigente y vencido) y de mostrador y los correos de confirmación en la cola
+/// (<c>LocalDataSeeder.Web.cs</c>, regla P-13). TODO pasa por los mismos casos de uso de la aplicación (regla A-13:
+/// validación, permisos, alcance por sucursal, poka-yoke, series, auditoría y contabilidad): coherente por construcción.
 /// </summary>
 public sealed partial class LocalDataSeeder(IServiceProvider services, DemoClock clock)
 {
@@ -759,6 +765,11 @@ public sealed partial class LocalDataSeeder(IServiceProvider services, DemoClock
         var (webActive, webExpired) = await WebReservationsAsync(admin, today, realNow, At, log, ct);
         await _stock.RefreshAsync(ct);
 
+        // V7 · Plataforma web (regla P-13): dos cuentas de cliente con sus reservas, carritos de la tienda (vigente y vencido) y de
+        // mostrador, y los correos de confirmación en la cola
+        var web = await WebPlatformAsync(o, admin, ventasCm, catalog.CustomerCodes, users, today, realNow, At, log, ct);
+        await _stock.RefreshAsync(ct);
+
         // V4 · Webhook de la tienda (solo si este equipo tiene la clave maestra de integraciones)
         string? webhookSecret = null;
         try
@@ -801,7 +812,7 @@ public sealed partial class LocalDataSeeder(IServiceProvider services, DemoClock
         }
         return new SeedResult(o.TenantCode, o.CompanyName, users, _catalog.Products.Count, _catalog.Suppliers.Count, stats.Customers, tickets,
             stats.Orders, stats.Movements, stats.Journal, start, today, [BranchMain, BranchCochabamba, BranchSantaCruz], transfers, webOrders, apiKey.Name,
-            apiKey.Token, webhookSecret, billed, techSummary, TenantProvisioner.StorefrontEmail(o.TenantCode, users[0].Email));
+            apiKey.Token, webhookSecret, billed, techSummary, TenantProvisioner.StorefrontEmail(o.TenantCode, users[0].Email), web);
     }
 
     // ---------------------------------------------------------------------------------------------- catálogo del rubro

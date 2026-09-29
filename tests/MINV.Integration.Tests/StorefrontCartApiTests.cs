@@ -5,6 +5,7 @@ using MediatR;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using MINV.ApiGateway;
+using MINV.Application.Abstractions;
 using MINV.Application.Iam;
 using MINV.Application.Sales;
 using MINV.Application.Tech;
@@ -24,6 +25,10 @@ namespace MINV.Integration.Tests;
 public sealed class StorefrontCartApiTests(ApiGatewayFixture server) : IClassFixture<ApiGatewayFixture>
 {
     private HttpClient Client() => server.CreateClient();
+
+    /// <summary>Hora del servidor (el reloj simulado de la carga de prueba, no el del equipo): la vigencia de una reserva se mide
+    /// contra él.</summary>
+    private DateTimeOffset Now => server.Services.GetRequiredService<IClock>().UtcNow;
 
     private static string Key() => "cart-" + Guid.NewGuid().ToString("N");
 
@@ -72,7 +77,7 @@ public sealed class StorefrontCartApiTests(ApiGatewayFixture server) : IClassFix
         // V7 (B3) · Con correo de contacto, la confirmación queda encolada (mailQueued de verdad; sin correo, false: ver el contrato de la V6)
         Assert.True(reservation.GetProperty("mailQueued").GetBoolean());
         Assert.False(reservation.GetProperty("hasCompatibilityWarnings").GetBoolean());
-        Assert.InRange((reservation.GetProperty("reservedUntil").GetDateTimeOffset() - DateTimeOffset.UtcNow).TotalHours, 23, 25);
+        Assert.InRange((reservation.GetProperty("reservedUntil").GetDateTimeOffset() - Now).TotalHours, 23, 25);
         var lines = reservation.GetProperty("lines").EnumerateArray().ToList();
         Assert.Equal(2, lines.Count);
         Assert.All(lines, l => Assert.Equal(JsonValueKind.Null, l.GetProperty("slot").ValueKind));
@@ -147,7 +152,7 @@ public sealed class StorefrontCartApiTests(ApiGatewayFixture server) : IClassFix
             var response = await http.SendAsync(Post(body, Key()));
             Assert.Equal(HttpStatusCode.Created, response.StatusCode);
             var json = await response.Content.ReadFromJsonAsync<JsonElement>();
-            return (json.GetProperty("reservedUntil").GetDateTimeOffset() - DateTimeOffset.UtcNow).TotalHours;
+            return (json.GetProperty("reservedUntil").GetDateTimeOffset() - Now).TotalHours;
         }
         Assert.InRange(await HoursAsync(Cart(1, "70011221")), 23, 25);
         Assert.InRange(await HoursAsync(Cart(2, "70011222")), 47, 49);
@@ -174,13 +179,13 @@ public sealed class StorefrontCartApiTests(ApiGatewayFixture server) : IClassFix
         Assert.StartsWith("ARM-WEB-", build.GetProperty("number").GetString(), StringComparison.Ordinal);
         Assert.Equal(("build", "case", false), (build.GetProperty("kind").GetString(), Assert.Single(build.GetProperty("lines").EnumerateArray()).GetProperty("slot").GetString(),
             build.GetProperty("mailQueued").GetBoolean()));
-        Assert.InRange((build.GetProperty("reservedUntil").GetDateTimeOffset() - DateTimeOffset.UtcNow).TotalHours, 47, 49);
+        Assert.InRange((build.GetProperty("reservedUntil").GetDateTimeOffset() - Now).TotalHours, 47, 49);
         var shortBuild = await http.SendAsync(Post(new
         {
             kind = "build", holdDays = 1, lines = new[] { new { sku = Sku(cabinet), quantity = 1, slot = "case" } }, contact = new { name = "Diego Mamani", phone = "72223332" },
         }, Key()));
         Assert.Equal(HttpStatusCode.Created, shortBuild.StatusCode);
-        Assert.InRange(((await shortBuild.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("reservedUntil").GetDateTimeOffset() - DateTimeOffset.UtcNow).TotalHours, 23, 25);
+        Assert.InRange(((await shortBuild.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("reservedUntil").GetDateTimeOffset() - Now).TotalHours, 23, 25);
 
         // La documentación OpenAPI describe los campos nuevos
         var openApi = await http.GetStringAsync("/docs/v1/openapi.json");
@@ -338,7 +343,7 @@ public sealed class StorefrontShortHoldTests(StorefrontShortHoldFixture server) 
             var ok = await ReserveAsync(days);
             Assert.Equal(HttpStatusCode.Created, ok.StatusCode);
             var until = (await ok.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("reservedUntil").GetDateTimeOffset();
-            Assert.InRange((until - DateTimeOffset.UtcNow).TotalHours, 23, 25);
+            Assert.InRange((until - server.Services.GetRequiredService<IClock>().UtcNow).TotalHours, 23, 25);   // reloj del servidor
         }
     }
 }

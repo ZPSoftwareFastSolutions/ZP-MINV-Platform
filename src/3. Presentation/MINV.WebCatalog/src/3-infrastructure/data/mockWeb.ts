@@ -9,6 +9,12 @@
 // V7 · reservas con la cuenta: con la opción `stock` (la pasarela de reservas del modo mock) la reserva descuenta el MISMO
 // stock que ve el catálogo y, si no alcanza, responde como el servidor (422 `storefront.insufficient_stock`, con el
 // detalle en el mensaje). Las notas y el nombre rechazan los caracteres de control en medio (400).
+//
+// V7 · W3b (panel): además de los dos usuarios de la pantalla de ingreso, `ROLE_SAMPLE_USERS` trae un usuario del
+// personal por rol (BODEGA, VENTAS, CAJERO, GERENCIA y CONSULTA) con los permisos de `ROLE_PERMISSIONS` y sus sucursales
+// (la gerencia ve todas; el resto, las asignadas), para recorrer el panel con cada rol. El RPC atiende también
+// `GetActivityQuery` (una actividad de muestra de los últimos días más lo que se hace en la pestaña: ingresos y comandos)
+// y `ResetUserPasswordCommand` (contraseña temporal y desbloqueo). La actividad nunca guarda contraseñas.
 
 import { WebApiError } from '@/1-domain/auth/errors';
 import { isStrongPassword } from '@/1-domain/auth/validation';
@@ -22,10 +28,14 @@ import { newUuid } from '@/shared/ids';
 import {
   PERMISSION_LIST,
   rpcOperation,
+  type ActivityRow,
+  type AuditOutcome,
   type BranchAccess,
   type ChangePasswordCommand,
   type CreateMyReservationCommand,
+  type GetActivityQuery,
   type MyAccountView,
+  type ResetUserPasswordCommand,
   type RpcOperationName,
   type RpcOperations,
   type RpcRequestOf,
@@ -44,12 +54,100 @@ export interface DemoUser {
   name: string;
   email: string;
   password: string;
+  /** Solo personal: código del rol (por defecto ADMIN). Sus permisos salen de `ROLE_PERMISSIONS`. */
+  role?: StaffRole;
+  /** Solo personal sin `corporate.branches.all`: códigos de las sucursales asignadas (por defecto, todas). */
+  branches?: readonly string[];
 }
 
 /** Usuarios de muestra del modo mock. */
 export const DEMO_USERS: readonly DemoUser[] = [
   { kind: 'staff', label: 'Personal (administrador)', name: 'Andrea Quiroga', email: 'admin@techzone.example', password: 'Demo1234' },
   { kind: 'customer', label: 'Cliente', name: 'Valentina Aguirre', email: 'cliente@techzone.example', password: 'Demo1234' },
+];
+
+/** Roles del personal de la empresa de prueba. */
+export type StaffRole = 'ADMIN' | 'BODEGA' | 'VENTAS' | 'CAJERO' | 'GERENCIA' | 'CONSULTA';
+
+/** Todos los permisos del personal (el ADMIN los tiene todos; los `account.*` son solo de las cuentas de cliente). */
+const STAFF_PERMISSIONS: readonly string[] = PERMISSION_LIST.map((permission) => permission.code).filter((code) => !code.startsWith('account.'));
+
+/** Matriz de permisos por rol de la empresa de prueba (la misma que siembra el servidor). */
+export const ROLE_PERMISSIONS: Readonly<Record<StaffRole, readonly string[]>> = {
+  ADMIN: STAFF_PERMISSIONS,
+  BODEGA: [
+    'inventory.movements.register.warehouse',
+    'inventory.stock.view',
+    'inventory.counts.record',
+    'inventory.counts.post',
+    'purchasing.manage',
+    'reports.view',
+    'inventory.transfers.manage',
+    'catalog.specs.manage',
+    'inventory.serials.view',
+    'inventory.serials.manage',
+    'service.rma.open',
+    'service.rma.manage',
+  ],
+  VENTAS: [
+    'inventory.movements.register.sales',
+    'inventory.stock.view',
+    'sales.pos.operate',
+    'sales.customers.manage',
+    'sales.view',
+    'reports.view',
+    'billing.view',
+    'billing.issue',
+    'inventory.serials.view',
+    'service.rma.open',
+    'sales.pcbuild.manage',
+  ],
+  CAJERO: [
+    'sales.pos.operate',
+    'inventory.movements.register.sales',
+    'inventory.stock.view',
+    'sales.customers.manage',
+    'sales.view',
+    'billing.view',
+    'billing.issue',
+    'inventory.serials.view',
+    'service.rma.open',
+    'sales.pcbuild.manage',
+  ],
+  GERENCIA: [
+    'inventory.stock.view',
+    'iam.audit.view',
+    'accounting.manage',
+    'reports.view',
+    'sales.view',
+    'purchasing.manage',
+    'corporate.branches.all',
+    'inventory.transfers.manage',
+    'billing.view',
+    'billing.void',
+    'billing.contingency',
+    'catalog.specs.manage',
+    'inventory.serials.view',
+    'inventory.serials.manage',
+    'service.rma.open',
+    'service.rma.manage',
+    'sales.pcbuild.manage',
+    'storefront.read',
+    'storefront.reserve',
+  ],
+  CONSULTA: ['inventory.stock.view', 'reports.view', 'billing.view', 'inventory.serials.view'],
+};
+
+/**
+ * Un usuario del personal por rol (además del administrador de `DEMO_USERS`). NO se ofrecen en la pantalla de ingreso:
+ * sirven para recorrer el panel con cada rol en el modo mock (misma contraseña pública de la demostración).
+ */
+export const ROLE_SAMPLE_USERS: readonly DemoUser[] = [
+  { kind: 'staff', role: 'BODEGA', label: 'Bodega', name: 'Bruno Mamani', email: 'bodega@techzone.example', password: 'Demo1234', branches: ['CM'] },
+  { kind: 'staff', role: 'VENTAS', label: 'Ventas', name: 'Carla Rojas', email: 'ventas@techzone.example', password: 'Demo1234', branches: ['CM', 'CB'] },
+  { kind: 'staff', role: 'CAJERO', label: 'Cajero', name: 'Diego Flores', email: 'cajero@techzone.example', password: 'Demo1234', branches: ['CB'] },
+  { kind: 'staff', role: 'GERENCIA', label: 'Gerencia', name: 'Elena Vargas', email: 'gerencia@techzone.example', password: 'Demo1234' },
+  { kind: 'staff', role: 'CONSULTA', label: 'Consulta', name: 'Fernando Choque', email: 'consulta@techzone.example', password: 'Demo1234', branches: ['SC'] },
 ];
 
 const COMPANY = 'Tech Zone Gaming S.R.L.';
@@ -69,6 +167,10 @@ const BRANCHES: BranchAccess['branches'] = [
 ];
 
 const CUSTOMER_PERMISSIONS = ['account.manage', 'account.reserve'];
+const ALL_BRANCHES_PERMISSION = 'corporate.branches.all';
+/** Como el servidor: `GetActivityQuery` devuelve entre 1 y 5000 filas (200 si no se indica). */
+const ACTIVITY_DEFAULT_TAKE = 200;
+const ACTIVITY_MAX_TAKE = 5000;
 
 interface StoredUser {
   kind: SessionKind;
@@ -78,6 +180,8 @@ interface StoredUser {
   password: string;
   roles: string[];
   permissions: string[];
+  /** Sucursales asignadas (códigos); null = todas las de la empresa. */
+  branchCodes: readonly string[] | null;
   mustChangePassword: boolean;
   activeBranchId: string | null;
   documentType: number | null;
@@ -122,6 +226,68 @@ function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+/** Números pseudoaleatorios con semilla (mulberry32): la actividad de muestra es la misma en cada carga. */
+function seededRandom(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let value = state;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4_294_967_296;
+  };
+}
+
+/** Detalle de auditoría con la forma del servidor (`{ request, result, error }`, datos del pedido en PascalCase). */
+function auditDetails(request: Record<string, unknown>, error: string | null = null, result: unknown = null): string {
+  return JSON.stringify({ request, result, error });
+}
+
+interface SampleActivity {
+  /** Correo del usuario de muestra (null = el sistema: trabajos automáticos). */
+  email: string | null;
+  action: string;
+  outcome: AuditOutcome;
+  request: Record<string, unknown>;
+  error?: string;
+}
+
+const SAMPLE_SKUS = ['PROC-AMD-R7-7800X3D', 'GPU-NV-RTX4070S-12G', 'RAM-KNG-FURY-32G-6000', 'SSD-SAM-990PRO-2T', 'MON-LG-27GR75Q', 'CON-NIN-SWOLED'];
+const SERVER_FAILURE = 'El servidor no pudo completar la operación. Intente de nuevo; si persiste, avise a soporte.';
+
+/** Qué hace cada usuario de muestra en un día normal (la actividad de muestra elige de aquí). */
+function sampleActivities(random: () => number): SampleActivity[] {
+  const pick = <T>(items: readonly T[]): T => items[Math.floor(random() * items.length)];
+  const sku = () => pick(SAMPLE_SKUS);
+  const number = (prefix: string) => `${prefix}-${String(100 + Math.floor(random() * 800)).padStart(6, '0')}`;
+  const amount = () => roundMoney(150 + random() * 9_000);
+  return [
+    { email: 'cajero@techzone.example', action: 'OpenPosSession', outcome: 'Succeeded', request: { RegisterCode: 'CAJA-CB-01', OpeningCash: 500 } },
+    { email: 'cajero@techzone.example', action: 'Checkout', outcome: 'Succeeded', request: { RegisterCode: 'CAJA-CB-01', CustomerCode: 'CLI-0042', TotalAmount: amount() } },
+    { email: 'cajero@techzone.example', action: 'Checkout', outcome: 'Rejected', request: { RegisterCode: 'CAJA-CB-01', TotalAmount: amount() }, error: `No hay stock suficiente de ${sku()}: disponible 0.` },
+    { email: 'cajero@techzone.example', action: 'ClosePosSession', outcome: 'Succeeded', request: { RegisterCode: 'CAJA-CB-01', CountedCash: amount() } },
+    { email: 'ventas@techzone.example', action: 'Checkout', outcome: 'Succeeded', request: { RegisterCode: 'CAJA-CM-01', CustomerCode: 'CLI-0107', TotalAmount: amount() } },
+    { email: 'ventas@techzone.example', action: 'SavePcBuild', outcome: 'Succeeded', request: { Number: number('ARM-CM'), Quote: true, ValidDays: 7 } },
+    { email: 'ventas@techzone.example', action: 'ReservePcBuild', outcome: 'Succeeded', request: { Number: number('ARM-CM') } },
+    { email: 'ventas@techzone.example', action: 'VoidSale', outcome: 'Rejected', request: { Number: number('F-CM'), Reason: 'Cliente pidió otro modelo' }, error: 'La venta ya fue anulada.' },
+    { email: 'ventas@techzone.example', action: 'SaveCustomer', outcome: 'Succeeded', request: { CustomerCode: 'CLI-0188', Name: 'Mariana Céspedes' } },
+    { email: 'bodega@techzone.example', action: 'RegisterMovement', outcome: 'Succeeded', request: { Sku: sku(), MovementTypeCode: 'ENTRADA', Quantity: 1 + Math.floor(random() * 12), DocumentReference: number('OC-CM') } },
+    { email: 'bodega@techzone.example', action: 'RegisterMovement', outcome: 'Rejected', request: { Sku: sku(), MovementTypeCode: 'AJUSTE (-)', Quantity: 3 }, error: 'La salida dejaría el stock en negativo.' },
+    { email: 'bodega@techzone.example', action: 'ReceivePurchaseOrder', outcome: 'Succeeded', request: { Number: number('OC-CM') } },
+    { email: 'bodega@techzone.example', action: 'DispatchTransfer', outcome: 'Succeeded', request: { Number: number('TR-CM') } },
+    { email: 'bodega@techzone.example', action: 'RecordCount', outcome: 'Succeeded', request: { Sku: sku(), Quantity: Math.floor(random() * 20) } },
+    { email: 'gerencia@techzone.example', action: 'ApprovePurchaseOrder', outcome: 'Succeeded', request: { Number: number('OC-CB') } },
+    { email: 'gerencia@techzone.example', action: 'CreateJournalEntry', outcome: 'Succeeded', request: { Description: 'Ajuste de fin de mes' } },
+    { email: 'gerencia@techzone.example', action: 'DispatchFiscalDocuments', outcome: 'Failed', request: {}, error: SERVER_FAILURE },
+    { email: 'admin@techzone.example', action: 'SaveUser', outcome: 'Succeeded', request: { Email: 'cajero@techzone.example', Name: 'Diego Flores', RoleCode: 'CAJERO', IsActive: true } },
+    { email: 'admin@techzone.example', action: 'UpdateCompanySettings', outcome: 'Succeeded', request: {} },
+    { email: 'cliente@techzone.example', action: 'CreateMyReservation', outcome: 'Succeeded', request: { Kind: 'cart', HoldDays: 2 } },
+    { email: 'cliente@techzone.example', action: 'UpdateMyAccount', outcome: 'Succeeded', request: { Name: 'Valentina Aguirre', Phone: '+591 71234567' } },
+    { email: 'consulta@techzone.example', action: 'Login', outcome: 'Rejected', request: { Email: 'consulta@techzone.example' }, error: 'Correo o contraseña incorrectos.' },
+    { email: null, action: 'ExpirePcBuildReservations', outcome: 'Succeeded', request: { Count: 1 + Math.floor(random() * 3) } },
+  ];
+}
+
 /**
  * Servidor de la sesión web en memoria. `session` y `rpc` comparten el estado: quién ingresó, sus datos y sus reservas.
  */
@@ -136,6 +302,8 @@ export class InMemoryWebBackend {
   private readonly stock: InMemoryStock | null;
   /** Reservas de la cuenta que tienen stock tomado (las de muestra no): al liberarlas se devuelve. */
   private readonly holding = new Set<string>();
+  /** Auditoría en memoria (append-only): la de muestra más lo que pasa en esta pestaña. */
+  private readonly activity: ActivityRow[] = [];
   private currentEmail: string | null = null;
   private sequence = 0;
 
@@ -144,6 +312,7 @@ export class InMemoryWebBackend {
     this.now = options.now ?? (() => new Date());
     this.stock = options.stock ?? null;
     for (const user of options.users ?? DEMO_USERS) this.addUser(user);
+    this.activity.push(...this.sampleActivity());
 
     this.session = {
       login: (credentials) => this.login(credentials),
@@ -173,16 +342,23 @@ export class InMemoryWebBackend {
   // -------------------------------------------------------------------------------------------------- usuarios
   private addUser(user: DemoUser): StoredUser {
     const staff = user.kind === 'staff';
+    const role: StaffRole = user.role ?? 'ADMIN';
+    const permissions = staff ? [...ROLE_PERMISSIONS[role]] : [...CUSTOMER_PERMISSIONS];
+    const all = permissions.includes(ALL_BRANCHES_PERMISSION);
+    const branchCodes = staff && !all && user.branches ? [...user.branches] : null;
+    // Como el servidor (UserAccess.AccessAsync): la primera sucursal asignada; la gerencia global sin asignaciones, todas (null).
+    const firstBranch = branchCodes ? BRANCHES.find((branch) => branchCodes.includes(branch.code)) : role === 'ADMIN' ? BRANCHES[0] : undefined;
     const stored: StoredUser = {
       kind: user.kind,
       name: user.name,
       email: normalizeEmail(user.email),
       phone: staff ? '' : '+591 71234567',
       password: user.password,
-      roles: staff ? ['ADMIN'] : ['CLIENTE'],
-      permissions: staff ? PERMISSION_LIST.map((permission) => permission.code).filter((code) => !code.startsWith('account.')) : [...CUSTOMER_PERMISSIONS],
+      roles: staff ? [role] : ['CLIENTE'],
+      permissions,
+      branchCodes,
       mustChangePassword: false,
-      activeBranchId: staff ? BRANCHES[0].id : null,
+      activeBranchId: staff ? (firstBranch?.id ?? null) : null,
       documentType: null,
       documentNumber: null,
       complement: null,
@@ -201,7 +377,9 @@ export class InMemoryWebBackend {
 
   private access(user: StoredUser): BranchAccess {
     if (user.kind === 'customer') return { allBranches: false, branches: [BRANCHES[0]], activeBranchId: BRANCHES[0].id };
-    return { allBranches: true, branches: BRANCHES, activeBranchId: user.activeBranchId };
+    const all = user.permissions.includes(ALL_BRANCHES_PERMISSION);
+    const branches = all || !user.branchCodes ? BRANCHES : BRANCHES.filter((branch) => user.branchCodes?.includes(branch.code));
+    return { allBranches: all, branches, activeBranchId: user.activeBranchId };
   }
 
   private view(user: StoredUser): WebSession {
@@ -220,28 +398,35 @@ export class InMemoryWebBackend {
   }
 
   private async login(credentials: Credentials): Promise<Session> {
-    const user = this.users.get(normalizeEmail(credentials.email));
+    const email = normalizeEmail(credentials.email);
+    const user = this.users.get(email);
     const now = this.now().getTime();
     const locked = new WebApiError({
       kind: 'authentication',
       status: 401,
       message: `Cuenta bloqueada por ${MAX_FAILED_ATTEMPTS} intentos fallidos: espere ${LOCKOUT_MINUTES} minutos.`,
     });
+    const rejected = (error: WebApiError): WebApiError => {
+      // Queda en la actividad (sin la contraseña), como en el servidor.
+      this.record(user ?? null, 'Login', 'Rejected', { Email: email }, error.message, user ? undefined : email);
+      return error;
+    };
     // El mismo mensaje si el correo no existe o si la contraseña no coincide (regla P-03).
-    if (!user) throw new WebApiError({ kind: 'authentication', status: 401, message: LOGIN_FAILED });
-    if (user.lockedUntil > now) throw locked;
+    if (!user) throw rejected(new WebApiError({ kind: 'authentication', status: 401, message: LOGIN_FAILED }));
+    if (user.lockedUntil > now) throw rejected(locked);
     if (user.password !== credentials.password) {
       user.failedAttempts += 1;
       if (user.failedAttempts >= MAX_FAILED_ATTEMPTS) {
         user.failedAttempts = 0;
         user.lockedUntil = now + LOCKOUT_MINUTES * 60_000;
-        throw locked;
+        throw rejected(locked);
       }
-      throw new WebApiError({ kind: 'authentication', status: 401, message: LOGIN_FAILED });
+      throw rejected(new WebApiError({ kind: 'authentication', status: 401, message: LOGIN_FAILED }));
     }
     user.failedAttempts = 0;
     user.lockedUntil = 0;
     this.currentEmail = user.email;
+    this.record(user, 'Login', 'Succeeded', { Email: user.email });
     return toSession(this.view(user));
   }
 
@@ -300,7 +485,18 @@ export class InMemoryWebBackend {
       }
       return { result: previous.result, replayed: true };
     }
-    const result = this.execute(user, operation, payload);
+    // Como la tubería del servidor: todo comando que se ejecuta deja su fila en la auditoría, también si se rechaza.
+    const action = operation.replace(/Command$/, '');
+    let result: unknown;
+    try {
+      result = this.execute(user, operation, payload);
+    } catch (error) {
+      const failure = error instanceof WebApiError ? error : null;
+      const outcome: AuditOutcome = failure && failure.kind !== 'server' && failure.kind !== 'unknown' ? 'Rejected' : 'Failed';
+      this.record(user, action, outcome, this.auditRequestOf(operation, payload), failure?.message ?? SERVER_FAILURE);
+      throw error;
+    }
+    this.record(user, action, 'Succeeded', this.auditRequestOf(operation, payload));
     this.processed.set(requestId, { fingerprint, result });
     return { result, replayed: false };
   }
@@ -321,9 +517,114 @@ export class InMemoryWebBackend {
         return this.changePassword(user, payload as ChangePasswordCommand);
       case 'SelectBranchCommand':
         return this.selectBranch(user, payload as SelectBranchCommand);
+      case 'GetActivityQuery':
+        return this.activityOf(payload as GetActivityQuery);
+      case 'ResetUserPasswordCommand':
+        return this.resetPassword(payload as ResetUserPasswordCommand);
       default:
         throw new WebApiError({ kind: 'unsupported', status: 400, message: 'Operación desconocida o pedido mal formado.' });
     }
+  }
+
+  // -------------------------------------------------------------------------------------------------- actividad
+  /**
+   * Lo que queda en la auditoría de cada comando: solo datos que el servidor también guarda (`AuditDetails`). NUNCA una
+   * contraseña: los comandos que las llevan dejan únicamente el correo o nada.
+   */
+  private auditRequestOf(operation: RpcOperationName, payload: unknown): Record<string, unknown> {
+    switch (operation) {
+      case 'SelectBranchCommand': {
+        const command = payload as SelectBranchCommand;
+        return { SessionId: command.sessionId, BranchId: command.branchId };
+      }
+      case 'ResetUserPasswordCommand': {
+        const command = payload as ResetUserPasswordCommand;
+        return { Email: normalizeEmail(command.email ?? ''), MustChange: command.mustChange ?? true };
+      }
+      case 'UpdateMyAccountCommand': {
+        const command = payload as UpdateMyAccountCommand;
+        return { Name: command.name, Phone: command.phone };
+      }
+      case 'CancelMyReservationCommand':
+        return { Number: (payload as { number?: string }).number ?? null };
+      case 'CreateMyReservationCommand': {
+        const command = payload as CreateMyReservationCommand;
+        return { Kind: command.kind, HoldDays: command.holdDays ?? null };
+      }
+      default:
+        return {};
+    }
+  }
+
+  /** Agrega una fila a la auditoría en memoria. `email` sirve para un intento de ingreso con un correo que no existe. */
+  private record(user: StoredUser | null, action: string, outcome: AuditOutcome, request: Record<string, unknown>, error: string | null = null, email?: string): void {
+    this.activity.push({
+      occurredAt: this.now().toISOString(),
+      userEmail: user?.email ?? email ?? null,
+      userName: user?.name ?? null,
+      action,
+      outcome,
+      details: auditDetails(request, error),
+    });
+  }
+
+  /** La actividad más reciente primero, como `GetActivityQuery` (entre 1 y 5000 filas). */
+  private activityOf(query: GetActivityQuery): ActivityRow[] {
+    const requested = Number.isFinite(query?.take) ? Math.trunc(query.take as number) : ACTIVITY_DEFAULT_TAKE;
+    const take = Math.min(Math.max(requested, 1), ACTIVITY_MAX_TAKE);
+    // A la misma hora, lo registrado último va primero (el servidor guarda la hora con más precisión).
+    return this.activity
+      .map((row, index) => ({ row, index }))
+      .sort((a, b) => b.row.occurredAt.localeCompare(a.row.occurredAt) || b.index - a.index)
+      .slice(0, take)
+      .map(({ row }) => ({ ...row }));
+  }
+
+  /** Actividad de muestra: los últimos 12 días (hoy, lo de las últimas horas), siempre la misma para la misma fecha. */
+  private sampleActivity(): ActivityRow[] {
+    const random = seededRandom(2026);
+    const now = this.now().getTime();
+    const minute = 60_000;
+    const rows: ActivityRow[] = [];
+    const add = (at: number) => {
+      const options = sampleActivities(random);
+      const sample = options[Math.floor(random() * options.length)];
+      const user = sample.email ? this.users.get(sample.email) : undefined;
+      // Solo usuarios que existen en esta instancia (o el sistema).
+      if (sample.email && !user) return;
+      rows.push({
+        occurredAt: new Date(at).toISOString(),
+        userEmail: user?.email ?? null,
+        userName: user?.name ?? null,
+        action: sample.action,
+        outcome: sample.outcome,
+        details: auditDetails(sample.request, sample.error ?? null),
+      });
+    };
+    // Hoy: una operación cada 17 minutos hacia atrás desde hace 5 minutos.
+    for (let index = 0; index < 10; index += 1) add(now - (5 + index * 17) * minute);
+    // Días anteriores: entre 8 y 15 operaciones por día, en horario de la tienda.
+    for (let day = 1; day <= 12; day += 1) {
+      const count = 8 + Math.floor(random() * 8);
+      for (let index = 0; index < count; index += 1) add(now - day * 24 * 60 * minute - Math.floor(random() * 10 * 60) * minute);
+    }
+    return rows;
+  }
+
+  /** El administrador asigna una contraseña temporal: la cuenta se desbloquea y, si `mustChange`, pide cambiarla al ingresar. */
+  private resetPassword(command: ResetUserPasswordCommand): boolean {
+    const email = normalizeEmail(command.email ?? '');
+    if (!isStrongPassword(command.newPassword ?? '')) {
+      const message = 'La contraseña debe tener entre 8 y 128 caracteres y combinar letras y números.';
+      throw new WebApiError({ kind: 'validation', status: 400, message: `Datos no válidos: ${message}`, errors: [message] });
+    }
+    const user = this.users.get(email);
+    if (!user) throw new WebApiError({ kind: 'not_found', status: 404, message: `El usuario ${email} no existe.` });
+    user.password = command.newPassword;
+    user.mustChangePassword = command.mustChange ?? true;
+    user.failedAttempts = 0;
+    user.lockedUntil = 0;
+    return true;
   }
 
   private accountView(user: StoredUser): MyAccountView {
@@ -388,10 +689,16 @@ export class InMemoryWebBackend {
   }
 
   private selectBranch(user: StoredUser, command: SelectBranchCommand): BranchAccess {
-    if (command.branchId !== null && !BRANCHES.some((branch) => branch.id === command.branchId)) {
-      throw new WebApiError({ kind: 'access_denied', status: 403, message: 'Esa sucursal no está dentro de su alcance.' });
+    // Mismas reglas que SelectBranchHandler: una de sus sucursales, o todas (null) solo la gerencia global.
+    const access = this.access(user);
+    const branchId = command.branchId ?? null;
+    if (branchId === null && !access.allBranches) {
+      throw new WebApiError({ kind: 'access_denied', status: 403, message: 'Elija una de sus sucursales (la vista de todas es solo para la gerencia).' });
     }
-    user.activeBranchId = command.branchId;
+    if (branchId !== null && !access.branches.some((branch) => branch.id === branchId)) {
+      throw new WebApiError({ kind: 'access_denied', status: 403, message: 'La sucursal elegida no está entre las suyas.' });
+    }
+    user.activeBranchId = branchId;
     return this.access(user);
   }
 

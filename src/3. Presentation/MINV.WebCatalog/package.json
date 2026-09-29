@@ -1,7 +1,7 @@
 {
   "name": "minv-webcatalog",
   "private": true,
-  "version": "6.0.0-alpha.1",
+  "version": "7.0.0-alpha.1",
   "type": "module",
   "scripts": {
     "dev": "vite",

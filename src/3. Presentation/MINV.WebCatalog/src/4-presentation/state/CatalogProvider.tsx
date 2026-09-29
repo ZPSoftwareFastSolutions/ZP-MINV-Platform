@@ -1,14 +1,25 @@
 // Carga la instantánea del catálogo desde el origen (API o mock) y entrega los servicios a toda la presentación.
-// Estados: cargando (pantalla con logotipo y esqueleto), error (mensaje y «Reintentar») y listo. Una vez listo, la
-// refresca al volver a la pestaña y cada 60 s SIN parpadeos: la instantánea anterior sigue en pantalla hasta que llega
-// la nueva; si un refresco falla, se conserva la anterior. Estado en memoria; nada de storage.
+// Estados: cargando (esqueleto), error (mensaje y «Reintentar») y listo. Una vez listo, la refresca al volver a la pestaña
+// y cada 60 s SIN parpadeos: la instantánea anterior sigue en pantalla hasta que llega la nueva; si un refresco falla, se
+// conserva la anterior. Estado en memoria; nada de storage.
+//
+// V7 · W3b: la carga y la espera están separadas, para que la tienda caída no bloquee el resto del sitio.
+// - `CatalogStateProvider` carga y refresca la instantánea y publica su estado (`CatalogStatusContext`) y, cuando hay una,
+//   los servicios (`ServicesContext`). NO bloquea a sus hijos: la aplicación lo pone arriba del enrutador y así las
+//   pantallas de la sesión y el panel se dibujan aunque el catálogo no haya llegado o haya fallado.
+// - `CatalogGate` espera el catálogo: mientras carga o si falló muestra el esqueleto o el error con «Reintentar» y, cuando
+//   está listo, su contenido. En la tabla de rutas envuelve SOLO las páginas de la tienda (`variant="body"`, dentro de la
+//   estructura de la tienda); sin hijos dibuja la ruta anidada (`<Outlet />`).
+// - `CatalogProvider` = los dos juntos a pantalla completa, como en la V6 (lo usan las pruebas de componentes).
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Outlet } from 'react-router-dom';
 import { asStorefrontError, describeStorefrontError, type StorefrontError } from '@/1-domain/storefront/errors';
 import type { CatalogSnapshot } from '@/1-domain/storefront/types';
 import { createServices, type Sources } from '@/4-presentation/app/container';
-import { ServicesProvider } from '@/4-presentation/app/ServicesProvider';
-import { CatalogErrorScreen, CatalogLoadingScreen } from '@/4-presentation/components/feedback/CatalogScreens';
+import { ServicesContext } from '@/4-presentation/app/ServicesContext';
+import { CatalogErrorBody, CatalogErrorScreen, CatalogLoadingBody, CatalogLoadingScreen } from '@/4-presentation/components/feedback/CatalogScreens';
+import { CatalogStatusContext, type CatalogStatus } from './CatalogStatusContext';
 
 /** Cada cuánto se refresca la instantánea mientras la pestaña está visible. */
 export const CATALOG_REFRESH_MS = 60_000;
@@ -69,7 +80,8 @@ class CatalogLoader {
   }
 }
 
-export function CatalogProvider({ sources, refreshMs = CATALOG_REFRESH_MS, staleMs = CATALOG_STALE_MS, children }: CatalogProviderProps) {
+/** Carga y refresca el catálogo sin bloquear a sus hijos (ver el comentario del archivo). */
+export function CatalogStateProvider({ sources, refreshMs = CATALOG_REFRESH_MS, staleMs = CATALOG_STALE_MS, children }: CatalogProviderProps) {
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   // El cargador se crea una vez con el origen inicial (setState es estable); cambiar `sources` después no se contempla.
   const [loader] = useState(() => new CatalogLoader(sources, setState));
@@ -109,17 +121,51 @@ export function CatalogProvider({ sources, refreshMs = CATALOG_REFRESH_MS, stale
     [state, refresh],
   );
 
-  if (state.status === 'loading') return <CatalogLoadingScreen />;
-  if (state.status === 'error' || !services) {
-    const error = state.status === 'error' ? state.error : null;
-    return (
-      <CatalogErrorScreen
-        message={error ? describeStorefrontError(error) : 'No pudimos cargar el catálogo.'}
-        detail={error && error.kind !== 'network' && error.kind !== 'unknown' ? error.detail : undefined}
-        retrying={state.status === 'error' && state.retrying}
-        onRetry={retry}
-      />
-    );
-  }
-  return <ServicesProvider services={services}>{children}</ServicesProvider>;
+  const status = useMemo<CatalogStatus>(
+    () => ({
+      status: state.status,
+      error: state.status === 'error' ? state.error : null,
+      retrying: state.status === 'error' && state.retrying,
+      retry,
+    }),
+    [state, retry],
+  );
+
+  return (
+    <CatalogStatusContext.Provider value={status}>
+      <ServicesContext.Provider value={services}>{children}</ServicesContext.Provider>
+    </CatalogStatusContext.Provider>
+  );
+}
+
+export interface CatalogGateProps {
+  /** Qué mostrar con el catálogo listo; sin hijos, la ruta anidada (`<Outlet />`). */
+  children?: ReactNode;
+  /** `screen`: esqueleto y error a pantalla completa · `body` (por defecto): solo el contenido, dentro de la tienda. */
+  variant?: 'screen' | 'body';
+}
+
+/** Espera el catálogo: esqueleto mientras carga, error con «Reintentar» si falló y el contenido cuando está listo. */
+export function CatalogGate({ children, variant = 'body' }: CatalogGateProps) {
+  const services = useContext(ServicesContext);
+  const catalog = useContext(CatalogStatusContext);
+  if (services) return <>{children ?? <Outlet />}</>;
+  if (!catalog || catalog.status !== 'error') return variant === 'screen' ? <CatalogLoadingScreen /> : <CatalogLoadingBody />;
+  const error = catalog.error;
+  const props = {
+    message: error ? describeStorefrontError(error) : 'No pudimos cargar el catálogo.',
+    detail: error && error.kind !== 'network' && error.kind !== 'unknown' ? error.detail : undefined,
+    retrying: catalog.retrying,
+    onRetry: catalog.retry,
+  };
+  return variant === 'screen' ? <CatalogErrorScreen {...props} /> : <CatalogErrorBody {...props} />;
+}
+
+/** Carga el catálogo y espera a tenerlo antes de dibujar a sus hijos, a pantalla completa (como en la V6). */
+export function CatalogProvider({ children, ...props }: CatalogProviderProps) {
+  return (
+    <CatalogStateProvider {...props}>
+      <CatalogGate variant="screen">{children}</CatalogGate>
+    </CatalogStateProvider>
+  );
 }

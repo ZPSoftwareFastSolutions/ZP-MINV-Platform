@@ -96,7 +96,12 @@ public sealed class DemoWorkspaceTests
             Assert.NotEmpty(bySku);
             Assert.All(bySku, r => Assert.Contains(recent[0].Sku, r.Sku + " " + r.Serial, StringComparison.OrdinalIgnoreCase));
             Assert.NotEmpty(await mediator.Send(new GetWarrantyClaimsQuery()));
-            Assert.Equal(8, (await mediator.Send(new GetPcBuildsQuery(Channel: MINV.Domain.Sales.PcBuildChannel.Desktop))).Count);   // V6: + 2 reservas web aparte
+            // V6: + 2 reservas web aparte; V7: los carritos (también el de mostrador, del canal del escritorio) aparte
+            Assert.Equal(8, (await mediator.Send(new GetPcBuildsQuery(Channel: MINV.Domain.Sales.PcBuildChannel.Desktop,
+                Kind: MINV.Domain.Sales.PcBuildKind.Build))).Count);
+            // V7 · La tienda web de la demostración (regla P-13): cuentas de cliente con sus reservas, carritos y correos en cola
+            Assert.Equal((2, 4, 1, 1), (demo.Seed.Web!.Accounts, demo.Seed.Web.AccountReservations, demo.Seed.Web.ActiveCarts, demo.Seed.Web.CounterCarts));
+            Assert.True(demo.Seed.Web.QueuedMails >= 7, $"Solo {demo.Seed.Web.QueuedMails} correos en la cola");
         }
 
         // Cada usuario de la demostración entra con su rol (la interfaz se adapta a sus permisos)
@@ -107,6 +112,15 @@ public sealed class DemoWorkspaceTests
             {
                 Assert.Contains(user.RoleCode, l.Roles);
             }
+        }
+
+        // V7 · El acceso de cliente es una cuenta de la tienda web: ve sus reservas (un carrito y un armado) y nada del personal
+        var customer = Assert.Single(demo.Users, u => u.RoleCode == RoleCodes.Customer);
+        var (cs, cm, _) = await SignInAsync(sp, demo, customer.Email);
+        using (cs)
+        {
+            Assert.Equal(["build", "cart"], (await cm.Send(new MINV.Application.Accounts.GetMyReservationsQuery())).Select(r => r.Kind).Order(StringComparer.Ordinal));
+            await Assert.ThrowsAsync<AccessDeniedException>(() => cm.Send(new GetWorkspaceQuery()));
         }
     }
 

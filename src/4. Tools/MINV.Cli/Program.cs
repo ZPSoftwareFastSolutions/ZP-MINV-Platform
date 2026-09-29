@@ -252,7 +252,9 @@ internal static class Cli
     /// <summary>Comprobaciones de la base: tablas, triggers append-only, RLS y conservación (Σ existencias = Σ movimientos).
     /// Mínimos de la V7 (migración V7WebPlatform): 157 tablas en 10 esquemas (27 de facturación en <c>billing</c>, 2 de
     /// garantías en <c>service</c>), 32 libros append-only, RLS por empresa en las 155 tablas con <c>tenant_id</c> y política
-    /// restrictiva por sucursal en 64; con empresa, además, series en stock = stock (<c>inventory.v_serial_breaches</c>).</summary>
+    /// restrictiva por sucursal en 64; con empresa, además, series en stock = stock (<c>inventory.v_serial_breaches</c>) y (V7) lo
+    /// reservado de cada existencia = la suma de sus reservas de stock activas (de armados Y de carritos), más un informe de las
+    /// cuentas de cliente y de los correos pendientes en la cola.</summary>
     private static async Task<int> VerifyAsync(MinvWriteDbContext db, ITenantContext tenantContext, string? tenantCode)
     {
         const int MinTables = 157, MinBilling = 27, MinService = 2, MinLedgers = 32, MinRls = 155, MinBranch = 64;
@@ -293,6 +295,26 @@ internal static class Cli
             ok &= serialBreaches == 0;
             Console.WriteLine($"{(serialBreaches == 0 ? "✔" : "✖")} Series e IMEI: {serials} en total, {serialBreaches} variantes con series en stock " +
                               "distintas de su stock en una sucursal");
+            // V7 · Reservas de armados Y de carritos: lo reservado de cada existencia es la suma de sus reservas de stock activas
+            // (reglas S-03 y P-05; disponible = existencias − reservado)
+            var reservationBreaches = await Scalar("SELECT count(*)::int AS \"Value\" FROM inventory.stock_levels l " +
+                                                   $"WHERE l.tenant_id = '{tenant.Id}' AND l.quantity_reserved <> coalesce((SELECT sum(r.quantity) " +
+                                                   "FROM inventory.stock_reservations r WHERE r.tenant_id = l.tenant_id AND r.stock_level_id = l.id " +
+                                                   "AND r.status = 'Active'), 0)");
+            var reservedCarts = await Scalar("SELECT count(*)::int AS \"Value\" FROM sales.pc_builds " +
+                                             $"WHERE tenant_id = '{tenant.Id}' AND status = 'Reserved' AND kind = 'Cart'");
+            var reservedBuilds = await Scalar("SELECT count(*)::int AS \"Value\" FROM sales.pc_builds " +
+                                              $"WHERE tenant_id = '{tenant.Id}' AND status = 'Reserved' AND kind = 'Build'");
+            var activeReservations = await Scalar("SELECT count(*)::int AS \"Value\" FROM inventory.stock_reservations " +
+                                                  $"WHERE tenant_id = '{tenant.Id}' AND status = 'Active'");
+            ok &= reservationBreaches == 0;
+            Console.WriteLine($"{(reservationBreaches == 0 ? "✔" : "✖")} Reservas: {reservedCarts} carritos y {reservedBuilds} armados reservados " +
+                              $"({activeReservations} reservas de stock activas), {reservationBreaches} existencias cuyo reservado no es la suma de sus reservas");
+            // V7 · Tienda web (regla P-13, informativo): cuentas de cliente y correos de confirmación que esperan al despachador
+            var accounts = await Scalar($"SELECT count(*)::int AS \"Value\" FROM sales.customer_accounts WHERE tenant_id = '{tenant.Id}'");
+            var queued = await Scalar("SELECT count(*)::int AS \"Value\" FROM integration.outgoing_mail_dispatch " +
+                                      $"WHERE tenant_id = '{tenant.Id}' AND status = 'Pending'");
+            Console.WriteLine($"· Tienda web: {accounts} cuentas de cliente y {queued} correos de confirmación pendientes en la cola");
             // V4.1 · Facturación: el total fiscal (derivado de las líneas) es el cobrado y cada venta tiene UN documento vigente
             var fiscal = await Scalar($"SELECT count(*)::int AS \"Value\" FROM billing.fiscal_documents WHERE tenant_id = '{tenant.Id}'");
             if (fiscal > 0)
@@ -337,7 +359,8 @@ internal static class Cli
         var watch = Stopwatch.StartNew();
         var seeder = services.GetRequiredService<LocalDataSeeder>();
         var result = await seeder.SeedAsync(seedOptions, line => Console.WriteLine("   " + line));
-        var text = Credentials(result);
+        // V7 · El texto del archivo de usuarios (personal y, aparte, las cuentas de cliente de la tienda web) lo arma el sembrador
+        var text = SeedUsersFile.Text(result);
         Console.WriteLine();
         Console.WriteLine(text);
         if (options.GetValueOrDefault("credenciales") is { Length: > 0 } file)
@@ -373,54 +396,6 @@ internal static class Cli
         }
         Console.WriteLine($"✔ Datos de prueba listos en {watch.Elapsed.TotalSeconds:N0} s");
         return 0;
-    }
-
-    private static string Credentials(SeedResult r)
-    {
-        var sb = new StringBuilder();
-        sb.AppendLine("M-INV · base de datos de PRUEBA · usuarios");
-        sb.AppendLine($"Empresa: {r.CompanyName} · código de empresa: {r.TenantCode}");
-        sb.AppendLine($"Sucursales: {string.Join(", ", r.Branches)} (CM = casa matriz La Paz, CB = Cochabamba, SC = Santa Cruz)");
-        sb.AppendLine($"Datos: {r.Products} productos con imagen, {r.Suppliers} proveedores, {r.Customers} clientes, {r.Tickets} ventas en caja, " +
-                      $"{r.ExternalOrders} pedidos web, {r.Transfers} transferencias, {r.PurchaseOrders} órdenes de compra, {r.Movements} movimientos y " +
-                      $"{r.JournalEntries} asientos ({r.From:dd/MM/yyyy} a {r.To:dd/MM/yyyy}).");
-        if (r.Tech is { } t)
-        {
-            // V4.2 · Edición Tecnología: fichas técnicas, series e IMEI, garantías (RMA) y armados de PC
-            sb.AppendLine($"Tecnología: {t.Categories} categorías, {t.SpecDefinitions} especificaciones ({t.SpecValues} valores), {t.Brands} marcas, " +
-                          $"{t.SerializedProducts} productos con serie o IMEI ({t.Serials} series, {t.SerialsInStock} en stock), {t.WarrantyClaims} casos RMA, " +
-                          $"{t.PcBuilds} armados de PC ({t.PcBuildsSold} vendidos, {t.PcBuildsIncompatible} incompatibles marcados) y {t.Returns} devoluciones.");
-        }
-        if (r.Billing is { } b)
-        {
-            // V4.1 · Facturación SIAT (el token de simulación NO va aquí: está en el archivo de claves de integración)
-            sb.AppendLine($"Facturación SIAT (pruebas, simulador del SIN {b.SimulatorUrl}): NIT {b.Nit} · {b.BusinessName} · desde el {b.From:dd/MM/yyyy}: " +
-                          $"{b.Documents} documentos ({b.ValidInvoices} facturas válidas, {b.OfflineRecovered} fuera de línea recuperadas, " +
-                          $"{b.CafcInvoices} CAFC, {b.CreditNotes} notas crédito-débito, {b.Voided} anuladas, {b.Reverted} revertida) · " +
-                          $"{b.SupplierInvoices} facturas de proveedores · {b.PointsOfSale} puntos de venta.");
-        }
-        sb.AppendLine();
-        sb.AppendLine($"{"Rol",-15} {"Nombre",-26} {"Correo",-44} {"Contraseña",-16} Sucursales");
-        sb.AppendLine(new string('-', 128));
-        foreach (var u in r.Users)
-        {
-            sb.AppendLine($"{u.RoleName,-15} {u.Name,-26} {u.Email,-44} {u.Password,-16} {u.Branches}");
-        }
-        sb.AppendLine();
-        sb.AppendLine("Son contraseñas de PRUEBA generadas al azar para esta base local: no las use en producción.");
-        if (r.StorefrontUser is { } storefront)
-        {
-            // V6 · Usuario técnico de la tienda web: sin contraseña utilizable (el API Gateway lo autentica por configuración)
-            sb.AppendLine();
-            sb.AppendLine($"Tienda web: usuario técnico {storefront} (rol Tienda web) SIN contraseña utilizable: el API Gateway lo usa por " +
-                          $"configuración (Minv:Storefront:TenantCode={r.TenantCode}) para /storefront/v1; no sirve para iniciar sesión en el escritorio.");
-            if (r.Tech is { } tech)
-            {
-                sb.AppendLine($"Tienda web: {tech.PcBuildsPublished} armados publicados, {tech.WebReservationsActive} reserva(s) web activa(s) y " +
-                              $"{tech.WebReservationsExpired} vencida(s) (ver Armador de PC › Cotizaciones, canal Web).");
-            }
-        }
-        return sb.ToString();
     }
 
     private static Dictionary<string, string> Options(string[] args)

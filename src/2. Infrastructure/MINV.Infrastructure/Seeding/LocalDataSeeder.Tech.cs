@@ -371,7 +371,10 @@ public sealed partial class LocalDataSeeder
         {
             _db.ChangeTracker.Clear();
             var claims = await _db.WarrantyClaims.AsNoTracking().Select(c => c.Status).ToListAsync(_ct);
-            var builds = await _db.PcBuilds.AsNoTracking().Select(b => new { b.Status, b.QuotedWithErrors }).ToListAsync(_ct);
+            // V7 · Los armados de PC (también los reservados desde la web y desde las cuentas de cliente), sin los carritos: esos los
+            // resume SeedWeb
+            var builds = await _db.PcBuilds.AsNoTracking().Where(b => b.Kind == PcBuildKind.Build).Select(b => new { b.Status, b.QuotedWithErrors })
+                .ToListAsync(_ct);
             var tech = TechSeedCatalog.Current;
             return new SeedTech(await _db.Categories.CountAsync(_ct), await _db.SpecDefinitions.CountAsync(_ct), await _db.ProductSpecValues.CountAsync(_ct),
                 await _db.Brands.CountAsync(_ct), tech.Products.Count(p => p.TracksSerials), await _db.SerialNumbers.CountAsync(_ct),

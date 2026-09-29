@@ -3,7 +3,9 @@
 // red vive SOLO en `3-infrastructure/http`. V7 (reglas P-02, P-07, P-08, P-09 y P-11): `fetch` solo en `api.ts`
 // (tienda) y `webApi.ts` (sesión y RPC); `localStorage` solo en `3-infrastructure/storage/*` y solo para el carrito;
 // NADA de la sesión se guarda en el navegador; el contrato generado se usa a través de un único adaptador; el panel se
-// descarga aparte y sus módulos no se importan entre sí; nada de HTML ni código inyectado.
+// descarga aparte y sus módulos no se importan entre sí; nada de HTML ni código inyectado. V7 · W3b: un módulo del panel
+// importa solo el conjunto del panel (kit, hooks, lib y registro), el contrato, las rutas y su propia carpeta, y no
+// declara a mano tipos del servidor.
 // Lee el código fuente de src/ (sin las pruebas ni sus utilidades) y revisa cada `import`.
 
 import { describe, expect, it } from 'vitest';
@@ -211,6 +213,50 @@ describe('arquitectura limpia del catálogo web', () => {
           .map((specifier) => `${path} → ${specifier}`);
       });
     expect(crossImports).toEqual([]);
+  });
+
+  it('un módulo del panel importa SOLO el conjunto del panel, el contrato y su propia carpeta (regla P-09, W3b)', () => {
+    const MODULES = './4-presentation/panel/modules/';
+    const ALLOWED = new Set([
+      '@/4-presentation/panel/kit',
+      '@/4-presentation/panel/hooks',
+      '@/4-presentation/panel/lib',
+      '@/4-presentation/panel/registry',
+      '@/4-presentation/app/contract',
+      '@/4-presentation/app/routes',
+    ]);
+    const PACKAGES = /^(react|react-dom|react-router|react-router-dom|lucide-react|clsx)(\/|$)/;
+    const files = Object.entries(SOURCES).filter(([path]) => path.startsWith(MODULES));
+    expect(files.length).toBeGreaterThan(3);
+    const outside = files.flatMap(([path, source]) => {
+      const own = `${MODULES}${path.slice(MODULES.length).split('/')[0]}/`;
+      return importsOf(source)
+        .filter((specifier) => {
+          if (specifier.startsWith('.')) {
+            // Una importación relativa no puede salir de la carpeta del módulo (ni a shell/, kit/ u otro módulo).
+            const resolved = new URL(specifier, `https://modulo.invalid/${path.slice(2)}`).pathname;
+            return !`.${resolved}`.startsWith(own);
+          }
+          return !ALLOWED.has(specifier) && !PACKAGES.test(specifier);
+        })
+        .map((specifier) => `${path} → ${specifier}`);
+    });
+    expect(outside).toEqual([]);
+  });
+
+  it('un módulo del panel no declara a mano tipos del servidor: salen del contrato generado (regla P-07, W3b)', () => {
+    const contract = SOURCES['./3-infrastructure/http/contract.generated.ts'];
+    const serverTypes = new Set([...contract.matchAll(/export\s+(?:interface|type)\s+(\w+)/g)].map((match) => match[1]));
+    expect(serverTypes.has('RpcOperations')).toBe(true);
+    const declared = Object.entries(SOURCES)
+      .filter(([path]) => path.startsWith('./4-presentation/panel/modules/'))
+      .flatMap(([path, source]) =>
+        [...code(source).matchAll(/(?:^|\n)\s*(?:export\s+)?(?:interface|type)\s+(\w+)/g)]
+          .map((match) => match[1])
+          .filter((name) => serverTypes.has(name) || /(Query|Command)$/.test(name))
+          .map((name) => `${path} → ${name}`),
+      );
+    expect(declared).toEqual([]);
   });
 
   it('nada de HTML ni código inyectado: la página corre con una Content-Security-Policy de solo «self» (regla P-11)', () => {

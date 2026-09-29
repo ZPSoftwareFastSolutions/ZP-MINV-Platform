@@ -2,7 +2,7 @@ import { RouterProvider } from 'react-router-dom';
 import { ToastProvider } from '@/4-presentation/components/feedback/ToastProvider';
 import { BuilderProvider } from '@/4-presentation/state/BuilderProvider';
 import { CartProvider } from '@/4-presentation/state/CartProvider';
-import { CatalogProvider } from '@/4-presentation/state/CatalogProvider';
+import { CatalogStateProvider } from '@/4-presentation/state/CatalogProvider';
 import { SessionProvider } from '@/4-presentation/state/SessionProvider';
 import { createCartServices, createSources, createWebServices } from './container';
 import { router } from './router';
@@ -17,11 +17,15 @@ const cart = createCartServices();
 /**
  * Composición de la aplicación: sesión web (pregunta por la sesión mientras carga el catálogo) → catálogo (carga y
  * refresco) → servicios → avisos → armado en memoria → carrito → enrutador.
+ *
+ * V7 · W3b: el catálogo ya NO bloquea el enrutador. `CatalogStateProvider` lo carga en paralelo y solo las páginas de la
+ * tienda lo esperan (`CatalogGate` en la tabla de rutas): si la tienda falla, igual se puede ingresar y usar el panel.
+ * El armado y el carrito siguen arriba del enrutador (no se pierden al navegar) y se ponen al día cuando llega el catálogo.
  */
 export function App() {
   return (
     <SessionProvider web={web}>
-      <CatalogProvider sources={sources}>
+      <CatalogStateProvider sources={sources}>
         <ToastProvider>
           <BuilderProvider>
             <CartProvider cart={cart}>
@@ -29,7 +33,7 @@ export function App() {
             </CartProvider>
           </BuilderProvider>
         </ToastProvider>
-      </CatalogProvider>
+      </CatalogStateProvider>
     </SessionProvider>
   );
 }

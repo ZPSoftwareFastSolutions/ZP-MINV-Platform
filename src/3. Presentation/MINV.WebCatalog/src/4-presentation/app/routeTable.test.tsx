@@ -1,17 +1,24 @@
 // Tabla de rutas REAL con sus guardas: `/panel/*` exige sesión del personal, `/mi-cuenta/*` sesión de cliente, sin
 // sesión se va a `/ingresar?volver=…`, un `volver` malicioso se ignora y `mustChangePassword` obliga a cambiar la
 // contraseña. Sesión en memoria: ninguna prueba toca la red.
+//
+// V7 · W3b: el panel ya no es el punto de montaje provisional («Panel en construcción») sino el esqueleto real
+// (`data-testid="panel-esqueleto"`) con el tablero «Inicio» en `/panel`. Las pruebas comprueban lo mismo que antes
+// (quién entra al panel y a dónde lo lleva cada guarda) buscando el esqueleto en lugar del aviso provisional.
 
 import { act, fireEvent, screen, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { WebApiError } from '@/1-domain/auth/errors';
 import type { ISessionGateway } from '@/1-domain/ports/ISessionGateway';
-import { demoUser, mockWeb, renderRoutes, signedInWeb, webWith } from '@/test-utils';
+import { demoUser, mockWeb, preloadPanel, renderRoutes, signedInWeb, webWith } from '@/test-utils';
 import type { WebRpc } from './container';
 import { ROUTES } from './routes';
 
 const CUSTOMER = demoUser('customer');
 const STAFF = demoUser('staff');
+
+// El panel real es un fragmento grande: se descarga una vez para que su primera carga no se coma la espera de las búsquedas.
+beforeAll(preloadPanel, 30_000);
 
 async function signIn(email: string, password: string) {
   fireEvent.change(await screen.findByLabelText(/^Correo/), { target: { value: email } });
@@ -24,7 +31,7 @@ describe('guardas de ruta', () => {
     const app = await renderRoutes({ route: '/panel/ventas?estado=abierta' });
     expect(await screen.findByRole('heading', { level: 1, name: 'Ingresar' })).toBeInTheDocument();
     expect(app.location()).toBe('/ingresar?volver=%2Fpanel%2Fventas%3Festado%3Dabierta');
-    expect(screen.queryByTestId('panel-en-construccion')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('panel-esqueleto')).not.toBeInTheDocument();
   });
 
   it('sin sesión, /mi-cuenta redirige a ingresar conservando la sección', async () => {
@@ -33,16 +40,18 @@ describe('guardas de ruta', () => {
     expect(app.location()).toBe('/ingresar?volver=%2Fmi-cuenta%2Fdatos');
   });
 
-  it('el personal entra al panel (punto de montaje provisional) y a sus rutas internas', async () => {
+  it('el personal entra al panel (esqueleto y tablero) y a sus rutas internas', async () => {
     const web = await signedInWeb('staff');
     const app = await renderRoutes({ web: web.services, route: '/panel' });
-    expect(await screen.findByTestId('panel-en-construccion')).toHaveTextContent('Panel en construcción');
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(`Hola, ${STAFF.name}`);
+    expect(await screen.findByTestId('panel-esqueleto')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1 })).toHaveTextContent(`Hola, ${STAFF.name}`);
     expect(app.location()).toBe('/panel');
     await act(async () => {
       await app.router.navigate('/panel/ventas/caja');
     });
-    expect(await screen.findByTestId('panel-en-construccion')).toBeInTheDocument();
+    // Una ruta interna sin módulo todavía: sigue dentro del panel (con su aviso), sin salir de la dirección.
+    expect(await screen.findByTestId('pantalla-no-encontrada')).toBeInTheDocument();
+    expect(screen.getByTestId('panel-esqueleto')).toBeInTheDocument();
     expect(app.location()).toBe('/panel/ventas/caja');
   });
 
@@ -51,13 +60,13 @@ describe('guardas de ruta', () => {
     const app = await renderRoutes({ web: web.services, route: '/panel/usuarios' });
     expect(await screen.findByRole('heading', { level: 1, name: `Hola, ${CUSTOMER.name}` })).toBeInTheDocument();
     expect(app.location()).toBe('/mi-cuenta');
-    expect(screen.queryByTestId('panel-en-construccion')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('panel-esqueleto')).not.toBeInTheDocument();
   });
 
   it('el personal NO entra a «Mi cuenta»: va al panel', async () => {
     const web = await signedInWeb('staff');
     const app = await renderRoutes({ web: web.services, route: '/mi-cuenta/reservas' });
-    expect(await screen.findByTestId('panel-en-construccion')).toBeInTheDocument();
+    expect(await screen.findByTestId('panel-esqueleto')).toBeInTheDocument();
     expect(app.location()).toBe('/panel');
   });
 
@@ -104,7 +113,7 @@ describe('después de ingresar', () => {
   it('sin `volver`, el personal va al panel y el cliente a su cuenta', async () => {
     const staff = await renderRoutes({ route: ROUTES.login });
     await signIn(STAFF.email, STAFF.password);
-    expect(await screen.findByTestId('panel-en-construccion')).toBeInTheDocument();
+    expect(await screen.findByTestId('panel-esqueleto')).toBeInTheDocument();
     expect(staff.location()).toBe('/panel');
     staff.unmount();
 
@@ -139,7 +148,7 @@ describe('después de ingresar', () => {
   it('quien ya ingresó y abre /ingresar va directo a su inicio', async () => {
     const web = await signedInWeb('staff');
     const app = await renderRoutes({ web: web.services, route: ROUTES.login });
-    expect(await screen.findByTestId('panel-en-construccion')).toBeInTheDocument();
+    expect(await screen.findByTestId('panel-esqueleto')).toBeInTheDocument();
     expect(app.location()).toBe('/panel');
   });
 });
@@ -158,14 +167,14 @@ describe('cambio de contraseña obligatorio', () => {
       await app.router.navigate('/panel');
     });
     await waitFor(() => expect(app.location()).toBe('/cambiar-contrasena?volver=%2Fpanel'));
-    expect(screen.queryByTestId('panel-en-construccion')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('panel-esqueleto')).not.toBeInTheDocument();
 
     fireEvent.change(await screen.findByLabelText(/^Contraseña actual/), { target: { value: STAFF.password } });
     fireEvent.change(screen.getByLabelText(/^Nueva contraseña/), { target: { value: 'Nueva4567' } });
     fireEvent.change(screen.getByLabelText(/^Repita la nueva contraseña/), { target: { value: 'Nueva4567' } });
     fireEvent.click(screen.getByRole('button', { name: 'Cambiar contraseña' }));
 
-    expect(await screen.findByTestId('panel-en-construccion')).toBeInTheDocument();
+    expect(await screen.findByTestId('panel-esqueleto')).toBeInTheDocument();
     expect(app.location()).toBe('/panel');
   });
 
@@ -219,7 +228,9 @@ describe('fin de la sesión', () => {
   it('cerrar sesión desde una ruta protegida vuelve a la tienda (no a ingresar)', async () => {
     const web = await signedInWeb('staff');
     const app = await renderRoutes({ web: web.services, route: '/panel' });
-    fireEvent.click(await screen.findByRole('button', { name: 'Cerrar sesión' }));
+    // En el panel real, «Cerrar sesión» está en el menú del usuario de la barra superior.
+    fireEvent.click(await screen.findByRole('button', { name: /^Cuenta de / }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Cerrar sesión' }));
     await waitFor(() => expect(app.location()).toBe('/'));
     expect(await web.backend.session.current()).toBeNull();
     // Después, entrar de nuevo a una ruta protegida pide ingresar como siempre.

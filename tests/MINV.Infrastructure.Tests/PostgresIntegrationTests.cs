@@ -403,7 +403,8 @@ public sealed class PostgresIntegrationTests(PostgresFixture pg) : IClassFixture
     /// <c>minv datos-prueba</c> contra PostgreSQL real: ventas en caja, compras recibidas, anulaciones y asientos respetan
     /// los CHECK (arcos exclusivos de pedidos y recepciones), los triggers de partida doble y los libros append-only. V4.2: la
     /// empresa de prueba Tech Zone Gaming (fichas técnicas, series e IMEI, casos RMA, armados de PC) y las vistas de control
-    /// <c>v_serial_breaches</c> (series en stock = stock), <c>v_conservation_breaches</c> y <c>v_transfer_breaches</c> vacías.
+    /// <c>v_serial_breaches</c> (series en stock = stock), <c>v_conservation_breaches</c> y <c>v_transfer_breaches</c> vacías. V7: la
+    /// tienda web (cuentas de cliente, carritos, correos en cola) respeta los triggers y las restricciones de la migración V7WebPlatform.
     /// </summary>
     [PostgresFact]
     public async Task Los_datos_de_prueba_respetan_todas_las_restricciones_de_PostgreSQL()
@@ -450,6 +451,30 @@ public sealed class PostgresIntegrationTests(PostgresFixture pg) : IClassFixture
             FROM val FULL JOIN led ON led.branch_id = val.branch_id
             """).SingleAsync();
         Assert.Equal(0m, drift);
+
+        // V7 · La tienda web en PostgreSQL (regla P-13): cuentas de cliente registradas por el canal web, carritos con productos sin
+        // ranura (el trigger trg_pc_build_line_slot solo lo admite en un carrito), la confirmación de cada reserva en la cola sin
+        // intentos y lo reservado de cada existencia = la suma de sus reservas activas (de armados Y de carritos)
+        var web = Assert.IsType<MINV.Infrastructure.Seeding.SeedWeb>(result.Web);
+        Assert.Equal((2, 4, 1, 1, 1), (web.Accounts, web.AccountReservations, web.ActiveCarts, web.ExpiredCarts, web.CounterCarts));
+        async Task<int> ScalarAsync(FormattableString sql) => await db.Database.SqlQuery<int>(sql).SingleAsync();
+        Assert.Equal(2, await ScalarAsync($"SELECT count(*)::int AS \"Value\" FROM sales.customer_accounts WHERE tenant_id = {tenant}"));
+        Assert.Equal(2, await ScalarAsync($"SELECT count(*)::int AS \"Value\" FROM iam.audit_logs WHERE tenant_id = {tenant} AND action = 'RegisterCustomerAccount' AND channel = 'web' AND outcome = 'Succeeded'"));
+        Assert.True(await ScalarAsync($"SELECT count(*)::int AS \"Value\" FROM sales.pc_build_lines l JOIN sales.pc_builds b ON b.id = l.pc_build_id WHERE b.tenant_id = {tenant} AND b.kind = 'Cart' AND l.slot IS NULL") > 0);
+        Assert.Equal(0, await ScalarAsync($"SELECT count(*)::int AS \"Value\" FROM sales.pc_build_lines l JOIN sales.pc_builds b ON b.id = l.pc_build_id WHERE b.tenant_id = {tenant} AND b.kind = 'Build' AND l.slot IS NULL"));
+        Assert.Equal(web.QueuedMails, await ScalarAsync($"SELECT count(*)::int AS \"Value\" FROM integration.outgoing_mail_dispatch WHERE tenant_id = {tenant} AND status = 'Pending'"));
+        Assert.Equal(0, await ScalarAsync($"SELECT count(*)::int AS \"Value\" FROM integration.outgoing_mail_attempts WHERE tenant_id = {tenant}"));
+        Assert.Equal(0, await ScalarAsync($"""
+            SELECT count(*)::int AS "Value" FROM inventory.stock_levels l WHERE l.tenant_id = {tenant} AND l.quantity_reserved <> coalesce((SELECT sum(r.quantity)
+            FROM inventory.stock_reservations r WHERE r.tenant_id = l.tenant_id AND r.stock_level_id = l.id AND r.status = 'Active'), 0)
+            """));
+        var customer = result.Users.First(u => u.RoleCode == RoleCodes.Customer);
+        using (var account = provider.CreateScope())
+        {
+            var mediator = account.ServiceProvider.GetRequiredService<IMediator>();
+            await mediator.Send(new LoginCommand("SEMILLA", customer.Email, customer.Password, "pruebas", "7.0.0"));
+            Assert.Equal(["build", "cart"], (await mediator.Send(new MINV.Application.Accounts.GetMyReservationsQuery())).Select(r => r.Kind).Order(StringComparer.Ordinal));
+        }
 
         // Todas las consultas de las pantallas con el administrador: PostgreSQL devuelve numéricos de hasta 1000 cifras y
         // System.Decimal solo admite 28-29; un cálculo con división hecho en SQL no debe llegar sin redondear al cliente.

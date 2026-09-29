@@ -19,7 +19,7 @@ import { EmptyState } from '@/4-presentation/components/ui/EmptyState';
 import { SelectField } from '@/4-presentation/components/ui/TextField';
 import { useAsyncData } from '@/4-presentation/hooks/useAsyncData';
 import { useAccount } from '@/4-presentation/hooks/useRpc';
-import { useStore } from '@/4-presentation/hooks/useStore';
+import { useOptionalStore } from '@/4-presentation/hooks/useStore';
 import { useToast } from '@/4-presentation/hooks/useToast';
 import { formatMoney, pluralize } from '@/shared/format';
 
@@ -38,7 +38,8 @@ interface ReservationCardProps {
 
 function ReservationCard({ reservation, onReleased, onStale }: ReservationCardProps) {
   const account = useAccount();
-  const store = useStore();
+  // «Mi cuenta» no depende del catálogo de la tienda (W3b): sin él, la sucursal se muestra con su código.
+  const store = useOptionalStore();
   const toast = useToast();
   const detailId = useId();
   const [open, setOpen] = useState(false);

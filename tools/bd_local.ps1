@@ -252,7 +252,7 @@ if ($Autoiniciar) { Autoinicio }
 if ($Accion -in @('instalar', 'recrear')) {
     Write-Output ''
     Write-Output ('Claves de PostgreSQL (solo en este equipo): ' + $cred)
-    Write-Output ('Usuarios de prueba de M-INV (empresa, correos, contrasenas y sucursales): ' + $usuarios)
+    Write-Output ('Usuarios de prueba de M-INV (empresa, personal por rol con sus sucursales y, V7, clientes de la tienda web; correos y contrasenas): ' + $usuarios)
     Write-Output ('API Key de la tienda de prueba, claves de integracion y token de SIMULACION del SIN (MINV_SIAT_TOKEN): ' + $claves)
     if (-not $SinFacturacion -and -not $SinDatos) {
         Write-Output ('Estado del simulador del SIN (CUIS, CUFD y facturas emitidas en la carga): ' + $estadoSimulador)
@@ -261,6 +261,7 @@ if ($Accion -in @('instalar', 'recrear')) {
         Write-Output ('Empresa de prueba: ' + $Empresa + ' - Tech Zone Gaming S.R.L. (sucursales CM La Paz, CB Cochabamba y SC Santa Cruz).')
     }
     Write-Output 'Abra M-INV.exe e ingrese con la empresa TECHZONE y un usuario de ese archivo (modo "Base local").'
+    Write-Output 'V7: las cuentas de la seccion "Clientes de la tienda web" de ese archivo ingresan en la tienda web (Ingresar), no en el escritorio.'
     Write-Output 'Para simular la nube y el SIN en este equipo: powershell -ExecutionPolicy Bypass -File tools\servidores_locales.ps1 -Accion iniciar'
     Write-Output '(inicia el simulador del SIN en http://localhost:5095, el servidor en la nube y el API Gateway)'
 }

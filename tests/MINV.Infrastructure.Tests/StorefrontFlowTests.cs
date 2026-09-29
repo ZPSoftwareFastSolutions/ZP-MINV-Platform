@@ -84,12 +84,16 @@ public sealed class StorefrontFlowTests : IAsyncLifetime
         Assert.True(snapshot.Presets.Count >= 5);
         Assert.All(snapshot.Presets, p => Assert.Equal(p.Total, p.Lines.Sum(l => l.Quantity * l.UnitPrice)));
         Assert.Equal(snapshot.Presets.Select(p => p.Number), (await SendAsync(scope, new GetStorefrontPresetsQuery())).Select(p => p.Number));
-        // Las reservas web de la carga: una activa y una vencida (cerrada por el trabajo de vencimiento)
+        // Las reservas web de la carga: una activa y una vencida (cerrada por el trabajo de vencimiento), medidas contra el reloj del
+        // servidor (el reloj simulado de la carga)
+        var now = _services.GetRequiredService<DemoClock>().UtcNow;
         var web = await SendAsync(scope, new GetPcBuildsQuery(Channel: PcBuildChannel.Web));
-        Assert.Contains(web, b => b.Status == PcBuildStatus.Reserved && b.ReservedUntil > DateTimeOffset.UtcNow && b.ContactPhone is not null);
+        Assert.Contains(web, b => b.Status == PcBuildStatus.Reserved && b.ReservedUntil > now && b.ContactPhone is not null);
         Assert.Contains(web, b => b.Status == PcBuildStatus.Cancelled && b.CancelReason == PcBuild.ExpiredReason);
         var dashboard = await SendAsync(scope, new GetTechDashboardQuery());
-        Assert.Equal(1, dashboard.WebReservationsActive);
+        // La de la V6 y, V7, las de la tienda web vigentes: el carrito de un solo monitor y las reservas de las cuentas de cliente
+        Assert.Equal(1 + _seed.Web!.ActiveCarts + _seed.Web.AccountReservations, dashboard.WebReservationsActive);
+        Assert.Equal(web.Count(b => b.IsReservationActive(now)), dashboard.WebReservationsActive);
         Assert.True(dashboard.WebReservationsValue > 0);
         // La imagen y el producto suelto
         var image = await SendAsync(scope, new GetStorefrontProductImageQuery(Sku));
@@ -113,6 +117,8 @@ public sealed class StorefrontFlowTests : IAsyncLifetime
             return (rows.Sum(r => r.QuantityOnHand), rows.Sum(r => r.QuantityReserved));
         }
         var before = await StockAsync();
+        // Las reservas vigentes de la carga (V6 y V7): todas de 48 h o menos, de hace unas horas
+        var seeded = await db.PcBuilds.AsNoTracking().CountAsync(b => b.Status == PcBuildStatus.Reserved);
 
         // 1. Reservar: armado web cotizado y reservado + una reserva de stock por línea, todo en la misma transacción
         var result = await SendAsync(scope, Reservation("k1"));
@@ -179,8 +185,9 @@ public sealed class StorefrontFlowTests : IAsyncLifetime
             Assert.Equal(0, await SendAsync(scope, new ExpirePcBuildReservationsCommand()));
             clock.StartAt(realNow.AddHours(49));
             Assert.Equal("Expired", (await SendAsync(scope, new GetStorefrontReservationQuery(third.Number, "70000001"))).Status);
-            // Vence la de esta prueba y, si la carga de prueba consiguió stock para ella, también la reserva web activa de la carga
-            Assert.InRange(await SendAsync(scope, new ExpirePcBuildReservationsCommand()), 1, 2);
+            // Vence la de esta prueba y también las vigentes de la carga (la reserva web de la V6 y, V7, los carritos y las reservas de
+            // las cuentas de cliente: todas de 48 h o menos)
+            Assert.Equal(1 + seeded, await SendAsync(scope, new ExpirePcBuildReservationsCommand()));
             Assert.Empty(await db.PcBuilds.AsNoTracking().Where(b => b.Status == PcBuildStatus.Reserved).ToListAsync());
             var expired = await SendAsync(scope, new GetStorefrontReservationQuery(third.Number, "70000001"));
             Assert.Equal(("Expired", "Vencida", PcBuild.ExpiredReason), (expired.Status, expired.StatusText, expired.CancelReason));
@@ -251,7 +258,7 @@ public sealed class StorefrontFlowTests : IAsyncLifetime
         var reserved = await SendAsync(scope, new ReservePcBuildCommand(target.Number, 24));
         Assert.Equal((PcBuildStatus.Reserved, PcBuildChannel.Desktop), (reserved.Status, reserved.Channel));
         Assert.Equal(detail.QuotedItems.Sum(i => i.Quantity), reserved.Reserved);
-        Assert.InRange((reserved.ReservedUntil!.Value - DateTimeOffset.UtcNow).TotalHours, 23.5, 24.5);
+        Assert.InRange((reserved.ReservedUntil!.Value - _services.GetRequiredService<DemoClock>().UtcNow).TotalHours, 23.5, 24.5);   // reloj del servidor
         // Publicado (o ya lo estaba por la carga) y sigue en la instantánea; despublicar lo saca
         if (!reserved.PublishedToWeb)
         {
@@ -280,8 +287,8 @@ public sealed class StorefrontFlowTests : IAsyncLifetime
                 Assert.Equal((PcBuildStatus.Cancelled, "Cambió de idea", 0m), (row.Status, row.CancelReason, row.Reserved));
             }
         }
-        // Un armado web no se publica
-        var web = (await SendAsync(scope, new GetPcBuildsQuery(Channel: PcBuildChannel.Web))).First();
+        // Un armado web no se publica (V7: un armado; un carrito tampoco, pero por su tipo)
+        var web = (await SendAsync(scope, new GetPcBuildsQuery(Channel: PcBuildChannel.Web, Kind: PcBuildKind.Build))).First();
         Assert.Equal("pcbuild.publish_channel", (await Assert.ThrowsAsync<DomainException>(() => SendAsync(scope, new PublishPcBuildCommand(web.Number)))).Code);
     }
 }
