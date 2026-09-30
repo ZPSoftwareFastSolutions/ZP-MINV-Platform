@@ -65,7 +65,8 @@ public sealed class GetOutgoingMailsHandler(IMinvDbContext db, ICurrentUser user
 /// V7 · Reenvía la confirmación de una reserva VIGENTE: encola un correo nuevo para <see cref="Email"/> o, sin él, para el
 /// correo de contacto de la reserva. Los correos de esa reserva que seguían pendientes se cancelan (el reenvío los reemplaza:
 /// el cliente no recibe dos). Respeta los topes de 24 horas (<c>mail.recipient_limit</c>, <c>mail.company_limit</c>). No envía
-/// nada: el despachador lo envía después del COMMIT (regla B-08).
+/// nada: el despachador lo envía después del COMMIT (regla B-08). B6: si el despachador ya está enviando un pendiente de esa
+/// reserva (arrendamiento vigente), se rechaza con <c>mail.sending</c> en vez de cancelarlo.
 /// </summary>
 [RequiresPermission(PermissionCodes.PcBuildManage)]
 public sealed record ResendReservationMailCommand(string Number, string? Email = null) : IRequest<OutgoingMailRow>, IAuditableRequest
@@ -108,6 +109,11 @@ public sealed class ResendReservationMailHandler(IMinvDbContext db, ICurrentUser
                                      join m in db.Set<OutgoingMail>() on d.OutgoingMailId equals m.Id
                                      where m.PcBuildId == build.Id && d.Status == OutgoingMailStatus.Pending
                                      select d).ToListAsync(ct);
+                // B6 · Un pendiente que el despachador ya tomó está SALIENDO: cancelarlo no lo detiene (el cliente recibiría dos
+                // y la cola diría «cancelado» de un correo que sí salió). Se espera a que termine
+                Guard.That(!pending.Any(d => d.IsLeasedAt(now)), "mail.sending",
+                    $"La confirmación de la reserva {build.Number} se está enviando en este momento: espere un par de minutos y vuelva a intentarlo " +
+                    "(si llega, no hace falta reenviarla).");
                 var result = await ReservationMail.EnqueueAsync(db, build, userId, now, ct, request.Email);
                 if (result.Mail is not { } mail)
                 {
@@ -136,7 +142,7 @@ public sealed class ResendReservationMailHandler(IMinvDbContext db, ICurrentUser
         ReservationMailSkip.InvalidRecipient => new DomainException("mail.recipient", "El correo del destinatario no es una dirección válida."),
         ReservationMailSkip.RecipientLimit => new DomainException("mail.recipient_limit",
             $"Esa dirección ya recibió {ReservationMail.MaxPerRecipient} correos en las últimas 24 horas: espere o use otra dirección."),
-        ReservationMailSkip.CompanyLimit => new DomainException("mail.company_limit",
+        ReservationMailSkip.CompanyLimit or ReservationMailSkip.AnonymousLimit => new DomainException("mail.company_limit",
             $"La empresa llegó al tope de {ReservationMail.MaxPerCompany} correos en 24 horas: vuelva a intentarlo más tarde."),
         _ => new DomainException("pcbuild.state", $"La reserva {number} ya no está vigente: no se reenvía la confirmación."),
     };

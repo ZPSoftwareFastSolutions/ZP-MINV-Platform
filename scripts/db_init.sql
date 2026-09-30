@@ -12121,7 +12121,7 @@ DO $EF$
 BEGIN
     IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
     CREATE OR REPLACE FUNCTION integration.claim_outgoing_mails(p_limit integer, p_lease_seconds integer)
-    RETURNS TABLE (tenant_id uuid, outgoing_mail_id uuid)
+    RETURNS TABLE (tenant_id uuid, outgoing_mail_id uuid, leased_until timestamptz)
     LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, integration AS $$
     #variable_conflict use_column
     BEGIN
@@ -12134,10 +12134,11 @@ BEGIN
             LIMIT greatest(1, least(p_limit, 500))
             FOR UPDATE SKIP LOCKED)
         UPDATE integration.outgoing_mail_dispatch d
-           SET next_attempt_at = now() + make_interval(secs => greatest(30, least(p_lease_seconds, 3600)))
+           SET next_attempt_at = now() + make_interval(secs => greatest(30, least(p_lease_seconds, 3600))),
+               leased_until = now() + make_interval(secs => greatest(30, least(p_lease_seconds, 3600)))
         FROM due
         WHERE d.outgoing_mail_id = due.id
-        RETURNING d.tenant_id, d.outgoing_mail_id;
+        RETURNING d.tenant_id, d.outgoing_mail_id, d.leased_until;
     END;
     $$;
     REVOKE ALL ON FUNCTION integration.claim_outgoing_mails(integer, integer) FROM PUBLIC;

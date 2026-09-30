@@ -2,6 +2,228 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semántico.
 
+## [7.0.0-alpha.1 · Plataforma web] · 2026-09-29 · rama `Inventario-V7`
+
+Tema: **todo el sistema en la web**. La tienda de la V6 gana **inicio de sesión y registro de clientes**, un **carrito de
+compras** (se reserva cualquier producto, también uno solo, sin pasar por «Armá tu PC») y el **correo automático** con el
+código y el detalle de cada reserva; el personal trabaja en un **panel web por rol** (`/panel`) que envía los MISMOS casos de
+uso que el escritorio al servidor en la nube; el escritorio gana la pantalla **Reservas**, la cola de **Correos**, un inicio
+simplificado y filtros con exportación en sus listas. Construida sobre `Inventario-V6`. **157 tablas en 10 esquemas** (4
+nuevas). Reglas P-01 a P-14: `.claude/v7-web-platform-rules.md` · diseño: `docs/architecture/plataforma-web-v7.md` · plan y
+avance: `docs/product/plan-v7.md` · normalización: `docs/database/normalizacion-v7.md` · tablas:
+`docs/database/ERD-MINV-V3.md` §11 · paso a paso: `docs/deployment/inicio-rapido-v7.md` · Docker:
+`docs/deployment/tienda-publica-docker-v7.md` · la web para todos: `docs/product/plataforma-web-v7.md` · escritorio:
+`docs/product/escritorio-v7.md` · guía para todos: `GUIA-DE-INICIO.md` §8. Informes de cada paquete:
+`docs/architecture/v7-notas/`.
+
+### Agregado · tienda web: cuentas, carrito y reserva
+
+- **Ingresar y registrarse** (`/ingresar`, `/registrarse`, `/cambiar-contrasena`): botón «Ingresar» en la cabecera (también en
+  el teléfono), mensaje único ante cualquier falla («Correo o contraseña incorrectos»), aviso de cuenta bloqueada (código
+  estable `auth.locked`), registro con nombre, correo, teléfono boliviano y contraseña (8 a 128 caracteres con letras y
+  números). **Registrarse crea SIEMPRE una cuenta de Cliente**: el personal lo crea el Administrador. Después de ingresar, el
+  personal va a `/panel` y el cliente a `/mi-cuenta` (o a la dirección interna de `volver`, validada contra redirecciones
+  abiertas). Con credenciales incorrectas no se sale de la pantalla.
+- **Mi cuenta** (`/mi-cuenta`, solo clientes): «Mis reservas» (filtro por estado, detalle, horas reales que se guarda cada
+  una y «Liberar mi reserva»), «Mis datos» (nombre, teléfono y documento para la factura) y «Cambiar contraseña». El menú de la
+  cabecera ofrece «Mi cuenta» y «Mis reservas» al cliente e «Ir al panel» al personal.
+- **Carrito de compras**: «Agregar al carrito» y **«Reservar ahora»** en cada tarjeta, fila y ficha con disponibilidad
+  (también consolas, juegos y portátiles); «Reservar ahora» lleva a `/reservar?sku=…&cantidad=…` con ESE solo artículo, sin
+  tocar el carrito ni el armado. `/carrito` vuelve a consultar el catálogo, marca lo que se agotó, bajó o ya no está
+  publicado y no deja reservar hasta ajustar. Topes: 16 unidades por producto y 20 productos (los de la reserva). El carrito es
+  lo ÚNICO que la web guarda en el navegador (`minv.carrito`: SKU y cantidad), con sincronización entre pestañas.
+- **`/reservar`** (carrito o artículo suelto): sin cuenta, nombre, teléfono o WhatsApp, correo («Te enviamos el código y el
+  detalle de tu reserva»), **«¿Cuándo pasás a recogerlo?»** (24, 48 o 72 h, acotado por el catálogo) y la sección plegable
+  **«Datos para tu factura (opcional)»** (CI, CEX, PAS, OD o NIT; complemento solo con CI; nombre o razón social); con
+  cuenta de cliente, los datos salen de la cuenta y la reserva va por RPC (`CreateMyReservationCommand`). Idempotente por
+  intento (misma llave al reintentar por red, otra si cambia algo). Sin stock suficiente (409 de la tienda o
+  `storefront.insufficient_stock` por RPC): marca cada producto y ofrece «Ajustar a lo disponible» sin perder lo escrito. Confirmación con el número y «Copiar», tipo (Compra), hasta cuándo, dónde se retira, el
+  detalle y «Te enviamos un correo a …» solo si el servidor lo encoló (`mailQueued`).
+- «Mi reserva» (`/reserva`) acepta `RES-WEB-…` y `ARM-WEB-…`; las horas de la tienda salen del catálogo (`reservationHours`,
+  `maxHoldDays`): la web ya no tiene una constante de 48 h. Las notas se unen en una línea antes de enviarse.
+- La tienda caída ya no bloquea el sitio: `/ingresar`, `/registrarse`, `/mi-cuenta` y `/panel` funcionan aunque el catálogo
+  no cargue (`CatalogStateProvider` + `CatalogGate`).
+
+### Agregado · servidor: sesión web, cuentas de cliente y carrito
+
+- **Sesión web** en `MINV.CloudServer` (`Minv:Web`: `Enabled`, `TenantCode`, `BranchCode`, `RegistrationsPerHour`,
+  `CookieName`): `POST /api/v1/web/session/login`, `GET /api/v1/web/session`, `POST /api/v1/web/session/logout`,
+  `POST /api/v1/web/account/register` y `POST /api/v1/web/rpc` (mismo contrato que el RPC del escritorio). `WebSession` nunca
+  lleva el token; `kind = customer` cuando el ÚNICO rol es `CLIENTE`. Apagada, las rutas no existen (404); encendida sin
+  empresa, 503. La empresa sale siempre de la configuración, nunca de la petición.
+- **Cuentas de cliente**: rol `CLIENTE` («Cliente web», permisos `account.manage` y `account.reserve`), tabla
+  `sales.customer_accounts` (usuario ↔ cliente, 1 a 1) y casos de uso `MINV.Application.Accounts`:
+  `RegisterCustomerAccountCommand` (previo a la sesión, no viaja por RPC; crea usuario, credencial, rol, sucursal de la
+  tienda, cliente `WEB-000001` y la cuenta en UNA transacción), `GetMyAccountQuery`, `UpdateMyAccountCommand`,
+  `GetMyReservationsQuery`, `CancelMyReservationCommand` y `CreateMyReservationCommand`, que operan SOLO sobre el cliente de la
+  sesión (regla P-04).
+- **Carrito = `PcBuild` de tipo `Cart`** (`PcBuildKind { Build, Cart }`): líneas sin ranura, sin ranura única y sin
+  compatibilidad (solo en armados); un carrito no se publica. Numeración **`RES-WEB-000001`** (web) y **`RES-<sucursal>-000001`**
+  (mostrador); los armados conservan `ARM-…`. **Datos para la factura** del comprador (`buyer_*`, mismas reglas del SIN que el
+  cliente; enmascarados en la auditoría; la caja los precarga al cobrar). **Plazo para recoger** `holdDays` 1 a 3 (24, 48 o
+  72 h); sin valor, `Minv:Storefront:ReservationHours` (48); tope `MaxReservationHours` (72). Nombre, notas y razón social
+  rechazan caracteres de control. `ReserveCartCommand` (carrito de mostrador, `sales.pcbuild.manage`); `SellPcBuildCommand`
+  vende también carritos (precio congelado, series al cobrar).
+- Contrato público compatible (solo campos opcionales) de `POST /storefront/v1/reservations`: `kind` (`"build"` por defecto |
+  `"cart"`), `holdDays` y `buyer`; la respuesta agrega `kind` y `mailQueued` y el catálogo `reservationHours` y `maxHoldDays`.
+  Los eventos `pcbuild.*` ganan el campo `Kind`.
+
+### Agregado · correo de la reserva
+
+- Cada reserva con correo (tienda, cuenta de cliente, carrito de mostrador y reserva de una cotización) **encola** su
+  confirmación en la MISMA transacción (`ReservationMail.EnqueueAsync`, regla P-06): `integration.outgoing_mails` (hecho,
+  append-only, de sucursal), `integration.outgoing_mail_dispatch` (cola: `Pending`, `Sent`, `Exhausted`, `Cancelled`) e
+  `integration.outgoing_mail_attempts` (bitácora de cada intento). No se guarda asunto ni cuerpo: se arman al enviar.
+- **Despachador** `MailDispatcher` (en el API Gateway, `MailDispatcherService`, `Minv:Mail`): reclama la cola con
+  `integration.claim_outgoing_mails` (SECURITY DEFINER, `FOR UPDATE SKIP LOCKED`), envía y reintenta (inmediato, 1 min, 5 min,
+  30 min, 2 h; 5 intentos). Una falla del servidor de correo pospone 5 min sin gastar intento; sin servidor configurado, 15 min.
+  Si la reserva ya no está reservada, el correo se cancela.
+- El correo lleva **el código de la reserva y su detalle**: productos con cantidad, precio y subtotal, total («se paga al
+  recoger»), hasta cuándo se guarda, dónde se recoge y el enlace «Ver mi reserva» (`Minv:Mail:PublicUrl`). Asunto «Reserva
+  `<número>` · `<empresa>`», solo con datos del servidor; versión HTML y de texto; todo valor codificado; sin las notas del
+  cliente. Topes: 3 correos por destinatario y 300 por empresa cada 24 h.
+- Servidor de correo: el de la empresa (Configuración › Correo, si está activo) o el de `Minv:Mail`. Remitente de Tech Zone
+  Gaming en Docker: **`zapasoftwarefastsolutions@gmail.com`** (remitente por defecto de `tools\docker_local.ps1` para el buzón
+  de prueba; con Gmail real, el `MINV_MAIL_FROM` de `correo.txt`), por `smtp.gmail.com:587` con STARTTLS y una contraseña de
+  aplicación que solo puede generar el dueño de la cuenta.
+- `ResendReservationMailCommand` (reenviar, también a otro correo; cancela los pendientes de esa reserva) y
+  `GetOutgoingMailsQuery` (la cola), con `sales.pcbuild.manage`. `SmtpMailSender`: tiempo máximo real, texto + HTML,
+  `Message-ID` y fallas clasificadas con mensajes en español.
+
+### Agregado · panel web del personal (`/panel`)
+
+- **Esqueleto por rol**: menú lateral por secciones plegables (General, Ventas, Tecnología, Inventario, Compras, Sucursales,
+  Facturación, Análisis, Administración) con **buscador de pantallas**, migas de pan, lista de **sucursal activa**
+  (`SelectBranchCommand`) y el menú del usuario. Cada rol ve SOLO lo que sus permisos permiten; una pantalla sin permiso dice
+  qué permiso falta. Se descarga aparte: quien solo visita la tienda no lo baja.
+- **Inicio**: saludo, rol y sucursal activa; «¿Qué quiere hacer?» con **botones grandes** de cada módulo; **«Ver estadísticas
+  ^» plegado**: al entrar no se ve ni se consulta nada, y cada estadística se carga por separado al abrirlo (regla P-10).
+- **Registro de módulos**: cada módulo es `modules/<clave>/module.tsx` (`defineModule`) y se registra solo
+  (`import.meta.glob`); la prueba de arquitectura impide que un módulo importe de otro o declare a mano tipos del servidor.
+  Guía para escribir uno: `src/3. Presentation/MINV.WebCatalog/src/4-presentation/panel/README.md`.
+- **Conjunto de componentes** (`kit/`, 36 componentes) y ayudas: tabla ordenable y paginada (tarjetas en el teléfono),
+  **filtros con listas desplegables y `ComboBox` con búsqueda**, rango de fechas con atajos, filtros en la dirección
+  (`useTableState`), detalle lateral, diálogos y confirmaciones, plegables «Ver …», estados de carga, vacío y error con
+  «Reintentar», y **exportar CSV** (`exportCsv`: UTF-8 con BOM, «;», CRLF y celdas que parecen fórmulas neutralizadas).
+- **Módulos**: Inicio; Ventas › Caja, Ventas, Clientes, Reservas; Tecnología › Armador de PC, Series, Garantías; Inventario ›
+  Stock, Catálogo, Movimientos, Toma física, Alertas; Compras › Pedido sugerido, Órdenes de compra, Proveedores; Sucursales ›
+  Sucursales, Transferencias; Facturación › Documentos fiscales, Estado del SIAT; Análisis › Reportes, Contabilidad;
+  Administración › Usuarios, Integraciones (con la cola «Correos de reservas»), Configuración y Actividad. Detalle de
+  botones, filtros y permisos: `docs/product/plataforma-web-v7.md`.
+  <!-- V7-MODULOS: completar con los módulos que falten -->
+
+### Agregado · contrato TypeScript generado
+
+- `minv contrato-web [--salida <archivo>]` (sin base de datos) genera por reflexión sobre `RpcCatalog`
+  `src/3. Presentation/MINV.WebCatalog/src/3-infrastructure/http/contract.generated.ts`: **192 operaciones y 407 tipos**, con
+  `RpcOperations`, `RPC_META` (nombre completo, si es comando, permisos, módulos y si la puede usar un cliente), `WebSession`,
+  el sobre del RPC y las listas `PERMISSIONS` y `ROLES`, con la serialización exacta de `RpcJson.Options` (regla P-07).
+  `WebContractTests` falla si el archivo quedó desactualizado. La web lo usa solo a través de `contract.ts`.
+
+### Agregado · seguridad web
+
+- Token de sesión (`mses_…`, 256 bits; en la base solo su SHA-256) SOLO en una cookie **`HttpOnly`, `SameSite=Strict`,
+  `Path=/api/v1/web`**, `Secure` cuando la petición llegó por https (`X-Forwarded-Proto` desde redes de confianza); vence a las
+  12 h sin actividad. Nada de la sesión se guarda en el navegador.
+- **Anti-CSRF**: toda ruta `/api/v1/web/*` que no es GET exige la cabecera `X-MINV-Client-Version` (misma versión mayor) y
+  rechaza `Sec-Fetch-Site` de otro sitio y `Origin` de otro host; el servidor en la nube no publica CORS.
+- **Límites**: bloqueo de la cuenta a los 5 intentos (15 min, `auth.locked`), 10 inicios de sesión por minuto y 5 registros por
+  hora por IP real (`X-Forwarded-For` solo desde redes privadas conocidas), 10 reservas por minuto por IP en la tienda, topes
+  del correo.
+- Una sesión de cliente solo ejecuta los casos de uso `account.*`, `ChangePasswordCommand` y `LogoutCommand`, en las DOS rutas
+  de RPC. `SelectBranchCommand` y `LogoutCommand` actúan siempre sobre la sesión de la cookie. Canal de auditoría `web`. La
+  auditoría enmascara la respuesta de los comandos que devuelven contacto o datos de factura (`IAuditableResponse`; corrige
+  también las reservas de la V6).
+- **nginx del catálogo**: publica solo la web, `/storefront/` y `/api/v1/web/`; cualquier otra ruta `/api/` responde 404.
+  Cabeceras `Content-Security-Policy` (`'self'`, más las fuentes de Google Fonts; `frame-ancestors 'none'`),
+  `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` y `Cross-Origin-Opener-Policy`.
+
+### Agregado · base de datos
+
+- Migración **`V7WebPlatform`**: 153 → **157 tablas en 10 esquemas** (`sales.customer_accounts`, `integration.outgoing_mails`,
+  `integration.outgoing_mail_dispatch`, `integration.outgoing_mail_attempts`); columnas `kind` y `buyer_*` en `sales.pc_builds`;
+  `sales.pc_build_lines.slot` admite nulo (solo carritos: trigger `trg_pc_build_line_slot`); el tipo no cambia
+  (`trg_pc_build_kind_immutable`); canal `web` en la auditoría; función `integration.claim_outgoing_mails`; rol `CLIENTE` y
+  permisos `account.*` en las empresas existentes (guardia: un rol `CLIENTE` previo que no sea de sistema detiene la
+  migración); relleno `kind = 'Build'`; reversa que se niega si la auditoría ya tiene filas del canal `web`. Base migrada: 155
+  `tenant_isolation`, 64 `branch_isolation`, 32 libros append-only, 6 funciones SECURITY DEFINER, 244 CHECK.
+- **Comprobación de normalización**: `scripts/verificar_normalizacion.sql` (32 consultas de solo lectura: E01-E19 de
+  estructura, D01-D10 de coherencia de los datos, I01-I03 informativas), informe `docs/database/normalizacion-v7.md` y prueba
+  `NormalizationTests`. Se corrigieron 26 hallazgos dentro de `V7WebPlatform` (25 CHECK de estados y listas cerradas en tablas
+  anteriores y el índice `ix_warranty_claims_tenant_id_serial_number_id`); quedan 7 detalles menores documentados con su riesgo.
+- `minv verify` exige los mínimos de la V7 (157 tablas, 32 libros, 155 RLS, 64 por sucursal) y agrega la comprobación
+  «Reservas» (lo reservado = la suma de las reservas activas de armados y carritos) y el resumen de la tienda web.
+
+### Agregado · escritorio
+
+- **Ventas › Reservas** (carritos `RES-…` y armados `ARM-…` reservados, de la web y del mostrador: vencimiento resaltado,
+  estado del correo, «Vender en caja», «Liberar», «Reenviar correo», «Copiar teléfono» y «Nueva reserva en mostrador»),
+  **Administración › Correos** (la cola de confirmaciones con «Reenviar»), **inicio simplificado** (botones por rol y los
+  indicadores en secciones plegables cerradas), **filtros en listas desplegables con «Limpiar filtros» y «Exportar CSV»** en
+  las listas de trabajo (servicio compartido `Services/CsvExport.cs`), **Usuarios** con el filtro Personal / Clientes web,
+  la caja que precarga los datos de factura de la reserva, **Armador de PC › Cotizaciones** solo con armados (los carritos
+  van a Reservas; el tablero Tecnología cuenta como cotizaciones solo los armados) y un aviso claro si una cuenta de cliente
+  intenta entrar al escritorio. Arreglos de botones sin efecto, detalles que actuaban sobre la fila anterior, filtros que no
+  filtraban, horas en UTC y textos técnicos. Guía y capturas 103 a 110: [`docs/product/escritorio-v7.md`](docs/product/escritorio-v7.md)
+  · informe `docs/architecture/v7-notas/informe-D1-escritorio.md`.
+
+### Agregado · Docker y datos de prueba
+
+- Mismo stack de la V6 en Docker Desktop (imágenes **7.0.0-alpha.1**): el nginx del catálogo reenvía `/api/v1/web/` al servidor
+  en la nube (sesión web y panel); `cloudserver` con `MINV_WEB_*` y `MINV_FORWARDED_HEADERS`; `apigateway` con el despachador de
+  correo (`MINV_MAIL_*`, `MINV_PUBLIC_URL`). **Buzón de prueba Mailpit** (servicio `buzon`, perfil `correo-prueba`): recibe
+  los correos sin enviarlos a nadie y los muestra en `http://127.0.0.1:8025`, solo en este equipo.
+- `tools\docker_local.ps1 -Correo auto|prueba|real|apagado` (`auto`: real si `correo.txt` trae la contraseña, si no de prueba) y
+  `correo.txt` en la carpeta de datos de M-INV (`MINV_MAIL_HOST`, `MINV_MAIL_PORT`, `MINV_MAIL_STARTTLS`, `MINV_MAIL_USER`,
+  `MINV_MAIL_PASSWORD`, `MINV_MAIL_FROM`, `MINV_MAIL_FROM_NAME`; no se versiona). `enlace` y la tarea programada ponen el
+  enlace vigente del túnel en «Ver mi reserva» de los correos; `estado` comprueba también el panel, la sesión web y el buzón.
+  Guía: `docs/deployment/tienda-publica-docker-v7.md`.
+- `tools\bd_local.ps1 -Accion respaldar` (copia `pg_dump` de la base `minv` en `%LOCALAPPDATA%\M-INV\respaldos`) y `recrear`
+  **respalda antes de borrar** (si el respaldo falla, no borra nada).
+- **Datos de prueba** (reglas P-13 y A-13, con los casos de uso): 2 cuentas de cliente registradas que reservaron desde su
+  cuenta un carrito y un armado cada una, un carrito de la tienda de UN solo monitor vigente con datos para la factura, un
+  carrito vencido, un carrito de mostrador y 9 correos de confirmación en la cola. `usuarios-prueba.txt` gana la sección
+  **«Clientes de la tienda web»** (ingresan en la web, no en el escritorio).
+
+### Documentación
+
+- `docs/deployment/inicio-rapido-v7.md` (el algoritmo: base con respaldo, usuarios, Docker, el recorrido cliente → correo →
+  panel → caja → «Vendida», cada rol, Gmail real, problemas frecuentes), `docs/deployment/tienda-publica-docker-v7.md`
+  (servicios, qué publica nginx, cabeceras, modos de correo, tarea programada, actualizar desde la V6),
+  `docs/product/plataforma-web-v7.md` (páginas de la tienda, carrito y reserva, «Mi cuenta», cada módulo del panel con sus
+  botones y filtros, matriz de roles y permisos), `GUIA-DE-INICIO.md` §8, `docs/product/escritorio-v7.md`,
+  `docs/database/normalizacion-v7.md`, `docs/database/ERD-MINV-V3.md` §11, `.claude/database-migration-guide.md` §11, la guía
+  del panel y el `README.md` de la web (`src/3. Presentation/MINV.WebCatalog`), `CLAUDE.md` y este historial.
+
+### Cambiado
+
+- `Directory.Build.props`, imágenes de `deploy/docker-compose.yml` y `package.json` de la web: **7.0.0-alpha.1** (la web envía
+  `X-MINV-Client-Version: 7.0.0`).
+- `GetPcBuildsQuery` filtra por tipo (sin tipo devuelve armados y carritos); `PcBuildRow` trae el tipo y los datos para la
+  factura (solo con `sales.pcbuild.manage`). La vigencia de la tienda se acota a `MaxReservationHours` (72).
+- La tienda rechaza (400) nombre, notas y razón social con caracteres de control o saltos de línea en medio; la web ya los une.
+- `AuthenticationFailedException` lleva un código opcional (`auth.locked` también en el inicio de sesión del escritorio).
+- La web separa `CatalogProvider` en `CatalogStateProvider` y `CatalogGate`; los avisos de error del sitio muestran la
+  descripción completa.
+
+### Verificado
+
+<!-- V7-PRUEBAS: resultados de la batería final -->
+
+### Límites conocidos
+
+- Sin pagos en línea ni envío a domicilio: la reserva se cobra en la tienda. Sin verificación del correo al registrarse ni
+  recuperación de contraseña por correo (la restablece el Administrador).
+- El enlace de trycloudflare cambia al reiniciar el túnel y depende de que el equipo esté encendido.
+- La caja web imprime con el navegador: no maneja la impresora ESC/POS ni el cajón (eso sigue en el escritorio).
+- Cambiar la contraseña no cierra las otras sesiones abiertas; una cuenta de cliente desactivada puede iniciar sesión, pero sus
+  casos de uso responden `account.inactive`; cambiar `Minv:Web:BranchCode` no mueve las cuentas ya creadas.
+- El vencimiento automático corre en el gateway y solo ve la sucursal de la tienda: un carrito de mostrador de otra sucursal no
+  vence solo. Las reservas hechas en modo «Base local» encolan su correo en esa base, que solo sale si un gateway con
+  `Minv:Mail` apunta a ella.
+- La sesión web no informa los módulos comerciales activos (`licenseModules` del panel es informativo: el servidor rechaza y el
+  aviso lo explica). Algunas listas del panel filtran en la página porque la consulta del servidor solo recibe fechas o un tope.
+
 ## [6.0.0-alpha.1 · Tienda web conectada] · 2026-09-27 · rama `Inventario-V6`
 
 Tema: el catálogo web de la V5 deja el mock y se conecta a **la misma base de datos en la nube que el escritorio** (Tech

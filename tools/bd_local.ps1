@@ -14,7 +14,7 @@
       recrear    Detiene los servidores locales (si estan corriendo), RESPALDA la base "minv" (V7), la borra, la vuelve a
                  crear, migra y carga datos de prueba nuevos (y un estado nuevo del simulador del SIN).
       respaldar  (V7) Copia la base "minv" con pg_dump (formato personalizado, restaurable con pg_restore) en
-                 %LOCALAPPDATA%\M-INVespaldos\minv-AAAAMMDD-HHMMSS.dump. Si el respaldo falla, recrear NO borra nada.
+                 %LOCALAPPDATA%\M-INV\respaldos\minv-AAAAMMDD-HHMMSS.dump. Si el respaldo falla, recrear NO borra nada.
     Las contrasenas (superusuario postgres, minv_owner, minv_server y los usuarios de la aplicacion) se generan al azar y
     se guardan SOLO en %LOCALAPPDATA%\M-INV\credenciales-bd-local.txt (fuera del repositorio). minv_app usa la clave de
     desarrollo "minv-dev" de appsettings.json (solo escucha en localhost).

@@ -1,11 +1,17 @@
-# ZP-MINV-Platform · M-INV V6 (tienda web conectada) · V5 (catálogo web) · V4.2 (edición Tecnología) · V4.1 (facturación SIAT) · V4 (multi-sucursal en la nube) · V3.1 (escritorio + PostgreSQL) · V2.1 (colaborativo)
+# ZP-MINV-Platform · M-INV V7 (plataforma web) · V6 (tienda web conectada) · V5 (catálogo web) · V4.2 (edición Tecnología) · V4.1 (facturación SIAT) · V4 (multi-sucursal en la nube) · V3.1 (escritorio + PostgreSQL) · V2.1 (colaborativo)
 
-> **¿Por dónde empiezo?** Lea la [guía de inicio de las siete ediciones](GUIA-DE-INICIO.md): Excel local, Excel
+> **¿Por dónde empiezo?** Lea la [guía de inicio de las ocho ediciones](GUIA-DE-INICIO.md): Excel local, Excel
 > compartido, escritorio con base local, escritorio con base en la nube y facturación SIAT, la edición Tecnología (V4.2)
-> para tiendas de computadoras, componentes, consolas y videojuegos, el catálogo web (V5) y la **tienda web conectada**
-> (V6, en desarrollo) que reserva sobre la misma base de datos del escritorio.
+> para tiendas de computadoras, componentes, consolas y videojuegos, el catálogo web (V5), la tienda web conectada (V6) y
+> la **plataforma web** (V7, en desarrollo): cuentas de cliente, carrito con correo de la reserva y el panel del personal
+> por rol en el navegador.
 
-**Sistema de inventarios y punto de venta B2B de Z&P Software Fast Solutions.** La **V6** (en desarrollo) conecta el
+**Sistema de inventarios y punto de venta B2B de Z&P Software Fast Solutions.** La **V7** (en desarrollo) convierte la
+tienda en una **plataforma web**: los clientes crean su cuenta e ingresan, arman un **carrito** (un solo producto o varios,
+sin pasar por «Arma tu PC»), reservan con sus datos para la factura y reciben por **correo** el código y el detalle de la
+reserva; el personal ingresa al **panel web por rol** (`/panel`) con las funciones del escritorio como botones, filtros con
+listas desplegables y estadísticas plegadas detrás de «Ver estadísticas ^», enviando los mismos casos de uso al servidor en
+la nube (157 tablas en 10 esquemas, base comprobada en normalización). La **V6** conectó el
 catálogo web a la **misma base de datos en la nube** del escritorio a través de una **API pública de tienda**
 (`/storefront/v1`): stock real en la web, **reservas de armados** con el stock reservado 48 h, y el escritorio que las ve,
 las vende en caja o las libera (153 tablas en 10 esquemas). La **V5** dejó el **catálogo web** (Vite + React) con la
@@ -24,7 +30,10 @@ cliente-servidor: solución **.NET 8** en Clean Architecture (dominio rico, CQRS
 construida sobre el modelo de la **V2.1** (su importador migra el libro colaborativo y verifica la paridad). La V2.1
 (Excel en Microsoft 365) y la V1.2 (Excel local) siguen en el repositorio.
 
-> **¿Cómo la ejecuto?** V6 (tienda web conectada, el algoritmo paso a paso con el recorrido web → escritorio → web):
+> **¿Cómo la ejecuto?** V7 (plataforma web, el algoritmo paso a paso: cuenta → carrito → reserva → correo → panel →
+> caja): [`docs/deployment/inicio-rapido-v7.md`](docs/deployment/inicio-rapido-v7.md); Docker con enlace público:
+> [`docs/deployment/tienda-publica-docker-v7.md`](docs/deployment/tienda-publica-docker-v7.md).
+> V6 (tienda web conectada, el recorrido web → escritorio → web):
 > [`docs/deployment/inicio-rapido-v6.md`](docs/deployment/inicio-rapido-v6.md). V5 (catálogo web solo):
 > [`docs/product/catalogo-web-v5.md`](docs/product/catalogo-web-v5.md). V4.2 (edición Tecnología):
 > [`docs/deployment/inicio-rapido-v4.2.md`](docs/deployment/inicio-rapido-v4.2.md).
@@ -37,7 +46,41 @@ construida sobre el modelo de la **V2.1** (su importador migra el libro colabora
 > [`docs/product/escritorio-v3.1.md`](docs/product/escritorio-v3.1.md). Modelo de datos (V3 a V6):
 > [`docs/database/ERD-MINV-V3.md`](docs/database/ERD-MINV-V3.md).
 
-## M-INV V6 · rama `Inventario-V6` (6.0.0-alpha.1) · tienda web conectada (en desarrollo)
+## M-INV V7 · rama `Inventario-V7` (7.0.0-alpha.1) · plataforma web (en desarrollo)
+
+Construida sobre `Inventario-V6`. La web gana **cuentas de cliente** (registro e ingreso con bloqueo por intentos),
+**carrito** con reserva de 1 a 3 días y datos para la factura, **correo de la reserva** (código y detalle, en cola dentro de
+la misma transacción y enviado por el API Gateway), la página **«Mi cuenta»** y el **panel del personal por rol** en
+`/panel`: un módulo por función del escritorio (Caja, Ventas, Reservas, Clientes, Stock, Catálogo, Compras, Series,
+Garantías, Facturación, Reportes, Contabilidad, Usuarios y más), cada uno con botones, filtros con listas desplegables,
+exportación CSV y estados de carga, vacío y error. El panel es OTRO cliente del servidor en la nube: envía los mismos
+`IRequest<>` por `POST /api/v1/web/rpc` con sesión en cookie `HttpOnly` y protección anti-CSRF. El escritorio suma
+Ventas › Reservas, Administración › Correos, un inicio con botones y estadísticas plegadas, filtros y CSV en 12 listas.
+**157 tablas en 10 esquemas** (migración `V7WebPlatform`). Diseño:
+[`docs/architecture/plataforma-web-v7.md`](docs/architecture/plataforma-web-v7.md) · reglas P-01 a P-14:
+[`.claude/v7-web-platform-rules.md`](.claude/v7-web-platform-rules.md) · la web:
+[`docs/product/plataforma-web-v7.md`](docs/product/plataforma-web-v7.md) · escritorio:
+[`docs/product/escritorio-v7.md`](docs/product/escritorio-v7.md) · normalización:
+[`docs/database/normalizacion-v7.md`](docs/database/normalizacion-v7.md).
+
+```text
+  cliente: Crear cuenta / Ingresar ──► carrito (1 producto o varios) ──► Reservar (datos de factura, 1 a 3 días)
+      │ cookie HttpOnly SameSite=Strict                     │ RES-WEB-000001 + reservas de stock (una transacción)
+      ▼                                                     ▼
+  Mi cuenta: reservas y datos                     correo en cola ──► API Gateway ──► el cliente recibe código y detalle
+  personal: /panel por rol ──POST /api/v1/web/rpc──► MINV.CloudServer ──MediatR──► la MISMA base del escritorio
+      botones · listas desplegables · CSV · «Ver estadísticas ^»        (permisos, sucursal y auditoría en el servidor)
+```
+
+```powershell
+git switch Inventario-V7
+powershell -ExecutionPolicy Bypass -File toolsd_local.ps1 -Accion recrear              # base V7 (157 tablas); RESPALDA la anterior en %LOCALAPPDATA%\M-INVespaldos
+powershell -ExecutionPolicy Bypass -File tools\docker_local.ps1 -Accion subir -Correo prueba   # tienda + panel + buzón de prueba http://127.0.0.1:8025 + enlace público
+powershell -ExecutionPolicy Bypass -File tools\publicar_escritorio.ps1                    # el escritorio M-INV.exe
+cd "src. Presentation\MINV.WebCatalog"; npx vitest run; npx tsc -b --noEmit            # pruebas y tipos de la web
+```
+
+## M-INV V6 · rama `Inventario-V6` (6.0.0-alpha.1) · tienda web conectada
 
 Construida sobre `Inventario-V5`. El catálogo web deja el mock y consume la **API pública de tienda** del API Gateway
 (`/storefront/v1`, sin API Key: principal técnico `tienda-web` del rol `TIENDA_WEB`) sobre la **misma base** que el

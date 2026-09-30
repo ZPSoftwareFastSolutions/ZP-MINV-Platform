@@ -288,9 +288,11 @@ public sealed class MailDispatcherTests(MailDispatcherFixture fixture) : IClassF
         Assert.Contains("535", dispatchA.LastError, StringComparison.Ordinal);
         AssertNoSecrets(options, dispatchA.LastError);
         Assert.True(dispatchA.NextAttemptAt >= _services.GetRequiredService<DemoClock>().UtcNow + MailDispatcher.ServerFailureDelay - TimeSpan.FromMinutes(1));
-        // El segundo: la pasada se cortó antes de tocarlo (ni intento, ni espera nueva)
-        var (mailB, dispatchB, attemptsB) = await QueueAsync(db, b.Number);
-        Assert.Equal((OutgoingMailStatus.Pending, 0, mailB.RequestedAt, (string?)null), (dispatchB.Status, dispatchB.Attempts, dispatchB.NextAttemptAt, dispatchB.LastError));
+        // El segundo: la pasada se cortó antes de tocarlo (ni intento, ni espera nueva). B6: la pasada lo había tomado (arrendamiento)
+        // y, al cortarse, lo devolvió a la cola: le toca en la pasada siguiente
+        var (_, dispatchB, attemptsB) = await QueueAsync(db, b.Number);
+        Assert.Equal((OutgoingMailStatus.Pending, 0, (DateTimeOffset?)null, (string?)null), (dispatchB.Status, dispatchB.Attempts, dispatchB.LeasedUntil, dispatchB.LastError));
+        Assert.True(dispatchB.IsDueAt(_services.GetRequiredService<DemoClock>().UtcNow));
         Assert.Empty(attemptsB);
         Assert.Equal(0, _mailer.Attempted(second));
 
@@ -299,6 +301,79 @@ public sealed class MailDispatcherTests(MailDispatcherFixture fixture) : IClassF
         Assert.False(next.Halted);
         Assert.Single(_mailer.SentTo(second));
         Assert.Empty(_mailer.SentTo(first));
+    }
+
+    /// <summary>B6 · Un reenvío que llega MIENTRAS el despachador envía el original ya no lo cancela (antes el cliente recibía dos
+    /// correos y la cola quedaba «cancelada» con attempts = 0 y una fila de intento exitosa, rompiendo D08): se rechaza con
+    /// <c>mail.sending</c> y, cuando el correo terminó de salir, el reenvío vuelve a funcionar.</summary>
+    [Fact]
+    public async Task Un_reenvio_mientras_el_correo_sale_se_rechaza_y_la_cola_cuadra_con_sus_intentos()
+    {
+        using var admin = await LoginAsync();
+        var db = admin.ServiceProvider.GetRequiredService<MinvWriteDbContext>();
+        const string to = "en.vuelo@correo.example";
+        var reservation = await ReserveAsync(admin, "despacho-en-vuelo", to);
+        string? code = null;
+        _mailer.During(to, async () =>
+        {
+            using var staff = await LoginAsync();
+            code = await MailFlow.CodeAsync(() => MailFlow.SendAsync(staff, new ResendReservationMailCommand(reservation.Number)));
+        });
+
+        await Dispatcher(Options()).RunOnceAsync(50, default);
+
+        Assert.Equal("mail.sending", code);
+        // Un solo correo al cliente; la cola dice «enviado» con UN intento y la bitácora tiene ese intento (D08)
+        Assert.Single(_mailer.SentTo(to));
+        var (_, dispatch, attempts) = await QueueAsync(db, reservation.Number);
+        Assert.Equal((OutgoingMailStatus.Sent, 1, (DateTimeOffset?)null), (dispatch.Status, dispatch.Attempts, dispatch.LeasedUntil));
+        Assert.Equal((1, true), (Assert.Single(attempts).Attempt, attempts[0].Succeeded));
+        // Ya enviado, el reenvío vuelve a funcionar: encola otro
+        var row = await MailFlow.SendAsync(admin, new ResendReservationMailCommand(reservation.Number));
+        Assert.Equal((OutgoingMailStatus.Pending, to), (row.Status, row.Recipient));
+    }
+
+    /// <summary>B6 · Dos réplicas del despachador: un lote que tarda más que el arrendamiento (120 s) ya no hace que un correo
+    /// salga dos veces. La réplica A toma tres correos; el primero tarda; mientras envía el segundo vence el arrendamiento del
+    /// tercero y la réplica B lo reclama y lo envía; A ya no lo toca (su arrendamiento dejó de ser el suyo).</summary>
+    [Fact]
+    public async Task Dos_replicas_no_envian_dos_veces_el_mismo_correo_aunque_el_lote_tarde_mas_que_el_arrendamiento()
+    {
+        using var admin = await LoginAsync();
+        var db = admin.ServiceProvider.GetRequiredService<MinvWriteDbContext>();
+        var options = Options();
+        var clock = new ShiftedClock(_services.GetRequiredService<DemoClock>());
+        await Dispatcher(options, clock).RunOnceAsync(500, default);   // la cola sin vencidos: solo quedan los de esta prueba
+        const string slow = "lento@correo.example", first = "replica.a@correo.example", second = "replica.b@correo.example";
+        var reservations = new[] { (slow, await ReserveAsync(admin, "replica-0", slow)), (first, await ReserveAsync(admin, "replica-1", first)),
+            (second, await ReserveAsync(admin, "replica-2", second)) };
+        var replicaA = Dispatcher(options, clock);
+        var replicaB = Dispatcher(options, clock);
+        MailDispatchSummary? other = null;
+        _mailer.During(slow, () =>
+        {
+            clock.Shift += TimeSpan.FromSeconds(100);
+            return Task.CompletedTask;
+        });
+        _mailer.During(first, async () =>
+        {
+            clock.Shift += TimeSpan.FromSeconds(30);
+            other = await replicaB.RunOnceAsync(50, default);
+        });
+
+        var summary = await replicaA.RunOnceAsync(50, default);
+
+        // A tomó los tres y envió los dos primeros; B reclamó el tercero (su arrendamiento de A había vencido) y lo envió
+        Assert.Equal((3, 2), (summary.Mails, summary.Sent));
+        Assert.NotNull(other);
+        Assert.True(other!.Sent >= 1);
+        foreach (var (to, reservation) in reservations)
+        {
+            Assert.Single(_mailer.SentTo(to));   // cada cliente recibió UN correo
+            var (_, dispatch, attempts) = await QueueAsync(db, reservation.Number);
+            Assert.Equal((OutgoingMailStatus.Sent, 1), (dispatch.Status, dispatch.Attempts));
+            Assert.True(Assert.Single(attempts).Succeeded);   // D08: intentos = filas de la bitácora
+        }
     }
 
     [Fact]

@@ -60,7 +60,8 @@ public sealed partial class OutgoingMail : Entity, IBranchScoped, IAppendOnly
     /// <summary>Reserva (carrito o armado) de la que sale el contenido del correo.</summary>
     public Guid PcBuildId { get; private set; }
 
-    /// <summary>Dirección a la que se pidió el envío, en minúsculas (así la cuentan los topes por destinatario).</summary>
+    /// <summary>Dirección a la que se pidió el envío, en minúsculas. Los topes por destinatario la cuentan por su buzón
+    /// (<see cref="MailboxOf"/>).</summary>
     public string Recipient { get; private set; } = string.Empty;
 
     public DateTimeOffset RequestedAt { get; private set; }
@@ -92,6 +93,37 @@ public sealed partial class OutgoingMail : Entity, IBranchScoped, IAppendOnly
         IsValidRecipient(value)
             ? value!.Trim().ToLowerInvariant()
             : throw new DomainException("mail.recipient", "El correo del destinatario no es una dirección válida.");
+
+    /// <summary>
+    /// V7 · Buzón al que de verdad llega <paramref name="recipient"/>, SOLO para contar los topes (el correo sale a la dirección
+    /// tal como se escribió): sin la etiqueta «+…» de la parte local (subdirección: <c>ana+1@x</c> y <c>ana+2@x</c> llegan a
+    /// <c>ana@x</c>) y, en Gmail (<c>gmail.com</c> y <c>googlemail.com</c>), sin los puntos de la parte local, que Gmail ignora
+    /// (<c>a.na@gmail.com</c> = <c>ana@gmail.com</c>). Así una misma persona no recibe más de los correos permitidos cambiando
+    /// la forma de escribir su dirección. Un texto que no es una dirección válida se devuelve recortado y en minúsculas.
+    /// </summary>
+    public static string MailboxOf(string? recipient)
+    {
+        var address = recipient?.Trim().ToLowerInvariant() ?? string.Empty;
+        if (!IsValidRecipient(address))
+        {
+            return address;
+        }
+        var at = address.LastIndexOf('@');
+        var local = address[..at];
+        var domain = address[(at + 1)..];
+        var plus = local.IndexOf('+', StringComparison.Ordinal);
+        if (plus > 0)
+        {
+            local = local[..plus];
+        }
+        if (domain is "gmail.com" or "googlemail.com")
+        {
+            domain = "gmail.com";
+            var withoutDots = local.Replace(".", string.Empty, StringComparison.Ordinal);
+            local = withoutDots.Length > 0 ? withoutDots : local;
+        }
+        return local + "@" + domain;
+    }
 
     /// <summary>
     /// <c>Message-ID</c> determinista del correo: el mismo en cada reintento, así el servidor del destinatario reconoce un
@@ -126,7 +158,10 @@ public sealed partial class OutgoingMail : Entity, IBranchScoped, IAppendOnly
 /// del correo (regla B-06: el estado que cambia vive aparte del hecho inmutable): el despachador toma los pendientes vencidos
 /// con <c>FOR UPDATE SKIP LOCKED</c>, registra cada intento en <see cref="OutgoingMailAttempt"/> (append-only) y reprograma
 /// con la espera de <see cref="OutgoingMailAttempt.BackoffBefore"/> hasta <see cref="OutgoingMailAttempt.MaxAttempts"/>
-/// intentos. Solo cambia por sus métodos, y solo mientras está pendiente.
+/// intentos. Solo cambia por sus métodos, y solo mientras está pendiente (salvo <see cref="CountLateAttempt"/>).
+/// B6 · El despachador que lo toma queda como dueño de su ARRENDAMIENTO (<see cref="LeasedUntil"/>): lo renueva justo antes de
+/// enviar solo si sigue siendo suyo (<see cref="Renew"/>, así otra réplica que lo reclamó después no lo envía dos veces) y,
+/// mientras está vigente, un reenvío no lo cancela (el correo ya está saliendo).
 /// </summary>
 public sealed class OutgoingMailDispatch : BaseEntity, IConcurrencyAware
 {
@@ -158,6 +193,11 @@ public sealed class OutgoingMailDispatch : BaseEntity, IConcurrencyAware
     /// <summary>Último error de envío o, si se canceló, el motivo. Nunca lleva credenciales ni datos del servidor.</summary>
     public string? LastError { get; private set; }
 
+    /// <summary>B6 · Hasta cuándo lo tiene tomado el despachador que lo está enviando (null = nadie lo tiene). Lo fija el
+    /// reclamo (<c>integration.claim_outgoing_mails</c> o <see cref="Claim"/>) y sirve de marca de dueño: cada reclamo pone
+    /// otro valor. Se borra al cerrar o reprogramar el intento.</summary>
+    public DateTimeOffset? LeasedUntil { get; private set; }
+
     public uint RowVersion { get; private set; }
 
     public bool IsPending => Status == OutgoingMailStatus.Pending;
@@ -168,6 +208,59 @@ public sealed class OutgoingMailDispatch : BaseEntity, IConcurrencyAware
     /// <summary>¿Le toca salir? Pendiente y con su espera cumplida.</summary>
     public bool IsDueAt(DateTimeOffset now) => IsPending && NextAttemptAt <= now;
 
+    /// <summary>B6 · ¿Lo está enviando un despachador en este momento? (pendiente con su arrendamiento vigente)</summary>
+    public bool IsLeasedAt(DateTimeOffset now) => IsPending && LeasedUntil is { } until && until > now;
+
+    /// <summary>B6 · Un despachador lo toma hasta <paramref name="until"/> (lo mismo que hace
+    /// <c>integration.claim_outgoing_mails</c> en PostgreSQL): solo si le toca. Mientras tanto no vuelve a la cola.</summary>
+    public void Claim(DateTimeOffset now, DateTimeOffset until)
+    {
+        Guard.That(IsDueAt(now), "mail.not_due", "El correo no está pendiente o todavía no le toca salir.");
+        Guard.That(until > now, "mail.lease", "El arrendamiento del correo debe terminar después de tomarlo.");
+        LeasedUntil = Microseconds(until);
+        NextAttemptAt = LeasedUntil.Value;
+    }
+
+    /// <summary>
+    /// B6 · Justo antes de enviar, el despachador que lo tomó con el arrendamiento <paramref name="held"/> lo renueva hasta
+    /// <paramref name="until"/> (tiempo para UN envío). Si el arrendamiento ya no es el suyo (venció y otra réplica lo reclamó) o
+    /// el correo ya no está pendiente, <c>mail.lease</c>: ese despachador NO debe enviarlo.
+    /// </summary>
+    public void Renew(DateTimeOffset held, DateTimeOffset until)
+    {
+        Guard.That(IsPending && LeasedUntil == Microseconds(held), "mail.lease", "Otro despachador tomó este correo: no se envía dos veces.");
+        LeasedUntil = Microseconds(until);
+        NextAttemptAt = LeasedUntil.Value;
+    }
+
+    /// <summary>
+    /// B6 · La pasada que lo tomó con <paramref name="held"/> se cortó antes de intentarlo (falló el servidor de correo): vuelve
+    /// a la cola para la pasada siguiente, sin gastar un intento. Solo si el arrendamiento sigue siendo el de esa pasada (si no,
+    /// no toca nada y devuelve falso).
+    /// </summary>
+    public bool Release(DateTimeOffset held, DateTimeOffset now)
+    {
+        if (!IsPending || LeasedUntil != Microseconds(held))
+        {
+            return false;
+        }
+        LeasedUntil = null;
+        NextAttemptAt = now.ToUniversalTime();
+        return true;
+    }
+
+    /// <summary>
+    /// B6 · Un intento que terminó cuando la cola ya estaba cerrada por otro camino (no debería pasar: el arrendamiento lo
+    /// impide; queda para una réplica detenida más que su arrendamiento): el intento OCURRIÓ, así que se cuenta junto con su fila
+    /// de la bitácora (<see cref="Attempts"/> = filas de <c>outgoing_mail_attempts</c>) sin cambiar el estado ni el cierre.
+    /// </summary>
+    public void CountLateAttempt()
+    {
+        Guard.That(!IsPending, "mail.pending", "Un correo pendiente registra su intento con MarkSent o RecordFailure.");
+        Guard.That(Attempts < OutgoingMailAttempt.MaxAttempts, "mail.attempt", $"El correo ya tiene {OutgoingMailAttempt.MaxAttempts} intentos.");
+        Attempts++;
+    }
+
     /// <summary>El servidor de correo aceptó el mensaje: queda enviado.</summary>
     public void MarkSent(DateTimeOffset now)
     {
@@ -176,6 +269,7 @@ public sealed class OutgoingMailDispatch : BaseEntity, IConcurrencyAware
         Status = OutgoingMailStatus.Sent;
         CompletedAt = now.ToUniversalTime();
         LastError = null;
+        LeasedUntil = null;
     }
 
     /// <summary>
@@ -188,6 +282,7 @@ public sealed class OutgoingMailDispatch : BaseEntity, IConcurrencyAware
         EnsurePending();
         Attempts++;
         LastError = Clean(error) ?? "El envío falló sin detalle.";
+        LeasedUntil = null;
         if (permanent || Attempts >= OutgoingMailAttempt.MaxAttempts)
         {
             Status = OutgoingMailStatus.Exhausted;
@@ -209,6 +304,7 @@ public sealed class OutgoingMailDispatch : BaseEntity, IConcurrencyAware
             "La espera de un correo pospuesto va de 1 minuto a 24 horas.");
         LastError = Clean(Guard.Text(reason, "El motivo", 2000));
         NextAttemptAt = now.ToUniversalTime() + delay;
+        LeasedUntil = null;
     }
 
     /// <summary>Ya no corresponde enviarlo: la reserva dejó de estar reservada (vendida, liberada o vencida) o un reenvío lo
@@ -219,6 +315,14 @@ public sealed class OutgoingMailDispatch : BaseEntity, IConcurrencyAware
         LastError = Clean(Guard.Text(reason, "El motivo", 2000));
         Status = OutgoingMailStatus.Cancelled;
         CompletedAt = now.ToUniversalTime();
+        LeasedUntil = null;
+    }
+
+    /// <summary>La hora con la precisión de PostgreSQL (microsegundos): el arrendamiento se compara con el que devolvió la base.</summary>
+    private static DateTimeOffset Microseconds(DateTimeOffset value)
+    {
+        var utc = value.ToUniversalTime();
+        return new DateTimeOffset(utc.Ticks - (utc.Ticks % 10), TimeSpan.Zero);
     }
 
     /// <summary>Texto de un error listo para guardar: una sola línea (sin caracteres de control) y de 500 caracteres como

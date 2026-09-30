@@ -27,16 +27,26 @@ public sealed class LoginValidator : AbstractValidator<LoginCommand>
     }
 }
 
-public sealed class LoginHandler(IMinvDbContext db, ITenantContext tenant, ICurrentUser currentUser, IPasswordHasher hasher, IClock clock)
+public sealed class LoginHandler(IMinvDbContext db, ITenantContext tenant, ICurrentUser currentUser, IPasswordHasher hasher, IClock clock,
+    ICurrentSession? currentSession = null)
     : IRequestHandler<LoginCommand, LoginResult>
 {
     private const string Generic = "Empresa, correo o contraseña incorrectos.";
 
+    /// <summary>B6 · Hash de relleno (sal y resultado fijos que ninguna contraseña produce): cuando no hay una credencial que
+    /// verificar (empresa o correo inexistente, usuario inactivo, cuenta bloqueada) se calcula IGUAL un PBKDF2 con las mismas
+    /// iteraciones que una credencial, así el tiempo de respuesta no revela si el correo está registrado (regla P-03).</summary>
+    internal const string DummyHash = "bWludi1iNi1yZWxsZW5vAA==:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+
     public async Task<LoginResult> Handle(LoginCommand request, CancellationToken ct)
     {
         var code = request.TenantCode.Trim().ToUpperInvariant();
-        var company = await db.Set<Tenant>().FirstOrDefaultAsync(t => t.Code == code && t.IsActive, ct)
-                      ?? throw new AuthenticationFailedException(Generic);
+        var company = await db.Set<Tenant>().FirstOrDefaultAsync(t => t.Code == code && t.IsActive, ct);
+        if (company is null)
+        {
+            SpendLikeAVerification(request.Password);
+            throw new AuthenticationFailedException(Generic);
+        }
         tenant.Set(company.Id);
         var now = clock.UtcNow;
         var email = User.NormalizeEmail(request.Email);
@@ -59,7 +69,13 @@ public sealed class LoginHandler(IMinvDbContext db, ITenantContext tenant, ICurr
         {
             failure = "cuenta bloqueada por intentos fallidos";
         }
-        else if (!hasher.Verify(request.Password, credential.PasswordHash, credential.Iterations))
+        if (failure is not null)
+        {
+            // B6 · Sin credencial que verificar, el MISMO costo que una verificación de verdad: la respuesta tarda lo mismo exista
+            // o no el correo (regla P-03)
+            SpendLikeAVerification(request.Password, credential?.Iterations);
+        }
+        else if (!hasher.Verify(request.Password, credential!.PasswordHash, credential.Iterations))
         {
             failure = "contraseña incorrecta";
             credential.RegisterFailure(now);
@@ -101,8 +117,14 @@ public sealed class LoginHandler(IMinvDbContext db, ITenantContext tenant, ICurr
 
         currentUser.SignIn(user.Id, user.Email, user.DisplayName, permissions);
         tenant.SetBranches(access.ToScope());
+        currentSession?.Set(session.Id);
         return new LoginResult(company.Id, user.Id, session.Id, user.DisplayName, roles, permissions, credential.MustChangePassword, access);
     }
+
+    /// <summary>Un PBKDF2 contra <see cref="DummyHash"/> con las iteraciones de la credencial (o las vigentes del hasher): el
+    /// resultado se descarta, solo iguala el tiempo de una verificación de verdad.</summary>
+    private void SpendLikeAVerification(string password, int? iterations = null) =>
+        _ = hasher.Verify(password, DummyHash, iterations ?? hasher.Iterations);
 }
 
 // ------------------------------------------------------------------------------------------------ contraseña

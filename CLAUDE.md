@@ -3,7 +3,42 @@
 M-INV es el sistema de inventarios B2B de Z&P Software Fast Solutions: libros de Excel arquitectados como aplicación
 transaccional inmutable (CQRS, append-only), preparados para migrar a SQL/.NET.
 
-Versión en desarrollo: **6.0.0-alpha.1** en la rama `Inventario-V6` (sobre `Inventario-V5`): **tienda web conectada**. El
+Versión en desarrollo: **7.0.0-alpha.1** en la rama `Inventario-V7` (sobre `Inventario-V6`): **plataforma web**. La tienda de
+la V6 (`src/3. Presentation/MINV.WebCatalog`) gana cuentas de cliente, carrito y correo de la reserva, y un **panel web del
+personal por rol** (`/panel`) que es OTRO cliente del servidor en la nube (regla P-01): envía los MISMOS `IRequest<>` de
+`MINV.Application` por `POST /api/v1/web/rpc` y el servidor decide permisos, sucursal, validación y auditoría (canal `web`).
+**Sesión web** en `MINV.CloudServer` (`Minv:Web`: `Enabled`, `TenantCode`, `BranchCode`, `RegistrationsPerHour`,
+`CookieName`; rutas `/api/v1/web/session/login|logout`, `GET /api/v1/web/session`, `/api/v1/web/account/register`,
+`/api/v1/web/rpc`; apagada = 404): token `mses_…` SOLO en cookie `HttpOnly` `SameSite=Strict` `Path=/api/v1/web` (`Secure`
+bajo https), anti-CSRF (`X-MINV-Client-Version` obligatoria, `Sec-Fetch-Site`/`Origin`, sin CORS), mensaje único, bloqueo a
+los 5 intentos con `auth.locked`, 10 inicios por minuto y 5 registros por hora por IP real; `SelectBranchCommand` y
+`LogoutCommand` siempre sobre la sesión de la cookie. **Cuentas de cliente**: rol `CLIENTE` (`account.manage`,
+`account.reserve`), `sales.customer_accounts`, `MINV.Application.Accounts` (registro previo a la sesión y casos de uso SOLO
+sobre el cliente de la sesión, P-04) y lista de permitidos del cliente en las DOS rutas de RPC (`RpcCatalog.IsAllowedForCustomer`).
+**Carrito** = `PcBuild` con `Kind = Cart` (P-05: líneas sin ranura y sin compatibilidad, no se publica; `RES-WEB-000001` /
+`RES-<sucursal>-000001`; datos para la factura `buyer_*`; `holdDays` 1 a 3 con tope `MaxReservationHours`; `ReserveCartCommand`;
+`SellPcBuildCommand` vende carritos). **Correo de la reserva** (P-06): se encola en el MISMO `SaveChanges`
+(`ReservationMail.EnqueueAsync` → `integration.outgoing_mails` + `outgoing_mail_dispatch`; intentos en `outgoing_mail_attempts`),
+lo envía `MailDispatcher` en el API Gateway (`Minv:Mail`, `integration.claim_outgoing_mails` con SKIP LOCKED, 5 intentos;
+servidor de la empresa o el de `Minv:Mail`), plantilla fija sin datos del cliente en el asunto, 3 por destinatario y 300 por
+empresa cada 24 h; `ResendReservationMailCommand` y `GetOutgoingMailsQuery`. Migración `V7WebPlatform`: **157 tablas en 10
+esquemas** (+ 25 CHECK y un índice de la comprobación de normalización: `scripts/verificar_normalizacion.sql`,
+`docs/database/normalizacion-v7.md`, `NormalizationTests`). Contrato TypeScript GENERADO por `minv contrato-web`
+(`3-infrastructure/http/contract.generated.ts`, 192 operaciones; `WebContractTests`; la web lo usa solo por `contract.ts`, P-07).
+Web: sesión y RPC solo en `3-infrastructure/http/webApi.ts` (mismo origen), carrito en `3-infrastructure/storage/cartStorage.ts`
+(el único `localStorage`), panel en `4-presentation/panel/` (`registry/`, `shell/`, `kit/`, `hooks/`, `lib/` y
+`modules/<clave>/module.tsx`, que se registran solos; guía `panel/README.md` de esa carpeta, P-09/P-10). Docker: el nginx
+del catálogo publica solo la web, `/storefront/` y `/api/v1/web/` (el resto de `/api/` = 404) con CSP y cabeceras de seguridad;
+buzón de prueba Mailpit (perfil `correo-prueba`, `127.0.0.1:8025`); `tools\docker_local.ps1 -Correo auto|prueba|real|apagado`
+con `correo.txt` (`MINV_MAIL_*`). Datos de prueba: 2 cuentas de cliente con reservas, carritos y 9 correos en cola (P-13;
+sección «Clientes de la tienda web» de `usuarios-prueba.txt`). Escritorio: Reservas, Correos, inicio simplificado, filtros y
+CSV (`docs/product/escritorio-v7.md`). Reglas: `.claude/v7-web-platform-rules.md` (P-01…P-14); diseño:
+`docs/architecture/plataforma-web-v7.md`; plan: `docs/product/plan-v7.md`; informes: `docs/architecture/v7-notas/`; tablas:
+`docs/database/ERD-MINV-V3.md` §11. Paso a paso: `docs/deployment/inicio-rapido-v7.md`; Docker:
+`docs/deployment/tienda-publica-docker-v7.md`; la web: `docs/product/plataforma-web-v7.md`; guía para todos:
+`GUIA-DE-INICIO.md` §8.
+
+Versión anterior: **6.0.0-alpha.1** en la rama `Inventario-V6` (sobre `Inventario-V5`): **tienda web conectada**. El
 catálogo web de la V5 (`src/3. Presentation/MINV.WebCatalog`, Vite + React) deja el mock y consume la **API pública de tienda**
 del API Gateway (`/storefront/v1`, sin API Key: principal técnico `tienda-web` del rol `TIENDA_WEB` de la empresa
 `Minv:Storefront:TenantCode`, sucursal `BranchCode`, CORS `AllowedOrigins`, 300 lecturas y 10 reservas por minuto por IP)
@@ -90,11 +125,19 @@ rama `Inventario-V1.2`). Idioma del producto y la documentación: español.
 @.claude/v41-billing-rules.md
 @.claude/v42-tech-rules.md
 @.claude/v6-storefront-rules.md
+@.claude/v7-web-platform-rules.md
 
 ## Comandos
 
 ```powershell
+powershell -ExecutionPolicy Bypass -File tools\bd_local.ps1 -Accion recrear     # V7: base local de 157 tablas + cuentas de cliente, carritos y correos en cola; RESPALDA la base anterior antes de borrarla
+powershell -ExecutionPolicy Bypass -File tools\bd_local.ps1 -Accion respaldar   # V7: copia pg_dump de la base minv en %LOCALAPPDATA%\M-INV\respaldos (la orden pg_restore sale al final)
+powershell -ExecutionPolicy Bypass -File tools\docker_local.ps1 -Accion subir -Correo prueba   # V7: tienda + panel /panel + buzón http://127.0.0.1:8025 en Docker Desktop (-Correo auto|prueba|real|apagado, correo.txt con MINV_MAIL_*; -ReiniciarSimulador después de recrear); docs/deployment/tienda-publica-docker-v7.md
 dotnet run --project "src/4. Tools/MINV.Cli" -- contrato-web [--salida <archivo>]   # V7: regenera el contrato TypeScript de la web (contract.generated.ts, regla P-07; sin base de datos); WebContractTests falla si quedó desactualizado
+cd "src\3. Presentation\MINV.WebCatalog"; npx vitest run; npx tsc -b --noEmit   # V7: pruebas y tipos de la web (solo el panel: npx vitest run src/4-presentation/panel; además npm run lint y npm run build)
+dotnet test tests/MINV.Integration.Tests --filter "FullyQualifiedName~WebSession|FullyQualifiedName~WebLimits|FullyQualifiedName~WebSwitch|FullyQualifiedName~ReservationMail|FullyQualifiedName~StorefrontCart"   # V7: sesión web, cuentas de cliente, carrito y correo de punta a punta
+dotnet run --project "src/4. Tools/MINV.Cli" -- migrate --conexion "…"           # V7: base existente de la V6 → migración V7WebPlatform sin recrear (respaldar antes; .claude/database-migration-guide.md §11)
+psql -X -v ON_ERROR_STOP=1 -d minv -f scripts/verificar_normalizacion.sql      # V7: comprobación de normalización (como minv_owner; conexión por PGHOST/PGUSER/PGPASSWORD); docs/database/normalizacion-v7.md
 powershell -ExecutionPolicy Bypass -File tools\servidores_locales.ps1 -Accion iniciar   # V6: + tienda web http://localhost:5090/storefront/v1/catalog (-EmpresaTienda TECHZONE -SucursalTienda CM -OrigenTienda http://localhost:5173)
 dotnet run --project "src/3. Presentation/MINV.ApiGateway" -- --urls http://localhost:5090 --Minv:Storefront:TenantCode TECHZONE   # V6: gateway con la tienda web (también Minv__Storefront__* por variables de entorno)
 dotnet test tests/MINV.Integration.Tests --filter Storefront                    # V6: API pública de tienda de punta a punta (Kestrel + base en memoria)
@@ -146,6 +189,15 @@ variables); los Office Scripts, TypeScript sin `any` ni sintaxis no borrable.
 
 ## Documentación
 
+- V7: plataforma web: el algoritmo paso a paso `docs/deployment/inicio-rapido-v7.md` · Docker (servicios, nginx, cabeceras,
+  correo, tarea programada, actualizar desde la V6) `docs/deployment/tienda-publica-docker-v7.md` · la web (tienda, carrito,
+  Mi cuenta, módulos del panel, roles) `docs/product/plataforma-web-v7.md` · guía para todos `GUIA-DE-INICIO.md` §8 · diseño
+  `docs/architecture/plataforma-web-v7.md` · reglas P-01 a P-14 `.claude/v7-web-platform-rules.md` · plan
+  `docs/product/plan-v7.md` · informes de cada paquete `docs/architecture/v7-notas/` · normalización
+  `docs/database/normalizacion-v7.md` · tablas `docs/database/ERD-MINV-V3.md` §11 · migración V6 → V7
+  `.claude/database-migration-guide.md` §11 · escritorio `docs/product/escritorio-v7.md` · la web y su panel
+  `src/3. Presentation/MINV.WebCatalog/README.md` y, en esa carpeta, `src/4-presentation/panel/README.md` (guía para escribir un módulo) ·
+  historial `CHANGELOG.md`
 - V6: tienda web conectada: el algoritmo paso a paso `docs/deployment/inicio-rapido-v6.md` · guía para todos
   `GUIA-DE-INICIO.md` §7 · diseño `docs/architecture/tienda-web-conectada-v6.md` · reglas S-01 a S-10
   `.claude/v6-storefront-rules.md` · contrato de la API pública `docs/integration/storefront-api-v1.md` · eventos

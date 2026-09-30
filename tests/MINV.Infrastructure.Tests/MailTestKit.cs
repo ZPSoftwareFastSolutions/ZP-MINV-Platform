@@ -13,6 +13,7 @@ public sealed class RecordingMailSender : IMailSender
     private readonly List<MailMessageSpec> _sent = [];
     private readonly List<MailMessageSpec> _attempted = [];
     private readonly Dictionary<string, Queue<Exception>> _failures = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Func<Task>> _during = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Mensajes enviados (los que salieron bien).</summary>
     public IReadOnlyList<MailMessageSpec> Sent
@@ -55,18 +56,36 @@ public sealed class RecordingMailSender : IMailSender
         }
     }
 
-    public Task SendAsync(MailMessageSpec message, CancellationToken cancellationToken = default)
+    /// <summary>B6 · El próximo envío a <paramref name="recipient"/> ejecuta <paramref name="action"/> MIENTRAS sale (una vez):
+    /// simula lo que pasa en el sistema durante un envío lento (un reenvío, otra réplica del despachador).</summary>
+    public void During(string recipient, Func<Task> action)
+    {
+        lock (_sent)
+        {
+            _during[recipient] = action;
+        }
+    }
+
+    public async Task SendAsync(MailMessageSpec message, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(message);
+        Func<Task>? during;
+        lock (_sent)
+        {
+            _during.Remove(message.To, out during);
+        }
+        if (during is not null)
+        {
+            await during();
+        }
         lock (_sent)
         {
             _attempted.Add(message);
             if (_failures.TryGetValue(message.To, out var queue) && queue.TryDequeue(out var failure))
             {
-                return Task.FromException(failure);
+                throw failure;
             }
             _sent.Add(message);
         }
-        return Task.CompletedTask;
     }
 }

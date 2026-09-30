@@ -1,8 +1,9 @@
-# Guía de inicio de M-INV · las siete ediciones, paso a paso
+# Guía de inicio de M-INV · las ocho ediciones, paso a paso
 
 M-INV es el sistema de inventarios de **Z&P Software Fast Solutions**. Nació como un libro de Excel y hoy es una
 aplicación de escritorio con base de datos en la nube, facturación del SIN, especializada en **tiendas de tecnología y
-gaming** y, en su séptima edición, con una **tienda web conectada** a la misma base de datos. Las siete ediciones siguen
+gaming**, con una **tienda web conectada** a la misma base de datos (séptima edición) y, en su octava edición, con **todo
+el sistema en la web**: tienda con cuentas de cliente y carrito, y un panel web para el personal. Las ocho ediciones siguen
 en el repositorio y funcionan con la **misma lógica de negocio**:
 
 - El stock solo cambia registrando **movimientos** (entradas, salidas y ajustes).
@@ -23,7 +24,8 @@ Esta guía explica, para cada edición:
 | 4 | **App de escritorio con base de datos en la nube y facturación** | V4 · `Inventario-V4.-BaseDeDatosNube` y **V4.1 · `Inventario-V4.1`** | Empresa con sucursales, tienda en línea y facturación del SIN | Lo de la 3, más un servidor en la nube (se prueba entero en este equipo) |
 | 5 | **Tecnología: PC, componentes, consolas y videojuegos** | **V4.2 · `Inventario-V4.2`** | Tiendas de computadoras, componentes, periféricos, consolas y videojuegos, con sucursales | Lo de la 4 (se prueba entero en este equipo) |
 | 6 | **Catálogo Web M-INV** | V5.0 · `Inventario-V5` | Clientes finales que navegan el catálogo, arman su PC y ven ofertas (con datos de muestra) | Node.js 22; no necesita base de datos ni servidores |
-| 7 | **Tienda web conectada** | **V6.0 · `Inventario-V6`** | Clientes finales que ven el stock real y **reservan** su armado; la tienda lo ve, lo vende en caja o lo libera | Lo de la 5 y la 6 (se prueba entero en este equipo) |
+| 7 | **Tienda web conectada** | V6.0 · `Inventario-V6` | Clientes finales que ven el stock real y **reservan** su armado; la tienda lo ve, lo vende en caja o lo libera | Lo de la 5 y la 6 (se prueba entero en este equipo) |
+| 8 | **Plataforma web: tienda con cuentas, carrito y panel del personal** | **V7.0 · `Inventario-V7`** | Clientes que crean su cuenta, reservan cualquier producto con un carrito y reciben el correo con el código; el personal trabaja desde el navegador con un panel por rol | Lo de la 7, más Docker Desktop (se prueba entero en este equipo) |
 
 > **Una edición a la vez.** Cada edición vive en su **rama** de Git. Para usar una, se cambia a su rama
 > (`git switch <rama>`) y se siguen sus pasos. Quédese en una edición hasta que decida pasar a otra. La **base de datos
@@ -536,11 +538,133 @@ Detalle: [`docs/deployment/inicio-rapido-v6.md`](docs/deployment/inicio-rapido-v
 
 ---
 
-## 8. Usuarios de prueba
+## 8. V7 · Plataforma web: tienda con cuentas, carrito y panel del personal
 
-**Ediciones 5, 6 y 7 (ramas `Inventario-V4.2`, `Inventario-V5` e `Inventario-V6`):** empresa **TECHZONE**, Tech Zone
-Gaming S.R.L. Las **contraseñas** están en `%LOCALAPPDATA%\M-INV\usuarios-prueba.txt` y cambian cada vez que se recrea la
-base (la edición 6, la web sola, no usa usuarios).
+La edición 8 (rama `Inventario-V7`) lleva **todo el sistema a la web**, sobre la misma base de datos y los mismos casos de uso
+del escritorio:
+
+- **Clientes con cuenta**: el botón **«Ingresar»** de la tienda abre el inicio de sesión y el registro. Registrarse crea
+  siempre una cuenta de **cliente**; con ella, **«Mi cuenta»** muestra sus reservas (y deja liberarlas) y sus datos. Con una
+  contraseña incorrecta no se entra; a los 5 intentos la cuenta se bloquea 15 minutos.
+- **Carrito de compras**: cualquier producto se reserva, también **uno solo** («Reservar ahora»), sin pasar por «Armá tu PC»
+  (que sigue igual). La reserva pide los datos del cliente, **cuándo pasa a recogerla** (1, 2 o 3 días) y, si quiere, los
+  **datos para su factura**; queda con un número `RES-WEB-000001` y el stock reservado.
+- **Correo automático**: si el cliente deja su correo, recibe el **código de la reserva con el detalle** (productos, total,
+  hasta cuándo se guarda y dónde se recoge), enviado desde la cuenta de la empresa `zapasoftwarefastsolutions@gmail.com`. Para
+  probar sin enviar nada a internet, los correos quedan en un **buzón de prueba** de este equipo.
+- **Panel del personal** (`/panel`): cada rol ve sus módulos (caja, ventas, clientes, reservas, armador de PC, series,
+  garantías, stock, catálogo, movimientos, toma física, alertas, compras, proveedores, sucursales, transferencias,
+  facturación, estado del SIAT, reportes, contabilidad, usuarios, integraciones, configuración, actividad…)
+  con **botones**, **listas desplegables**, filtros y **exportar a CSV**. El inicio muestra las funciones como botones grandes y
+  las estadísticas quedan **plegadas** detrás de «Ver estadísticas».
+- **Escritorio**: pantalla **Reservas** (carritos y armados reservados), cola de **Correos**, inicio simplificado con botones y
+  filtros con «Exportar CSV» en las listas.
+
+Se prueba entero en este equipo con Tech Zone Gaming (`TECHZONE`) en **Docker Desktop**, con un enlace público para los
+clientes. Estado: **7.0.0-alpha.1**, en desarrollo (avance en [`docs/product/plan-v7.md`](docs/product/plan-v7.md)).
+
+### Archivos
+
+| Archivo o carpeta | Para qué |
+|---|---|
+| `dist\M-INV-7.0.0-alpha.1-win-x64\M-INV.exe` | El programa de escritorio de la edición (lo crea el paso 3 del algoritmo) |
+| `tools\docker_local.ps1` | Sube la tienda, el panel, los servidores, el buzón de prueba y el túnel en Docker Desktop (`-Correo prueba` o `real`) |
+| `tools\bd_local.ps1` | La base local; en la V7, `recrear` **guarda una copia antes de borrar** y `respaldar` copia la base cuando usted quiera |
+| `%LOCALAPPDATA%\M-INV\usuarios-prueba.txt` | Correos y contraseñas de prueba: el personal (escritorio y panel) y la sección «Clientes de la tienda web» (la tienda) |
+| `%LOCALAPPDATA%\M-INV\correo.txt` | Solo para enviar correos de verdad con Gmail (usted lo crea; nunca va al repositorio) |
+| `%LOCALAPPDATA%\M-INV\respaldos\` | Las copias de la base |
+| [`docs/deployment/inicio-rapido-v7.md`](docs/deployment/inicio-rapido-v7.md) | La guía detallada: el recorrido completo, cada rol, el correo de Gmail y problemas frecuentes |
+| [`docs/deployment/tienda-publica-docker-v7.md`](docs/deployment/tienda-publica-docker-v7.md) | Docker en detalle: servicios, puertos, qué se publica y el correo |
+| [`docs/product/plataforma-web-v7.md`](docs/product/plataforma-web-v7.md) | La web: páginas de la tienda, carrito, «Mi cuenta» y cada módulo del panel con sus botones |
+| [`docs/product/escritorio-v7.md`](docs/product/escritorio-v7.md) | Lo nuevo del escritorio, con capturas |
+
+### Algoritmo · todo en este equipo
+
+```text
+ PRIMERA VEZ (una sola vez)
+  0. Abra PowerShell en la carpeta del repositorio y cambie a la edición 8:   git switch Inventario-V7
+  1. Apague lo de otra edición:
+        powershell -ExecutionPolicy Bypass -File tools\servidores_locales.ps1 -Accion detener
+        powershell -ExecutionPolicy Bypass -File tools\docker_local.ps1 -Accion bajar
+  2. Recree la base (GUARDA una copia de la anterior en respaldos\, la reemplaza y cambia las contraseñas de prueba):
+        powershell -ExecutionPolicy Bypass -File tools\bd_local.ps1 -Accion recrear
+     (¿nunca instaló PostgreSQL? Edición 3, paso B, con -Accion instalar, una vez)
+  3. Publique el programa:  powershell -ExecutionPolicy Bypass -File tools\publicar_escritorio.ps1
+  4. Con Docker Desktop abierto («Engine running»), suba todo con el buzón de prueba (la primera vez tarda 5 a 10 minutos):
+        powershell -ExecutionPolicy Bypass -File tools\docker_local.ps1 -Accion subir -Correo prueba -ReiniciarSimulador
+     → al final: TIENDA PARA TUS CLIENTES (https://….trycloudflare.com) y PANEL DEL PERSONAL (…/panel)
+  5. Para que se encienda solo al iniciar sesión (una vez):
+        powershell -ExecutionPolicy Bypass -File tools\docker_local.ps1 -Accion arranque
+
+ CADA VEZ QUE LO USE
+  6. Mire las contraseñas:  notepad $env:LOCALAPPDATA\M-INV\usuarios-prueba.txt
+  7. Abra: la tienda http://localhost:5173 · el panel http://localhost:5173/panel · el buzón http://127.0.0.1:8025
+     (desde otro equipo o un celular: el enlace público;  tools\docker_local.ps1 -Accion enlace  lo muestra)
+  8. EL RECORRIDO:
+       a. Tienda: «Ingresar» → «Crear cuenta» (o una cuenta de «Clientes de la tienda web») → un producto →
+          «Reservar ahora» (o «Agregar al carrito» → Carrito → «Reservar») → días para recoger → «Confirmar reserva»
+       b. Buzón de prueba: llega «Reserva RES-WEB-…» con el código y el detalle
+       c. Panel: ingrese con el personal (cada rol ve lo suyo) → Ventas › Reservas → la reserva, con su correo «Enviado»
+       d. Vender: panel › Reservas › «Vender en caja» (caja web)  o  escritorio › Ventas › Reservas › «Vender en caja»
+          → series si las lleva → CI o NIT → Cobrar → factura; la reserva se consume
+       e. Tienda: «Mi cuenta» › «Mis reservas» → «Vendida»
+  9. El escritorio: dist\M-INV-7.0.0-alpha.1-win-x64\M-INV.exe → «Nube» → http://localhost:5080 → «Probar» → TECHZONE
+ 10. Al terminar (si no quiere dejar la tienda publicada):  tools\docker_local.ps1 -Accion bajar
+```
+
+### Funciones que se suman a la edición 7
+
+| Área | Qué hace |
+|---|---|
+| **Tienda · Ingresar y registrarse** | Botón «Ingresar» (también en el teléfono); registro con nombre, correo, teléfono y contraseña (8 a 128 caracteres con letras y números), siempre como cliente; mensaje único «Correo o contraseña incorrectos»; bloqueo a los 5 intentos |
+| **Tienda · Mi cuenta** | «Mis reservas» (por estado, con su detalle y «Liberar mi reserva»), «Mis datos» (nombre, teléfono y documento para la factura) y «Cambiar contraseña» |
+| **Tienda · Carrito** | «Agregar al carrito» y «Reservar ahora» en cada producto disponible; el carrito revisa la disponibilidad al abrirse y pide ajustar lo que se agotó; hasta 16 unidades por producto y 20 productos |
+| **Tienda · Reservar** | Datos del cliente (o los de su cuenta), días para recoger (1 a 3), datos para la factura opcionales (CI, CEX, pasaporte, otro documento o NIT); número `RES-WEB-…`; si falta stock, marca qué productos y ofrece ajustar |
+| **Correo de la reserva** | Código y detalle de la reserva al correo del cliente, desde `zapasoftwarefastsolutions@gmail.com`; cola con reintentos; reenviar desde el panel o el escritorio; buzón de prueba en `http://127.0.0.1:8025` |
+| **Panel del personal** | Menú por rol con buscador, sucursal activa, inicio con botones y «Ver estadísticas» plegado; en cada lista: filtros con listas desplegables, búsqueda, tabla, detalle al costado, acciones por fila y «Exportar CSV» |
+| **Escritorio** | Ventas › Reservas (vender en caja, liberar, reenviar correo, copiar teléfono, nueva reserva en mostrador), Administración › Correos, inicio simplificado, filtros y «Exportar CSV» en las listas, Usuarios: personal / clientes web |
+| **Base de datos** | 157 tablas (4 nuevas: cuentas de cliente y la cola de correos); comprobación de normalización con su informe; copia antes de recrear |
+| **Seguridad** | La sesión viaja en una cookie que la página no puede leer; peticiones de otros sitios rechazadas; límites por IP; solo la web y sus dos API salen a internet |
+
+### Funciones por rol (V7)
+
+| Rol | Qué puede hacer en la web |
+|---|---|
+| **Administrador** | Todo el panel: caja, ventas, clientes, reservas, armador, series, garantías, stock, catálogo, movimientos, toma física, alertas, pedido, órdenes de compra, proveedores, sucursales, transferencias, documentos fiscales, estado del SIAT, reportes, contabilidad, usuarios, integraciones (con «Correos de reservas»), configuración y actividad |
+| **Gerencia** | Todas las sucursales: ventas, clientes, reservas, armador, series, garantías, stock, catálogo, alertas, pedido, órdenes de compra, proveedores, sucursales, transferencias, documentos fiscales, estado del SIAT, reportes, contabilidad y actividad; no cobra (no tiene caja) |
+| **Ventas** y **Cajero** | Su sucursal: **caja** (también vender reservas), ventas, clientes, reservas (liberar, reenviar el correo, nueva reserva en mostrador), armador, series, garantías, stock, catálogo, salidas de mercadería, alertas, pedido sugerido (solo mirar), documentos fiscales y estado del SIAT; Ventas, además, sucursales y reportes |
+| **Bodega** | Su sucursal: series, garantías, stock, catálogo, entradas y ajustes, toma física, alertas, pedido sugerido, órdenes de compra, proveedores, sucursales, transferencias y reportes; nada de ventas |
+| **Consulta** | Solo lectura: series, garantías, stock, catálogo, alertas, pedido sugerido, sucursales, documentos fiscales, estado del SIAT y reportes |
+| **Cliente web** (rol nuevo) | Solo la tienda: reservar con los datos de su cuenta y, en «Mi cuenta», ver y liberar **sus** reservas y cambiar **sus** datos. No entra al panel ni al escritorio |
+| **Tienda web** (cuenta técnica) | Como en la edición 7: la usa el API Gateway; no es una persona |
+
+Un botón que el rol no puede usar no aparece; si alguien abre una pantalla que no le corresponde, el panel dice qué permiso
+falta. Igual el servidor decide en cada pedido.
+
+### Correo de verdad con Gmail
+
+1. El dueño de la cuenta `zapasoftwarefastsolutions@gmail.com` activa la **verificación en dos pasos** y crea una **contraseña
+   de aplicación** (Cuenta de Google › Seguridad › Contraseñas de aplicaciones).
+2. Se escribe en `%LOCALAPPDATA%\M-INV\correo.txt` (`notepad $env:LOCALAPPDATA\M-INV\correo.txt`) con las líneas de
+   [`inicio-rapido-v7.md`](docs/deployment/inicio-rapido-v7.md) §9. Ese archivo nunca va al repositorio.
+3. `powershell -ExecutionPolicy Bypass -File tools\docker_local.ps1 -Accion subir -Correo real`
+
+### Qué NO hace
+
+Sin pagos en línea ni envío a domicilio (se cobra en la tienda); sin verificación del correo ni recuperación de la contraseña
+por correo (la restablece el Administrador); una sola sucursal en la web (la casa matriz); la caja web imprime con el
+navegador (sin impresora de tickets ni cajón); el enlace público cambia al reiniciar el túnel. Detalle:
+[`docs/deployment/inicio-rapido-v7.md`](docs/deployment/inicio-rapido-v7.md) §10.
+
+---
+
+## 9. Usuarios de prueba
+
+**Ediciones 5, 6, 7 y 8 (ramas `Inventario-V4.2`, `Inventario-V5`, `Inventario-V6` e `Inventario-V7`):** empresa
+**TECHZONE**, Tech Zone Gaming S.R.L. Las **contraseñas** están en `%LOCALAPPDATA%\M-INV\usuarios-prueba.txt` y cambian cada
+vez que se recrea la base (la edición 6, la web sola, no usa usuarios). En la edición 8, el personal entra con el mismo correo
+y contraseña al escritorio y al panel web (`/panel`), y el archivo trae además la sección **«Clientes de la tienda web»**:
+cuentas de cliente que entran a la tienda con «Ingresar» (no al escritorio ni al panel).
 
 | Rol | Nombre | Correo | Sucursales |
 |---|---|---|---|
@@ -569,14 +693,14 @@ En la **demostración** no hay contraseñas: se elige el rol en la pantalla de i
 
 ---
 
-## 9. Si algo no funciona
+## 10. Si algo no funciona
 
 | Síntoma | Solución |
 |---|---|
 | El programa dice «Sin conexión con la base de datos» | `tools\bd_local.ps1 -Accion iniciar` y pulse «Reintentar» |
 | Modo Nube: «Sin conexión con el servidor» | `tools\servidores_locales.ps1 -Accion iniciar`, luego «Probar» |
 | Modo Nube: «actualice el escritorio» | El escritorio y el servidor deben ser de la misma versión: detenga los servidores, confirme la rama (`git branch --show-current`), vuelva a iniciarlos y publique el escritorio con `tools\publicar_escritorio.ps1` |
-| La empresa TECHZONE no existe (o la base todavía es la ferretería MINV) | La base es de otra edición: desde la rama de la edición que va a usar (`Inventario-V4.2` o `Inventario-V6`), `tools\bd_local.ps1 -Accion recrear` |
+| La empresa TECHZONE no existe (o la base todavía es la ferretería MINV) | La base es de otra edición: desde la rama de la edición que va a usar (`Inventario-V4.2`, `Inventario-V6` o `Inventario-V7`), `tools\bd_local.ps1 -Accion recrear` |
 | «Su usuario no tiene sucursales asignadas» | Como Administrador: Sucursales › Asignar usuarios |
 | Facturas «fuera de línea» que no pasan a válidas | ¿Está encendido el simulador? `tools\servidores_locales.ps1 -Accion estado`; luego Estado SIAT › «Procesar ahora» |
 | La caja dice «producto sin homologar» | Facturación › Homologación: asigne su código del SIN (o «Sugerir») |
@@ -594,14 +718,23 @@ En la **demostración** no hay contraseñas: se elige el rol en la pantalla de i
 | V6 · «No hay stock suficiente» al reservar | Alguien vendió o reservó esas unidades antes: la web marca las piezas y cuánto hay; no se reservó nada |
 | V6 · «Consultar mi reserva» dice que no existe | El número o el teléfono no coinciden con los de la reserva (no se dice cuál, a propósito) |
 | V6 · La reserva no aparece en el escritorio | La tienda reserva en la casa matriz (**CM**): elija esa sucursal activa; si pasaron más de 48 h, está en **Anulado** (venció) |
+| V7 · `docker_local.ps1` dice «Docker Desktop no responde» | Abra Docker Desktop y espere «Engine running»; repita `-Accion subir` |
+| V7 · `docker_local.ps1` dice que falta la base local | Recree la base desde `Inventario-V7` (`tools\bd_local.ps1 -Accion recrear`) y vuelva a subir |
+| V7 · La web se ve como la edición 7 (sin «Ingresar» ni carrito) | Las imágenes son de otra rama: confirme `Inventario-V7` con `git branch --show-current` y vuelva a `tools\docker_local.ps1 -Accion subir` |
+| V7 · «Correo o contraseña incorrectos» | Copie la contraseña del `usuarios-prueba.txt` actual (cambia al recrear la base). Las cuentas de «Clientes de la tienda web» entran a la tienda, no al panel |
+| V7 · «Cuenta bloqueada por intentos fallidos» | Espere 15 minutos o pida al Administrador una contraseña temporal (panel › Usuarios) |
+| V7 · «No tiene acceso a esta pantalla» en el panel | Ese rol no tiene el permiso (el aviso dice cuál): use otro rol |
+| V7 · No llega el correo al buzón de prueba | ¿Dejó correo al reservar? `tools\docker_local.ps1 -Accion estado` debe mostrar el buzón «OK»; la cola está en panel › Integraciones › Correos de reservas o en el escritorio › Administración › Correos |
+| V7 · Las facturas quedan fuera de línea después de recrear la base | `tools\docker_local.ps1 -Accion subir -Correo prueba -ReiniciarSimulador` (copia el estado nuevo del simulador del SIN) |
 | Olvidé la contraseña de prueba | Está en `%LOCALAPPDATA%\M-INV\usuarios-prueba.txt` |
 | Excel compartido: «su cuenta no está autorizada» | El ADMIN agrega el correo al final de `02_USUARIOS` |
 | Excel: los botones no hacen nada | En la edición Plus, habilite las macros. En la compartida, agregue el script sobre el recuadro ⚙ |
 
 Más casos de la edición 5: [`docs/deployment/inicio-rapido-v4.2.md`](docs/deployment/inicio-rapido-v4.2.md) §9; de la
-edición 7: [`docs/deployment/inicio-rapido-v6.md`](docs/deployment/inicio-rapido-v6.md) §9.
+edición 7: [`docs/deployment/inicio-rapido-v6.md`](docs/deployment/inicio-rapido-v6.md) §9; de la edición 8:
+[`docs/deployment/inicio-rapido-v7.md`](docs/deployment/inicio-rapido-v7.md) §11.
 
-## 10. Documentación relacionada
+## 11. Documentación relacionada
 
 | Tema | Documento |
 |---|---|
@@ -612,4 +745,5 @@ edición 7: [`docs/deployment/inicio-rapido-v6.md`](docs/deployment/inicio-rapid
 | Edición Tecnología (V4.2) | [`docs/deployment/inicio-rapido-v4.2.md`](docs/deployment/inicio-rapido-v4.2.md) · [`docs/product/escritorio-v4.2.md`](docs/product/escritorio-v4.2.md) · [`docs/architecture/edicion-tecnologia-v4.2.md`](docs/architecture/edicion-tecnologia-v4.2.md) · [`.claude/v42-tech-rules.md`](.claude/v42-tech-rules.md) · tema gaming en [`docs/product/ux-ui-guidelines.md`](docs/product/ux-ui-guidelines.md) §13 · tablas en [`docs/database/ERD-MINV-V3.md`](docs/database/ERD-MINV-V3.md) §9 |
 | Catálogo web (V5) | [`docs/product/catalogo-web-v5.md`](docs/product/catalogo-web-v5.md) · `src/3. Presentation/MINV.WebCatalog/README.md` |
 | Tienda web conectada (V6) | [`docs/deployment/inicio-rapido-v6.md`](docs/deployment/inicio-rapido-v6.md) · [`docs/architecture/tienda-web-conectada-v6.md`](docs/architecture/tienda-web-conectada-v6.md) · [`docs/integration/storefront-api-v1.md`](docs/integration/storefront-api-v1.md) · [`.claude/v6-storefront-rules.md`](.claude/v6-storefront-rules.md) · nube [`docs/deployment/despliegue-nube-v4.md`](docs/deployment/despliegue-nube-v4.md) §14 · tablas en [`docs/database/ERD-MINV-V3.md`](docs/database/ERD-MINV-V3.md) §10 |
+| Plataforma web (V7) | [`docs/deployment/inicio-rapido-v7.md`](docs/deployment/inicio-rapido-v7.md) · [`docs/deployment/tienda-publica-docker-v7.md`](docs/deployment/tienda-publica-docker-v7.md) · [`docs/product/plataforma-web-v7.md`](docs/product/plataforma-web-v7.md) · [`docs/product/escritorio-v7.md`](docs/product/escritorio-v7.md) · [`docs/architecture/plataforma-web-v7.md`](docs/architecture/plataforma-web-v7.md) · [`.claude/v7-web-platform-rules.md`](.claude/v7-web-platform-rules.md) · normalización [`docs/database/normalizacion-v7.md`](docs/database/normalizacion-v7.md) · tablas en [`docs/database/ERD-MINV-V3.md`](docs/database/ERD-MINV-V3.md) §11 · guía del panel `src/3. Presentation/MINV.WebCatalog/src/4-presentation/panel/README.md` |
 | Historial de cambios | [`CHANGELOG.md`](CHANGELOG.md) |

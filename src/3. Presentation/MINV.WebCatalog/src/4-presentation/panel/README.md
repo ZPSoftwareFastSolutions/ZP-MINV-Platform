@@ -42,6 +42,7 @@ src/4-presentation/panel/
   modules/
     inicio/            General › Inicio (el tablero, en /panel)
     actividad/         Administración › Actividad (el EJEMPLO completo)
+    caja/, ventas/…    los demás módulos que ya existen (lista en §3.4)
     <su-módulo>/       ← lo suyo va aquí, y SOLO aquí
 ```
 
@@ -130,37 +131,39 @@ decidir en cada pedido (P-01).
 ### 3.4 Claves, secciones y orden sugeridos (diseño §7)
 
 Úsenlos para no pisarse. Los permisos son los del diseño: confírmelos con los `[RequiresPermission]` de las
-operaciones que usa (el contrato los trae en `RPC_OPERATIONS[operación].permissions`).
+operaciones que usa (el contrato los trae en `RPC_OPERATIONS[operación].permissions`). Las filas marcadas «(existe)» ya
+tienen su carpeta: su `key` y sus `permissions` son los reales del `module.tsx` (en algunos, distintos de la sugerencia
+original, porque la consulta principal pide más permisos). No cree otro módulo con esas claves.
 
 | Sección | Módulo | `key` | `order` | `permissions` |
 |---|---|---|---|---|
 | General | Inicio | `inicio` (existe) | 0 | `{}` |
-| Ventas | Caja | `caja` | 10 | `{ all: ['sales.pos.operate'] }` |
-| Ventas | Ventas | `ventas` | 20 | `{ all: ['sales.view'] }` |
-| Ventas | Clientes | `clientes` | 30 | `{ all: ['sales.customers.manage'] }` |
-| Ventas | Reservas | `reservas` | 40 | `{ all: ['sales.pcbuild.manage'] }` |
-| Tecnología | Armador de PC | `armador` | 10 | `{ all: ['sales.view', 'inventory.stock.view'] }` |
-| Tecnología | Series | `series` | 20 | `{ all: ['inventory.serials.view'] }` |
-| Tecnología | Garantías | `garantias` | 30 | `{ all: ['inventory.serials.view'] }` |
-| Inventario | Stock | `stock` | 10 | `{ all: ['inventory.stock.view'] }` |
-| Inventario | Catálogo | `catalogo` | 20 | `{ all: ['catalog.manage'] }` |
-| Inventario | Movimientos | `movimientos` | 30 | `{ any: ['inventory.movements.register.warehouse', 'inventory.movements.register.sales'] }` |
-| Inventario | Toma física | `toma-fisica` | 40 | `{ all: ['inventory.counts.record'] }` |
-| Inventario | Alertas | `alertas` | 50 | `{ all: ['inventory.stock.view'] }` |
-| Compras | Pedido sugerido | `pedido-sugerido` | 10 | `{ all: ['inventory.stock.view'] }` |
-| Compras | Órdenes de compra | `ordenes-compra` | 20 | `{ all: ['purchasing.manage'] }` |
-| Compras | Proveedores | `proveedores` | 30 | `{ all: ['purchasing.manage'] }` |
-| Sucursales | Sucursales | `sucursales` | 10 | `{ any: ['reports.view', 'corporate.branches.all', 'corporate.branches.manage'] }` |
-| Sucursales | Transferencias | `transferencias` | 20 | `{ all: ['inventory.transfers.manage'] }` |
-| Facturación | Documentos | `documentos` | 10 | `{ all: ['billing.view'] }` |
-| Facturación | Estado del SIAT | `siat` | 20 | `{ all: ['billing.view'] }` |
+| Ventas | Caja | `caja` (existe) | 10 | `{ all: ['sales.pos.operate'] }` |
+| Ventas | Ventas | `ventas` (existe) | 20 | `{ all: ['sales.view'] }` |
+| Ventas | Clientes | `clientes` (existe) | 30 | `{ all: ['inventory.stock.view'], any: ['sales.customers.manage', 'sales.view'] }` |
+| Ventas | Reservas | `reservas` (existe) | 40 | `{ all: ['sales.pcbuild.manage', 'sales.view'] }` |
+| Tecnología | Armador de PC | `armador` (existe) | 10 | `{ all: ['sales.view', 'inventory.stock.view'] }` |
+| Tecnología | Series | `series` (existe) | 20 | `{ all: ['inventory.serials.view'] }` |
+| Tecnología | Garantías | `garantias` (existe) | 30 | `{ all: ['inventory.serials.view'] }` |
+| Inventario | Stock | `stock` (existe) | 10 | `{ all: ['inventory.stock.view'] }` |
+| Inventario | Catálogo | `catalogo` (existe) | 20 | `{ all: ['inventory.stock.view'] }` |
+| Inventario | Movimientos | `movimientos` (existe) | 30 | `{ all: ['inventory.stock.view'], any: ['inventory.movements.register.warehouse', 'inventory.movements.register.sales'] }` |
+| Inventario | Toma física | `toma-fisica` (existe) | 40 | `{ all: ['inventory.counts.record', 'inventory.stock.view'] }` |
+| Inventario | Alertas | `alertas` (existe) | 50 | `{ all: ['inventory.stock.view'] }` |
+| Compras | Pedido sugerido | `pedido` (existe) | 10 | `{ all: ['inventory.stock.view'] }` |
+| Compras | Órdenes de compra | `compras` (existe) | 20 | `{ all: ['purchasing.manage', 'inventory.stock.view'] }` |
+| Compras | Proveedores | `proveedores` (existe) | 30 | `{ all: ['purchasing.manage', 'inventory.stock.view'] }` |
+| Sucursales | Sucursales | `sucursales` (existe) | 10 | `{ all: ['inventory.stock.view'], any: ['reports.view', 'corporate.branches.all', 'corporate.branches.manage'] }` |
+| Sucursales | Transferencias | `transferencias` (existe) | 20 | `{ all: ['inventory.transfers.manage', 'inventory.stock.view'] }` |
+| Facturación | Documentos fiscales | `documentos-fiscales` (existe) | 10 | `{ all: ['billing.view'] }` |
+| Facturación | Estado del SIAT | `siat` (existe) | 20 | `{ all: ['billing.view'] }` |
 | Facturación | Homologación | `homologacion` | 30 | `{ all: ['billing.view'] }` |
 | Facturación | Libros | `libros` | 40 | `{ all: ['billing.view'] }` |
-| Análisis | Reportes | `reportes` | 10 | `{ all: ['reports.view'] }` |
-| Análisis | Contabilidad | `contabilidad` | 20 | `{ all: ['accounting.manage'] }` |
-| Administración | Usuarios | `usuarios` | 10 | `{ all: ['iam.users.manage'] }` |
-| Administración | Integraciones | `integraciones` | 20 | `{ all: ['integration.manage'] }` |
-| Administración | Configuración | `configuracion` | 30 | `{ all: ['billing.configure'] }` |
+| Análisis | Reportes | `reportes` (existe) | 10 | `{ all: ['reports.view'] }` |
+| Análisis | Contabilidad | `contabilidad` (existe) | 20 | `{ all: ['accounting.manage'] }` |
+| Administración | Usuarios | `usuarios` (existe) | 10 | `{ all: ['iam.users.manage'] }` |
+| Administración | Integraciones | `integraciones` (existe) | 20 | `{ all: ['integration.manage'] }` |
+| Administración | Configuración | `configuracion` (existe) | 30 | `{ any: ['iam.users.manage', 'billing.configure'] }` |
 | Administración | Actividad | `actividad` (existe) | 40 | `{ all: ['iam.audit.view'] }` |
 
 ### 3.5 La definición completa del ejemplo
@@ -229,7 +232,7 @@ import type { RpcRequestOf, RpcResponseOf } from '@/4-presentation/app/contract'
 
 /** Una fila de `GetActivityQuery` tal como la manda el servidor. */
 export type ActivityRecord = RpcResponseOf<'GetActivityQuery'>[number];
-/** Un campo de la fila (en el provisional: 'Succeeded' | 'Rejected' | 'Failed'). */
+/** Un campo de la fila (en el contrato: 'Failed' | 'Rejected' | 'Succeeded'). */
 type Outcome = ActivityRecord['outcome'];
 /** El pedido de un comando. */
 type ResetPayload = RpcRequestOf<'ResetUserPasswordCommand'>;
@@ -237,7 +240,7 @@ type ResetPayload = RpcRequestOf<'ResetUserPasswordCommand'>;
 
 Por qué derivarlos: el generado puede nombrar distinto los tipos internos (una clase anidada, un nombre repetido en
 otro espacio de nombres), pero el mapa de operaciones sigue indexado por el nombre de la operación. Derivados del
-nombre, sus tipos son los mismos con el provisional y con el generado. **No declare `interface` ni `type` con el nombre
+nombre, sus tipos siguen al contrato aunque se regenere con otros nombres internos. **No declare `interface` ni `type` con el nombre
 de un tipo del servidor ni terminados en `Query` o `Command`: la prueba de arquitectura lo rechaza (P-07).** Sí puede
 declarar tipos PROPIOS de la pantalla (una fila «lista para mostrar», los filtros), como `ActivityItem` en
 `modules/actividad/activity.ts`.
@@ -268,7 +271,8 @@ Al ENVIAR:
   `lib`).
 - Una consulta sin parámetros se envía con `{}`.
 
-Al LEER, escriba código que funcione aunque el generado sea más o menos estricto que el provisional:
+Al LEER, escriba código que siga funcionando si el contrato se regenera más o menos estricto (un campo que pasa a
+admitir nulo, una enumeración con un valor nuevo):
 
 - Compare con textos (`fila.outcome === 'Rejected'`) y use mapas de estados (`defineStatuses({ Rejected: … })`); no
   anote variables con un tipo más estrecho que el del contrato.

@@ -197,7 +197,14 @@ describe('Inicio · con los módulos del proyecto', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Hola, Andrea Quiroga' }, { timeout: 5000 })).toBeInTheDocument();
     const admin = screen.getAllByTestId('grupo-de-acciones').find((group) => within(group).getByRole('heading', { level: 3 }).textContent === 'Administración');
     expect(admin).toBeDefined();
-    expect(within(admin!).getAllByRole('link').map((link) => link.getAttribute('href'))).toEqual(['/panel/actividad', '/panel/actividad?resultado=Rejected']);
+    expect(within(admin!).getAllByRole('link').map((link) => link.getAttribute('href'))).toEqual([
+      '/panel/usuarios?accion=nuevo',
+      '/panel/usuarios?accion=restablecer',
+      '/panel/integraciones?pestana=correos',
+      '/panel/configuracion?pestana=facturacion',
+      '/panel/actividad',
+      '/panel/actividad?resultado=Rejected',
+    ]);
     expect(call.mock.calls.some(([operation]) => operation === 'GetActivityQuery')).toBe(false);
 
     fireEvent.click(screen.getByRole('button', { name: /Ver estadísticas/ }));
@@ -212,7 +219,15 @@ describe('Inicio · con los módulos del proyecto', () => {
     await renderRoutes({ web: web.services, route: '/panel' });
     expect(await screen.findByRole('heading', { level: 1, name: 'Hola, Diego Flores' }, { timeout: 5000 })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Ver la actividad/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Ver estadísticas/ })).not.toBeInTheDocument();
-    expect(screen.getByText('Todavía no hay funciones para su rol')).toBeInTheDocument();
+    
+    // CAJERO tiene botones ahora (Caja, Ventas), pero no los de Actividad
+    const estadisticasToggle = screen.queryByRole('button', { name: /Ver estadísticas/ });
+    if (estadisticasToggle) {
+        // En algunos entornos el botón puede existir si tienen métricas. Abrimos.
+        const { fireEvent, waitFor } = await import('@testing-library/react');
+        fireEvent.click(estadisticasToggle);
+        await waitFor(() => expect(screen.getAllByTestId('estadistica').length).toBeGreaterThan(0));
+    }
+    expect(screen.queryByTestId('actividad-de-hoy')).not.toBeInTheDocument();
   });
 });

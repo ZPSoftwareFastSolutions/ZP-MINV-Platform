@@ -18,14 +18,14 @@ Estado de cada tarea: `[x]` terminada · `[ ]` pendiente.
 - [x] 8. Web: botón «Ingresar» y pantallas de inicio de sesión y registro.
 - [x] 9. Web: carrito de compras y página de reserva con los datos del cliente.
 - [x] 10. Web: panel por rol separado por módulos, con botones, listas desplegables y filtros.
-- [ ] 11. Web: las funciones del escritorio (stock, catálogo, caja, ventas, clientes, compras, proveedores,
+- [x] 11. Web: las funciones del escritorio (stock, catálogo, caja, ventas, clientes, compras, proveedores,
       transferencias, reservas, series y garantías, facturación, reportes, contabilidad, usuarios).
 - [x] 12. Web: tablero simplificado (funciones como botones; estadísticas solo al pulsar «Ver»).
 - [x] 13. Web: panel del cliente (mis reservas, mis datos).
 - [x] 14. Escritorio: arreglos, más botones, filtros y funciones.
-- [ ] 15. Calidad: pruebas del servidor, de la web y recorrido completo en un navegador real.
-- [ ] 16. Ciberseguridad: revisión de accesos, sesiones y datos, con sus correcciones.
-- [ ] 17. Docker: todo en el mismo Docker Desktop, con enlace público.
+- [x] 15. Calidad: pruebas del servidor, de la web y recorrido completo en un navegador real.
+- [x] 16. Ciberseguridad: revisión de accesos, sesiones y datos, con sus correcciones.
+- [x] 17. Docker: todo en el mismo Docker Desktop, con enlace público.
 - [ ] 18. Documentación, commit y push de `Inventario-V7`.
 - [ ] 19. Entrega: algoritmo paso a paso y tabla de usuarios de prueba.
 

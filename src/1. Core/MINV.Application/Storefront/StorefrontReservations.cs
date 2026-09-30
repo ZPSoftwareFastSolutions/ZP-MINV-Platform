@@ -407,8 +407,9 @@ public sealed class CreateStorefrontReservationHandler(IMinvDbContext db, ICurre
         var build = await ReservationWriter.CreateAsync(db, clock, options, new ReservationSpec(request.Kind, PcBuildChannel.Web, request.Lines,
             request.Contact.Name, request.Contact.Phone, request.Contact.Email, request.Notes, request.Name, request.HoldDays, request.Buyer), userId, now, ct);
         // V7 · La confirmación por correo se encola en la MISMA transacción (regla P-06) y sale después del COMMIT; la
-        // respuesta dice si de verdad se encoló (sin correo, o fuera de los topes, la reserva sigue igual)
-        var mail = await ReservationMail.EnqueueAsync(db, build, userId, now, ct);
+        // respuesta dice si de verdad se encoló (sin correo, o fuera de los topes, la reserva sigue igual). El correo lo escribió el
+        // visitante sin cuenta: rige además el cupo de la tienda anónima
+        var mail = await ReservationMail.EnqueueAsync(db, build, userId, now, ct, anonymous: true);
         return await StorefrontReservationViews.ViewAsync(db, build, now, ct, mailQueued: mail.Queued);
     }
 

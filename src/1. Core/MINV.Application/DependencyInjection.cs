@@ -30,6 +30,9 @@ public static class DependencyInjection
         // V4.1 · Trabajo de la facturación SIAT (envío, recuperación fuera de línea, paquetes, notas y correos): uno por scope
         services.TryAddScoped<SiatWorker>();
         services.TryAddScoped<ISiatWorker>(sp => sp.GetRequiredService<SiatWorker>());
+        // B6 · Sesión de la petición (la fijan el inicio de sesión y el autenticador del servidor): cambiar la contraseña cierra
+        // las DEMÁS sesiones del usuario y conserva esta
+        services.TryAddScoped<Abstractions.ICurrentSession, Abstractions.CurrentSession>();
         return services;
     }
 }

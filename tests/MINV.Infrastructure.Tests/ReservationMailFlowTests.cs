@@ -336,6 +336,51 @@ public sealed class ReservationMailFlowTests(ReservationMailFixture fixture) : I
         Assert.Empty(_mailer.Sent);
     }
 
+    /// <summary>B6 · El tope por destinatario cuenta por BUZÓN: las subdirecciones «+…» y los puntos de Gmail no lo evaden (antes,
+    /// <c>victima+1@</c>, <c>victima+2@</c>… eran destinatarios distintos y un atacante llenaba el buzón de la víctima).</summary>
+    [Fact]
+    public async Task Las_subdirecciones_y_los_puntos_de_Gmail_cuentan_como_el_mismo_buzon()
+    {
+        using var admin = await LoginAsync(RoleCodes.Admin);
+        var db = admin.ServiceProvider.GetRequiredService<MinvWriteDbContext>();
+        var product = await MailFlow.PlentifulAsync(admin);
+
+        // Tres formas de escribir el MISMO buzón de Gmail: tres correos, cada uno a la dirección tal como se escribió
+        var reservations = new List<StorefrontReservationView>();
+        foreach (var (key, email) in new[] { ("buzon-1", "victima+1@gmail.com"), ("buzon-2", "v.ictima+tienda@googlemail.com"), ("buzon-3", "VICTIMA@gmail.com") })
+        {
+            reservations.Add((await MailFlow.SendAsync(admin, MailFlow.Cart(key, product.Sku, email))).Reservation);
+        }
+        Assert.All(reservations, r => Assert.True(r.MailQueued));
+        var recipients = new List<string>();
+        foreach (var reservation in reservations)
+        {
+            recipients.Add(Assert.Single(await MailFlow.MailsAsync(db, reservation.Number)).Mail.Recipient);
+        }
+        Assert.Equal(["victima+1@gmail.com", "v.ictima+tienda@googlemail.com", "victima@gmail.com"], recipients);
+        // Una cuarta subdirección ya no recibe nada: es la misma persona (la reserva sale igual, sin correo)
+        var fourth = (await MailFlow.SendAsync(admin, MailFlow.Cart("buzon-4", product.Sku, "victima+4@gmail.com"))).Reservation;
+        Assert.Equal(("Reserved", false), (fourth.Status, fourth.MailQueued));
+        Assert.Equal("mail.recipient_limit", await MailFlow.CodeAsync(() =>
+            MailFlow.SendAsync(admin, new ResendReservationMailCommand(fourth.Number, "vi.cti.ma@gmail.com"))));
+
+        // Fuera de Gmail la etiqueta «+…» también se quita, pero los puntos distinguen buzones
+        foreach (var key in new[] { "otro-1", "otro-2", "otro-3" })
+        {
+            Assert.True((await MailFlow.SendAsync(admin, MailFlow.Cart(key, product.Sku, $"ana.rojas+{key}@correo.example"))).Reservation.MailQueued);
+        }
+        Assert.False((await MailFlow.SendAsync(admin, MailFlow.Cart("otro-4", product.Sku, "ana.rojas@correo.example"))).Reservation.MailQueued);
+        Assert.True((await MailFlow.SendAsync(admin, MailFlow.Cart("otro-5", product.Sku, "anarojas@correo.example"))).Reservation.MailQueued);
+
+        // El buzón (solo para contar) y el destinatario (a donde sale)
+        Assert.Equal("victima@gmail.com", OutgoingMail.MailboxOf(" V.I.C.T.I.M.A+promo@GoogleMail.com "));
+        Assert.Equal("ana.rojas@correo.example", OutgoingMail.MailboxOf("Ana.Rojas+a+b@correo.example"));
+        Assert.Equal("+solo@correo.example", OutgoingMail.MailboxOf("+solo@correo.example"));
+        Assert.Equal("...@gmail.com", OutgoingMail.MailboxOf("...@gmail.com"));
+        Assert.Equal("no es un correo", OutgoingMail.MailboxOf(" No es un correo "));
+        Assert.Empty(_mailer.Sent);
+    }
+
     // ------------------------------------------------------------------------------------------------ reenvío
     [Fact]
     public async Task Reenviar_encola_otro_correo_y_cancela_el_pendiente_que_reemplaza()
@@ -515,6 +560,71 @@ public sealed class ReservationMailCompanyLimitTests : IAsyncLifetime
         Assert.Empty(await MailFlow.MailsAsync(db, next.Number));
         Assert.Equal("mail.company_limit", await MailFlow.CodeAsync(() => MailFlow.SendAsync(admin, new ResendReservationMailCommand(next.Number))));
         Assert.Equal(ReservationMail.MaxPerCompany, await db.OutgoingMails.AsNoTracking().CountAsync(m => m.RequestedAt > now - ReservationMail.Window));
+        Assert.Empty(_mailer.Sent);
+    }
+}
+
+/// <summary>
+/// B6 · Cupo de la tienda sin cuenta: de los 300 correos diarios de la empresa, la tienda anónima (el correo lo escribe el
+/// visitante) pide como máximo 100; el resto queda para las cuentas de cliente, el mostrador y los reenvíos del personal (antes,
+/// un atacante con 10 reservas por minuto agotaba en media hora las confirmaciones de TODOS los canales). En una empresa propia:
+/// llenar el cupo afectaría a las demás pruebas.
+/// </summary>
+public sealed class ReservationMailAnonymousLimitTests : IAsyncLifetime
+{
+    private const string Tenant = "CORREOANON";
+    private readonly RecordingMailSender _mailer = new();
+    private ServiceProvider _services = null!;
+    private SeedResult _seed = null!;
+
+    public async Task InitializeAsync() => (_services, _seed) = await ReservationMailFixture.SeedAsync(Tenant, 43, _mailer);
+
+    public async Task DisposeAsync() => await _services.DisposeAsync();
+
+    [Fact]
+    public async Task La_tienda_sin_cuenta_no_agota_el_cupo_de_las_cuentas_y_del_personal()
+    {
+        using var admin = await MailFlow.LoginAsync(_services, _seed, Tenant, RoleCodes.Admin);
+        var db = admin.ServiceProvider.GetRequiredService<MinvWriteDbContext>();
+        var clock = _services.GetRequiredService<DemoClock>();
+        var product = await MailFlow.PlentifulAsync(admin);
+        var first = (await MailFlow.SendAsync(admin, MailFlow.Cart("anon-1", product.Sku, "anonimo.1@correo.example"))).Reservation;
+        Assert.True(first.MailQueued);
+
+        // Quien firma las reservas sin cuenta (aquí, la sesión de la prueba) ya pidió los 100 correos del día
+        db.ChangeTracker.Clear();
+        var build = await db.PcBuilds.AsNoTracking().SingleAsync(b => b.Number == first.Number);
+        var userId = admin.ServiceProvider.GetRequiredService<ICurrentUser>().UserId!.Value;
+        var now = clock.UtcNow;
+        var mine = await db.OutgoingMails.AsNoTracking().CountAsync(m => m.RequestedAt > now - ReservationMail.Window && m.RequestedByUserId == userId);
+        for (var i = mine; i < ReservationMail.MaxAnonymousPerCompany; i++)
+        {
+            var mail = new OutgoingMail(build.TenantId, build.BranchId, OutgoingMailKind.ReservationConfirmed, build.Id, $"visitante{i}@correo.example", userId,
+                now.AddSeconds(-i));
+            db.OutgoingMails.Add(mail);
+            db.OutgoingMailDispatches.Add(new OutgoingMailDispatch(build.TenantId, mail.Id, mail.RequestedAt));
+        }
+        await db.SaveChangesAsync();
+        var total = await db.OutgoingMails.AsNoTracking().CountAsync(m => m.RequestedAt > now - ReservationMail.Window);
+        Assert.True(total < ReservationMail.MaxPerCompany, $"La empresa ya tiene {total} correos: la prueba necesita cupo libre");
+
+        // Otra reserva sin cuenta: sale igual, pero sin correo
+        var anonymous = (await MailFlow.SendAsync(admin, MailFlow.Cart("anon-2", product.Sku, "anonimo.2@correo.example"))).Reservation;
+        Assert.Equal(("Reserved", false), (anonymous.Status, anonymous.MailQueued));
+        Assert.Empty(await MailFlow.MailsAsync(db, anonymous.Number));
+
+        // El cupo de la empresa sigue para los demás canales: el personal reenvía la confirmación, el mostrador encola la suya y la
+        // cuenta de cliente también
+        Assert.Equal("anonimo.2@correo.example", (await MailFlow.SendAsync(admin, new ResendReservationMailCommand(anonymous.Number))).Recipient);
+        var counter = await MailFlow.SendAsync(admin, new ReserveCartCommand([new CartItemInput(product.Sku)], "Luis Rojas", "76543210", "mostrador@correo.example"));
+        Assert.Single(await MailFlow.MailsAsync(db, counter.Number));
+        using var scope = _services.CreateScope();
+        scope.ServiceProvider.GetRequiredService<ITenantContext>().SetBranches(new BranchScope(false, [Guid.Empty], null));
+        scope.ServiceProvider.GetRequiredService<IRequestOrigin>().Set(RequestChannels.Web, null);
+        await scope.ServiceProvider.GetRequiredService<IMediator>()
+            .Send(new RegisterCustomerAccountCommand(Tenant, "Camila Flores", "camila.anon@correo.example", "70012345", MailFlow.Password, null, "web", "7.0.0"));
+        var account = await MailFlow.SendAsync(scope, new CreateMyReservationCommand([new StorefrontReservationLineInput(product.Sku)], HoldDays: 1));
+        Assert.True(account.MailQueued);
         Assert.Empty(_mailer.Sent);
     }
 }

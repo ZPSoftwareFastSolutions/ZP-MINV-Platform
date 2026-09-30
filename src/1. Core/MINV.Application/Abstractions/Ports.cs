@@ -90,6 +90,26 @@ public interface ICurrentUser
 }
 
 /// <summary>
+/// B6 · Sesión (<c>iam.sessions</c>) de la petición actual: la fijan el inicio de sesión (<c>LoginCommand</c>) y, en el
+/// servidor en la nube, el autenticador del token o de la cookie. Null = no se sabe (procesos de plataforma, datos de prueba).
+/// Cambiar o restablecer una contraseña cierra las demás sesiones del usuario y conserva esta.
+/// </summary>
+public interface ICurrentSession
+{
+    Guid? SessionId { get; }
+
+    void Set(Guid? sessionId);
+}
+
+/// <summary>B6 · Implementación por scope de <see cref="ICurrentSession"/>.</summary>
+public sealed class CurrentSession : ICurrentSession
+{
+    public Guid? SessionId { get; private set; }
+
+    public void Set(Guid? sessionId) => SessionId = sessionId;
+}
+
+/// <summary>
 /// V4 · Por dónde llegó la petición: <c>desktop</c> (escritorio con conexión directa), <c>cloud</c> (escritorio a través
 /// del servidor en la nube), <c>api</c> (API Gateway B2B, con la API Key usada), V6, <c>storefront</c> (tienda web pública) o,
 /// V7, <c>web</c> (sesión web por cookie: panel del personal y cuenta de cliente). Va en la auditoría.

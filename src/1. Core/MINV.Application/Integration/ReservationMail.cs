@@ -27,6 +27,10 @@ public enum ReservationMailSkip
 
     /// <summary>La empresa ya pidió <see cref="ReservationMail.MaxPerCompany"/> correos en las últimas 24 horas.</summary>
     CompanyLimit,
+
+    /// <summary>V7 · La tienda sin cuenta (reservas anónimas) ya pidió <see cref="ReservationMail.MaxAnonymousPerCompany"/>
+    /// correos en las últimas 24 horas: el resto del cupo de la empresa queda para las cuentas de cliente y el personal.</summary>
+    AnonymousLimit,
 }
 
 /// <summary>V7 · Resultado de encolar: el correo encolado o por qué no se encoló.</summary>
@@ -47,16 +51,23 @@ public sealed record ReservationMailDraft(ReservationMailContent? Content, strin
 /// (la tienda, la cuenta de cliente, el carrito de mostrador y la reserva de una cotización del escritorio) ANTES de su
 /// <c>SaveChanges</c>, de modo que el correo se guarda en la MISMA transacción que la reserva y nunca dentro de ella se envía
 /// nada (regla B-08): lo envía después el despachador de la cola. Un correo por reserva; la repetición idempotente no llega
-/// aquí. Topes contra el abuso del envío: <see cref="MaxPerRecipient"/> por destinatario y <see cref="MaxPerCompany"/> por
-/// empresa cada 24 horas, contando <c>integration.outgoing_mails</c>.
+/// aquí. Topes contra el abuso del envío, cada 24 horas y contando <c>integration.outgoing_mails</c>:
+/// <see cref="MaxPerRecipient"/> por BUZÓN (<see cref="OutgoingMail.MailboxOf"/>: las subdirecciones «+…» y los puntos de
+/// Gmail cuentan como la misma persona), <see cref="MaxPerCompany"/> por empresa y, dentro de ese cupo,
+/// <see cref="MaxAnonymousPerCompany"/> para la tienda sin cuenta (cualquiera escribe ahí cualquier correo: no puede agotar
+/// el cupo de las cuentas de cliente y del personal).
 /// </summary>
 public static class ReservationMail
 {
-    /// <summary>Correos por destinatario en 24 horas.</summary>
+    /// <summary>Correos por destinatario (por buzón) en 24 horas.</summary>
     public const int MaxPerRecipient = 3;
 
     /// <summary>Correos por empresa en 24 horas (por debajo del límite diario de envío de una cuenta de Gmail).</summary>
     public const int MaxPerCompany = 300;
+
+    /// <summary>V7 · De <see cref="MaxPerCompany"/>, los que puede pedir la tienda sin cuenta (reservas anónimas) en 24 horas;
+    /// los demás quedan reservados para las cuentas de cliente y el personal.</summary>
+    public const int MaxAnonymousPerCompany = 100;
 
     /// <summary>Ventana de los topes.</summary>
     public static readonly TimeSpan Window = TimeSpan.FromHours(24);
@@ -71,10 +82,12 @@ public static class ReservationMail
     /// Encola la confirmación de <paramref name="build"/> (ya reservada) para <paramref name="recipient"/> o, sin él, para su
     /// correo de contacto. NO guarda: agrega el correo y su cola al contexto para que entren en el <c>SaveChanges</c> de quien
     /// llama. Sin correo, con uno que no sirve, fuera de los topes o si la reserva ya no está vigente, NO encola y dice por
-    /// qué: la reserva sigue adelante igual (el correo es un aviso, no una condición).
+    /// qué: la reserva sigue adelante igual (el correo es un aviso, no una condición). <paramref name="anonymous"/> = la reserva
+    /// llegó por la tienda sin cuenta (el correo lo escribió el visitante): además rige <see cref="MaxAnonymousPerCompany"/>,
+    /// contando los correos que pidió ese mismo usuario (el principal técnico de la tienda).
     /// </summary>
     public static async Task<ReservationMailResult> EnqueueAsync(IMinvDbContext db, PcBuild build, Guid userId, DateTimeOffset now,
-        CancellationToken ct, string? recipient = null)
+        CancellationToken ct, string? recipient = null, bool anonymous = false)
     {
         ArgumentNullException.ThrowIfNull(build);
         var address = string.IsNullOrWhiteSpace(recipient) ? build.ContactEmail : recipient;
@@ -92,14 +105,22 @@ public static class ReservationMail
         }
         var normalized = OutgoingMail.NormalizeRecipient(address);
         var since = (now - Window).ToUniversalTime();
-        var recent = db.Set<OutgoingMail>().Where(m => m.RequestedAt > since);
-        if (await recent.CountAsync(m => m.Recipient == normalized, ct) >= MaxPerRecipient)
+        // Los correos de las últimas 24 horas son pocos (el tope de la empresa los acota): se cuentan en memoria por BUZÓN, que
+        // la base no sabe calcular (etiquetas «+…» y puntos de Gmail)
+        var recent = await db.Set<OutgoingMail>().AsNoTracking().Where(m => m.RequestedAt > since)
+            .Select(m => new { m.Recipient, m.RequestedByUserId }).ToListAsync(ct);
+        var mailbox = OutgoingMail.MailboxOf(normalized);
+        if (recent.Count(m => OutgoingMail.MailboxOf(m.Recipient) == mailbox) >= MaxPerRecipient)
         {
             return new ReservationMailResult(null, ReservationMailSkip.RecipientLimit);
         }
-        if (await recent.CountAsync(ct) >= MaxPerCompany)
+        if (recent.Count >= MaxPerCompany)
         {
             return new ReservationMailResult(null, ReservationMailSkip.CompanyLimit);
+        }
+        if (anonymous && recent.Count(m => m.RequestedByUserId == userId) >= MaxAnonymousPerCompany)
+        {
+            return new ReservationMailResult(null, ReservationMailSkip.AnonymousLimit);
         }
         var mail = new OutgoingMail(build.TenantId, build.BranchId, OutgoingMailKind.ReservationConfirmed, build.Id, normalized, userId, now);
         db.Set<OutgoingMail>().Add(mail);

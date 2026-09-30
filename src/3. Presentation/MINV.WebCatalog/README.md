@@ -1,4 +1,4 @@
-# MINV.WebCatalog · Tienda web y panel de Tech Zone Gaming (V7 · 7.0.0-alpha.1, en construcción)
+# MINV.WebCatalog · Tienda web y panel de Tech Zone Gaming (V7 · 7.0.0-alpha.1)
 
 Catálogo web de **Tech Zone Gaming S.R.L.** (tienda boliviana de tecnología: componentes de PC, computadoras, monitores,
 periféricos, consolas, videojuegos, accesorios, redes y software) con la experiencia **«Armá tu PC»**: el visitante
@@ -11,8 +11,12 @@ armado» crea una cotización `ARM-WEB-000001` en la base con el stock de cada p
 consulta o la libera con su teléfono, y la tienda la confirma y cobra en persona. No hay pagos en línea ni validación de
 compatibilidad en la web (la revisa un técnico en el escritorio).
 
-La **V7** agrega la **sesión web** (botón «Ingresar», registro de clientes, «Mi cuenta» y el punto de entrada del panel
-del personal) contra el servidor en la nube por `/api/v1/web`: ver la sección [V7 · Sesión web](#v7--sesión-web-acceso-y-cuenta-del-cliente).
+La **V7** agrega la **sesión web** (botón «Ingresar», registro de clientes y «Mi cuenta») contra el servidor en la nube
+por `/api/v1/web`, el **carrito de compras** y la **reserva** de cualquier producto con el correo de confirmación, y el
+**panel del personal por rol** (`/panel`), que envía los mismos casos de uso del escritorio por RPC: ver las secciones
+[V7 · Sesión web](#v7--sesión-web-acceso-y-cuenta-del-cliente), [V7 · Carrito de compras](#v7--carrito-de-compras),
+[V7 · Reserva](#v7--reserva-reservar) y [V7 · Panel del personal](#v7--panel-del-personal-panel). Guía del producto:
+`docs/product/plataforma-web-v7.md`; paso a paso con Docker: `docs/deployment/inicio-rapido-v7.md`.
 
 ## Cómo correrlo
 
@@ -60,16 +64,24 @@ clsx · vitest + Testing Library. Alias `@/` → `src/`.
 1-domain        tipos y reglas puras sin React: dinero, categorías, productos, stock (disponible/reservado), ranuras,
                 reductor del armado, contacto de la reserva (teléfono boliviano), errores de la tienda
       ▲ implementa los puertos ICatalogRepository · ICatalogSource · IReservationGateway
-3-infrastructure http/ (StorefrontApi: ÚNICO fetch · HttpCatalogSource · HttpReservationGateway) · InMemoryCatalogRepository
-                 data/ (mock GENERADO de la V5 + MockCatalogSource + InMemoryReservationGateway para VITE_API_URL=mock)
+3-infrastructure http/ (StorefrontApi · HttpCatalogSource · HttpReservationGateway; V7: webApi · HttpSessionGateway ·
+                 HttpRpcGateway · RpcAccountGateway · contract.generated.ts + contract.ts) · InMemoryCatalogRepository
+                 storage/ (V7: cartStorage, el ÚNICO localStorage, solo el carrito · memoryCartStore)
+                 data/ (mock GENERADO de la V5 + MockCatalogSource + InMemoryReservationGateway + mockWeb para VITE_API_URL=mock)
 shared          formato es-BO (Bs 2.049,00), texto sin acentos, constantes de contacto
 ```
+
+V7: `1-domain` suma `auth/` (sesión, roles, permisos, errores), `account/` (documento del comprador), `cart/` (carrito puro)
+y los puertos `ISessionGateway`, `IRpcGateway`, `IAccountGateway` e `ICartStore`; `2-application` suma `auth/`, `cart/` y
+`checkout/`; `4-presentation` suma `pages/auth/`, `pages/account/`, `pages/cart/` y el panel `panel/`.
 
 - `4-presentation/app/container.ts` es el **único** archivo de la presentación que importa `3-infrastructure`:
   `createSources()` elige API o mock según `VITE_API_URL` (el mock se descarga en un fragmento aparte solo en ese modo)
   y `createServices()` arma los casos de uso sobre una instantánea ya cargada.
-- La red vive **solo** en `3-infrastructure/http/api.ts` (regla S-07): el resto de la web no usa `fetch`, `localStorage`
-  ni ningún almacenamiento. `src/architecture.test.ts` lo comprueba leyendo los `import` y el código de todo `src/`.
+- La red vive **solo** en `3-infrastructure/http/api.ts` (la tienda, regla S-07) y, desde la V7,
+  `3-infrastructure/http/webApi.ts` (sesión y RPC, regla P-08); el almacenamiento del navegador, solo en
+  `3-infrastructure/storage/cartStorage.ts` y solo para el carrito. `src/architecture.test.ts` lo comprueba leyendo los
+  `import` y el código de todo `src/`.
 - La infraestructura conoce de la aplicación únicamente `2-application/storefront` (el contrato JSON y su mapeo).
 - Idioma de la interfaz, comentarios y documentación: español (Bolivia). Moneda: bolivianos con IVA incluido (13 %,
   informativo).
@@ -88,7 +100,8 @@ shared          formato es-BO (Bs 2.049,00), texto sin acentos, constantes de co
    candidatos del armador y resumen los muestran; «Agregar al armado» se deshabilita sin disponible y la cantidad máxima
    de una pieza en el armado es lo disponible (tope 10).
 4. **Reserva.** «Reservar armado» abre el formulario (nombre, teléfono o WhatsApp de Bolivia con validación, correo
-   opcional, notas), muestra las piezas y el aviso «te lo guardamos 48 h; se confirma y paga en la tienda», y envía
+   opcional, notas), muestra las piezas y el aviso de cuántas horas lo guarda la tienda (V7: las horas salen del catálogo)
+   y que se confirma y paga en la tienda, y envía
    `POST /reservations` con una cabecera `Idempotency-Key` (UUID por intento). Éxito: número, vencimiento, líneas a
    precios congelados, total, «Consultar mi reserva» y WhatsApp; el armado se vacía y el catálogo se refresca. Errores
    del contrato: 409 `insufficient_stock` marca las piezas afectadas con cuánto hay y ofrece «Ajustar a lo disponible»;
@@ -140,6 +153,9 @@ tools/           generar_catalogo_web.py
 | `/reserva` · `/reserva/:numero` | Consultar mi reserva (número + teléfono), liberar |
 | `/carrito` | Carrito de compras (V7) |
 | `/reservar` | Reserva del carrito o de un artículo suelto con los datos del cliente (V7) |
+| `/ingresar` · `/registrarse` · `/cambiar-contrasena` | Inicio de sesión, registro de clientes y cambio de contraseña (V7) |
+| `/mi-cuenta` · `/mi-cuenta/reservas` · `/datos` · `/contrasena` | «Mi cuenta» del cliente (V7, solo sesión de cliente) |
+| `/panel/*` | Panel del personal (V7, solo sesión del personal; fragmento aparte) |
 | `*` | Página no encontrada |
 
 ## Pruebas
@@ -148,7 +164,17 @@ tools/           generar_catalogo_web.py
 dominio (`2-application/storefront/storefront.test.ts`), adaptador HTTP con `fetch` simulado (éxito, 404, 409 con
 faltantes, 422, 429 sin cuerpo, red caída, `Idempotency-Key` e `Idempotent-Replayed`), pasarela en memoria,
 `CatalogProvider` (cargando, error y reintento, refresco sin parpadeo), formulario de reserva (validación, envío, 409 y
-ajuste) y la página de consulta (404, estado y liberación). `src/architecture.test.ts` vigila las capas y el único `fetch`.
+ajuste) y la página de consulta (404, estado y liberación). `src/architecture.test.ts` vigila las capas, la red y el
+almacenamiento. Las pruebas de la V7 (sesión, carrito, reserva y panel) se describen en cada sección V7; para correr todo:
+
+```powershell
+cd "src\3. Presentation\MINV.WebCatalog"
+npx vitest run                              # toda la web (en esta consola, redirija la salida a un archivo y mire el final)
+npx vitest run src/4-presentation/panel     # solo el panel (registro, esqueleto, kit, hooks y cada módulo)
+npx tsc -b --noEmit                         # tipos (= npm run typecheck)
+npm run lint                                # oxlint
+npm run build                               # tsc -b + vite build
+```
 
 ## Decisiones
 
@@ -179,7 +205,7 @@ Reglas: `.claude/v7-web-platform-rules.md` (P-01 a P-14) · diseño: `docs/archi
 | `/registrarse` | todos | Nombre, correo, teléfono, contraseña y repetirla; indicador de requisitos; errores por campo; aviso si el correo ya tiene cuenta. Crea SIEMPRE una cuenta de cliente |
 | `/cambiar-contrasena` | cualquier sesión | Cambio de contraseña; obligatoria cuando la sesión llega con `mustChangePassword` |
 | `/mi-cuenta` · `/mi-cuenta/reservas` · `/datos` · `/contrasena` | sesión de **cliente** | «Mis reservas» (filtro por estado, detalle, liberar), «Mis datos» (nombre, teléfono, documento para la factura) y «Cambiar contraseña» |
-| `/panel/*` | sesión del **personal** | Punto de montaje del panel: `4-presentation/panel/PanelRoot.tsx` (provisional «Panel en construcción»; lo reemplaza el paquete W3) |
+| `/panel/*` | sesión del **personal** | El panel del personal por rol (`4-presentation/panel/PanelRoot.tsx`: esqueleto, menú y módulos; ver [V7 · Panel del personal](#v7--panel-del-personal-panel)) |
 | `/carrito` | todos | El carrito de compras (ver «V7 · Carrito de compras») |
 | `/reservar` | todos | La reserva del carrito o de un artículo suelto (`?sku=…&cantidad=…`), con o sin cuenta (ver «V7 · Reserva») |
 
@@ -220,9 +246,12 @@ const filas: RpcResponseOf<'GetMyReservationsQuery'> = await rpc.send('GetMyRese
   `attempt.run((requestId) => rpc.send('…', payload, { requestId }))`.
 - **Errores.** Toda falla llega como `WebApiError` (`1-domain/auth/errors.ts`) con `kind`, `message`, `errors`, `code`,
   `status` y `requestId`; `describeWebApiError(error, 'store' | 'panel')` da el texto para mostrar.
-- **Contrato.** `3-infrastructure/http/contract.generated.ts` lo genera `minv contrato-web` (hoy es un archivo
-  PROVISIONAL con la misma forma). Solo lo importa el adaptador `3-infrastructure/http/contract.ts`; la presentación
-  toma los tipos de `@/4-presentation/app/contract`.
+- **Contrato.** `3-infrastructure/http/contract.generated.ts` lo genera `minv contrato-web` desde `RpcCatalog` del
+  servidor (192 operaciones con sus tipos, permisos, módulos y si las puede usar un cliente; regla P-07) y no se edita a
+  mano: `dotnet run --project "src/4. Tools/MINV.Cli" -- contrato-web` lo regenera y la prueba del servidor
+  `WebContractTests` falla si quedó desactualizado. Solo lo importa el adaptador `3-infrastructure/http/contract.ts`, que
+  además tiene una sección «ajustes de la web» con alias para algunas operaciones de la cuenta y la sesión; la
+  presentación toma los tipos de `@/4-presentation/app/contract`.
 
 ### Modo mock (`VITE_API_URL=mock`)
 
@@ -433,33 +462,74 @@ import { formatMoney, formatDateTime, exportCsv, csvColumnsOf } from '@/4-presen
   asíncrona, diálogos, plegable, CSV, formatos, useRpcQuery, useRpcCommand, useTableState, permisos y la muestra).
   `renderPanel(ui, { web, route })` de `src/test-utils.tsx` dibuja una pantalla del panel con la sesión del personal.
 
-## V7 · Esqueleto del panel y módulos (paquete W3b)
+## V7 · Panel del personal (`/panel`)
 
 **Guía para escribir un módulo: [`src/4-presentation/panel/README.md`](src/4-presentation/panel/README.md)** (estructura,
-`module.tsx`, contrato generado, lista con filtros, comandos, tablero, pruebas y qué no hacer).
+`module.tsx`, contrato generado, lista con filtros, comandos, tablero, pruebas y qué no hacer). Qué hace cada módulo, con
+sus botones, filtros y permisos: `docs/product/plataforma-web-v7.md`.
+
+El panel es **otro cliente del servidor en la nube** (regla P-01): cada pantalla envía los MISMOS casos de uso del
+escritorio por `POST /api/v1/web/rpc` (`useRpcQuery` / `useRpcCommand`), y el servidor decide permisos, sucursal,
+validación y auditoría en cada pedido. La web solo oculta lo que el rol no puede usar.
 
 ```text
 src/4-presentation/panel/
-  PanelRoot.tsx   /panel/* (fragmento aparte) → PanelApp con el registro real
+  PanelRoot.tsx   /panel/* (fragmento aparte: quien solo visita la tienda no lo descarga) → PanelApp con el registro real
   registry/       defineModule · lazyScreen · secciones · permisos any/all · menú · tablero · buscador · migas
                   discovery.ts: import.meta.glob('../modules/*/module.tsx') (cada módulo se registra solo)
   shell/          menú lateral por secciones plegables con buscador (cajón en el teléfono) · barra superior con
                   migas, sucursal activa (SelectBranchCommand) y usuario · «No tiene acceso a esta pantalla»
-  modules/
-    inicio/       General › Inicio (/panel): saludo, «¿Qué quiere hacer?» con botones y «Ver estadísticas» plegado
-    actividad/    Administración › Actividad (EJEMPLO completo: GetActivityQuery + ResetUserPasswordCommand)
+  kit/ hooks/ lib/  componentes, consultas y comandos, formatos y CSV (ver «Componentes del panel»)
+  showcase/       la muestra /panel/_componentes (solo en desarrollo)
+  modules/        un módulo por carpeta (lista abajo)
 ```
 
-- **Menú por rol**: cada módulo declara `permissions: { any?, all? }`; el menú, el buscador y el tablero muestran solo
-  lo que la sesión permite. Una pantalla sin permiso dice qué permiso falta, en palabras.
+**Cómo funciona el registro.** Cada `modules/<clave>/module.tsx` exporta por defecto `defineModule({ key, section, title,
+description, icon, order, permissions: { any?, all? }, licenseModules?, routes, actions?, stats? })`. `discovery.ts` los
+descubre al abrir el panel, los **valida** (clave igual a la carpeta, sección existente, permisos del contrato, ruta
+principal `''`…; un módulo con errores no se carga y el motivo sale en palabras en la prueba del registro y, en desarrollo,
+arriba del panel) y los ordena por sección (General, Ventas, Tecnología, Inventario, Compras, Sucursales, Facturación,
+Análisis, Administración), `order` y título. Con eso se arman solos el menú, las rutas `/panel/<clave>/…`, las migas, el
+buscador de pantallas y el tablero: `actions` son los **botones grandes** de «¿Qué quiere hacer?» y `stats` las
+estadísticas **plegadas** detrás de «Ver estadísticas» (se descargan y consultan recién al abrirlas). Todo se muestra solo si
+la sesión cumple los permisos del módulo y los propios; una pantalla abierta sin permiso dice qué permiso falta. Las
+pantallas y las estadísticas van con `lazyScreen` (cada una en su fragmento).
+
+| Sección | Módulos (`modules/<clave>`) |
+|---|---|
+| General | `inicio` (el tablero, en `/panel`) |
+| Ventas | `caja` · `ventas` · `clientes` · `reservas` |
+| Tecnología | `armador` · `series` · `garantias` |
+| Inventario | `stock` · `catalogo` · `movimientos` · `toma-fisica` · `alertas` |
+| Compras | `pedido` · `compras` · `proveedores` |
+| Sucursales | `sucursales` · `transferencias` |
+| Facturación | `documentos-fiscales` · `siat` |
+| Análisis | `reportes` · `contabilidad` |
+| Administración | `usuarios` · `integraciones` · `configuracion` · `actividad` (el EJEMPLO completo de la guía) |
+
+<!-- V7-MODULOS: completar con los módulos que falten -->
+
 - **La tienda caída no bloquea el sitio**: `App.tsx` usa `CatalogStateProvider` (carga el catálogo sin bloquear) y solo
   las páginas de la tienda lo esperan (`CatalogGate` en `routeTable.tsx`). `/ingresar`, `/registrarse`,
   `/cambiar-contrasena`, `/mi-cuenta` y `/panel` funcionan aunque la tienda falle; mientras tanto la estructura de la
   tienda muestra una cabecera liviana (logotipo e «Ingresar»). «Mi armado» y el carrito siguen arriba del enrutador.
 - **Modo mock**: además del administrador y del cliente, el servidor en memoria conoce un usuario del personal por rol
-  (`bodega@`, `ventas@`, `cajero@`, `gerencia@` y `consulta@techzone.example`, contraseña de la demostración `Demo1234`)
-  con la matriz `ROLE_PERMISSIONS`, y atiende `GetActivityQuery` (actividad de muestra más lo que pasa en la pestaña,
-  sin contraseñas) y `ResetUserPasswordCommand`.
-- **Pruebas**: `npx vitest run src/4-presentation/panel` (registro, esqueleto con el menú de cada rol, sucursal activa,
-  tablero, módulo de ejemplo) y `src/4-presentation/app/catalogIndependence.test.tsx`. En `src/test-utils.tsx`:
-  `signedInAs(rol)`, `failingSources()`, `preloadPanel()` y `renderRoutes({ waitForCatalog })`.
+  (`bodega@`, `ventas@`, `cajero@`, `gerencia@` y `consulta@techzone.example`, con la contraseña de la demostración de
+  `mockWeb.ts`) con la matriz `ROLE_PERMISSIONS`, y atiende la cuenta del cliente, `SelectBranchCommand`,
+  `ChangePasswordCommand`, `GetActivityQuery` y `ResetUserPasswordCommand`. Las demás operaciones de los módulos NO están en
+  el modo mock: con `VITE_API_URL=mock` esas pantallas muestran el error con «Reintentar» (sus pruebas simulan el servidor
+  dentro de cada prueba). Para verlas con datos reales, use Docker (`docs/deployment/inicio-rapido-v7.md`).
+- **Pruebas**:
+
+  ```powershell
+  cd "src\3. Presentation\MINV.WebCatalog"
+  npx vitest run src/4-presentation/panel                       # registro, esqueleto, kit, hooks, lib y todos los módulos
+  npx vitest run src/4-presentation/panel/modules/<clave>       # un módulo
+  npx vitest run src/4-presentation/panel/registry src/architecture.test.ts   # los módulos son válidos y respetan las reglas
+  npx tsc -b --noEmit; npm run lint; npm run build
+  ```
+
+  Las pruebas de pantalla usan la sesión en memoria de un rol (`signedInAs('ADMIN' | 'BODEGA' | 'VENTAS' | 'CAJERO' |
+  'GERENCIA' | 'CONSULTA')`) y simulan el servidor con `vi.spyOn(web.backend.rpc, 'call')`; ninguna toca la red. En
+  `src/test-utils.tsx`: `renderPanel`, `signedInAs(rol)`, `failingSources()`, `preloadPanel()` y
+  `renderRoutes({ waitForCatalog })`; además `src/4-presentation/app/catalogIndependence.test.tsx`.

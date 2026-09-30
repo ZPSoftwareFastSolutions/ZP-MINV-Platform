@@ -42,7 +42,8 @@ internal sealed class OutgoingMailConfiguration : IEntityTypeConfiguration<Outgo
 }
 
 /// <summary>V7 · Cola de envío (1:1 con el correo, la única tabla mutable del correo). El índice parcial sobre los pendientes
-/// es el que usará <c>integration.claim_outgoing_mails</c> (FOR UPDATE SKIP LOCKED).</summary>
+/// es el que usará <c>integration.claim_outgoing_mails</c> (FOR UPDATE SKIP LOCKED). B6: <c>leased_until</c> es el
+/// arrendamiento del despachador que lo está enviando (marca de dueño de cada reclamo).</summary>
 internal sealed class OutgoingMailDispatchConfiguration : IEntityTypeConfiguration<OutgoingMailDispatch>
 {
     public void Configure(EntityTypeBuilder<OutgoingMailDispatch> builder)
@@ -54,6 +55,8 @@ internal sealed class OutgoingMailDispatchConfiguration : IEntityTypeConfigurati
             t.HasCheckConstraint("ck_outgoing_mail_dispatch_intentos", $"attempts BETWEEN 0 AND {OutgoingMailAttempt.MaxAttempts}");
             // Enviado o agotado = hubo al menos un intento (pospuesto y cancelado no gastan intentos)
             t.HasCheckConstraint("ck_outgoing_mail_dispatch_intentado", "status NOT IN ('Sent', 'Exhausted') OR attempts >= 1");
+            // B6 · Solo un correo pendiente puede estar tomado por un despachador (cerrarlo borra el arrendamiento)
+            t.HasCheckConstraint("ck_outgoing_mail_dispatch_arrendamiento", "leased_until IS NULL OR status = 'Pending'");
         });
         builder.HasKey(x => x.OutgoingMailId);
         builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);

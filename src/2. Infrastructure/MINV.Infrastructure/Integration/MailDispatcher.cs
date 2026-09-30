@@ -19,8 +19,11 @@ public sealed record MailDispatchSummary(int Mails, int Sent, int Failed, int Po
 /// <summary>
 /// V7 · Despachador de la cola de correos (regla P-06; lo hospeda el API Gateway con <c>MailDispatcherService</c>). El correo se
 /// encoló en la MISMA transacción que la reserva y aquí sale DESPUÉS del COMMIT (regla B-08). Cada pasada toma los pendientes
-/// vencidos (en PostgreSQL con <c>integration.claim_outgoing_mails</c>: FOR UPDATE SKIP LOCKED y un arrendamiento de 120 s, así
-/// dos réplicas nunca toman el mismo; en memoria, con una consulta) y, por cada uno, en un scope propio con SU empresa:
+/// vencidos (en PostgreSQL con <c>integration.claim_outgoing_mails</c>: FOR UPDATE SKIP LOCKED y un arrendamiento de 120 s; en
+/// memoria, con <see cref="OutgoingMailDispatch.Claim"/>) y, por cada uno, en un scope propio con SU empresa. B6: el arrendamiento
+/// del reclamo es la marca de dueño: antes de nada lo RENUEVA (<see cref="OutgoingMailDispatch.Renew"/>, con la concurrencia
+/// optimista de la cola) solo si sigue siendo el suyo. Si un lote tardó más que el arrendamiento y otra réplica ya lo reclamó, o
+/// el correo ya se cerró, no lo toca: dos réplicas nunca envían el mismo correo, y mientras lo envía un reenvío no lo cancela.
 /// <list type="number">
 /// <item>si la reserva ya no está reservada (vendida, liberada, vencida), cancela la cola sin enviar;</item>
 /// <item>resuelve el servidor SMTP: el de la empresa (<c>billing.mail_settings</c> activo) o el del servidor (<see cref="MailOptions"/>);
@@ -54,7 +57,8 @@ public sealed class MailDispatcher(IServiceScopeFactory scopes, MailOptions opti
     public const string UnreadableServerReason =
         "No se pudo leer la contraseña del correo de la empresa (falta la clave maestra o cambió): el correo se reintentará más tarde.";
 
-    private sealed record Claimed(Guid TenantId, Guid OutgoingMailId);
+    /// <summary>Un correo reclamado: su empresa y el arrendamiento con que lo tomó ESTA pasada (la marca de dueño).</summary>
+    private sealed record Claimed(Guid TenantId, Guid OutgoingMailId, DateTimeOffset LeasedUntil);
 
     private enum Outcome
     {
@@ -76,13 +80,11 @@ public sealed class MailDispatcher(IServiceScopeFactory scopes, MailOptions opti
         }
         int sent = 0, failed = 0, postponed = 0, cancelled = 0;
         var halted = false;
-        foreach (var item in claimed)
+        for (var i = 0; i < claimed.Count; i++)
         {
-            using var scope = scopes.CreateScope();
-            var tenant = scope.ServiceProvider.GetRequiredService<ITenantContext>();
-            tenant.Set(item.TenantId);
-            tenant.SetBranches(BranchScope.Unrestricted);   // proceso de plataforma: todas las sucursales de ESA empresa
-            switch (await DispatchAsync(scope.ServiceProvider, item.OutgoingMailId, ct))
+            var item = claimed[i];
+            using var scope = TenantScope(item.TenantId);
+            switch (await DispatchAsync(scope.ServiceProvider, item, ct))
             {
                 case Outcome.Sent:
                     sent++;
@@ -103,11 +105,45 @@ public sealed class MailDispatcher(IServiceScopeFactory scopes, MailOptions opti
             }
             if (halted)
             {
-                // Los que quedaron sin procesar vuelven solos: en PostgreSQL al vencer el arrendamiento; en memoria, siguen vencidos
+                // B6 · Los que quedaron sin procesar vuelven a la cola para la pasada siguiente (sin gastar intentos), en vez de
+                // esperar a que venza su arrendamiento
+                await ReleaseAsync(claimed.Skip(i + 1), ct);
                 break;
             }
         }
         return new MailDispatchSummary(claimed.Count, sent, failed, postponed, cancelled, halted);
+    }
+
+    /// <summary>Scope propio con la empresa del correo (proceso de plataforma: todas las sucursales de ESA empresa).</summary>
+    private IServiceScope TenantScope(Guid tenantId)
+    {
+        var scope = scopes.CreateScope();
+        var tenant = scope.ServiceProvider.GetRequiredService<ITenantContext>();
+        tenant.Set(tenantId);
+        tenant.SetBranches(BranchScope.Unrestricted);
+        return scope;
+    }
+
+    /// <summary>B6 · Devuelve a la cola los correos que esta pasada tomó y no llegó a intentar (solo los que siguen siendo suyos).</summary>
+    private async Task ReleaseAsync(IEnumerable<Claimed> items, CancellationToken ct)
+    {
+        foreach (var item in items)
+        {
+            using var scope = TenantScope(item.TenantId);
+            var db = scope.ServiceProvider.GetRequiredService<MinvWriteDbContext>();
+            try
+            {
+                var dispatch = await db.OutgoingMailDispatches.FirstOrDefaultAsync(d => d.OutgoingMailId == item.OutgoingMailId, ct);
+                if (dispatch is not null && dispatch.Release(item.LeasedUntil, clock.UtcNow))
+                {
+                    await db.SaveChangesAsync(ct);
+                }
+            }
+            catch (ConcurrencyConflictException)
+            {
+                // Otra sesión lo cambió entre medio: ya no es de esta pasada
+            }
+        }
     }
 
     private async Task<IReadOnlyList<Claimed>> ClaimAsync(MinvWriteDbContext db, int batch, CancellationToken ct)
@@ -115,23 +151,31 @@ public sealed class MailDispatcher(IServiceScopeFactory scopes, MailOptions opti
         if (db.Database.IsRelational())
         {
             return await db.Database.SqlQuery<Claimed>(
-                    $"SELECT tenant_id AS \"TenantId\", outgoing_mail_id AS \"OutgoingMailId\" FROM integration.claim_outgoing_mails({batch}, {LeaseSeconds})")
+                    $"SELECT tenant_id AS \"TenantId\", outgoing_mail_id AS \"OutgoingMailId\", leased_until AS \"LeasedUntil\" FROM integration.claim_outgoing_mails({batch}, {LeaseSeconds})")
                 .ToListAsync(ct);
         }
-        // En memoria no hay RLS ni función: el proceso de plataforma lee la cola de todas las empresas (regla A-04)
+        // En memoria no hay RLS ni función: el proceso de plataforma toma la cola de todas las empresas (regla A-04) con el mismo
+        // arrendamiento que pondría la función
         var now = clock.UtcNow;
-        return await db.OutgoingMailDispatches.IgnoreQueryFilters().Where(d => d.Status == OutgoingMailStatus.Pending && d.NextAttemptAt <= now)
-            .OrderBy(d => d.NextAttemptAt).Take(batch).Select(d => new Claimed(d.TenantId, d.OutgoingMailId)).ToListAsync(ct);
+        var due = await db.OutgoingMailDispatches.IgnoreQueryFilters().Where(d => d.Status == OutgoingMailStatus.Pending && d.NextAttemptAt <= now)
+            .OrderBy(d => d.NextAttemptAt).Take(batch).ToListAsync(ct);
+        foreach (var dispatch in due)
+        {
+            dispatch.Claim(now, now.AddSeconds(LeaseSeconds));
+        }
+        await db.SaveChangesAsync(ct);
+        return due.Select(d => new Claimed(d.TenantId, d.OutgoingMailId, d.LeasedUntil!.Value)).ToList();
     }
 
-    private async Task<Outcome> DispatchAsync(IServiceProvider sp, Guid mailId, CancellationToken ct)
+    private async Task<Outcome> DispatchAsync(IServiceProvider sp, Claimed claimed, CancellationToken ct)
     {
         var db = sp.GetRequiredService<MinvWriteDbContext>();
+        var mailId = claimed.OutgoingMailId;
         var mail = await db.OutgoingMails.AsNoTracking().FirstOrDefaultAsync(m => m.Id == mailId, ct);
         var dispatch = await db.OutgoingMailDispatches.FirstOrDefaultAsync(d => d.OutgoingMailId == mailId, ct);
-        // Ya resuelto por otro camino (un reenvío lo reemplazó, otra réplica lo envió): nada que hacer. El reclamo ya adelantó
-        // su próximo intento (arrendamiento): NO se vuelve a mirar si «le toca».
-        if (mail is null || dispatch is not { IsPending: true })
+        // Ya resuelto por otro camino (un reenvío lo reemplazó, otra réplica lo envió) o ya no es de esta pasada: nada que hacer. El
+        // reclamo ya adelantó su próximo intento (arrendamiento): NO se vuelve a mirar si «le toca».
+        if (mail is null || dispatch is not { IsPending: true } || !await RenewAsync(db, dispatch, claimed.LeasedUntil, ct))
         {
             return Outcome.Skipped;
         }
@@ -220,9 +264,32 @@ public sealed class MailDispatcher(IServiceScopeFactory scopes, MailOptions opti
     }
 
     /// <summary>
-    /// Aplica el resultado a la cola y agrega el intento (si lo hubo) en UN guardado. Si otra sesión cambió la cola entre medio
-    /// (un reenvío la canceló), relee y reintenta (máximo 3): si sigue pendiente se vuelve a aplicar; si no, solo queda el intento,
-    /// que ya ocurrió y la bitácora no debe perder.
+    /// B6 · Renueva el arrendamiento SOLO si sigue siendo el de este reclamo (<paramref name="held"/>) y lo guarda con la
+    /// concurrencia optimista de la cola: el correo queda de esta pasada durante <see cref="LeaseSeconds"/> (más que
+    /// <see cref="SendTimeout"/>, lo que dura como máximo UN envío). Falso si otra réplica lo reclamó al vencer el arrendamiento
+    /// (su marca es otra) o si otra sesión lo cambió entre medio: entonces esta pasada no lo envía.
+    /// </summary>
+    private async Task<bool> RenewAsync(MinvWriteDbContext db, OutgoingMailDispatch dispatch, DateTimeOffset held, CancellationToken ct)
+    {
+        try
+        {
+            dispatch.Renew(held, clock.UtcNow.AddSeconds(LeaseSeconds));
+            await db.SaveChangesAsync(ct);
+            return true;
+        }
+        catch (Exception ex) when (ex is ConcurrencyConflictException || ex is DomainException { Code: "mail.lease" })
+        {
+            db.ClearTracking();
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Aplica el resultado a la cola y agrega el intento (si lo hubo) en UN guardado. Si otra sesión cambió la cola entre medio,
+    /// relee y reintenta (máximo 3). B6: el arrendamiento renovado impide que un reenvío la cancele o que otra réplica la cierre
+    /// mientras se envía; si aun así la cola ya estaba cerrada (una réplica detenida más que su arrendamiento), el intento, que
+    /// OCURRIÓ, queda en la bitácora Y en el contador (<see cref="OutgoingMailDispatch.CountLateAttempt"/>): <c>attempts</c>
+    /// siempre es igual a las filas de <c>outgoing_mail_attempts</c> (comprobación D08).
     /// </summary>
     private static async Task CommitAsync(MinvWriteDbContext db, Guid mailId, Action<OutgoingMailDispatch> apply,
         Func<OutgoingMailDispatch, OutgoingMailAttempt>? attempt, CancellationToken ct)
@@ -230,13 +297,18 @@ public sealed class MailDispatcher(IServiceScopeFactory scopes, MailOptions opti
         for (var round = 1; ; round++)
         {
             var dispatch = await db.OutgoingMailDispatches.FirstAsync(d => d.OutgoingMailId == mailId, ct);
-            if (attempt is not null && dispatch.NextAttempt <= OutgoingMailAttempt.MaxAttempts)
-            {
-                db.OutgoingMailAttempts.Add(attempt(dispatch));
-            }
             if (dispatch.IsPending)
             {
+                if (attempt is not null)
+                {
+                    db.OutgoingMailAttempts.Add(attempt(dispatch));
+                }
                 apply(dispatch);
+            }
+            else if (attempt is not null && dispatch.Attempts < OutgoingMailAttempt.MaxAttempts)
+            {
+                db.OutgoingMailAttempts.Add(attempt(dispatch));
+                dispatch.CountLateAttempt();
             }
             try
             {

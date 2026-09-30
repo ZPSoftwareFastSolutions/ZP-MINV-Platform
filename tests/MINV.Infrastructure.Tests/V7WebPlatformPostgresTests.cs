@@ -269,14 +269,20 @@ public sealed class V7WebPlatformPostgresTests(PostgresFixture pg) : IClassFixtu
                 await owner.OpenAsync();
                 await new NpgsqlCommand($"GRANT EXECUTE ON FUNCTION integration.claim_outgoing_mails(integer, integer) TO {role}", owner).ExecuteNonQueryAsync();
             }
-            Assert.Equal(1, await Scalar($"SELECT count(*) FROM integration.claim_outgoing_mails(500, 120) WHERE {mine}"));
+            // B6 · y devuelve su arrendamiento (la marca de dueño de ESTE reclamo), el mismo que deja en la cola
+            Assert.Equal(1, await Scalar($"SELECT count(*) FROM integration.claim_outgoing_mails(500, 120) WHERE {mine} AND leased_until > now()"));
             Assert.Equal(0, await Scalar($"SELECT count(*) FROM integration.claim_outgoing_mails(500, 120) WHERE {mine}"));
             await using (var owner = new NpgsqlConnection(pg.ConnectionString))
             {
                 await owner.OpenAsync();
                 await using var lease = new NpgsqlCommand(
-                    $"SELECT extract(epoch FROM next_attempt_at - now())::int FROM integration.outgoing_mail_dispatch WHERE {mine}", owner);
+                    $"SELECT extract(epoch FROM next_attempt_at - now())::int FROM integration.outgoing_mail_dispatch WHERE {mine} AND leased_until = next_attempt_at",
+                    owner);
                 Assert.InRange(Convert.ToInt32(await lease.ExecuteScalarAsync()), 100, 120);
+                // Solo un pendiente puede estar tomado: cerrarlo sin borrar el arrendamiento lo rechaza el CHECK
+                await using var closed = new NpgsqlCommand(
+                    $"UPDATE integration.outgoing_mail_dispatch SET status = 'Cancelled', completed_at = now(), last_error = 'x' WHERE {mine}", owner);
+                Assert.Equal("23514", (await Assert.ThrowsAsync<PostgresException>(() => closed.ExecuteNonQueryAsync())).SqlState);
             }
         }
         finally
