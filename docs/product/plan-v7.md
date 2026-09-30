@@ -22,7 +22,7 @@ Estado de cada tarea: `[x]` terminada · `[ ]` pendiente.
       transferencias, reservas, series y garantías, facturación, reportes, contabilidad, usuarios).
 - [x] 12. Web: tablero simplificado (funciones como botones; estadísticas solo al pulsar «Ver»).
 - [x] 13. Web: panel del cliente (mis reservas, mis datos).
-- [ ] 14. Escritorio: arreglos, más botones, filtros y funciones.
+- [x] 14. Escritorio: arreglos, más botones, filtros y funciones.
 - [ ] 15. Calidad: pruebas del servidor, de la web y recorrido completo en un navegador real.
 - [ ] 16. Ciberseguridad: revisión de accesos, sesiones y datos, con sus correcciones.
 - [ ] 17. Docker: todo en el mismo Docker Desktop, con enlace público.
