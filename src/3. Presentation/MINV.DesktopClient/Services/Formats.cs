@@ -219,6 +219,19 @@ public static partial class Fmt
         ["SavePcBuild"] = "Guardó un armado de PC",
         ["CancelPcBuild"] = "Anuló un armado de PC",
         ["SellPcBuild"] = "Vendió un armado de PC",
+        // Tienda web conectada y reservas (V6 y V7): antes se veían en inglés partido («Reserve pc build»)
+        ["ReservePcBuild"] = "Reservó un armado de PC",
+        ["PublishPcBuild"] = "Publicó un armado en la tienda web",
+        ["ReleasePcBuildReservation"] = "Liberó una reserva",
+        ["ExpirePcBuildReservations"] = "Cerró las reservas vencidas",
+        ["CreateStorefrontReservation"] = "Reserva desde la tienda web",
+        ["CancelStorefrontReservation"] = "Cancelación desde la tienda web",
+        ["ReserveCart"] = "Reservó un carrito",
+        ["ResendReservationMail"] = "Reenvió el correo de una reserva",
+        ["RegisterCustomerAccount"] = "Cliente web creó su cuenta",
+        ["UpdateMyAccount"] = "Cliente web actualizó su cuenta",
+        ["CreateMyReservation"] = "Cliente web reservó",
+        ["CancelMyReservation"] = "Cliente web canceló su reserva",
     };
 
     public static string Outcome(MINV.Domain.Iam.AuditOutcome outcome) => outcome switch

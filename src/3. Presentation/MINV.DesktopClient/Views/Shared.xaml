@@ -15,6 +15,7 @@
     <v:ShareWidthConverter x:Key="ShareWidth" />
     <v:IndentConverter x:Key="Indent" />
     <v:DetailVisibilityConverter x:Key="DetailVisibility" />
+    <v:LocalTimeConverter x:Key="LocalTime" />
 
     <!-- Chip de filtro con punto de color y contador -->
     <DataTemplate x:Key="FilterChipTemplate" DataType="{x:Type vm:FilterChip}">

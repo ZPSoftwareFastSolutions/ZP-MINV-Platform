@@ -125,10 +125,13 @@
                                     </TextBlock>
                                 </StackPanel>
                                 <StackPanel Grid.Column="5" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,14,0">
-                                    <Button Style="{StaticResource SoftButton}" Content="Registrar entrada" c:Ui.Icon="{x:Static c:Glyphs.Add}" Height="34"
-                                            Command="{Binding DataContext.Replenish, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                            CommandParameter="{Binding}" Margin="0,0,6,0"
-                                            Visibility="{Binding IsReplenishable, Converter={StaticResource Visible}}" />
+                                    <!-- V7 · Solo quien registra entradas ve el botón (antes Ventas lo veía deshabilitado, sin explicación) -->
+                                    <Border Visibility="{Binding DataContext.CanReplenish, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource Visible}}">
+                                        <Button Style="{StaticResource SoftButton}" Content="Registrar entrada" c:Ui.Icon="{x:Static c:Glyphs.Add}" Height="34"
+                                                Command="{Binding DataContext.Replenish, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                CommandParameter="{Binding}" Margin="0,0,6,0"
+                                                Visibility="{Binding IsReplenishable, Converter={StaticResource Visible}}" />
+                                    </Border>
                                     <Button Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Eye}" ToolTip="Ver ficha y kardex"
                                             Command="{Binding DataContext.OpenProduct, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                             CommandParameter="{Binding}" />

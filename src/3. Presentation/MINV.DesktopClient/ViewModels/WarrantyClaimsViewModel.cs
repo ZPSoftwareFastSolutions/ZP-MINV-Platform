@@ -81,6 +81,9 @@ public sealed class WarrantyClaimsViewModel : PageViewModel
 {
     private List<WarrantyClaimItem> _items = [];
     private string _filter = "open";
+    private string _search = string.Empty;
+    private Choice<string?> _branch;
+    private Choice<bool?> _coverage;
     private WarrantyClaimItem? _selected;
     private WarrantyClaimDetail? _detail;
     private OpenClaimRequest? _pending;
@@ -89,6 +92,24 @@ public sealed class WarrantyClaimsViewModel : PageViewModel
     public WarrantyClaimsViewModel(AppServices app)
         : base(app, "garantias", "Garantías y RMA", "Recibir, diagnosticar, reparar o reemplazar y entregar equipos en garantía", Glyphs.Shield)
     {
+        Branches.ReplaceAll([new Choice<string?>("Todas las sucursales", null)]);
+        _branch = Branches[0];
+        Coverages = [new("En garantía y con cargo", null), new("En garantía", true), new("Con cargo (fuera de garantía)", false)];
+        _coverage = Coverages[0];
+        Export = new RelayCommand(() => App.ExportCsv(App.CsvName("garantias"), "Casos de garantía", ExportTable()), () => _items.Count > 0);
+        ClearFilters = new RelayCommand(() =>
+        {
+            _search = string.Empty;
+            _branch = Branches[0];
+            _coverage = Coverages[0];
+            _filter = "all";
+            foreach (var c in Filters)
+            {
+                c.IsSelected = (string?)c.Value == "all";
+            }
+            OnPropertiesChanged(nameof(Search), nameof(Branch), nameof(Coverage));
+            ApplyFilter();
+        }, () => HasFilters);
         Rows = CollectionViewSource.GetDefaultView(_items);
         SelectFilter = new RelayCommand<FilterChip>(chip =>
         {
@@ -100,7 +121,7 @@ public sealed class WarrantyClaimsViewModel : PageViewModel
             ApplyFilter();
         });
         OpenNew = new AsyncRelayCommand(() => OpenClaimAsync(null, null), () => CanOpen);
-        RunAction = new AsyncRelayCommand<ClaimActionItem>(RunActionAsync, _ => CanManage && _detail is not null);
+        RunAction = new AsyncRelayCommand<ClaimActionItem>(RunActionAsync, _ => CanManage && _detail is not null && _detail.Claim.Number == _selected?.Number);
         AddNote = new AsyncRelayCommand(AddNoteAsync, () => App.Session.Can(PermissionCodes.ServiceOpen) && _selected?.IsOpen == true);
         OpenSerial = new RelayCommand(() => App.Navigator.Navigate("series", _selected!.Serial), () => _selected is not null);
     }
@@ -122,6 +143,33 @@ public sealed class WarrantyClaimsViewModel : PageViewModel
     public bool IsEmpty => HasLoaded && Rows.IsEmpty;
 
     public string EmptyTitle => _items.Count == 0 ? "Todavía no hay casos RMA" : "No hay casos con ese filtro";
+
+    /// <summary>V7 · Búsqueda por número, serie, producto, cliente o falla.</summary>
+    public string Search { get => _search; set { if (Set(ref _search, value ?? string.Empty)) { ApplyFilter(); } } }
+
+    /// <summary>V7 · Sucursal del caso y cobertura (en garantía o con cargo) en listas desplegables.</summary>
+    public BulkObservableCollection<Choice<string?>> Branches { get; } = [];
+
+    public Choice<string?> Branch { get => _branch; set { if (Set(ref _branch, value ?? Branches[0])) { ApplyFilter(); } } }
+
+    public IReadOnlyList<Choice<bool?>> Coverages { get; }
+
+    public Choice<bool?> Coverage { get => _coverage; set { if (Set(ref _coverage, value ?? Coverages[0])) { ApplyFilter(); } } }
+
+    /// <summary>Hay algo distinto de lo de siempre (los casos abiertos, sin búsqueda).</summary>
+    public bool HasFilters => _search.Trim().Length > 0 || _branch.Value is not null || _coverage.Value is not null || _filter != "open";
+
+    public RelayCommand Export { get; }
+
+    public RelayCommand ClearFilters { get; }
+
+    /// <summary>V7 · Lo que se exporta: los casos visibles con sus filtros.</summary>
+    public CsvTable ExportTable() => CsvTable.Of(
+        ["Número", "Sucursal", "Estado", "Cobertura", "Serie o IMEI", "SKU", "Producto", "Cliente", "Falla", "Recibido", "Cerrado", "Días abierto", "Proveedor",
+            "Resolución", "Serie de reemplazo"],
+        Rows.Cast<WarrantyClaimItem>(),
+        c => [c.Number, c.Row.BranchCode, c.StatusText, c.CoverageText, c.Serial, c.Row.Sku, c.Row.Product, c.Customer, c.Issue, c.Row.ReceivedAt, c.Row.ClosedAt,
+            c.DaysOpen, c.Row.Supplier, c.Row.Resolution, c.Row.ReplacementSerial]);
 
     public KpiCard OpenKpi { get; } = new("Casos abiertos", Glyphs.Shield, "Info", "InfoSoft");
 
@@ -152,7 +200,8 @@ public sealed class WarrantyClaimsViewModel : PageViewModel
         ? w.WarrantyUntil is { } until ? (w.InWarranty ? $"En garantía hasta el {Fmt.Date(until)}" : $"Garantía vencida el {Fmt.Date(until)}") : "Sin garantía"
         : string.Empty;
 
-    public string WarrantyBrush => _detail?.Warranty.InWarranty == true ? "Success" : "Danger";
+    // V7 · «Sin garantía» (producto sin meses de garantía) ya no sale en rojo como si hubiera vencido
+    public string WarrantyBrush => _detail?.Warranty is { } w ? w.InWarranty ? "Success" : w.WarrantyUntil is null ? "Info" : "Danger" : "Info";
 
     public string WarrantySoftBrush => WarrantyBrush + "Soft";
 
@@ -207,6 +256,9 @@ public sealed class WarrantyClaimsViewModel : PageViewModel
             TechText.ClaimBrush(s))));
         Filters.ReplaceAll(chips);
         (Filters.FirstOrDefault(c => (string?)c.Value == _filter) ?? Filters[0]).IsSelected = true;
+        Branches.ReplaceAll(FilterChoices.Of("Todas las sucursales", rows.Select(r => r.BranchCode)));
+        _branch = FilterChoices.Keep(Branches, _branch);
+        OnPropertyChanged(nameof(Branch));
         OpenKpi.Value = open.Count.ToString("N0", Fmt.Culture);
         OpenKpi.Detail = open.Count == 0 ? "Ningún equipo en garantía" : $"el más antiguo lleva {open.Max(o => o.DaysOpen)} días";
         var workshop = open.Count(r => r.Status is WarrantyClaimStatus.Diagnosing or WarrantyClaimStatus.SentToSupplier);
@@ -228,19 +280,34 @@ public sealed class WarrantyClaimsViewModel : PageViewModel
         }
     }
 
-    private bool Matches(object o) => o is WarrantyClaimItem c && _filter switch
+    private bool Matches(object o)
     {
-        "all" => true,
-        "open" => c.IsOpen,
-        var status => c.Status.ToString() == status,
-    };
+        if (o is not WarrantyClaimItem c)
+        {
+            return false;
+        }
+        var statusOk = _filter switch
+        {
+            "all" => true,
+            "open" => c.IsOpen,
+            var status => c.Status.ToString() == status,
+        };
+        if (!statusOk || (_branch.Value is { } branch && c.Row.BranchCode != branch) || (_coverage.Value is { } covered && c.Row.IsInWarranty != covered))
+        {
+            return false;
+        }
+        var q = _search.Trim();
+        return q.Length == 0 || c.Number.Contains(q, StringComparison.OrdinalIgnoreCase) || c.Serial.Contains(q, StringComparison.OrdinalIgnoreCase)
+               || FilterChoices.Contains(c.Product, q) || FilterChoices.Contains(c.Customer, q) || FilterChoices.Contains(c.Issue, q);
+    }
 
     private void ApplyFilter()
     {
         Rows.Refresh();
         var visible = Rows.Cast<object>().Count();
         Summary = visible == _items.Count ? (_items.Count == 1 ? "1 caso" : $"{_items.Count} casos") : $"{visible} de {_items.Count} casos";
-        OnPropertiesChanged(nameof(IsEmpty), nameof(EmptyTitle));
+        OnPropertiesChanged(nameof(IsEmpty), nameof(EmptyTitle), nameof(HasFilters));
+        System.Windows.Input.CommandManager.InvalidateRequerySuggested();
     }
 
     private async Task OpenPendingAsync()
@@ -254,12 +321,17 @@ public sealed class WarrantyClaimsViewModel : PageViewModel
 
     private async Task LoadDetailAsync()
     {
-        if (_selected is not { } item)
+        // V7 · El detalle de otro caso se quita ANTES de leer el nuevo: mientras llegaba, las acciones se aplicaban al caso anterior
+        var item = _selected;
+        if (item is null || _detail?.Claim.Number != item.Number)
         {
             Detail = null;
             Events.ReplaceAll([]);
             Actions.ReplaceAll([]);
             RaiseDetail();
+        }
+        if (item is null)
+        {
             return;
         }
         try
@@ -311,7 +383,11 @@ public sealed class WarrantyClaimsViewModel : PageViewModel
 
     private async Task RunActionAsync(ClaimActionItem action)
     {
-        var claim = _detail!.Claim;
+        if (_detail is not { } detail || detail.Claim.Number != _selected?.Number)
+        {
+            return;
+        }
+        var claim = detail.Claim;
         FormDialog dialog = action.Next == WarrantyClaimStatus.Replaced
             ? await ReplaceClaimDialog.CreateAsync(App, claim)
             : await MoveClaimDialog.CreateAsync(App, claim, action);
@@ -329,12 +405,19 @@ public sealed class WarrantyClaimsViewModel : PageViewModel
         var note = await App.Dialogs.PromptAsync($"Nota en {claim.Number}", "La nota queda en la bitácora del caso con su fecha y usuario.", "Nota",
             ["Se contactó al cliente", "Se pidió el repuesto al proveedor", "Diagnóstico: falla de fábrica", "Equipo listo para retirar"], "Agregar nota",
             glyph: Glyphs.Clipboard);
-        if (string.IsNullOrWhiteSpace(note))
+        if (note is null)
         {
             return;
         }
-        if (await RunAsync(() => App.SendAsync(new AddWarrantyClaimNoteCommand(claim.Number, note.Trim())), "No se pudo agregar la nota"))
+        if (note.Length == 0)
         {
+            // V7 · Antes, aceptar sin texto no hacía nada y no decía por qué
+            App.Notify.Warning("La nota está vacía", "Elija una de la lista o escriba qué pasó con el equipo.");
+            return;
+        }
+        if (await RunAsync(() => App.SendAsync(new AddWarrantyClaimNoteCommand(claim.Number, note)), "No se pudo agregar la nota"))
+        {
+            App.Notify.Success("Nota agregada", $"Quedó en la bitácora de {claim.Number}.");
             await LoadDetailAsync();
         }
     }

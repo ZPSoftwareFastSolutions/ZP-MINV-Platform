@@ -87,12 +87,15 @@ public sealed class SalesViewModel : PageViewModel
 {
     private static readonly Choice<string?> AllMethods = new("Todos los medios de pago", null);
     private static readonly Choice<string?> AllCashiers = new("Todos los cajeros", null);
+    private static readonly Choice<string?> AllCustomers = new("Todos los clientes", null);
     private readonly DispatcherTimer _debounce = new() { Interval = TimeSpan.FromMilliseconds(180) };
     private List<SaleItem> _items = [];
     private PeriodOption? _period;
     private Choice<string?> _method = AllMethods;
     private Choice<string?> _cashier = AllCashiers;
+    private Choice<string?> _customer = AllCustomers;
     private Choice<string> _status;
+    private Choice<string> _fiscal;
     private string _search = string.Empty;
     private SaleItem? _selected;
     private IReadOnlyList<SaleLineRow> _lines = [];
@@ -112,16 +115,51 @@ public sealed class SalesViewModel : PageViewModel
         }, () => _selected?.Fiscal is not null && app.Session.Can(PermissionCodes.BillingView) && app.Session.HasBillingModule);
         Statuses = [new("Todas", "all"), new("Emitidas", "issued"), new("Anuladas", "voided")];
         _status = Statuses[0];
+        // V7 · Factura del SIN en una lista desplegable (solo con el módulo de facturación)
+        FiscalFilters = [new("Con y sin factura del SIN", "all"), new("Factura válida", "valid"), new("Por enviar o fuera de línea", "pending"),
+            new("Rechazadas u observadas", "rejected"), new("Factura anulada", "voided"), new("Sin factura del SIN", "none")];
+        _fiscal = FiscalFilters[0];
         Rows = CollectionViewSource.GetDefaultView(_items);
+        // V7 · La pestaña Devoluciones también se filtra con la búsqueda (número, factura o cliente)
+        ReturnsView = CollectionViewSource.GetDefaultView(Returns);
+        ReturnsView.Filter = o => o is SalesReturnItem r && MatchesReturn(r);
         _debounce.Tick += (_, _) =>
         {
             _debounce.Stop();
             ApplyFilter();
         };
         Void = new AsyncRelayCommand(VoidAsync, () => _selected is { IsVoided: false } && CanVoid);
-        Export = new RelayCommand(ExportCsv, () => _items.Count > 0);
+        Export = new RelayCommand(ExportCsv, () => _items.Count > 0 || Returns.Count > 0);
         GoToPos = new RelayCommand(() => app.Navigator.Navigate("pos"));
+        ClearFilters = new RelayCommand(() =>
+        {
+            _search = string.Empty;
+            _method = AllMethods;
+            _cashier = AllCashiers;
+            _customer = AllCustomers;
+            _status = Statuses[0];
+            _fiscal = FiscalFilters[0];
+            OnPropertiesChanged(nameof(Search), nameof(Method), nameof(Cashier), nameof(Customer), nameof(Status), nameof(Fiscal));
+            ApplyFilter();
+        }, () => HasFilters);
     }
+
+    /// <summary>V7 · Clientes de las ventas del período (lista desplegable).</summary>
+    public BulkObservableCollection<Choice<string?>> Customers { get; } = [];
+
+    public Choice<string?> Customer { get => _customer; set { if (Set(ref _customer, value ?? AllCustomers)) { ApplyFilter(); } } }
+
+    public IReadOnlyList<Choice<string>> FiscalFilters { get; }
+
+    public Choice<string> Fiscal { get => _fiscal; set { if (Set(ref _fiscal, value ?? FiscalFilters[0])) { ApplyFilter(); } } }
+
+    /// <summary>V7 · Devoluciones filtradas por la búsqueda.</summary>
+    public ICollectionView ReturnsView { get; }
+
+    public bool HasFilters => _search.Trim().Length > 0 || _method.Value is not null || _cashier.Value is not null || _customer.Value is not null
+                              || _status != Statuses[0] || _fiscal != FiscalFilters[0];
+
+    public RelayCommand ClearFilters { get; }
 
     public ICollectionView Rows { get; private set; }
 
@@ -266,7 +304,9 @@ public sealed class SalesViewModel : PageViewModel
         Cashiers.ReplaceAll(new[] { AllCashiers }.Concat(rows.Select(r => r.Cashier).Distinct().Order().Select(c => new Choice<string?>(c, c))));
         _method = Methods.FirstOrDefault(m => m.Value == method) ?? AllMethods;
         _cashier = Cashiers.FirstOrDefault(c => c.Value == cashier) ?? AllCashiers;
-        OnPropertiesChanged(nameof(Method), nameof(Cashier));
+        Customers.ReplaceAll(FilterChoices.Of(AllCustomers.Label, rows.Select(r => r.Customer)));
+        _customer = FilterChoices.Keep(Customers, _customer);
+        OnPropertiesChanged(nameof(Method), nameof(Cashier), nameof(Customer));
         Subtitle = $"{period.Label} · {period.RangeText}";
         OnPropertyChanged(nameof(Subtitle));
         ApplyFilter();
@@ -274,6 +314,8 @@ public sealed class SalesViewModel : PageViewModel
         {
             _selected = _items.FirstOrDefault(i => i.Invoice == selectedInvoice);
             OnPropertiesChanged(nameof(Selected), nameof(HasSelection));
+            // V7 · El detalle se vuelve a leer (antes quedaba sin líneas después de F5, de cambiar el período, de anular o de devolver)
+            _ = LoadLinesAsync();
         }
     }
 
@@ -283,11 +325,26 @@ public sealed class SalesViewModel : PageViewModel
         {
             return false;
         }
-        if ((_method.Value is { } m && s.Method != m) || (_cashier.Value is { } c && s.Cashier != c))
+        if ((_method.Value is { } m && s.Method != m) || (_cashier.Value is { } c && s.Cashier != c) || (_customer.Value is { } cu && s.Customer != cu))
         {
             return false;
         }
         if ((_status.Value == "issued" && s.IsVoided) || (_status.Value == "voided" && !s.IsVoided))
+        {
+            return false;
+        }
+        var fiscalOk = _fiscal.Value switch
+        {
+            "valid" => s.Fiscal?.Status == Domain.Billing.FiscalDocumentStatus.Valid,
+            "pending" => s.Fiscal?.Status is Domain.Billing.FiscalDocumentStatus.Pending or Domain.Billing.FiscalDocumentStatus.Offline
+                or Domain.Billing.FiscalDocumentStatus.InPackage or Domain.Billing.FiscalDocumentStatus.NoResponse,
+            "rejected" => s.Fiscal?.Status is Domain.Billing.FiscalDocumentStatus.Rejected or Domain.Billing.FiscalDocumentStatus.PackageRejected
+                or Domain.Billing.FiscalDocumentStatus.DuplicateToVoid,
+            "voided" => s.Fiscal?.Status == Domain.Billing.FiscalDocumentStatus.Voided,
+            "none" => s.Fiscal is null,
+            _ => true,
+        };
+        if (!fiscalOk)
         {
             return false;
         }
@@ -296,8 +353,18 @@ public sealed class SalesViewModel : PageViewModel
                || Fmt.Culture.CompareInfo.IndexOf(s.Customer, q, CompareOptions.IgnoreCase | CompareOptions.IgnoreNonSpace) >= 0;
     }
 
+    private bool MatchesReturn(SalesReturnItem r)
+    {
+        var q = _search.Trim();
+        return q.Length == 0 || r.Row.Number.Contains(q, StringComparison.OrdinalIgnoreCase) || r.Row.InvoiceNumber.Contains(q, StringComparison.OrdinalIgnoreCase)
+               || FilterChoices.Contains(r.Row.Customer, q);
+    }
+
     private void ApplyFilter()
     {
+        ReturnsView.Refresh();
+        OnPropertyChanged(nameof(HasFilters));
+        System.Windows.Input.CommandManager.InvalidateRequerySuggested();
         Rows.Refresh();
         var visible = Rows.Cast<SaleItem>().ToList();
         var issued = visible.Where(v => !v.IsVoided).ToList();
@@ -338,7 +405,10 @@ public sealed class SalesViewModel : PageViewModel
     private async Task VoidAsync()
     {
         var sale = _selected!;
-        if (sale.Fiscal is { } fiscal && fiscal.Status is not (Domain.Billing.FiscalDocumentStatus.Voided or Domain.Billing.FiscalDocumentStatus.Discarded))
+        // V7 · Con la factura rechazada u observada por el SIN la venta se anula aquí (el servidor lo permite; antes se mandaba a
+        // Documentos fiscales, que respondía «No se puede anular»)
+        if (sale.Fiscal is { } fiscal && fiscal.Status is not (Domain.Billing.FiscalDocumentStatus.Voided or Domain.Billing.FiscalDocumentStatus.Discarded
+                or Domain.Billing.FiscalDocumentStatus.Rejected or Domain.Billing.FiscalDocumentStatus.PackageRejected))
         {
             // V4.1 · Una venta facturada se anula ANTE EL SIN (con motivo del catálogo y la opción de devolver la mercadería)
             if (App.Session.Can(PermissionCodes.BillingVoid) && App.Session.Can(PermissionCodes.BillingView))
@@ -406,21 +476,20 @@ public sealed class SalesViewModel : PageViewModel
         }
     }
 
-    private void ExportCsv()
-    {
-        var rows = Rows.Cast<SaleItem>().ToList();
-        var path = FileDialogs.SaveCsv($"ventas-{_period?.From:yyyyMMdd}-{_period?.To:yyyyMMdd}.csv");
-        if (path is null)
-        {
-            return;
-        }
-        Csv.Write(path, ["Factura", "Pedido", "Fecha", "Cliente", "Cajero", "Medio de pago", "Líneas", "Total", "IVA", "Estado", "Motivo de anulación"],
-            rows.Select(r => new object?[]
-            {
-                r.Invoice, r.Row.OrderNumber, r.WhenText, r.Customer, r.Cashier, r.Method, r.Items, r.Total, r.Row.Tax, r.StatusText, r.Row.VoidReason,
-            }));
-        App.Notify.Success("Ventas exportadas", $"{rows.Count} facturas en {Path.GetFileName(path)}");
-    }
+    /// <summary>V7 · Lo que se exporta: las ventas visibles (con la factura del SIN) o, en la pestaña Devoluciones, las devoluciones.</summary>
+    public CsvTable ExportTable() => IsReturnsTab
+        ? CsvTable.Of(["Devolución", "Factura", "Fecha", "Cliente", "Reembolso", "Nota crédito-débito", "Estado de la nota", "Motivo"],
+            ReturnsView.Cast<SalesReturnItem>(),
+            r => [r.Row.Number, r.Row.InvoiceNumber, r.ReturnedAt, r.Row.Customer, r.Row.Refund, r.Row.CreditNote, r.NoteStatusText, r.Row.Reason])
+        : CsvTable.Of(["Factura", "Pedido", "Fecha", "Cliente", "Cajero", "Medio de pago", "Líneas", "Total", "IVA", "Estado", "Factura del SIN",
+                "Motivo de anulación"],
+            Rows.Cast<SaleItem>(),
+            r => [r.Invoice, r.Row.OrderNumber, r.IssuedAt, r.Customer, r.Cashier, r.Method, r.Items, r.Total, r.Row.Tax, r.IsVoided ? "Anulada" : "Emitida",
+                r.HasFiscal ? r.FiscalText : null, r.Row.VoidReason]);
+
+    private void ExportCsv() => App.ExportCsv(
+        IsReturnsTab ? $"devoluciones-{_period?.From:yyyyMMdd}-{_period?.To:yyyyMMdd}.csv" : $"ventas-{_period?.From:yyyyMMdd}-{_period?.To:yyyyMMdd}.csv",
+        IsReturnsTab ? "Devoluciones" : "Ventas", ExportTable());
 }
 
 public sealed class CustomerItem(CustomerRow r)
@@ -450,7 +519,7 @@ public sealed class CustomerItem(CustomerRow r)
     public bool IsActive => Row.IsActive;
 }
 
-/// <summary>Clientes: búsqueda, categoría y estado en combos, historial de compras y editor lateral.</summary>
+/// <summary>Clientes: búsqueda, categoría, estado y compras en combos (V7), historial de compras y editor lateral.</summary>
 public sealed class CustomersViewModel : PageViewModel
 {
     private static readonly Choice<string?> AllCategories = new("Todas las categorías", null);
@@ -460,6 +529,8 @@ public sealed class CustomersViewModel : PageViewModel
     private string _search = string.Empty;
     private Choice<string?> _category = AllCategories;
     private Choice<string> _sort;
+    private Choice<bool?> _state;
+    private Choice<bool?> _buyers;
     private CustomerEditor? _editor;
     private string _summary = string.Empty;
     private IReadOnlyDictionary<string, CustomerFiscalIdentityRow> _identities = new Dictionary<string, CustomerFiscalIdentityRow>();
@@ -468,6 +539,10 @@ public sealed class CustomersViewModel : PageViewModel
     {
         Sorts = [new("Nombre (A → Z)", "name"), new("Mayor compra", "total"), new("Más compras", "count"), new("Compra más reciente", "last")];
         _sort = Sorts[0];
+        States = [new("Activos e inactivos", null), new("Solo activos", true), new("Solo inactivos", false)];
+        BuyerFilters = [new("Con y sin compras", null), new("Con compras", true), new("Sin compras", false)];
+        _state = States[0];
+        _buyers = BuyerFilters[0];
         Rows = CollectionViewSource.GetDefaultView(_items);
         _debounce.Tick += (_, _) =>
         {
@@ -478,7 +553,29 @@ public sealed class CustomersViewModel : PageViewModel
         Edit = new RelayCommand<CustomerItem>(c => Editor = new CustomerEditor(this, App, _categoryOptions, c.Row, _identities.GetValueOrDefault(c.Code)),
             _ => CanEdit);
         Export = new RelayCommand(ExportCsv, () => _items.Count > 0);
+        ClearFilters = new RelayCommand(() =>
+        {
+            _search = string.Empty;
+            _category = AllCategories;
+            _state = States[0];
+            _buyers = BuyerFilters[0];
+            OnPropertiesChanged(nameof(Search), nameof(Category), nameof(State), nameof(Buyers));
+            ApplyFilter();
+        }, () => HasFilters);
     }
+
+    /// <summary>V7 · Estado (activo / inactivo) y compras en listas desplegables.</summary>
+    public IReadOnlyList<Choice<bool?>> States { get; }
+
+    public IReadOnlyList<Choice<bool?>> BuyerFilters { get; }
+
+    public Choice<bool?> State { get => _state; set { if (Set(ref _state, value ?? States[0])) { ApplyFilter(); } } }
+
+    public Choice<bool?> Buyers { get => _buyers; set { if (Set(ref _buyers, value ?? BuyerFilters[0])) { ApplyFilter(); } } }
+
+    public bool HasFilters => _search.Trim().Length > 0 || _category.Value is not null || _state.Value is not null || _buyers.Value is not null;
+
+    public RelayCommand ClearFilters { get; }
 
     public ICollectionView Rows { get; private set; }
 
@@ -570,14 +667,22 @@ public sealed class CustomersViewModel : PageViewModel
     internal async Task AfterSaveAsync()
     {
         Editor = null;
+        App.Data.Invalidate();   // V7 · La caja y las reservas leen los clientes al volver
         await LoadAsync(force: true);
     }
+
+    /// <summary>V7 · Recarga la lista sin cerrar el editor (el cliente se guardó a medias).</summary>
+    internal Task ReloadAsync() => LoadAsync(force: true);
 
     internal void CloseEditor() => Editor = null;
 
     private bool Matches(object o)
     {
         if (o is not CustomerItem c || (_category.Value is { } code && c.Row.CategoryCode != code))
+        {
+            return false;
+        }
+        if ((_state.Value is { } active && c.IsActive != active) || (_buyers.Value is { } bought && (c.Purchases > 0) != bought))
         {
             return false;
         }
@@ -608,28 +713,24 @@ public sealed class CustomersViewModel : PageViewModel
         Rows.Refresh();
         var visible = Rows.Cast<object>().Count();
         Summary = visible == _items.Count ? $"{_items.Count} clientes" : $"{visible} de {_items.Count} clientes";
-        OnPropertyChanged(nameof(IsEmpty));
+        OnPropertiesChanged(nameof(IsEmpty), nameof(HasFilters));
+        System.Windows.Input.CommandManager.InvalidateRequerySuggested();
     }
 
-    private void ExportCsv()
-    {
-        var rows = Rows.Cast<CustomerItem>().ToList();
-        var path = FileDialogs.SaveCsv($"clientes-{DateTime.Now:yyyyMMdd}.csv");
-        if (path is null)
-        {
-            return;
-        }
-        Csv.Write(path, ["Código", "Nombre", "NIT / CI", "Correo", "Teléfono", "Categoría", "Compras", "Total", "Última compra", "Activo"],
-            rows.Select(r => new object?[] { r.Code, r.Name, r.Row.TaxId, r.Row.Email, r.Row.Phone, r.Category, r.Purchases, r.Total, r.Row.LastPurchase, r.IsActive ? "SÍ" : "NO" }));
-        App.Notify.Success("Clientes exportados", $"{rows.Count} filas en {Path.GetFileName(path)}");
-    }
+    /// <summary>V7 · Lo que se exporta: los clientes visibles con sus filtros.</summary>
+    public CsvTable ExportTable() => CsvTable.Of(
+        ["Código", "Nombre", "NIT / CI", "Correo", "Teléfono", "Categoría", "Compras", "Total", "Última compra", "Activo"],
+        Rows.Cast<CustomerItem>(),
+        r => [r.Code, r.Name, r.Row.TaxId, r.Row.Email, r.Row.Phone, r.Category, r.Purchases, r.Total, r.Row.LastPurchase, r.IsActive]);
+
+    private void ExportCsv() => App.ExportCsv(App.CsvName("clientes"), "Clientes", ExportTable());
 }
 
 public sealed class CustomerEditor : ObservableObject
 {
     private readonly CustomersViewModel _owner;
     private readonly AppServices _app;
-    private readonly string? _code;
+    private string? _code;
     private string _name;
     private string _taxId;
     private string _email;
@@ -674,7 +775,18 @@ public sealed class CustomerEditor : ObservableObject
 
     public string Name { get => _name; set => Set(ref _name, value ?? string.Empty); }
 
-    public string TaxId { get => _taxId; set => Set(ref _taxId, value ?? string.Empty); }
+    /// <summary>Número de documento. V7: al cambiarlo se borra la verificación del NIT anterior.</summary>
+    public string TaxId
+    {
+        get => _taxId;
+        set
+        {
+            if (Set(ref _taxId, value ?? string.Empty))
+            {
+                NitStatus = null;
+            }
+        }
+    }
 
     public string Email { get => _email; set => Set(ref _email, value ?? string.Empty); }
 
@@ -765,22 +877,49 @@ public sealed class CustomerEditor : ObservableObject
             Error = "Elija la categoría del cliente.";
             return;
         }
+        // V7 · Guía ANTES de guardar (la regla que manda es la del dominio): así un documento mal escrito no deja un cliente creado a
+        // medias que, al reintentar, se creaba otra vez
+        if (ShowFiscal && _documentType.Code != 0 && Blank(_taxId) is null)
+        {
+            Error = $"Escriba el número de {_documentType.Short} o elija «Sin tipo de documento».";
+            return;
+        }
+        if (ShowFiscal && (IsCi || IsNit) && Blank(_taxId) is { } number && !number.All(char.IsAsciiDigit))
+        {
+            Error = $"El {(IsNit ? "NIT" : "CI")} lleva solo números (sin puntos ni guiones).";
+            return;
+        }
+        var created = _code is null;
+        string code;
         try
         {
-            var code = await _app.SendAsync(new SaveCustomerCommand(_code, _name.Trim(), Blank(_taxId), Blank(_email), Blank(_phone), _category.Code, _isActive));
-            if (ShowFiscal)
+            code = await _app.SendAsync(new SaveCustomerCommand(_code, _name.Trim(), Blank(_taxId), Blank(_email), Blank(_phone), _category.Code, _isActive));
+        }
+        catch (Exception ex) when (AppServices.IsExpected(ex))
+        {
+            Error = AppServices.Describe(ex);
+            return;
+        }
+        // Desde aquí el cliente existe: si el paso siguiente falla, «Guardar» lo actualiza (no crea otro)
+        _code = code;
+        OnPropertiesChanged(nameof(IsNew), nameof(Heading), nameof(IsFinalConsumer));
+        if (ShowFiscal)
+        {
+            try
             {
                 // V4.1 · Tipo de documento y complemento (reglas del SIN: CI y NIT solo dígitos; complemento solo con CI)
                 await _app.SendAsync(new SaveCustomerFiscalIdentityCommand(code, _documentType.Code == 0 ? null : _documentType.Code, Blank(_taxId),
                     IsCi ? Blank(_complement) : null));
             }
-            _app.Notify.Success(IsNew ? "Cliente creado" : "Cliente actualizado", $"{code} · {_name.Trim()}");
-            await _owner.AfterSaveAsync();
+            catch (Exception ex) when (AppServices.IsExpected(ex))
+            {
+                Error = $"El cliente {code} se guardó, pero sus datos de facturación no: {AppServices.Describe(ex)} Corríjalos y guarde otra vez.";
+                await _owner.ReloadAsync();
+                return;
+            }
         }
-        catch (Exception ex) when (AppServices.IsExpected(ex))
-        {
-            Error = AppServices.Describe(ex);
-        }
+        _app.Notify.Success(created ? "Cliente creado" : "Cliente actualizado", $"{code} · {_name.Trim()}");
+        await _owner.AfterSaveAsync();
     }
 
     internal static string? Blank(string text) => string.IsNullOrWhiteSpace(text) ? null : text.Trim();

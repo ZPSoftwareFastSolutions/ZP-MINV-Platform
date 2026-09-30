@@ -18,6 +18,8 @@
 
         <DockPanel Grid.ColumnSpan="2" Margin="0,0,0,14">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button Content="Exportar CSV" c:Ui.Icon="{x:Static c:Glyphs.Download}" Command="{Binding Export}" Margin="0,0,8,0"
+                        ToolTip="Las series que muestra la lista, con sus filtros, en un archivo para Excel" />
                 <Button Content="Registrar series de stock" c:Ui.Icon="{x:Static c:Glyphs.Barcode}" Command="{Binding RegisterStock}" Margin="0,0,8,0"
                         c:Ui.IsBusy="{Binding RegisterStock.IsRunning}" Visibility="{Binding CanManage, Converter={StaticResource Visible}}"
                         ToolTip="Series de unidades que ya estaban en stock sin serie (inventario inicial)" />
@@ -36,13 +38,20 @@
             <ContentControl Content="{Binding OutKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
         </UniformGrid>
 
-        <DockPanel Grid.Row="2" Margin="0,0,0,12">
-            <TextBlock DockPanel.Dock="Right" Text="{Binding Summary}" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="10,0,0,0" />
+        <DockPanel Grid.Row="2" Margin="0,0,0,4">
+            <TextBlock DockPanel.Dock="Right" Text="{Binding Summary}" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="10,0,0,8" />
             <WrapPanel>
                 <TextBox Width="340" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}" c:Ui.Icon="{x:Static c:Glyphs.Search}"
-                         c:Ui.Placeholder="Serie, IMEI o SKU (o léalo con el escáner)" Margin="0,0,10,0" />
-                <ComboBox Width="220" ItemsSource="{Binding Statuses}" SelectedItem="{Binding Status}" ToolTip="Estado" Margin="0,0,10,0" />
-                <ComboBox Width="200" ItemsSource="{Binding Branches}" SelectedItem="{Binding Branch}" ToolTip="Sucursal" />
+                         c:Ui.Placeholder="Serie, IMEI o SKU (o léalo con el escáner)" Margin="0,0,10,8" AutomationProperties.Name="Buscar" />
+                <ComboBox Width="220" ItemsSource="{Binding Statuses}" SelectedItem="{Binding Status}" ToolTip="Estado" Margin="0,0,10,8"
+                          AutomationProperties.Name="Estado" />
+                <ComboBox Width="200" ItemsSource="{Binding Branches}" SelectedItem="{Binding Branch}" ToolTip="Sucursal" Margin="0,0,10,8"
+                          AutomationProperties.Name="Sucursal" />
+                <ComboBox Width="210" ItemsSource="{Binding Warranties}" SelectedItem="{Binding Warranty}" ToolTip="Garantía" Margin="0,0,10,8"
+                          AutomationProperties.Name="Garantía" />
+                <!-- V7 · «Limpiar filtros» a la vista (antes solo aparecía cuando la lista quedaba vacía) -->
+                <Button Style="{StaticResource GhostButton}" Content="Limpiar filtros" c:Ui.Icon="{x:Static c:Glyphs.ClearFilter}" Command="{Binding ClearFilters}"
+                        Margin="0,0,10,8" Visibility="{Binding HasFilters, Converter={StaticResource Visible}}" />
             </WrapPanel>
         </DockPanel>
 

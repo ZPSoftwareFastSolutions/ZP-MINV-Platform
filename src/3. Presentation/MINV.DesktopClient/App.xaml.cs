@@ -172,7 +172,9 @@ public partial class App
         var dialog = new ChangePasswordWindow(new ChangePasswordViewModel(session.Services.GetRequiredService<AppServices>(), mandatory)) { Owner = owner };
         if (dialog.ShowDialog() != true && mandatory)
         {
-            session.Services.GetRequiredService<ShellViewModel>().Logout.Execute(null);
+            // V7 · El cambio es obligatorio: cancelarlo cierra la sesión SIN la opción «Seguir trabajando» (antes se podía seguir
+            // con la contraseña temporal)
+            _ = session.Services.GetRequiredService<ShellViewModel>().LogoutAsync(confirm: false);
         }
     }
 

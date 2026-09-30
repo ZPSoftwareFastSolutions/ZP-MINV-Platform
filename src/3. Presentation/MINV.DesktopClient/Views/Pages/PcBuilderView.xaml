@@ -318,10 +318,10 @@
                                        Visibility="{Binding PsuLoadText, Converter={StaticResource HasValue}}" />
 
                             <!-- V6 · Reserva web: contacto del cliente (teléfono solo con permiso, regla S-06), notas y piezas con disponibilidad -->
-                            <StackPanel Visibility="{Binding HasContact, Converter={StaticResource Visible}}">
+                            <StackPanel Visibility="{Binding ShowReservation, Converter={StaticResource Visible}}">
                                 <TextBlock Text="RESERVA DE LA TIENDA WEB" Style="{StaticResource Overline}" Margin="0,16,0,6"
                                            Visibility="{Binding IsWebReservation, Converter={StaticResource Visible}}" />
-                                <TextBlock Text="CONTACTO" Style="{StaticResource Overline}" Margin="0,16,0,6" Visibility="{Binding IsWebReservation, Converter={StaticResource Hidden}}" />
+                                <TextBlock Text="RESERVA Y CONTACTO" Style="{StaticResource Overline}" Margin="0,16,0,6" Visibility="{Binding IsWebReservation, Converter={StaticResource Hidden}}" />
                                 <Border Style="{StaticResource Panel}" Padding="12,10">
                                     <StackPanel>
                                         <Border Style="{StaticResource StatusPill}" c:Ui.BrushKey="{Binding ReservationSoftBrush}" Margin="0,0,0,8"
@@ -332,6 +332,9 @@
                                                 <TextBlock Text="{Binding ReservationText}" FontSize="11" FontWeight="SemiBold" c:Ui.BrushKey="{Binding ReservationBrush}" />
                                             </StackPanel>
                                         </Border>
+                                        <TextBlock Text="Reserva hecha en el escritorio: sin contacto de la tienda web." Style="{StaticResource Caption}" TextWrapping="Wrap"
+                                                   Visibility="{Binding HasContact, Converter={StaticResource Hidden}}" />
+                                        <StackPanel Visibility="{Binding HasContact, Converter={StaticResource Visible}}">
                                         <DockPanel>
                                             <TextBlock DockPanel.Dock="Left" Style="{StaticResource Icon}" Text="{x:Static c:Glyphs.Person}" FontSize="13" Margin="0,2,8,0"
                                                        VerticalAlignment="Top" Foreground="{DynamicResource BrandText}" />
@@ -358,6 +361,7 @@
                                                 <TextBlock Text="{Binding ContactNotes}" FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondary}" Margin="0,2,0,0" />
                                             </StackPanel>
                                         </Border>
+                                        </StackPanel>
                                     </StackPanel>
                                 </Border>
                                 <!-- Piezas con su disponibilidad actual en la sucursal -->

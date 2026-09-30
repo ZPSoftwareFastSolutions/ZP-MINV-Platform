@@ -176,6 +176,30 @@ public static class TechText
         _ => "Danger",
     };
 
+    /// <summary>V7 · Acción de la bitácora de un armado o de una reserva (regla S-04), en palabras.</summary>
+    public static string BuildAction(PcBuildEventAction action) => action switch
+    {
+        PcBuildEventAction.Created => "Creada",
+        PcBuildEventAction.Quoted => "Cotizada",
+        PcBuildEventAction.Reserved => "Stock reservado",
+        PcBuildEventAction.Released => "Reserva liberada",
+        PcBuildEventAction.Expired => "Reserva vencida",
+        PcBuildEventAction.Sold => "Vendida en la caja",
+        PcBuildEventAction.Cancelled => "Anulada",
+        PcBuildEventAction.Published => "Publicada en la web",
+        PcBuildEventAction.Unpublished => "Retirada de la web",
+        _ => "Cambio",
+    };
+
+    public static string BuildActionBrush(PcBuildEventAction action) => action switch
+    {
+        PcBuildEventAction.Reserved or PcBuildEventAction.Published => "Brand",
+        PcBuildEventAction.Sold => "Success",
+        PcBuildEventAction.Released or PcBuildEventAction.Cancelled => "Danger",
+        PcBuildEventAction.Expired => "Warning",
+        _ => "Info",
+    };
+
     public static string Slot(PcSlot slot) => slot switch
     {
         PcSlot.Cpu => "Procesador",

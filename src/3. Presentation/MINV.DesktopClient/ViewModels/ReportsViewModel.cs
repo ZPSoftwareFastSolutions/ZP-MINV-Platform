@@ -322,35 +322,29 @@ public sealed class ReportsViewModel : PageViewModel
             total > 0 ? (g.Amount / total).ToString("P1", Fmt.Culture) : "—")).ToList();
     }
 
-    private void ExportCsv()
+    /// <summary>V7 · Lo que se exporta de la pestaña abierta (formato único de <see cref="CsvExport"/>).</summary>
+    public CsvTable ExportTable() => _tab switch
     {
-        var name = $"reporte-{_tab}-{_period?.From:yyyyMMdd}-{_period?.To:yyyyMMdd}.csv";
-        var path = FileDialogs.SaveCsv(name);
-        if (path is null)
-        {
-            return;
-        }
-        switch (_tab)
-        {
-            case "movements":
-                Csv.Write(path, ["Fecha", "SKU", "Producto", "Tipo", "Cantidad", "Unidad", "Posición", "Usuario", "Documento", "Observaciones"],
-                    _movements.Select(m => new object?[] { m.WhenText, m.Sku, m.Name, m.TypeName, m.Row.Signed, m.Row.Unit, m.BinCode, m.User, m.Row.Document, m.Row.Notes }));
-                break;
-            case "purchases":
-                Csv.Write(path, ["#", "Proveedor", "Monto", "Recepciones", "Participación"],
-                    BySupplier.Select(r => new object?[] { r.Rank, r.Name, r.AmountText, r.CountText, r.ShareText }));
-                break;
-            case "inventory":
-                Csv.Write(path, ["#", "Categoría", "Unidades", "Valor", "Productos", "Participación"],
-                    CategoryRows.Select(r => new object?[] { r.Rank, r.Name, r.QuantityText, r.AmountText, r.CountText, r.ShareText }));
-                break;
-            default:
-                Csv.Write(path, ["#", _groupBy.Label, "Cantidad", "Ventas", "Utilidad", "Operaciones", "Participación"],
-                    _ranking.Select(r => new object?[] { r.Rank, r.Name, r.QuantityText, r.AmountText, r.ProfitText, r.CountText, r.ShareText }));
-                break;
-        }
-        App.Notify.Success("Reporte exportado", Path.GetFileName(path));
-    }
+        "movements" => CsvTable.Of(["Fecha", "SKU", "Producto", "Tipo", "Cantidad", "Unidad", "Posición", "Usuario", "Documento", "Observaciones"], _movements,
+            m => [m.WhenText, m.Sku, m.Name, m.TypeName, m.Row.Signed, m.Row.Unit, m.BinCode, m.User, m.Row.Document, m.Row.Notes]),
+        "purchases" => CsvTable.Of(["#", "Proveedor", "Monto", "Recepciones", "Participación"], BySupplier,
+            r => [r.Rank, r.Name, r.AmountText, r.CountText, r.ShareText]),
+        "inventory" => CsvTable.Of(["#", "Categoría", "Unidades", "Valor", "Productos", "Participación"], CategoryRows,
+            r => [r.Rank, r.Name, r.QuantityText, r.AmountText, r.CountText, r.ShareText]),
+        _ => CsvTable.Of(["#", _groupBy.Label, "Cantidad", "Ventas", "Utilidad", "Operaciones", "Participación"], _ranking,
+            r => [r.Rank, r.Name, r.QuantityText, r.AmountText, r.ProfitText, r.CountText, r.ShareText]),
+    };
+
+    // V7 · El nombre del archivo en español (antes salía «reporte-sales», «reporte-purchases»…)
+    private void ExportCsv() => App.ExportCsv($"reporte-{TabFileName}-{_period?.From:yyyyMMdd}-{_period?.To:yyyyMMdd}.csv", "Reporte", ExportTable());
+
+    private string TabFileName => _tab switch
+    {
+        "movements" => "movimientos",
+        "purchases" => "compras",
+        "inventory" => "inventario",
+        _ => "ventas",
+    };
 }
 
 /// <summary>Leyenda de un gráfico de dona (color de la paleta, nombre, monto y porcentaje).</summary>

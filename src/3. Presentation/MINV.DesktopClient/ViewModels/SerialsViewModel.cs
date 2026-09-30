@@ -81,6 +81,7 @@ public sealed class SerialsViewModel : PageViewModel
     private string _search = string.Empty;
     private Choice<SerialNumberStatus?> _status = AllStatuses;
     private Choice<string?> _branch = AllBranches;
+    private Choice<string?> _warranty;
     private SerialItem? _selected;
     private SerialTraceView? _trace;
     private bool _loadingTrace;
@@ -96,7 +97,10 @@ public sealed class SerialsViewModel : PageViewModel
     {
         Statuses = [AllStatuses, .. Enum.GetValues<SerialNumberStatus>().Where(s => s != SerialNumberStatus.Reserved)
             .Select(s => new Choice<SerialNumberStatus?>(TechText.SerialStatus(s), s))];
+        Warranties = [new("Con y sin garantía", null), new("Garantía vigente", "valid"), new("Garantía vencida", "expired"), new("Sin venta (sin garantía)", "none")];
+        _warranty = Warranties[0];
         Rows = CollectionViewSource.GetDefaultView(_items);
+        Export = new RelayCommand(() => App.ExportCsv(App.CsvName("series"), "Series", ExportTable()), () => _items.Count > 0);
         _debounce.Tick += async (_, _) =>
         {
             _debounce.Stop();
@@ -114,9 +118,40 @@ public sealed class SerialsViewModel : PageViewModel
             _search = string.Empty;
             _status = AllStatuses;
             _branch = AllBranches;
-            OnPropertiesChanged(nameof(Search), nameof(Status), nameof(Branch));
+            _warranty = Warranties[0];
+            OnPropertiesChanged(nameof(Search), nameof(Status), nameof(Branch), nameof(Warranty));
             _ = LoadAsync(force: true);
         });
+    }
+
+    /// <summary>V7 · Garantía (derivada, regla T-04): vigente, vencida o sin venta.</summary>
+    public IReadOnlyList<Choice<string?>> Warranties { get; }
+
+    public Choice<string?> Warranty { get => _warranty; set { if (Set(ref _warranty, value ?? Warranties[0])) { ApplyFilter(); } } }
+
+    public RelayCommand Export { get; }
+
+    /// <summary>V7 · Lo que se exporta: las series visibles con sus filtros.</summary>
+    public CsvTable ExportTable() => CsvTable.Of(
+        ["Serie o IMEI", "Tipo", "SKU", "Producto", "Estado", "Sucursal", "Almacén", "Ingresó", "Vendida", "Factura", "Cliente", "Garantía hasta"],
+        Rows.Cast<SerialItem>(),
+        s => [s.Serial, s.KindBadge, s.Sku, s.Product, s.StatusText, s.Row.Branch, s.Row.Warehouse, s.Row.ReceivedAt, s.Row.SoldAt, s.Row.InvoiceNumber,
+            s.Row.Customer, s.Row.WarrantyUntil]);
+
+    private bool Matches(object o)
+    {
+        if (o is not SerialItem s || (_branch.Value is { } b && s.Row.Branch != b))
+        {
+            return false;
+        }
+        var today = App.Session.Workspace.Today;
+        return _warranty.Value switch
+        {
+            "valid" => s.Row.WarrantyUntil is { } until && until >= today,
+            "expired" => s.Row.WarrantyUntil is { } until && until < today,
+            "none" => s.Row.WarrantyUntil is null,
+            _ => true,
+        };
     }
 
     public ICollectionView Rows { get; private set; }
@@ -173,7 +208,7 @@ public sealed class SerialsViewModel : PageViewModel
     public bool IsEmpty => HasLoaded && Rows.IsEmpty;
 
     /// <summary>Hay búsqueda, estado o sucursal elegidos (el estado vacío ofrece quitarlos).</summary>
-    public bool HasFilters => !string.IsNullOrWhiteSpace(_search) || _status.Value is not null || _branch.Value is not null;
+    public bool HasFilters => !string.IsNullOrWhiteSpace(_search) || _status.Value is not null || _branch.Value is not null || _warranty.Value is not null;
 
     public string EmptyTitle => HasFilters ? "No hay series con ese filtro" : "Todavía no hay unidades con serie o IMEI";
 
@@ -251,7 +286,12 @@ public sealed class SerialsViewModel : PageViewModel
         {
             _pendingSerial = serial;
             _search = serial;
-            OnPropertyChanged(nameof(Search));
+            // V7 · Al llegar desde un caso RMA o la caja se quitan los demás filtros: con un estado o una sucursal elegidos antes,
+            // la serie buscada podía no aparecer
+            _status = AllStatuses;
+            _branch = AllBranches;
+            _warranty = Warranties[0];
+            OnPropertiesChanged(nameof(Search), nameof(Status), nameof(Branch), nameof(Warranty));
             if (HasLoaded)
             {
                 _ = LoadAsync(force: true);
@@ -268,7 +308,7 @@ public sealed class SerialsViewModel : PageViewModel
         _pendingSerial = null;
         _items = rows.Select(r => new SerialItem(r, today)).ToList();
         Rows = CollectionViewSource.GetDefaultView(_items);
-        Rows.Filter = o => o is SerialItem s && (_branch.Value is not { } b || s.Row.Branch == b);
+        Rows.Filter = Matches;
         Rows.SortDescriptions.Add(new SortDescription(nameof(SerialItem.ReceivedAt), ListSortDirection.Descending));
         OnPropertyChanged(nameof(Rows));
         var previous = _branch.Value;
@@ -302,10 +342,20 @@ public sealed class SerialsViewModel : PageViewModel
             Summary += " · las más recientes: afine la búsqueda";   // la lista se limita; los indicadores cuentan todas
         }
         OnPropertiesChanged(nameof(IsEmpty), nameof(HasFilters), nameof(EmptyTitle));
+        System.Windows.Input.CommandManager.InvalidateRequerySuggested();
     }
 
     private async Task LoadTraceAsync()
     {
+        // V7 · La trazabilidad anterior se quita ANTES de leer la nueva: mientras llegaba, «Abrir caso» y «Destino» se decidían con la
+        // serie anterior
+        if (_trace is not null && !string.Equals(_trace.Serial.Serial, _selected?.Serial, StringComparison.OrdinalIgnoreCase))
+        {
+            Trace = null;
+            Events.ReplaceAll([]);
+            Claims.ReplaceAll([]);
+            RaiseTrace();
+        }
         if (_selected is not { } item)
         {
             Trace = null;

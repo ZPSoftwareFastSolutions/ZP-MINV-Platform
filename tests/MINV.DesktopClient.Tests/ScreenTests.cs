@@ -24,9 +24,10 @@ public sealed class ScreenTests
         var shell = admin.Services.GetRequiredService<ShellViewModel>();
         Assert.Equal(["General", "Ventas", "Tecnología", "Inventario", "Compras y reposición", "Sucursales", "Facturación", "Análisis", "Administración"],
             shell.Sections.Select(s => s.Title));
-        Assert.Equal(["inicio", "pos", "ventas", "clientes", "armador", "series", "garantias", "stock", "catalogo", "registro", "conteo", "alertas", "pedido", "compras", "proveedores",
-                "sucursales", "transferencias", "documentos-fiscales", "estado-siat", "homologacion", "libros-fiscales", "reportes", "contabilidad", "usuarios",
-                "integraciones", "facturacion-siat", "actividad", "configuracion", "ayuda"],
+        // V7 · «Reservas» en Ventas (después de Clientes) y «Correos» en Administración (después de Integraciones)
+        Assert.Equal(["inicio", "pos", "ventas", "clientes", "reservas", "armador", "series", "garantias", "stock", "catalogo", "registro", "conteo", "alertas", "pedido", "compras",
+                "proveedores", "sucursales", "transferencias", "documentos-fiscales", "estado-siat", "homologacion", "libros-fiscales", "reportes", "contabilidad", "usuarios",
+                "integraciones", "correos", "facturacion-siat", "actividad", "configuracion", "ayuda"],
             shell.AllPages.Select(p => p.Key));
         Assert.Equal("Ctrl+1", shell.AllPages[0].Shortcut);
 
@@ -119,6 +120,10 @@ public sealed class ScreenTests
 
         var dashboard = (DashboardViewModel)shell.Current;
         Assert.True(dashboard.HasLoaded);
+        // V7 · Los indicadores están en secciones plegables cerradas: se leen al abrirlas
+        Assert.All(dashboard.Sections, s => Assert.False(s.IsOpen || s.IsLoaded, s.Key));
+        await dashboard.OpenAllAsync();
+        Assert.All(dashboard.Sections, s => Assert.True(s.IsOpen && s.IsLoaded && !s.HasError, $"{s.Key}: {s.ErrorMessage}"));
         Assert.Equal(result.Alerts.Count, dashboard.AlertCount);
         Assert.Equal(result.Stock.Count, (int)dashboard.StatusSegments.Sum(s => s.Value));
         Assert.Equal(14, dashboard.Trend.Count);
@@ -209,10 +214,12 @@ public sealed class ScreenTests
         movement.Notes = "Sobrante encontrado";
         Assert.True(movement.CanRegister);
 
-        // El tablero se recarga solo al volver (los datos cambiaron)
+        // El tablero se recarga solo al volver (los datos cambiaron); V7: los últimos movimientos están en su sección plegable
         shell.Navigate("inicio");
         await Wpf.UntilAsync(() => !shell.Current.IsBusy);
-        Assert.Contains(((DashboardViewModel)shell.Current).Recent, m => m.Sku == product.Sku);
+        var home = (DashboardViewModel)shell.Current;
+        await home.Lists.OpenAsync();
+        Assert.Contains(home.Recent, m => m.Sku == product.Sku);
     });
 
     [Fact]

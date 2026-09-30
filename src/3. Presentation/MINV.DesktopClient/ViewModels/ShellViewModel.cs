@@ -38,7 +38,8 @@ public sealed class ShellViewModel : ObservableObject, INavigator
         AccountingViewModel accounting, UsersViewModel users, BranchesViewModel branches, TransfersViewModel transfers,
         IntegrationsViewModel integrations, FiscalDocumentsViewModel fiscalDocuments, SiatStatusViewModel siatStatus,
         HomologationViewModel homologation, FiscalBooksViewModel fiscalBooks, BillingSettingsViewModel billingSettings, BillingWorkService billingWork,
-        PcBuilderViewModel pcBuilder, SerialsViewModel serials, WarrantyClaimsViewModel warranty)
+        PcBuilderViewModel pcBuilder, SerialsViewModel serials, WarrantyClaimsViewModel warranty, ReservationsViewModel reservations,
+        MailQueueViewModel mails)
     {
         _app = app;
         _billingWork = billingWork;
@@ -49,7 +50,9 @@ public sealed class ShellViewModel : ObservableObject, INavigator
         Add(sections, "Ventas",
             (pos, s.Can(PermissionCodes.PosOperate)),
             (sales, s.Can(PermissionCodes.SalesView)),
-            (customers, s.Can(PermissionCodes.CustomersManage) || s.Can(PermissionCodes.SalesView)));
+            (customers, s.Can(PermissionCodes.CustomersManage) || s.Can(PermissionCodes.SalesView)),
+            // V7 · Reservas: carritos y armados reservados de la web y del mostrador (mismos casos de uso que el panel web)
+            (reservations, s.Can(PermissionCodes.PcBuildManage)));
         // V4.2 · Edición Tecnología: armador de PC, series e IMEI y garantías
         Add(sections, "Tecnología",
             // Cada página se muestra solo si la sesión puede leer su lista (las acciones se ocultan o deshabilitan por permiso)
@@ -83,6 +86,8 @@ public sealed class ShellViewModel : ObservableObject, INavigator
         Add(sections, "Administración",
             (users, s.Can(PermissionCodes.UsersManage)),
             (integrations, s.Can(PermissionCodes.IntegrationManage)),
+            // V7 · Cola de correos de confirmación de las reservas (GetOutgoingMailsQuery exige sales.pcbuild.manage)
+            (mails, s.Can(PermissionCodes.PcBuildManage)),
             (billingSettings, billing && s.Can(PermissionCodes.BillingConfigure)),
             (activity, s.Can(PermissionCodes.AuditView)));
         Sections = sections;
@@ -92,6 +97,8 @@ public sealed class ShellViewModel : ObservableObject, INavigator
         {
             AllPages[i].Shortcut = $"Ctrl+{i + 1}";
         }
+        // V7 · El inicio muestra las funciones del rol como botones (las mismas pantallas del menú, ya filtradas por permiso)
+        dashboard.UseSections(sections, Footer);
         Alerts = alerts;
         Search = new ProductPickerViewModel(app.Data, 10);
         Search.Picked += (_, item) =>
@@ -267,11 +274,25 @@ public sealed class ShellViewModel : ObservableObject, INavigator
 
     public async Task StartAsync()
     {
-        await Search.EnsureLoadedAsync();
-        await Current.EnsureLoadedAsync();
-        await UpdateBadgesAsync();
-        // V4.1 · En modo local y demostración este equipo envía los documentos fiscales y mantiene los códigos del SIN
-        _billingWork.Start();
+        try
+        {
+            // V7 · Si el buscador no pudo leer el catálogo, el inicio igual carga (y el buscador lo reintenta al abrir una ficha)
+            try
+            {
+                await Search.EnsureLoadedAsync();
+            }
+            catch (Exception ex) when (AppServices.IsExpected(ex))
+            {
+                System.Diagnostics.Trace.TraceWarning("M-INV · buscador de productos: {0}", ex.Message);
+            }
+            await Current.EnsureLoadedAsync();
+            await UpdateBadgesAsync();
+        }
+        finally
+        {
+            // V4.1 · En modo local y demostración este equipo envía los documentos fiscales y mantiene los códigos del SIN
+            _billingWork.Start();
+        }
     }
 
     /// <summary>V4.1 · Trabajo automático de la facturación de esta sesión (modo local o demostración).</summary>
@@ -338,24 +359,32 @@ public sealed class ShellViewModel : ObservableObject, INavigator
         _app.Notify.Warning("Código no encontrado", $"«{code}» no es un SKU ni un código de barras del catálogo.");
     }
 
-    private async Task LogoutAsync()
+    private Task LogoutAsync() => LogoutAsync(confirm: true);
+
+    /// <summary>
+    /// Cierra la sesión. Con <paramref name="confirm"/> = false no pregunta (V7: el cambio de contraseña OBLIGATORIO que se
+    /// cancela cierra la sesión sin la opción «Seguir trabajando», así nadie sigue con la clave temporal). Si el servidor o la
+    /// base no responden (sin red en modo nube), la sesión se cierra igual en este equipo.
+    /// </summary>
+    public async Task LogoutAsync(bool confirm)
     {
         IsUserMenuOpen = false;
-        if (await _app.Dialogs.ConfirmAsync("Cerrar sesión", "¿Desea cerrar su sesión en este equipo?", "Cerrar sesión", "Seguir trabajando",
+        if (confirm && !await _app.Dialogs.ConfirmAsync("Cerrar sesión", "¿Desea cerrar su sesión en este equipo?", "Cerrar sesión", "Seguir trabajando",
                 glyph: Glyphs.SignOut))
         {
-            try
-            {
-                await _app.SendAsync(new LogoutCommand(Session.Login.SessionId));
-            }
-            catch (Exception ex) when (!AppServices.IsExpected(ex))
-            {
-                System.Diagnostics.Trace.TraceWarning("M-INV · no se pudo cerrar la sesión en la base: {0}", ex.Message);
-            }
-            _clock.Stop();
-            _billingWork.Stop();
-            LogoutRequested?.Invoke(this, EventArgs.Empty);
+            return;
         }
+        try
+        {
+            await _app.SendAsync(new LogoutCommand(Session.Login.SessionId));
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceWarning("M-INV · no se pudo cerrar la sesión en el servidor: {0}", ex.Message);
+        }
+        _clock.Stop();
+        _billingWork.Stop();
+        LogoutRequested?.Invoke(this, EventArgs.Empty);
     }
 
     private static List<BranchOption> BuildBranchOptions(SessionContext s)

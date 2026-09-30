@@ -1,0 +1,131 @@
+<UserControl x:Class="MINV.DesktopClient.Views.Pages.MailQueueView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:MINV.DesktopClient.Controls"
+             xmlns:vm="clr-namespace:MINV.DesktopClient.ViewModels">
+    <!-- V7 · Administración › Correos: la cola de correos de confirmación de las reservas -->
+    <Grid Margin="28,6,28,24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <DockPanel Margin="0,0,0,12">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button Content="Ver reserva" c:Ui.Icon="{x:Static c:Glyphs.Clock}" Command="{Binding OpenReservation}" Margin="0,0,8,0"
+                        ToolTip="Abre la reserva del correo elegido en la pantalla Reservas" />
+                <Button Style="{StaticResource PrimaryButton}" Content="Reenviar" c:Ui.Icon="{x:Static c:Glyphs.Mail}" Command="{Binding Resend}" Margin="0,0,8,0"
+                        c:Ui.IsBusy="{Binding Resend.IsRunning}" ToolTip="Encola otra confirmación de la reserva del correo elegido (si sigue vigente)" />
+                <Button Content="Exportar CSV" c:Ui.Icon="{x:Static c:Glyphs.Download}" Command="{Binding Export}" Margin="0,0,8,0" />
+                <Button Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Refresh}" Command="{Binding Refresh}" ToolTip="Actualizar (F5)" />
+            </StackPanel>
+            <StackPanel>
+                <TextBlock Text="{Binding Title}" Style="{StaticResource H1}" />
+                <TextBlock Style="{StaticResource Caption}" FontSize="13" Margin="0,4,0,0" TextWrapping="Wrap">
+                    <Run Text="{Binding Subtitle, Mode=OneWay}" /><Run Text=" · los envía el servidor en segundo plano; aquí se ve en qué quedó cada uno" />
+                </TextBlock>
+            </StackPanel>
+        </DockPanel>
+
+        <UniformGrid Grid.Row="1" Columns="3" Margin="-6,0,-6,8">
+            <ContentControl Content="{Binding PendingKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+            <ContentControl Content="{Binding SentKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+            <ContentControl Content="{Binding FailedKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
+        </UniformGrid>
+
+        <DockPanel Grid.Row="2" Margin="0,0,0,10">
+            <TextBlock DockPanel.Dock="Right" Text="{Binding Summary}" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="10,0,0,0" />
+            <WrapPanel>
+                <TextBox Width="280" Margin="0,0,8,8" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}" c:Ui.Icon="{x:Static c:Glyphs.Search}"
+                         c:Ui.Placeholder="Número de reserva, destinatario o error" AutomationProperties.Name="Buscar un correo" />
+                <ComboBox Width="220" Margin="0,0,8,8" ItemsSource="{Binding Statuses}" SelectedItem="{Binding Status}" AutomationProperties.Name="Estado" />
+                <ComboBox Width="190" Margin="0,0,8,8" ItemsSource="{Binding Kinds}" SelectedItem="{Binding Kind}" AutomationProperties.Name="Tipo de reserva" />
+                <ComboBox Width="170" Margin="0,0,8,8" ItemsSource="{Binding Branches}" SelectedItem="{Binding Branch}" AutomationProperties.Name="Sucursal"
+                          Visibility="{Binding HasBranches, Converter={StaticResource Visible}}" />
+                <ComboBox Width="170" Margin="0,0,8,8" ItemsSource="{Binding Periods}" SelectedItem="{Binding Period}" ToolTip="Por la fecha en que se pidió el envío"
+                          AutomationProperties.Name="Fechas" />
+                <Button Style="{StaticResource GhostButton}" Content="Limpiar filtros" c:Ui.Icon="{x:Static c:Glyphs.ClearFilter}" Command="{Binding ClearFilters}"
+                        Margin="0,0,8,8" Visibility="{Binding HasFilters, Converter={StaticResource Visible}}" />
+            </WrapPanel>
+        </DockPanel>
+
+        <Border Grid.Row="3" Style="{StaticResource CardFlat}" Padding="4,2,4,4">
+            <Grid>
+                <DataGrid ItemsSource="{Binding Rows}" SelectedItem="{Binding Selected}" RowHeight="54">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="PEDIDO EL" Binding="{Binding RequestedText}" Width="130" SortMemberPath="RequestedAt" ElementStyle="{StaticResource CellText}" />
+                        <DataGridTemplateColumn Header="RESERVA" Width="170" SortMemberPath="Reservation" CanUserSort="True">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:MailQueueItem}">
+                                    <StackPanel VerticalAlignment="Center">
+                                        <Border Style="{StaticResource Pill}" Background="{DynamicResource BrandSoft}">
+                                            <TextBlock Text="{Binding Reservation}" Style="{StaticResource Mono}" Foreground="{DynamicResource BrandText}" FontWeight="SemiBold" />
+                                        </Border>
+                                        <TextBlock Style="{StaticResource Caption}" FontSize="11" Margin="0,2,0,0">
+                                            <Run Text="{Binding KindText, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding BranchCode, Mode=OneWay}" />
+                                        </TextBlock>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTemplateColumn Header="DESTINATARIO" Width="*" MinWidth="200" SortMemberPath="Recipient" CanUserSort="True">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:MailQueueItem}">
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Recipient}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Recipient}" />
+                                        <TextBlock Text="{Binding MailKind}" Style="{StaticResource Caption}" FontSize="11" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTemplateColumn Header="ESTADO" Width="120" SortMemberPath="StatusText" CanUserSort="True">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:MailQueueItem}">
+                                    <Border Style="{StaticResource StatusPill}" c:Ui.BrushKey="{Binding StatusSoftBrush}">
+                                        <TextBlock Text="{Binding StatusText}" FontSize="11" FontWeight="SemiBold" c:Ui.BrushKey="{Binding StatusBrush}" />
+                                    </Border>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTextColumn Header="INTENTOS" Binding="{Binding AttemptsText}" Width="90" SortMemberPath="Attempts" ElementStyle="{StaticResource CellText}" />
+                        <DataGridTextColumn Header="ÚLTIMO INTENTO" Binding="{Binding LastAttemptText}" Width="130" ElementStyle="{StaticResource CellText}" />
+                        <DataGridTemplateColumn Header="DETALLE" Width="1.2*" MinWidth="200">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate DataType="{x:Type vm:MailQueueItem}">
+                                    <TextBlock Text="{Binding DetailText}" TextWrapping="Wrap" FontSize="12" VerticalAlignment="Center" ToolTip="{Binding DetailText}"
+                                               MaxHeight="36" TextTrimming="CharacterEllipsis">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding HasError}" Value="True">
+                                                        <Setter Property="Foreground" Value="{DynamicResource Danger}" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+                <ContentControl Style="{StaticResource EmptyState}" Tag="{x:Static c:Glyphs.Mail}" Visibility="{Binding NoMails, Converter={StaticResource Visible}}">
+                    <StackPanel>
+                        <TextBlock Text="Todavía no se pidió enviar ningún correo" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" HorizontalAlignment="Center" />
+                        <TextBlock Text="Cada reserva con correo de contacto encola aquí su confirmación." Style="{StaticResource Caption}" HorizontalAlignment="Center"
+                                   Margin="0,4,0,0" />
+                    </StackPanel>
+                </ContentControl>
+                <ContentControl Style="{StaticResource EmptyState}" Tag="{x:Static c:Glyphs.Search}" Visibility="{Binding NoMatches, Converter={StaticResource Visible}}">
+                    <StackPanel>
+                        <TextBlock Text="Ningún correo coincide con los filtros" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimary}" HorizontalAlignment="Center" />
+                        <Button Style="{StaticResource LinkButton}" Content="Limpiar filtros" HorizontalAlignment="Center" Margin="0,8,0,0" Command="{Binding ClearFilters}" />
+                    </StackPanel>
+                </ContentControl>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

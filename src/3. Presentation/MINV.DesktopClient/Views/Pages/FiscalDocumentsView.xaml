@@ -26,6 +26,8 @@
                     </StackPanel>
                 </Border>
                 <ComboBox Width="190" ItemsSource="{Binding Periods}" SelectedItem="{Binding Period}" ToolTip="Período (fecha fiscal de emisión)" Margin="0,0,8,0" />
+                <Button Content="Exportar CSV" c:Ui.Icon="{x:Static c:Glyphs.Download}" Command="{Binding Export}" Margin="0,0,8,0"
+                        ToolTip="Los documentos que muestra la lista, con sus filtros, en un archivo para Excel" />
                 <Button Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Refresh}" Command="{Binding Refresh}" ToolTip="Actualizar (F5)" />
             </StackPanel>
             <StackPanel>
@@ -46,8 +48,19 @@
             <TextBox Width="280" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}" c:Ui.Icon="{x:Static c:Glyphs.Search}" Margin="0,0,10,4"
                      c:Ui.Placeholder="N°, CUF, NIT / CI o nombre" ToolTip="Buscar por número, CUF, NIT / CI o nombre del comprador"
                      AutomationProperties.Name="Buscar documentos" />
-            <ComboBox Width="170" ItemsSource="{Binding Statuses}" SelectedItem="{Binding Status}" ToolTip="Estado ante el SIN" Margin="0,0,10,4" />
-            <ComboBox Width="170" ItemsSource="{Binding Kinds}" SelectedItem="{Binding Kind}" ToolTip="Tipo de documento" Margin="0,0,14,4" />
+            <ComboBox Width="170" ItemsSource="{Binding Statuses}" SelectedItem="{Binding Status}" ToolTip="Estado ante el SIN" Margin="0,0,10,4"
+                      AutomationProperties.Name="Estado" />
+            <ComboBox Width="170" ItemsSource="{Binding Kinds}" SelectedItem="{Binding Kind}" ToolTip="Tipo de documento" Margin="0,0,10,4"
+                      AutomationProperties.Name="Tipo de documento" />
+            <!-- V7 · Sucursal, punto de venta y tipo de emisión en listas desplegables -->
+            <ComboBox Width="170" ItemsSource="{Binding Branches}" SelectedItem="{Binding Branch}" ToolTip="Sucursal" Margin="0,0,10,4"
+                      AutomationProperties.Name="Sucursal" />
+            <ComboBox Width="180" ItemsSource="{Binding PointsOfSale}" SelectedItem="{Binding PointOfSale}" ToolTip="Punto de venta" Margin="0,0,10,4"
+                      AutomationProperties.Name="Punto de venta" />
+            <ComboBox Width="190" ItemsSource="{Binding Emissions}" SelectedItem="{Binding Emission}" ToolTip="Tipo de emisión" Margin="0,0,10,4"
+                      AutomationProperties.Name="Tipo de emisión" />
+            <Button Style="{StaticResource GhostButton}" Content="Limpiar filtros" c:Ui.Icon="{x:Static c:Glyphs.ClearFilter}" Command="{Binding ClearFilters}"
+                    Margin="0,0,14,4" Visibility="{Binding HasFilters, Converter={StaticResource Visible}}" />
             <TextBlock Text="{Binding Summary}" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,0,4" />
         </WrapPanel>
 

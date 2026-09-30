@@ -92,7 +92,8 @@
                                      GroupName="catalogView" />
                     </StackPanel>
                 </Border>
-                <Button Content="Exportar" c:Ui.Icon="{x:Static c:Glyphs.Download}" Command="{Binding Export}" Margin="0,0,8,0" />
+                <Button Content="Exportar CSV" c:Ui.Icon="{x:Static c:Glyphs.Download}" Command="{Binding Export}" Margin="0,0,8,0"
+                        ToolTip="Los productos que muestra la lista, con sus filtros, en un archivo para Excel" />
                 <Button Content="Especificaciones" c:Ui.Icon="{x:Static c:Glyphs.Checklist}" Command="{Binding ManageSpecs}" Margin="0,0,8,0"
                         ToolTip="Especificaciones técnicas por categoría (fichas, filtros y armador de PC)" c:Ui.IsBusy="{Binding ManageSpecs.IsRunning}"
                         Visibility="{Binding CanManageSpecs, Converter={StaticResource Visible}}" />
@@ -120,11 +121,20 @@
                 <TextBlock DockPanel.Dock="Right" Text="{Binding Summary}" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="10,0,0,0" />
                 <WrapPanel>
                     <TextBox Width="300" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}" c:Ui.Icon="{x:Static c:Glyphs.Search}"
-                             c:Ui.Placeholder="Buscar por nombre, SKU, código o proveedor" Margin="0,0,10,0" />
+                             c:Ui.Placeholder="Buscar por nombre, SKU, código o proveedor" Margin="0,0,10,8" />
                     <ComboBox Width="230" ItemsSource="{Binding Categories}" SelectedItem="{Binding Category}" ToolTip="Categoría (incluye sus subcategorías)"
-                              Margin="0,0,10,0" />
-                    <ComboBox Width="200" ItemsSource="{Binding States}" SelectedItem="{Binding State}" ToolTip="Estado" Margin="0,0,10,0" />
-                    <ComboBox Width="200" ItemsSource="{Binding Sorts}" SelectedItem="{Binding Sort}" ToolTip="Ordenar por" />
+                              Margin="0,0,10,8" AutomationProperties.Name="Categoría" />
+                    <!-- V7 · Proveedor y marca en listas desplegables -->
+                    <ComboBox Width="210" ItemsSource="{Binding Suppliers}" SelectedItem="{Binding Supplier}" ToolTip="Proveedor" Margin="0,0,10,8"
+                              AutomationProperties.Name="Proveedor" />
+                    <ComboBox Width="180" ItemsSource="{Binding Brands}" SelectedItem="{Binding Brand}" ToolTip="Marca (de la ficha técnica)" Margin="0,0,10,8"
+                              AutomationProperties.Name="Marca" Visibility="{Binding HasBrands, Converter={StaticResource Visible}}" />
+                    <ComboBox Width="200" ItemsSource="{Binding States}" SelectedItem="{Binding State}" ToolTip="Estado" Margin="0,0,10,8"
+                              AutomationProperties.Name="Estado" />
+                    <ComboBox Width="200" ItemsSource="{Binding Sorts}" SelectedItem="{Binding Sort}" ToolTip="Ordenar por" Margin="0,0,10,8"
+                              AutomationProperties.Name="Ordenar por" />
+                    <Button Style="{StaticResource GhostButton}" Content="Limpiar filtros" c:Ui.Icon="{x:Static c:Glyphs.ClearFilter}" Command="{Binding ClearFilters}"
+                            Margin="0,0,10,8" Visibility="{Binding HasFilters, Converter={StaticResource Visible}}" />
                 </WrapPanel>
             </DockPanel>
             <!-- V4.2 · Plataforma (opciones de la especificación «Plataforma») -->

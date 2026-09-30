@@ -11,7 +11,8 @@ using MINV.Domain.Inventory;
 
 namespace MINV.DesktopClient.ViewModels;
 
-/// <summary>Actividad (auditoría inmutable; en la V2.1: 14_ACTIVIDAD): quién hizo qué, cuándo y con qué resultado.</summary>
+/// <summary>Actividad (auditoría inmutable; en la V2.1: 14_ACTIVIDAD): quién hizo qué, cuándo y con qué resultado. V7: usuario,
+/// acción y fecha en listas desplegables, «Limpiar filtros» y «Exportar CSV».</summary>
 public sealed class ActivityViewModel : PageViewModel
 {
     private readonly DispatcherTimer _debounce = new() { Interval = TimeSpan.FromMilliseconds(180) };
@@ -19,9 +20,18 @@ public sealed class ActivityViewModel : PageViewModel
     private FilterChip? _filter;
     private string _search = string.Empty;
     private int _visible;
+    private Choice<string?> _user;
+    private Choice<string?> _action;
+    private Choice<PeriodOption?> _period;
 
     public ActivityViewModel(AppServices app) : base(app, "actividad", "Actividad", "Auditoría: quién hizo qué y cuándo", Glyphs.History)
     {
+        Users.ReplaceAll([new Choice<string?>("Todos los usuarios", null)]);
+        ActionsFilter.ReplaceAll([new Choice<string?>("Todas las acciones", null)]);
+        Periods.ReplaceAll(FilterChoices.Periods(Today));
+        _user = Users[0];
+        _action = ActionsFilter[0];
+        _period = Periods[0];
         Rows = CollectionViewSource.GetDefaultView(_items);
         _debounce.Tick += (_, _) =>
         {
@@ -37,11 +47,77 @@ public sealed class ActivityViewModel : PageViewModel
             _filter = chip;
             Apply();
         });
+        Export = new RelayCommand(() => App.ExportCsv(App.CsvName("actividad"), "Actividad", ExportTable()), () => _items.Count > 0);
+        ClearFilters = new RelayCommand(() =>
+        {
+            _search = string.Empty;
+            _user = Users[0];
+            _action = ActionsFilter[0];
+            _period = Periods[0];
+            foreach (var c in Filters)
+            {
+                c.IsSelected = c.Value is null;
+            }
+            _filter = Filters.FirstOrDefault(c => c.Value is null);
+            OnPropertiesChanged(nameof(Search), nameof(User), nameof(ActionChoice), nameof(Period));
+            Apply();
+        }, () => HasFilters);
     }
 
     public ICollectionView Rows { get; private set; }
 
     public BulkObservableCollection<FilterChip> Filters { get; } = [];
+
+    /// <summary>V7 · Quién (las personas que aparecen en la bitácora).</summary>
+    public BulkObservableCollection<Choice<string?>> Users { get; } = [];
+
+    /// <summary>V7 · Qué (las acciones que aparecen, con su nombre en español).</summary>
+    public BulkObservableCollection<Choice<string?>> ActionsFilter { get; } = [];
+
+    /// <summary>V7 · Cuándo: hoy, ayer, esta semana…</summary>
+    public BulkObservableCollection<Choice<PeriodOption?>> Periods { get; } = [];
+
+    public Choice<string?> User { get => _user; set { if (Set(ref _user, value ?? Users[0])) { Apply(); } } }
+
+    public Choice<string?> ActionChoice { get => _action; set { if (Set(ref _action, value ?? ActionsFilter[0])) { Apply(); } } }
+
+    public Choice<PeriodOption?> Period { get => _period; set { if (Set(ref _period, value ?? Periods[0])) { Apply(); } } }
+
+    public bool HasFilters => _search.Trim().Length > 0 || _user.Value is not null || _action.Value is not null || _period.Value is not null
+                              || _filter?.Value is not null;
+
+    public string Summary => _visible == _items.Count ? $"{_items.Count} registros" : $"{_visible} de {_items.Count} registros";
+
+    public RelayCommand Export { get; }
+
+    public RelayCommand ClearFilters { get; }
+
+    private DateOnly Today => DateOnly.FromDateTime(App.Now.ToLocalTime().DateTime);
+
+    /// <summary>V7 · Lo que se exporta: los registros visibles con sus filtros.</summary>
+    public CsvTable ExportTable() => CsvTable.Of(
+        ["Fecha y hora", "Usuario", "Correo", "Acción", "Resultado", "Detalle"],
+        Rows.Cast<ActivityItem>(),
+        a => [a.Row.OccurredAt, a.UserName, a.Row.UserEmail, a.ActionText, a.OutcomeText, a.Details]);
+
+    private bool Matches(object o)
+    {
+        if (o is not ActivityItem a || (_filter?.Value is AuditOutcome outcome && a.Outcome != outcome)
+            || (_user.Value is { } user && a.UserName != user) || (_action.Value is { } action && a.Row.Action != action))
+        {
+            return false;
+        }
+        if (_period.Value is { } period)
+        {
+            var day = DateOnly.FromDateTime(a.Row.OccurredAt.ToLocalTime().DateTime);
+            if (day < period.From || day > period.To)
+            {
+                return false;
+            }
+        }
+        var q = _search.Trim();
+        return q.Length == 0 || FilterChoices.Contains(a.SearchText, q);
+    }
 
     public string Search
     {
@@ -68,11 +144,17 @@ public sealed class ActivityViewModel : PageViewModel
         var rows = await App.SendAsync(new GetActivityQuery(1000));
         _items = rows.Select(r => new ActivityItem(r, now)).ToList();
         Rows = CollectionViewSource.GetDefaultView(_items);
-        Rows.Filter = o => o is ActivityItem a
-                           && (_filter?.Value is not AuditOutcome outcome || a.Outcome == outcome)
-                           && (_search.Trim().Length == 0 || Fmt.Culture.CompareInfo.IndexOf(a.SearchText, _search.Trim(),
-                               System.Globalization.CompareOptions.IgnoreCase | System.Globalization.CompareOptions.IgnoreNonSpace) >= 0);
+        Rows.Filter = Matches;
         OnPropertyChanged(nameof(Rows));
+        Users.ReplaceAll(FilterChoices.Of("Todos los usuarios", _items.Select(i => i.UserName)));
+        _user = FilterChoices.Keep(Users, _user);
+        ActionsFilter.ReplaceAll([new Choice<string?>("Todas las acciones", null),
+            .. _items.Select(i => i.Row.Action).Distinct(StringComparer.Ordinal).Select(a => new Choice<string?>(Fmt.Action(a), a))
+                .OrderBy(c => c.Label, StringComparer.Create(Fmt.Culture, true))]);
+        _action = FilterChoices.Keep(ActionsFilter, _action);
+        Periods.ReplaceAll(FilterChoices.Periods(Today));
+        _period = FilterChoices.Keep(Periods, _period);
+        OnPropertiesChanged(nameof(User), nameof(ActionChoice), nameof(Period));
         var previous = _filter?.Value;
         var chips = new List<FilterChip>
         {
@@ -91,7 +173,8 @@ public sealed class ActivityViewModel : PageViewModel
     {
         Rows.Refresh();
         VisibleCount = Rows.Cast<object>().Count();
-        OnPropertyChanged(nameof(IsEmpty));
+        OnPropertiesChanged(nameof(IsEmpty), nameof(HasFilters), nameof(Summary));
+        System.Windows.Input.CommandManager.InvalidateRequerySuggested();
     }
 }
 

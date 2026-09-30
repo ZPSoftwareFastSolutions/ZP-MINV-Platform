@@ -36,11 +36,12 @@ public sealed class StorefrontScreenTests
         var web = all.Where(b => b.IsWeb).ToList();
         Assert.NotEmpty(web);
         // La demostración trae UNA reserva web vigente de un armado sin cuenta (regla S-09) y una vencida, ya cerrada. V7: además,
-        // las reservas vigentes de la tienda web (el carrito de un solo monitor y las de las cuentas de cliente, ligadas a su
-        // cliente, regla P-13); el armador todavía las lista todas
+        // las reservas vigentes de las cuentas de cliente (ligadas a su cliente, regla P-13). Los carritos RES-… ya no aparecen en el
+        // armador: Cotizaciones lista solo armados (los carritos están en Ventas › Reservas)
+        Assert.All(all, b => Assert.Equal(PcBuildKind.Build, b.Row.Kind));
         var activeWeb = web.Where(b => b.IsReservationActive).ToList();
-        var active = Assert.Single(activeWeb, b => b.Row.Kind == PcBuildKind.Build && b.Row.Customer is null);
-        Assert.Equal(1 + demo.Seed.Web!.ActiveCarts + demo.Seed.Web.AccountReservations, activeWeb.Count);
+        var active = Assert.Single(activeWeb, b => b.Row.Customer is null);
+        Assert.Equal(1 + demo.Seed.Web!.AccountBuilds, activeWeb.Count);
         Assert.Contains(web, b => b.Row.Status == PcBuildStatus.Cancelled && b.Row.CancelReason == PcBuild.ExpiredReason);   // y una vencida, ya cerrada
         Assert.Equal("Web", active.ChannelText);
         Assert.StartsWith(PcBuild.WebNumberPrefix, active.Number, StringComparison.Ordinal);
@@ -83,18 +84,26 @@ public sealed class StorefrontScreenTests
         Assert.True(builder.CanSellCurrent);
         Assert.Contains("consume la reserva", builder.CurrentDetail, StringComparison.Ordinal);
 
-        // Inicio › Tecnología: la tarjeta cuenta la misma reserva y abre el armador filtrado
+        // Inicio › Tecnología (V7: sección plegable, se carga al abrirla): la tarjeta cuenta TODAS las reservas web vigentes (armados y
+        // carritos) y abre Ventas › Reservas con el canal Web y las activas
         shell.Navigate("inicio");
         var dashboard = (DashboardViewModel)shell.Current;
         await dashboard.LoadAsync(force: true);
+        Assert.False(dashboard.Tech.IsLoaded);
+        await dashboard.Tech.OpenAsync();
         Assert.True(dashboard.HasTech);
-        Assert.Equal(activeWeb.Count.ToString("N0", Fmt.Culture), dashboard.WebReservationsKpi.Value);
-        Assert.Contains(Fmt.Money(activeWeb.Sum(b => b.Total)), dashboard.WebReservationsKpi.Detail!, StringComparison.Ordinal);
+        var allWeb = (await shell.App.SendAsync(new GetPcBuildsQuery(PcBuildStatus.Reserved, PcBuildChannel.Web)))
+            .Where(b => b.ReservedUntil > shell.App.Now).ToList();
+        Assert.Equal(1 + demo.Seed.Web.AccountReservations + demo.Seed.Web.ActiveCarts, allWeb.Count);
+        Assert.Equal(allWeb.Count.ToString("N0", Fmt.Culture), dashboard.WebReservationsKpi.Value);
+        Assert.Contains(Fmt.Money(allWeb.Sum(b => b.Total)), dashboard.WebReservationsKpi.Detail!, StringComparison.Ordinal);
         dashboard.GoWebReservations.Execute(null);
-        Assert.Same(builder, shell.Current);
-        Assert.True(builder.IsQuotesTab);
-        Assert.True(builder.OnlyWebReservations);
-        Assert.All(builder.Builds.Cast<PcBuildItem>(), b => Assert.True(b.IsWeb));
+        var reservations = Assert.IsType<ReservationsViewModel>(shell.Current);
+        await Wpf.UntilAsync(() => reservations.HasLoaded && !reservations.IsBusy);
+        Assert.Equal(PcBuildChannel.Web, reservations.Channel.Value);
+        Assert.Equal(ReservationState.Active, reservations.State.Value);
+        Assert.All(reservations.Rows.Cast<ReservationItem>(), r => Assert.Equal("Web", r.ChannelText));
+        Assert.Equal(allWeb.Count, reservations.Rows.Cast<ReservationItem>().Count());
     });
 
     [Fact]
@@ -140,9 +149,9 @@ public sealed class StorefrontScreenTests
         Assert.False(listed.IsWeb);
         Assert.Equal("Escritorio", listed.ChannelText);
         Assert.False(listed.HighlightReservation);   // 24 h: ni vencida ni por vencer
-        // La reserva es del escritorio: no suma a las reservas web vigentes de la demostración (la del armado sin cuenta y, V7, las de
-        // la tienda web: el carrito de un solo monitor y las de las cuentas de cliente)
-        Assert.Equal((1 + demo.Seed.Web!.ActiveCarts + demo.Seed.Web.AccountReservations).ToString("N0", Fmt.Culture), builder.WebKpi.Value);
+        // La reserva es del escritorio: no suma a los armados reservados en la web de la demostración (el armado sin cuenta y, V7, los
+        // de las cuentas de cliente; los carritos de la tienda se ven en Ventas › Reservas, no en el armador)
+        Assert.Equal((1 + demo.Seed.Web!.AccountBuilds).ToString("N0", Fmt.Culture), builder.WebKpi.Value);
         Assert.True(int.Parse(builder.QuotedKpi.Value, Fmt.Culture) >= 1);   // las cotizaciones vigentes incluyen la reservada
 
         // Stock y caja ven lo reservado

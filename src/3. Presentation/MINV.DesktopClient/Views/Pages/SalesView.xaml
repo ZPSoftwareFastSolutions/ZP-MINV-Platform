@@ -19,7 +19,8 @@
         <DockPanel Grid.ColumnSpan="2" Margin="0,0,0,14">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                 <ComboBox Width="190" ItemsSource="{Binding Periods}" SelectedItem="{Binding Period}" ToolTip="Período" Margin="0,0,8,0" />
-                <Button Content="Exportar" c:Ui.Icon="{x:Static c:Glyphs.Download}" Command="{Binding Export}" Margin="0,0,8,0" />
+                <Button Content="Exportar CSV" c:Ui.Icon="{x:Static c:Glyphs.Download}" Command="{Binding Export}" Margin="0,0,8,0"
+                        ToolTip="Las ventas (o las devoluciones) que muestra la lista, con sus filtros, en un archivo para Excel" />
                 <Button Style="{StaticResource PrimaryButton}" Content="Nueva venta" c:Ui.Icon="{x:Static c:Glyphs.Cart}" Command="{Binding GoToPos}" Margin="0,0,8,0"
                         Visibility="{Binding CanSell, Converter={StaticResource Visible}}" />
                 <Button Style="{StaticResource IconButton}" Content="{x:Static c:Glyphs.Refresh}" Command="{Binding Refresh}" ToolTip="Actualizar (F5)" />
@@ -48,10 +49,22 @@
                     </StackPanel>
                 </Border>
                 <TextBox Width="220" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}" c:Ui.Icon="{x:Static c:Glyphs.Search}"
-                         c:Ui.Placeholder="Buscar factura o cliente" Margin="0,0,10,0" />
-                <ComboBox Width="190" ItemsSource="{Binding Methods}" SelectedItem="{Binding Method}" ToolTip="Medio de pago" Margin="0,0,10,0" />
-                <ComboBox Width="190" ItemsSource="{Binding Cashiers}" SelectedItem="{Binding Cashier}" ToolTip="Cajero" Margin="0,0,10,0" />
-                <ComboBox Width="140" ItemsSource="{Binding Statuses}" SelectedItem="{Binding Status}" ToolTip="Estado" />
+                         c:Ui.Placeholder="Buscar factura, devolución o cliente" Margin="0,0,10,8" AutomationProperties.Name="Buscar" />
+                <!-- V7 · Los filtros de las ventas (en Devoluciones solo aplica la búsqueda) -->
+                <StackPanel Orientation="Horizontal" Visibility="{Binding IsSalesTab, Converter={StaticResource Visible}}">
+                    <ComboBox Width="200" ItemsSource="{Binding Customers}" SelectedItem="{Binding Customer}" ToolTip="Cliente" Margin="0,0,10,8"
+                              AutomationProperties.Name="Cliente" IsTextSearchEnabled="True" />
+                    <ComboBox Width="190" ItemsSource="{Binding Methods}" SelectedItem="{Binding Method}" ToolTip="Medio de pago" Margin="0,0,10,8"
+                              AutomationProperties.Name="Medio de pago" />
+                    <ComboBox Width="170" ItemsSource="{Binding Cashiers}" SelectedItem="{Binding Cashier}" ToolTip="Cajero" Margin="0,0,10,8"
+                              AutomationProperties.Name="Cajero" />
+                    <ComboBox Width="130" ItemsSource="{Binding Statuses}" SelectedItem="{Binding Status}" ToolTip="Estado" Margin="0,0,10,8"
+                              AutomationProperties.Name="Estado" />
+                    <ComboBox Width="220" ItemsSource="{Binding FiscalFilters}" SelectedItem="{Binding Fiscal}" ToolTip="Factura del SIN" Margin="0,0,10,8"
+                              AutomationProperties.Name="Factura del SIN" Visibility="{Binding ShowFiscal, Converter={StaticResource Visible}}" />
+                </StackPanel>
+                <Button Style="{StaticResource GhostButton}" Content="Limpiar filtros" c:Ui.Icon="{x:Static c:Glyphs.ClearFilter}" Command="{Binding ClearFilters}"
+                        Margin="0,0,10,8" Visibility="{Binding HasFilters, Converter={StaticResource Visible}}" />
             </WrapPanel>
         </DockPanel>
 
@@ -126,7 +139,7 @@
         <!-- V4.1 · Devoluciones del período -->
         <Border Grid.Row="3" Grid.ColumnSpan="2" Style="{StaticResource CardFlat}" Padding="4,2,4,4" Visibility="{Binding IsReturnsTab, Converter={StaticResource Visible}}">
             <Grid>
-                <DataGrid ItemsSource="{Binding Returns}" RowHeight="54">
+                <DataGrid ItemsSource="{Binding ReturnsView}" RowHeight="54">
                     <DataGrid.Columns>
                         <DataGridTemplateColumn Header="DEVOLUCIÓN" Width="140" SortMemberPath="Row.Number" CanUserSort="True">
                             <DataGridTemplateColumn.CellTemplate>
@@ -150,8 +163,8 @@
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
-                        <DataGridTextColumn Header="REEMBOLSO" Binding="{Binding RefundText}" Width="120" HeaderStyle="{StaticResource HeaderRight}"
-                                            ElementStyle="{StaticResource CellRight}" />
+                        <DataGridTextColumn Header="REEMBOLSO" Binding="{Binding RefundText}" Width="120" SortMemberPath="Row.Refund"
+                                            HeaderStyle="{StaticResource HeaderRight}" ElementStyle="{StaticResource CellRight}" />
                         <DataGridTemplateColumn Header="NOTA CRÉDITO-DÉBITO" Width="260">
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate DataType="{x:Type vm:SalesReturnItem}">
@@ -233,11 +246,35 @@
                                     <TextBlock DockPanel.Dock="Right" Text="{Binding Amount, StringFormat={}{0:N2}}" FontWeight="SemiBold" VerticalAlignment="Top" />
                                     <StackPanel Margin="0,0,10,0">
                                         <TextBlock Text="{Binding Name}" TextWrapping="Wrap" Foreground="{DynamicResource TextPrimary}" />
-                                        <TextBlock Style="{StaticResource Caption}" FontSize="11.5">
-                                            <Run Text="{Binding Quantity, Mode=OneWay, StringFormat={}{0:0.###}}" /> <Run Text="{Binding Unit, Mode=OneWay}" />
-                                            <Run Text=" × " /><Run Text="{Binding UnitPrice, Mode=OneWay, StringFormat={}{0:N2}}" />
-                                            <Run Text="{Binding DiscountPercent, Mode=OneWay, StringFormat={} · desc. {0:0.#} %}" />
-                                        </TextBlock>
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Style="{StaticResource Caption}" FontSize="11.5">
+                                                <Run Text="{Binding Quantity, Mode=OneWay, StringFormat={}{0:0.###}}" /> <Run Text="{Binding Unit, Mode=OneWay}" />
+                                                <Run Text=" × " /><Run Text="{Binding UnitPrice, Mode=OneWay, StringFormat={}{0:N2}}" />
+                                            </TextBlock>
+                                            <!-- V7 · El descuento solo si lo hay (antes decía «desc. 0 %» en todas las líneas) -->
+                                            <TextBlock FontSize="11.5" Text="{Binding DiscountPercent, Mode=OneWay, StringFormat={} · desc. {0:0.#} %}">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource Caption}">
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding DiscountPercent}" Value="0">
+                                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </StackPanel>
+                                        <!-- V7 · Series o IMEI vendidos en la línea -->
+                                        <ItemsControl ItemsSource="{Binding Serials}" Focusable="False" ItemsPanel="{StaticResource WrapPanelTemplate}"
+                                                      Visibility="{Binding Serials.Count, Converter={StaticResource HasValue}, FallbackValue=Collapsed}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Style="{StaticResource PlatformBadge}" Margin="0,3,4,0">
+                                                        <TextBlock Text="{Binding}" FontFamily="{StaticResource MonoFont}" />
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
                                     </StackPanel>
                                 </DockPanel>
                             </DataTemplate>

@@ -5,7 +5,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Npgsql;
 using MINV.Application;
+using MINV.Application.Common;
 using MINV.Application.Iam;
+using MINV.Domain.Iam;
 using MINV.DesktopClient.Services;
 using MINV.DesktopClient.ViewModels;
 using MINV.Hardware;
@@ -59,6 +61,10 @@ public sealed class ClientHost : IDisposable
     }
 
     public IConfiguration Configuration { get; }
+
+    /// <summary>V7 · Aviso para una cuenta de cliente de la tienda web que intenta entrar al escritorio.</summary>
+    public const string CustomerAccountMessage =
+        "Es una cuenta de cliente de la tienda web: ingrese en la tienda con «Ingresar» (Mi cuenta). El escritorio es para el personal de la empresa.";
 
     public string ConnectionString { get; }
 
@@ -157,6 +163,11 @@ public sealed class ClientHost : IDisposable
             var connection = scope.ServiceProvider.GetRequiredService<CloudConnection>();
             connection.Configure(uri);
             var login = await connection.LoginAsync(tenantCode, email, password, ct);
+            if (RoleCodes.IsCustomerOnly(login.Login.Roles))
+            {
+                // V7 · Una cuenta de cliente de la tienda web no entra al escritorio
+                throw new AuthenticationFailedException(CustomerAccountMessage);
+            }
             var info = new ConnectionInfo(false, uri.Authority, "Servidor M-INV " + login.ServerVersion, email, IsCloud: true);
             await scope.ServiceProvider.GetRequiredService<SessionContext>().StartAsync(scope.ServiceProvider.GetRequiredService<SerialMediator>(),
                 login.Login, email.Trim().ToLowerInvariant(), info, ct);
@@ -177,6 +188,12 @@ public sealed class ClientHost : IDisposable
         {
             var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
             var login = await mediator.Send(new LoginCommand(tenantCode, email, password, Environment.MachineName, App.Version), ct);
+            if (RoleCodes.IsCustomerOnly(login.Roles))
+            {
+                // V7 · Una cuenta de cliente de la tienda web no entra al escritorio (antes fallaba con un permiso técnico a la vista)
+                await mediator.Send(new LogoutCommand(login.SessionId), ct);
+                throw new AuthenticationFailedException(CustomerAccountMessage);
+            }
             await scope.ServiceProvider.GetRequiredService<SessionContext>().StartAsync(scope.ServiceProvider.GetRequiredService<SerialMediator>(),
                 login, email.Trim().ToLowerInvariant(), info, ct);
             return new SessionHandle(scope, login, email, info);
@@ -268,6 +285,9 @@ public static class ClientServices
         services.AddScoped<PcBuilderViewModel>();
         services.AddScoped<SerialsViewModel>();
         services.AddScoped<WarrantyClaimsViewModel>();
+        // V7 · Reservas (carritos y armados de la web y del mostrador) y cola de correos de confirmación
+        services.AddScoped<ReservationsViewModel>();
+        services.AddScoped<MailQueueViewModel>();
         return services;
     }
 }

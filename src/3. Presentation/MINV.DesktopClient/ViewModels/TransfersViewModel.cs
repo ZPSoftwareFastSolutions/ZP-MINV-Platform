@@ -85,6 +85,10 @@ public sealed class TransfersViewModel : PageViewModel
     private static readonly Choice<TransferStatus?> AllStatuses = new("Todos los estados", null);
     private List<TransferItem> _items = [];
     private Choice<TransferStatus?> _status = AllStatuses;
+    private Choice<string?> _from;
+    private Choice<string?> _to;
+    private Choice<PeriodOption?> _period;
+    private string _search = string.Empty;
     private TransferItem? _selected;
     private TransferDetail? _detail;
     private TransferEditor? _editor;
@@ -99,20 +103,62 @@ public sealed class TransfersViewModel : PageViewModel
             AllStatuses, new("Pendientes", TransferStatus.Pending), new("En tránsito", TransferStatus.Dispatched), new("Recibidas", TransferStatus.Received),
             new("Anuladas", TransferStatus.Cancelled),
         ];
+        FromBranches.ReplaceAll([new Choice<string?>("Desde cualquier sucursal", null)]);
+        ToBranches.ReplaceAll([new Choice<string?>("Hacia cualquier sucursal", null)]);
+        _from = FromBranches[0];
+        _to = ToBranches[0];
+        Periods.ReplaceAll(FilterChoices.Periods(Today));
+        _period = Periods[0];
         Rows = CollectionViewSource.GetDefaultView(_items);
         New = new AsyncRelayCommand(OpenEditorAsync, () => CanManage);
         Dispatch = new AsyncRelayCommand(DispatchAsync, () => CanManage && _selected?.Row.CanDispatch == true);
-        Receive = new RelayCommand(OpenReceipt, () => CanManage && _selected?.Row.CanReceive == true && _detail is not null);
+        Receive = new RelayCommand(OpenReceipt, () => CanManage && _selected?.Row.CanReceive == true && _detail?.Header.Id == _selected.Row.Id);
         Cancel = new AsyncRelayCommand(CancelAsync, () => CanManage && _selected?.Row.CanCancel == true);
+        Export = new RelayCommand(() => App.ExportCsv(App.CsvName("transferencias"), "Transferencias", ExportTable()), () => _items.Count > 0);
+        ClearFilters = new RelayCommand(() =>
+        {
+            _search = string.Empty;
+            _status = AllStatuses;
+            _from = FromBranches[0];
+            _to = ToBranches[0];
+            _period = Periods[0];
+            OnPropertiesChanged(nameof(Search), nameof(Status), nameof(From), nameof(To), nameof(Period));
+            ApplyFilter();
+        }, () => HasFilters);
     }
 
     public ICollectionView Rows { get; private set; }
 
     public IReadOnlyList<Choice<TransferStatus?>> Statuses { get; }
 
+    /// <summary>V7 · Sucursal de origen y de destino en listas desplegables (las que aparecen en las transferencias).</summary>
+    public BulkObservableCollection<Choice<string?>> FromBranches { get; } = [];
+
+    public BulkObservableCollection<Choice<string?>> ToBranches { get; } = [];
+
+    /// <summary>V7 · Fecha de la solicitud: hoy, esta semana, este mes…</summary>
+    public BulkObservableCollection<Choice<PeriodOption?>> Periods { get; } = [];
+
+    private DateOnly Today => DateOnly.FromDateTime(App.Now.ToLocalTime().DateTime);
+
     public bool CanManage => App.Session.Can(PermissionCodes.TransfersManage);
 
     public Choice<TransferStatus?> Status { get => _status; set { if (Set(ref _status, value ?? AllStatuses)) { ApplyFilter(); } } }
+
+    public Choice<string?> From { get => _from; set { if (Set(ref _from, value ?? FromBranches[0])) { ApplyFilter(); } } }
+
+    public Choice<string?> To { get => _to; set { if (Set(ref _to, value ?? ToBranches[0])) { ApplyFilter(); } } }
+
+    public Choice<PeriodOption?> Period { get => _period; set { if (Set(ref _period, value ?? Periods[0])) { ApplyFilter(); } } }
+
+    /// <summary>V7 · Búsqueda por número, sucursal, almacén o nota.</summary>
+    public string Search { get => _search; set { if (Set(ref _search, value ?? string.Empty)) { ApplyFilter(); } } }
+
+    public bool HasFilters => _search.Trim().Length > 0 || _status.Value is not null || _from.Value is not null || _to.Value is not null || _period.Value is not null;
+
+    public RelayCommand Export { get; }
+
+    public RelayCommand ClearFilters { get; }
 
     public string Summary { get => _summary; private set => Set(ref _summary, value); }
 
@@ -148,7 +194,8 @@ public sealed class TransfersViewModel : PageViewModel
         {
             if (Set(ref _editor, value))
             {
-                OnPropertyChanged(nameof(IsEditing));
+                // V7 · IsCreating no se avisaba: el panel «Nueva transferencia» nunca aparecía
+                OnPropertiesChanged(nameof(IsEditing), nameof(IsCreating));
             }
         }
     }
@@ -187,9 +234,16 @@ public sealed class TransfersViewModel : PageViewModel
         var selected = _selected?.Row.Id;
         _items = rows.Select(r => new TransferItem(r)).ToList();
         Rows = CollectionViewSource.GetDefaultView(_items);
-        Rows.Filter = o => o is TransferItem t && (_status.Value is not { } s || t.Status == s);
+        Rows.Filter = Matches;
         Rows.SortDescriptions.Add(new SortDescription(nameof(TransferItem.RequestedAt), ListSortDirection.Descending));
         OnPropertyChanged(nameof(Rows));
+        FromBranches.ReplaceAll(FilterChoices.Of("Desde cualquier sucursal", rows.Select(r => r.FromBranch)));
+        ToBranches.ReplaceAll(FilterChoices.Of("Hacia cualquier sucursal", rows.Select(r => r.ToBranch)));
+        Periods.ReplaceAll(FilterChoices.Periods(Today));
+        _from = FilterChoices.Keep(FromBranches, _from);
+        _to = FilterChoices.Keep(ToBranches, _to);
+        _period = FilterChoices.Keep(Periods, _period);
+        OnPropertiesChanged(nameof(From), nameof(To), nameof(Period));
         var today = DateOnly.FromDateTime(App.Now.ToLocalTime().DateTime);
         var monthStart = new DateTimeOffset(new DateTime(today.Year, today.Month, 1));
         var pending = rows.Where(r => r.Status == TransferStatus.Pending).ToList();
@@ -232,30 +286,69 @@ public sealed class TransfersViewModel : PageViewModel
         Selected = _items.FirstOrDefault(i => i.Row.Id == result.Id);
     }
 
+    private bool Matches(object o)
+    {
+        if (o is not TransferItem t)
+        {
+            return false;
+        }
+        if ((_status.Value is { } s && t.Status != s) || (_from.Value is { } from && t.Row.FromBranch != from) || (_to.Value is { } to && t.Row.ToBranch != to))
+        {
+            return false;
+        }
+        if (_period.Value is { } period)
+        {
+            var day = DateOnly.FromDateTime(t.RequestedAt.ToLocalTime().DateTime);
+            if (day < period.From || day > period.To)
+            {
+                return false;
+            }
+        }
+        var q = _search.Trim();
+        return q.Length == 0 || t.Number.Contains(q, StringComparison.OrdinalIgnoreCase) || FilterChoices.Contains(t.RouteLong, q)
+               || FilterChoices.Contains(t.WarehousesText, q) || FilterChoices.Contains(t.Row.Notes, q);
+    }
+
     private void ApplyFilter()
     {
         Rows.Refresh();
         var visible = Rows.Cast<object>().Count();
         Summary = visible == _items.Count ? $"{_items.Count} transferencias" : $"{visible} de {_items.Count} transferencias";
-        OnPropertyChanged(nameof(IsEmpty));
+        OnPropertiesChanged(nameof(IsEmpty), nameof(HasFilters));
+        System.Windows.Input.CommandManager.InvalidateRequerySuggested();
     }
+
+    /// <summary>V7 · Lo que se exporta: las transferencias visibles con sus filtros.</summary>
+    public CsvTable ExportTable() => CsvTable.Of(
+        ["Número", "Estado", "Sucursal de origen", "Almacén de origen", "Sucursal de destino", "Almacén de destino", "Solicitada", "Despachada", "Recibida",
+            "Productos", "Cantidad", "Valor", "Faltante", "Notas"],
+        Rows.Cast<TransferItem>(),
+        t => [t.Number, t.StatusText, t.Row.FromBranch, t.Row.FromWarehouse, t.Row.ToBranch, t.Row.ToWarehouse, t.Row.RequestedAt, t.Row.DispatchedAt,
+            t.Row.ReceivedAt, t.Row.Lines, t.Row.Quantity, t.Row.Status == TransferStatus.Pending ? null : t.Row.Value, t.Row.Shortage, t.Row.Notes]);
 
     private async Task LoadDetailAsync()
     {
         Receipt = null;
+        // V7 · Se limpia el detalle ANTES de leer el nuevo: mientras llegaba, «Recibir» usaba el de la transferencia anterior
+        Detail = null;
         if (_selected is not { } transfer)
         {
-            Detail = null;
             return;
         }
         try
         {
-            Detail = await App.SendAsync(new GetTransferQuery(transfer.Row.Id));
+            var detail = await App.SendAsync(new GetTransferQuery(transfer.Row.Id));
+            if (ReferenceEquals(_selected, transfer))
+            {
+                Detail = detail;
+            }
         }
         catch (Exception ex) when (AppServices.IsExpected(ex))
         {
-            Detail = null;
-            App.Notify.Error("No se pudo leer la transferencia", AppServices.Describe(ex));
+            if (ReferenceEquals(_selected, transfer))
+            {
+                App.Notify.Error("No se pudo leer la transferencia", AppServices.Describe(ex));
+            }
         }
         System.Windows.Input.CommandManager.InvalidateRequerySuggested();
     }
@@ -301,7 +394,7 @@ public sealed class TransfersViewModel : PageViewModel
 
     private void OpenReceipt()
     {
-        if (_detail is { } detail)
+        if (_detail is { } detail && _selected is { } selected && detail.Header.Id == selected.Row.Id)
         {
             Receipt = new TransferReceiptEditor(this, App, detail);
         }
@@ -312,8 +405,14 @@ public sealed class TransfersViewModel : PageViewModel
         var t = _selected!;
         var reason = await App.Dialogs.PromptAsync($"Anular {t.Number}", "La transferencia todavía no movió stock: se anula y queda en la bitácora.",
             "Motivo", ["Ya no se necesita", "Se pidió por error", "Se abastecerá con una compra"], "Anular", isDanger: true);
-        if (string.IsNullOrWhiteSpace(reason))
+        if (reason is null)
         {
+            return;
+        }
+        if (reason.Length == 0)
+        {
+            // V7 · Antes, aceptar sin motivo no hacía nada y no decía por qué
+            App.Notify.Warning("Falta el motivo", $"Elija o escriba por qué se anula {t.Number}: queda en la bitácora.");
             return;
         }
         if (await RunAsync(async () =>
@@ -376,7 +475,11 @@ public sealed class TransferEditor : ObservableObject
         _to = Destinations.FirstOrDefault(d => d.Code != _from?.Code);
         Products = catalog.OrderBy(c => c.Name).ToList();
         AddLine = new RelayCommand(OnAddLine, () => _product is not null);
-        RemoveLine = new RelayCommand<TransferDraftLine>(l => Lines.Remove(l));
+        RemoveLine = new RelayCommand<TransferDraftLine>(l =>
+        {
+            Lines.Remove(l);
+            OnPropertyChanged(nameof(LinesText));
+        });
         Save = new AsyncRelayCommand(SaveAsync, () => Lines.Count > 0 && _from is not null && _to is not null);
         Cancel = new RelayCommand(owner.CloseEditors);
     }

@@ -17,6 +17,8 @@
 
         <DockPanel Grid.ColumnSpan="2" Margin="0,0,0,14">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button Content="Exportar CSV" c:Ui.Icon="{x:Static c:Glyphs.Download}" Command="{Binding Export}" Margin="0,0,8,0"
+                        ToolTip="Los proveedores que muestra la lista, con sus filtros, en un archivo para Excel" />
                 <Button Content="Órdenes de compra" c:Ui.Icon="{x:Static c:Glyphs.Clipboard}" Command="{Binding NewOrder}" Margin="0,0,8,0" />
                 <Button Style="{StaticResource PrimaryButton}" Content="Nuevo proveedor" c:Ui.Icon="{x:Static c:Glyphs.Add}" Command="{Binding New}" Margin="0,0,8,0"
                         Visibility="{Binding CanEdit, Converter={StaticResource Visible}}" />
@@ -35,8 +37,19 @@
             <ContentControl Content="{Binding LeadKpi}" ContentTemplate="{StaticResource KpiTemplate}" Focusable="False" />
         </UniformGrid>
 
-        <TextBox Grid.Row="2" Width="340" HorizontalAlignment="Left" Margin="0,0,0,12" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}"
-                 c:Ui.Icon="{x:Static c:Glyphs.Search}" c:Ui.Placeholder="Buscar proveedor o contacto" />
+        <DockPanel Grid.Row="2" Margin="0,0,0,4">
+            <TextBlock DockPanel.Dock="Right" Text="{Binding Summary}" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,0,8" />
+            <WrapPanel>
+                <TextBox Width="300" Margin="0,0,10,8" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}"
+                         c:Ui.Icon="{x:Static c:Glyphs.Search}" c:Ui.Placeholder="Buscar por nombre, código, NIT o contacto" AutomationProperties.Name="Buscar" />
+                <ComboBox Width="200" Margin="0,0,10,8" ItemsSource="{Binding States}" SelectedItem="{Binding State}" ToolTip="Estado"
+                          AutomationProperties.Name="Estado" />
+                <ComboBox Width="230" Margin="0,0,10,8" ItemsSource="{Binding OrderFilters}" SelectedItem="{Binding Orders}" ToolTip="Órdenes abiertas"
+                          AutomationProperties.Name="Órdenes abiertas" />
+                <Button Style="{StaticResource GhostButton}" Content="Limpiar filtros" c:Ui.Icon="{x:Static c:Glyphs.ClearFilter}" Command="{Binding ClearFilters}"
+                        Margin="0,0,10,8" Visibility="{Binding HasFilters, Converter={StaticResource Visible}}" />
+            </WrapPanel>
+        </DockPanel>
 
         <Border Grid.Row="3" Style="{StaticResource CardFlat}" Padding="4,2,4,4">
             <DataGrid ItemsSource="{Binding Rows}" RowHeight="58">
@@ -63,6 +76,7 @@
                                         ElementStyle="{StaticResource CellRight}" />
                     <DataGridTextColumn Header="COMPRADO" Binding="{Binding PurchasedText}" Width="140" SortMemberPath="Purchased" HeaderStyle="{StaticResource HeaderRight}"
                                         ElementStyle="{StaticResource CellRight}" />
+                    <DataGridTextColumn Header="ESTADO" Binding="{Binding StateText}" Width="90" ElementStyle="{StaticResource CellText}" />
                     <DataGridTemplateColumn Width="56" CanUserSort="False">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate DataType="{x:Type vm:SupplierItem}">
@@ -75,6 +89,16 @@
                 </DataGrid.Columns>
             </DataGrid>
         </Border>
+
+        <ContentControl Grid.Row="3" Style="{StaticResource EmptyState}" Tag="{x:Static c:Glyphs.Search}"
+                        Visibility="{Binding IsEmpty, Converter={StaticResource Visible}}">
+            <StackPanel>
+                <TextBlock Text="Ningún proveedor coincide con los filtros" FontWeight="SemiBold" HorizontalAlignment="Center"
+                           Foreground="{DynamicResource TextPrimary}" />
+                <Button Style="{StaticResource LinkButton}" Content="Limpiar filtros" HorizontalAlignment="Center" Margin="0,8,0,0"
+                        Command="{Binding ClearFilters}" Visibility="{Binding HasFilters, Converter={StaticResource Visible}}" />
+            </StackPanel>
+        </ContentControl>
 
         <Border Grid.Row="2" Grid.RowSpan="2" Grid.Column="1" Style="{StaticResource EditorPanel}" Width="400"
                 Visibility="{Binding DataContext.IsEditing, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource Visible}}"

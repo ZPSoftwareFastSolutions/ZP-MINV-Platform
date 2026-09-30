@@ -39,7 +39,7 @@
                                    TextTrimming="CharacterEllipsis" FontSize="12.5" LineHeight="17" LineStackingStrategy="BlockLineHeight" />
                         <TextBlock Text="{Binding PriceText}" FontSize="16" FontWeight="Bold" Foreground="{DynamicResource BrandText}" Margin="0,4,0,0" />
                         <TextBlock x:Name="Avail" Text="{Binding AvailableText}" Style="{StaticResource Caption}" FontSize="11.5" TextWrapping="Wrap"
-                                   ToolTip="Disponible = existencias − reservado para armados (web y escritorio)" />
+                                   ToolTip="Disponible = existencias − reservado para clientes (reservas de la web y del mostrador)" />
                     </StackPanel>
                 </StackPanel>
             </Button>
@@ -226,17 +226,17 @@
                 <DockPanel DockPanel.Dock="Top" Margin="18,14,12,6">
                     <Button DockPanel.Dock="Right" Style="{StaticResource GhostButton}" Content="Vaciar" c:Ui.Icon="{x:Static c:Glyphs.Delete}" Command="{Binding ClearCart}"
                             Height="30" Padding="10,0" />
-                    <!-- V4.2 · Cobrar una cotización del armador de PC -->
-                    <Button DockPanel.Dock="Right" Style="{StaticResource GhostButton}" Content="Desde armado" c:Ui.Icon="{x:Static c:Glyphs.Monitor}"
+                    <!-- V4.2 · Cobrar una cotización del armador de PC; V7 · o una reserva (carrito de la web o del mostrador) -->
+                    <Button DockPanel.Dock="Right" Style="{StaticResource GhostButton}" Content="Reserva o armado" c:Ui.Icon="{x:Static c:Glyphs.Clock}"
                             Command="{Binding FromBuild}" Height="30" Padding="10,0" Margin="0,0,4,0" c:Ui.IsBusy="{Binding FromBuild.IsRunning}"
-                            ToolTip="Cargar una cotización vigente del armador de PC (precios cotizados y series de cada pieza)" />
+                            ToolTip="Cargar una reserva vigente o un armado cotizado de esta sucursal (precios congelados; la venta consume la reserva)" />
                     <StackPanel>
                         <TextBlock Text="Venta actual" Style="{StaticResource H3}" />
                         <TextBlock Text="{Binding ItemsText}" Style="{StaticResource Caption}" />
                     </StackPanel>
                 </DockPanel>
 
-                <!-- V4.2 · Armado cotizado en el carrito -->
+                <!-- V4.2 · Armado cotizado en el carrito (V7: o una reserva de compra) -->
                 <Border DockPanel.Dock="Top" Background="{DynamicResource BrandSoft}" BorderBrush="{DynamicResource Brand}" BorderThickness="0,1,0,1" Padding="18,8"
                         Visibility="{Binding IsBuildMode, Converter={StaticResource Visible}}">
                     <DockPanel>

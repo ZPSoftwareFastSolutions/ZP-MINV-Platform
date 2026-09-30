@@ -143,21 +143,13 @@ public sealed class OrderViewModel : PageViewModel
         }
     }
 
-    private void ExportCsv()
-    {
-        var path = FileDialogs.SaveCsv($"pedido-sugerido-{DateTime.Now:yyyyMMdd}.csv");
-        if (path is null)
-        {
-            return;
-        }
-        var lines = Groups.SelectMany(g => g.Lines).ToList();
-        Csv.Write(path, ["Proveedor", "SKU", "Producto", "Unidad", "Estado", "Stock", "Mínimo", "Máximo", "A pedir", "Costo unitario", "Subtotal",
-                "Entrega estimada", "Contacto", "Teléfono", "Correo"],
-            lines.Select(l => new object?[]
-            {
-                l.Line.Supplier, l.Sku, l.Name, l.Line.Unit, StockRules.Label(l.Status), l.Line.Stock, l.Line.Minimum, l.Line.Maximum,
-                l.Line.QuantityToOrder, l.Line.UnitCost, l.Line.Subtotal, l.Line.EstimatedDelivery, l.Line.Contact, l.Line.Phone, l.Line.Email,
-            }));
-        App.Notify.Success("Pedido exportado", $"{lines.Count} líneas en {System.IO.Path.GetFileName(path)}");
-    }
+    /// <summary>V7 · Lo que se exporta: todas las líneas del pedido sugerido (formato único de <see cref="CsvExport"/>).</summary>
+    public CsvTable ExportTable() => CsvTable.Of(
+        ["Proveedor", "SKU", "Producto", "Unidad", "Estado", "Stock", "Mínimo", "Máximo", "A pedir", "Costo unitario", "Subtotal", "Entrega estimada",
+            "Contacto", "Teléfono", "Correo"],
+        Groups.SelectMany(g => g.Lines),
+        l => [l.Line.Supplier, l.Sku, l.Name, l.Line.Unit, StockRules.Label(l.Status), l.Line.Stock, l.Line.Minimum, l.Line.Maximum, l.Line.QuantityToOrder,
+            l.Line.UnitCost, l.Line.Subtotal, l.Line.EstimatedDelivery, l.Line.Contact, l.Line.Phone, l.Line.Email]);
+
+    private void ExportCsv() => App.ExportCsv(App.CsvName("pedido-sugerido"), "Pedido sugerido", ExportTable());
 }

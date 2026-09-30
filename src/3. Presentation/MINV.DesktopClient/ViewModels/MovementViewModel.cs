@@ -113,13 +113,20 @@ public sealed class MovementViewModel : PageViewModel, IScannerTarget
                     Tech = null;
                 }
                 OnPropertiesChanged(nameof(HasProduct), nameof(ProductName), nameof(ProductSku), nameof(ProductMeta), nameof(TotalStockText),
-                    nameof(MinMaxText), nameof(Level), nameof(Status), nameof(UnitText));
+                    nameof(MinMaxText), nameof(Level), nameof(Status), nameof(UnitText), nameof(HasReserved), nameof(ReservedText));
                 RaisePreview();
             }
         }
     }
 
     public bool HasProduct => _product is not null;
+
+    /// <summary>V7 · Unidades reservadas para clientes (no se pueden vender a otro, aunque estén en el estante).</summary>
+    public bool HasReserved => _product is { Reserved: > 0 };
+
+    public string ReservedText => _product is { Reserved: > 0 } p
+        ? $"Reservado para clientes: {Fmt.Qty(p.Reserved, p.Unit)} · disponible para vender {Fmt.Qty(p.Available, p.Unit)}"
+        : string.Empty;
 
     public bool IsLoadingProduct
     {
@@ -263,8 +270,11 @@ public sealed class MovementViewModel : PageViewModel, IScannerTarget
                 SetType(Types[0]);
             }
         }
+        // V7 · Si se llegó con un producto elegido (Alertas, ficha), no se vuelve a cargar el ANTERIOR encima: la selección del buscador
+        // es asíncrona y la recarga dejaba el producto viejo en el formulario
+        var prefilled = _pendingSku is not null;
         await ApplyPendingAsync();
-        if (_product is not null && HasLoaded)
+        if (!prefilled && _product is not null && HasLoaded)
         {
             await LoadProductAsync(_product.Sku);
         }

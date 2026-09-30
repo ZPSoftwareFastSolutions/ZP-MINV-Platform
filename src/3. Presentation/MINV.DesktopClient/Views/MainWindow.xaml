@@ -54,6 +54,9 @@
         <DataTemplate DataType="{x:Type vm:PcBuilderViewModel}"><p:PcBuilderView /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:SerialsViewModel}"><p:SerialsView /></DataTemplate>
         <DataTemplate DataType="{x:Type vm:WarrantyClaimsViewModel}"><p:WarrantyClaimsView /></DataTemplate>
+        <!-- V7 · Reservas y cola de correos -->
+        <DataTemplate DataType="{x:Type vm:ReservationsViewModel}"><p:ReservationsView /></DataTemplate>
+        <DataTemplate DataType="{x:Type vm:MailQueueViewModel}"><p:MailQueueView /></DataTemplate>
 
         <!-- Botón del menú lateral -->
         <Style x:Key="NavButton" TargetType="RadioButton">

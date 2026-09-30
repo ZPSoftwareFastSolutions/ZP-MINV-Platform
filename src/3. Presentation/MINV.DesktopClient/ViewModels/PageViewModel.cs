@@ -54,6 +54,40 @@ public sealed class AppServices(SerialMediator mediator, NotificationService not
         Data.Invalidate();
     }
 
+    /// <summary>
+    /// V7 · Exporta a CSV lo que la lista muestra (con sus filtros): pide dónde guardarlo, lo escribe con el formato único de
+    /// <see cref="CsvExport"/> (UTF-8 con BOM, «;», celdas neutralizadas) y avisa el resultado. Devuelve la ruta escrita o null
+    /// (cancelado, lista vacía o el archivo estaba abierto en otro programa: se avisa, nunca un error técnico).
+    /// </summary>
+    public string? ExportCsv(string fileName, string what, CsvTable table)
+    {
+        if (table.Count == 0)
+        {
+            Notify.Info("Nada que exportar", "La lista está vacía con los filtros elegidos: cambie o limpie los filtros.");
+            return null;
+        }
+        var path = Dialogs.AskCsvPath(fileName);
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+        try
+        {
+            CsvExport.Write(path, table);
+        }
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or System.Security.SecurityException or NotSupportedException
+                                       or ArgumentException)
+        {
+            Notify.Error("No se pudo exportar", $"No se pudo guardar «{System.IO.Path.GetFileName(path)}»: ciérrelo si está abierto en Excel o elija otra carpeta.");
+            return null;
+        }
+        Notify.Success("CSV guardado", $"{what}: {table.Count} fila{(table.Count == 1 ? "" : "s")} en {System.IO.Path.GetFileName(path)}");
+        return path;
+    }
+
+    /// <summary>Nombre de archivo sugerido: «reservas-20260929-1430.csv».</summary>
+    public string CsvName(string prefix) => $"{prefix}-{Now.ToLocalTime():yyyyMMdd-HHmm}.csv";
+
     /// <summary>Mensaje para el usuario a partir de una excepción (nunca un cuadro de error técnico).</summary>
     public static string Describe(Exception ex) => ex switch
     {
@@ -171,9 +205,16 @@ public abstract class PageViewModel : ObservableObject
         ErrorMessage = null;
         try
         {
+            var first = !HasLoaded;
             await LoadCoreAsync(force);
             HasLoaded = true;
             _version = App.Data.Version;
+            if (first)
+            {
+                // V7 · Las propiedades que dependen de HasLoaded (estados vacíos, guías, avisos) se notificaron dentro de LoadCoreAsync,
+                // cuando todavía valía false: en la primera carga no aparecían hasta tocar un filtro o pulsar F5. Se vuelven a leer todas.
+                OnPropertyChanged(string.Empty);
+            }
         }
         catch (Exception ex)
         {
