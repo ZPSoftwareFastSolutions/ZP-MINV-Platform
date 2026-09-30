@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    M-INV V3/V4/V4.1/V4.2 - Base de datos PostgreSQL LOCAL (portable, sin instalador ni permisos de administrador).
+    M-INV V3/V4/V4.1/V4.2/V7 - Base de datos PostgreSQL LOCAL (portable, sin instalador ni permisos de administrador).
 
 .DESCRIPTION
     Acciones (-Accion):
@@ -11,8 +11,10 @@
                  Tech Zone Gaming S.R.L. (codigo TECHZONE) multi-sucursal CON FACTURACION (minv datos-prueba).
                  Es idempotente: si algo ya existe, lo reutiliza.
       iniciar    Inicia el servidor.            detener   Lo detiene.            estado   Muestra si responde.
-      recrear    Detiene los servidores locales (si estan corriendo), borra la base "minv", la vuelve a crear, migra y
-                 carga datos de prueba nuevos (y un estado nuevo del simulador del SIN).
+      recrear    Detiene los servidores locales (si estan corriendo), RESPALDA la base "minv" (V7), la borra, la vuelve a
+                 crear, migra y carga datos de prueba nuevos (y un estado nuevo del simulador del SIN).
+      respaldar  (V7) Copia la base "minv" con pg_dump (formato personalizado, restaurable con pg_restore) en
+                 %LOCALAPPDATA%\M-INVespaldos\minv-AAAAMMDD-HHMMSS.dump. Si el respaldo falla, recrear NO borra nada.
     Las contrasenas (superusuario postgres, minv_owner, minv_server y los usuarios de la aplicacion) se generan al azar y
     se guardan SOLO en %LOCALAPPDATA%\M-INV\credenciales-bd-local.txt (fuera del repositorio). minv_app usa la clave de
     desarrollo "minv-dev" de appsettings.json (solo escucha en localhost).
@@ -37,7 +39,7 @@
     powershell -ExecutionPolicy Bypass -File tools\bd_local.ps1 -Accion iniciar -Autoiniciar
 #>
 param(
-    [ValidateSet('instalar', 'iniciar', 'detener', 'estado', 'recrear')][string]$Accion = 'instalar',
+    [ValidateSet('instalar', 'iniciar', 'detener', 'estado', 'recrear', 'respaldar')][string]$Accion = 'instalar',
     [string]$Zip = '',
     [int]$Puerto = 5432,
     [switch]$SinDatos,
@@ -195,11 +197,11 @@ function Crear-Base([switch]$Borrar) {
         Write-Output 'Base "minv" creada.'
     }
     $cadena = 'Host=localhost;Port=' + $Puerto + ';Database=minv;Username=minv_owner;Password=' + $claveOwner
-    Write-Output 'Aplicando las migraciones (152 tablas en 10 esquemas, 5FN, triggers, RLS por empresa y sucursal, vistas, modelo de lectura, facturacion SIAT, series, garantias y armados) ...'
+    Write-Output 'Aplicando las migraciones (V7: 157 tablas en 10 esquemas, 5FN, triggers, RLS por empresa y sucursal, vistas, modelo de lectura, facturacion SIAT, series, garantias, armados, carritos, cuentas de clientes web y cola de correos) ...'
     dotnet run --project (Join-Path $root 'src/4. Tools/MINV.Cli') -c Release -- migrate --conexion $cadena
     if ($LASTEXITCODE -ne 0) { throw 'minv migrate fallo.' }
     $tablas = Psql 'minv_owner' $claveOwner 'minv' "SELECT count(*) FROM information_schema.tables WHERE table_schema IN ('iam','catalog','warehouse','inventory','purchasing','sales','accounting','integration','billing','service') AND table_type = 'BASE TABLE' AND table_name <> '__ef_migrations_history'"
-    Write-Output ('Tablas de M-INV en la base: ' + $tablas + ' (V4.2: 152)')
+    Write-Output ('Tablas de M-INV en la base: ' + $tablas + ' (V7: 157)')
     if (-not $SinDatos) {
         # Con las claves maestras, los datos de prueba incluyen un webhook con su secreto cifrado y (V4.1) el token de
         # simulacion del SIN cifrado; el token en claro queda en claves-integracion.txt como MINV_SIAT_TOKEN
@@ -219,6 +221,25 @@ function Crear-Base([switch]$Borrar) {
         if ($codigo -ne 0) { throw 'minv datos-prueba fallo.' }
         dotnet run --project (Join-Path $root 'src/4. Tools/MINV.Cli') -c Release -- verify --codigo $Empresa --conexion $cadena
     }
+}
+
+# V7 - Respaldo de la base "minv" antes de borrarla (recrear) o a pedido (respaldar). Lo hace el superusuario del cluster
+# local con pg_dump: la copia es completa (la RLS no la recorta). Sin respaldo no se borra nada.
+function Respaldar {
+    $claveSuper = Leer-Credencial 'postgres'
+    $existe = Psql 'postgres' $claveSuper 'postgres' "SELECT 1 FROM pg_database WHERE datname = 'minv'"
+    if (-not $existe) { Write-Output 'No hay base "minv" que respaldar.'; return }
+    $carpeta = Join-Path $base 'respaldos'
+    New-Item -ItemType Directory -Force -Path $carpeta | Out-Null
+    $archivo = Join-Path $carpeta ('minv-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.dump')
+    $env:PGPASSWORD = $claveSuper
+    & (Join-Path $pgBin 'pg_dump.exe') -h localhost -p $Puerto -U postgres -d minv -Fc -f $archivo
+    $codigo = $LASTEXITCODE
+    Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
+    if ($codigo -ne 0 -or -not (Test-Path $archivo)) { throw 'pg_dump fallo: la base "minv" NO se toco.' }
+    $mb = [Math]::Round((Get-Item $archivo).Length / 1MB, 1)
+    Write-Output ('Respaldo de la base "minv" (' + $mb + ' MB): ' + $archivo)
+    Write-Output ('Para volver a el: pg_restore -h localhost -p ' + $Puerto + ' -U postgres -d minv --clean --if-exists "' + $archivo + '"')
 }
 
 # V4.1 - Antes de recrear: los servidores locales (servidor en la nube, API Gateway y simulador del SIN) se detienen,
@@ -245,7 +266,8 @@ switch ($Accion) {
     'estado' { if (Responde) { Write-Output ('PostgreSQL responde en localhost:' + $Puerto) } else { Write-Output 'PostgreSQL no responde.'; exit 1 } }
     'detener' { & (Join-Path $pgBin 'pg_ctl.exe') stop -D $data -m fast; exit $LASTEXITCODE }
     'iniciar' { Iniciar }
-    'recrear' { Detener-Servidores; Iniciar; Crear-Base -Borrar }
+    'recrear' { Detener-Servidores; Iniciar; Respaldar; Crear-Base -Borrar }
+    'respaldar' { Iniciar; Respaldar }
     default { Instalar-Binarios; Crear-Cluster; Iniciar; Crear-Base }
 }
 if ($Autoiniciar) { Autoinicio }

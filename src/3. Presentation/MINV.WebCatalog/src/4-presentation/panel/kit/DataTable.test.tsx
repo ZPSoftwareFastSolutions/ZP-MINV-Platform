@@ -291,6 +291,17 @@ describe('DataTable · detalle, acciones y apertura', () => {
     expect(onSelectionChange).toHaveBeenCalled();
     expect(onRowOpen).toHaveBeenCalledTimes(calls);
   });
+
+  it('elegir una acción del menú de la fila (dibujado en un portal) no abre la fila', async () => {
+    const onRowOpen = vi.fn();
+    const reprint = vi.fn();
+    renderTable({ paginate: false, onRowOpen, rowActions: (sale) => [{ label: 'Reimprimir', onSelect: () => reprint(sale.number) }] });
+    fireEvent.click(screen.getByRole('button', { name: 'Acciones de F-001' }));
+    const menu = await screen.findByRole('menu');
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Reimprimir' }));
+    expect(reprint).toHaveBeenCalledWith('F-001');
+    expect(onRowOpen).not.toHaveBeenCalled();
+  });
 });
 
 describe('DataTable · tarjetas por debajo de 640 px', () => {
