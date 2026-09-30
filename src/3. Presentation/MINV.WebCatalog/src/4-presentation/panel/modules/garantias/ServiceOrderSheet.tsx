@@ -4,6 +4,7 @@
 // de impresión (`paper`: negro sobre blanco). Todo sale del detalle del caso (`GetWarrantyClaimQuery`).
 
 import clsx from 'clsx';
+import type { ReactNode } from 'react';
 import { formatDateTime } from '@/4-presentation/panel/lib';
 import { COVERAGES, claimStatusLabel, claimTimeline, coverageOf, eventTitle, saleLine, warrantyLine, type ClaimDetailData } from './claims';
 
@@ -27,7 +28,7 @@ export function ServiceOrderSheet({ detail, company, branch, printedAt, paper = 
   const warranty = warrantyLine(detail.warranty);
   const events = claimTimeline(detail.events).reverse();
 
-  const block = (title: string, content: React.ReactNode) => (
+  const block = (title: string, content: ReactNode) => (
     <section className={clsx('space-y-1 border-b pb-3', rule)}>
       <h3 className="text-xs font-semibold tracking-wide uppercase">{title}</h3>
       <div>{content}</div>

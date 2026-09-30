@@ -7,8 +7,8 @@
 //
 // Filtros en la dirección: `q` (serie, IMEI o SKU), `estado`, `producto` (SKU) y `registros` van al SERVIDOR; `sucursal`,
 // `tipo`, `garantia` y las fechas de ingreso (`desde`, `hasta`) se filtran en la página. Además: `?consultar=1` abre
-// «Consultar una serie» (lo usa el tablero) y `?ver=<serie>` abre el detalle de esa unidad (lo usa Garantías; con
-// `producto=<SKU>` si la serie puede repetirse en dos productos). Los dos se quitan de la dirección al abrirse.
+// «Consultar una serie» (lo usa el tablero; se quita de la dirección al abrirse) y `?ver=<serie>` abre el detalle de esa
+// unidad (lo usa Garantías; con `producto=<SKU>` si la serie puede repetirse en dos productos; se quita al cerrarlo).
 
 import { BarChart3, Download, Eye, Filter, PackageX, RefreshCw, ScanBarcode, ScanSearch, ShieldPlus } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
@@ -176,7 +176,21 @@ export function SerialsPage() {
 
   const openTarget = (target: SerialTarget) => setDetail({ target, open: true });
   const openDetail = (item: SerialItem) => openTarget({ serial: item.row.serial, sku: item.row.sku });
-  const closeDetail = () => setDetail((current) => (current?.open ? { ...current, open: false } : current));
+  const closeDetail = () => {
+    setDetail((current) => (current?.open ? { ...current, open: false } : current));
+    // `?ver=` queda en la dirección mientras el detalle está abierto (quitarlo antes cerraría el panel, que se cierra al
+    // navegar); al cerrarlo se quita.
+    if (params.has('ver')) {
+      setParams(
+        (previous) => {
+          const updated = new URLSearchParams(previous);
+          updated.delete('ver');
+          return updated;
+        },
+        { replace: true },
+      );
+    }
+  };
   const onlyProduct = (sku: string) => {
     table.setFilter('producto', sku);
     closeDetail();
@@ -199,8 +213,8 @@ export function SerialsPage() {
     warranty.reload();
   };
 
-  // `?ver=<serie>` (desde Garantías) y `?consultar=1` (desde el tablero): se abren una vez por pedido y se quitan de la
-  // dirección.
+  // `?ver=<serie>` (desde Garantías) y `?consultar=1` (desde el tablero): se abren una vez por pedido. `consultar` se quita
+  // enseguida de la dirección; `ver`, al cerrar el detalle.
   const verParam = params.get('ver');
   const lookupParam = params.get('consultar');
   const signature = `${verParam ?? ''}|${lookupParam ?? ''}`;
@@ -214,17 +228,16 @@ export function SerialsPage() {
     }
   }
   useEffect(() => {
-    if (verParam === null && lookupParam === null) return;
+    if (lookupParam === null) return;
     setParams(
       (previous) => {
         const updated = new URLSearchParams(previous);
-        updated.delete('ver');
         updated.delete('consultar');
         return updated;
       },
       { replace: true },
     );
-  }, [verParam, lookupParam, setParams]);
+  }, [lookupParam, setParams]);
 
   const rowActions = (item: SerialItem): RowActionItem[] => [
     { label: 'Ver detalle', icon: <Eye />, onSelect: () => openDetail(item) },
