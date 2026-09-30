@@ -12121,7 +12121,7 @@ DO $EF$
 BEGIN
     IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
     CREATE OR REPLACE FUNCTION integration.claim_outgoing_mails(p_limit integer, p_lease_seconds integer)
-    RETURNS TABLE (tenant_id uuid, outgoing_mail_id uuid, leased_until timestamptz)
+    RETURNS TABLE (tenant_id uuid, outgoing_mail_id uuid)
     LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, integration AS $$
     #variable_conflict use_column
     BEGIN
@@ -12134,11 +12134,10 @@ BEGIN
             LIMIT greatest(1, least(p_limit, 500))
             FOR UPDATE SKIP LOCKED)
         UPDATE integration.outgoing_mail_dispatch d
-           SET next_attempt_at = now() + make_interval(secs => greatest(30, least(p_lease_seconds, 3600))),
-               leased_until = now() + make_interval(secs => greatest(30, least(p_lease_seconds, 3600)))
+           SET next_attempt_at = now() + make_interval(secs => greatest(30, least(p_lease_seconds, 3600)))
         FROM due
         WHERE d.outgoing_mail_id = due.id
-        RETURNING d.tenant_id, d.outgoing_mail_id, d.leased_until;
+        RETURNING d.tenant_id, d.outgoing_mail_id;
     END;
     $$;
     REVOKE ALL ON FUNCTION integration.claim_outgoing_mails(integer, integer) FROM PUBLIC;
@@ -12193,6 +12192,68 @@ BEGIN
     IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260929025923_V7WebPlatform') THEN
     INSERT INTO iam.__ef_migrations_history ("MigrationId", "ProductVersion")
     VALUES ('20260929025923_V7WebPlatform', '8.0.31');
+    END IF;
+END $EF$;
+COMMIT;
+
+START TRANSACTION;
+
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260930211805_V7MailLease') THEN
+    ALTER TABLE integration.outgoing_mail_dispatch ADD leased_until timestamp with time zone;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260930211805_V7MailLease') THEN
+    ALTER TABLE integration.outgoing_mail_dispatch ADD CONSTRAINT ck_outgoing_mail_dispatch_arrendamiento CHECK (leased_until IS NULL OR status = 'Pending');
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260930211805_V7MailLease') THEN
+    DROP FUNCTION IF EXISTS integration.claim_outgoing_mails(integer, integer);
+    CREATE FUNCTION integration.claim_outgoing_mails(p_limit integer, p_lease_seconds integer)
+    RETURNS TABLE (tenant_id uuid, outgoing_mail_id uuid, leased_until timestamptz)
+    LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, integration AS $$
+    #variable_conflict use_column
+    BEGIN
+        RETURN QUERY
+        WITH due AS (
+            SELECT d.outgoing_mail_id AS id
+            FROM integration.outgoing_mail_dispatch d
+            WHERE d.status = 'Pending' AND d.next_attempt_at <= now()
+            ORDER BY d.next_attempt_at
+            LIMIT greatest(1, least(p_limit, 500))
+            FOR UPDATE SKIP LOCKED)
+        UPDATE integration.outgoing_mail_dispatch d
+           SET next_attempt_at = now() + make_interval(secs => greatest(30, least(p_lease_seconds, 3600))),
+               leased_until = now() + make_interval(secs => greatest(30, least(p_lease_seconds, 3600)))
+        FROM due
+        WHERE d.outgoing_mail_id = due.id
+        RETURNING d.tenant_id, d.outgoing_mail_id, d.leased_until;
+    END;
+    $$;
+    REVOKE ALL ON FUNCTION integration.claim_outgoing_mails(integer, integer) FROM PUBLIC;
+    DO $$
+    BEGIN
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'minv_server') THEN
+            GRANT EXECUTE ON FUNCTION integration.claim_outgoing_mails(integer, integer) TO minv_server;
+        END IF;
+    END;
+    $$;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260930211805_V7MailLease') THEN
+    INSERT INTO iam.__ef_migrations_history ("MigrationId", "ProductVersion")
+    VALUES ('20260930211805_V7MailLease', '8.0.31');
     END IF;
 END $EF$;
 COMMIT;

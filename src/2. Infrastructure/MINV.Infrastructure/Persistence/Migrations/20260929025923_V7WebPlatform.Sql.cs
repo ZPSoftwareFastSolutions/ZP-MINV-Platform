@@ -179,12 +179,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                 """);
 
             // 4. SECURITY DEFINER del despachador del correo (regla B-13): reclama los pendientes vencidos de TODAS las empresas
-            //    antes de fijar minv.tenant_id; devuelve solo (empresa, correo, arrendamiento); search_path fijo; EXECUTE solo para
-            //    minv_server. B6: el arrendamiento (leased_until) es la marca de dueño de ESTE reclamo: el despachador lo renueva
-            //    justo antes de enviar solo si sigue siendo el suyo (otra réplica que lo reclamó al vencer tiene otro valor).
+            //    antes de fijar minv.tenant_id; devuelve solo (empresa, correo); search_path fijo; EXECUTE solo para minv_server.
             migrationBuilder.Sql("""
                 CREATE OR REPLACE FUNCTION integration.claim_outgoing_mails(p_limit integer, p_lease_seconds integer)
-                RETURNS TABLE (tenant_id uuid, outgoing_mail_id uuid, leased_until timestamptz)
+                RETURNS TABLE (tenant_id uuid, outgoing_mail_id uuid)
                 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, integration AS $$
                 #variable_conflict use_column
                 BEGIN
@@ -197,11 +195,10 @@ namespace MINV.Infrastructure.Persistence.Migrations
                         LIMIT greatest(1, least(p_limit, 500))
                         FOR UPDATE SKIP LOCKED)
                     UPDATE integration.outgoing_mail_dispatch d
-                       SET next_attempt_at = now() + make_interval(secs => greatest(30, least(p_lease_seconds, 3600))),
-                           leased_until = now() + make_interval(secs => greatest(30, least(p_lease_seconds, 3600)))
+                       SET next_attempt_at = now() + make_interval(secs => greatest(30, least(p_lease_seconds, 3600)))
                     FROM due
                     WHERE d.outgoing_mail_id = due.id
-                    RETURNING d.tenant_id, d.outgoing_mail_id, d.leased_until;
+                    RETURNING d.tenant_id, d.outgoing_mail_id;
                 END;
                 $$;
                 REVOKE ALL ON FUNCTION integration.claim_outgoing_mails(integer, integer) FROM PUBLIC;

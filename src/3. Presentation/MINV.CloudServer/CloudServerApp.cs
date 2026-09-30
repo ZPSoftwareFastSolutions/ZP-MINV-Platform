@@ -14,7 +14,8 @@ namespace MINV.CloudServer;
 /// <c>SSL Mode=VerifyFull</c>), <c>MINV_INTEGRATION_KEYS</c> (claves maestras) y <c>ASPNETCORE_URLS</c> (https con
 /// certificado, o http detrás de un proxy TLS). <c>--Minv:Storage=memoria</c> para pruebas y demostraciones.
 /// V7 · Sesión web por cookie (<c>Minv:Web</c>, <see cref="WebEndpoints"/>) e IP real detrás del proxy de la web
-/// (<c>Minv:ForwardedHeaders</c>, <see cref="ProxySetup"/>).
+/// (<c>Minv:ForwardedHeaders</c>, <see cref="ProxySetup"/>). Límites de tasa: tope por IP real para todo el servidor
+/// (<c>Minv:RequestsPerMinutePerIp</c>), inicio de sesión por IP y cubeta de comandos por sesión.
 /// </summary>
 public static class CloudServerApp
 {
@@ -42,13 +43,20 @@ public static class CloudServerApp
             builder.Configuration.GetValue("Minv:Storefront:MaxReservationHours", StorefrontOptions.DefaultMaxReservationHours)));
         var trustProxy = ProxySetup.Configure(builder.Services, builder.Configuration);
         var logins = Math.Max(1, builder.Configuration.GetValue("Minv:LoginsPerMinute", 10));
+        var perIp = Math.Max(1, builder.Configuration.GetValue(RequestsPerMinutePerIpKey, DefaultRequestsPerMinutePerIp));
         builder.Services.AddRateLimiter(options =>
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+            // Antes de todo: un tope por IP real (Minv:RequestsPerMinutePerIp, holgado para varias cajas y el panel detrás de la
+            // misma IP). La cubeta por sesión se parte con un token que el limitador no puede validar (corre ANTES de autenticar):
+            // sin este tope, quien cambia el token o la cookie en cada petición tendría una cubeta nueva cada vez.
+            options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(http => RateLimitPartition.GetFixedWindowLimiter("ip:" + Ip(http),
+                _ => new FixedWindowRateLimiterOptions { PermitLimit = perIp, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
             // Inicio de sesión (escritorio y web): 10 intentos por minuto por IP (además del bloqueo de la cuenta por intentos fallidos)
             options.AddPolicy(RpcEndpoints.LoginPolicy, http => RateLimitPartition.GetFixedWindowLimiter(Ip(http),
                 _ => new FixedWindowRateLimiterOptions { PermitLimit = logins, Window = TimeSpan.FromMinutes(1) }));
-            // Comandos: ráfaga de 120 y 10 por segundo por sesión (el token Bearer o la cookie de la web) o por IP si no la trae
+            // Comandos: ráfaga de 120 y 10 por segundo por sesión (el token Bearer del escritorio o la cookie de la web, según la ruta)
+            // o por IP si no la trae
             options.AddPolicy(RpcEndpoints.RpcPolicy, http => RateLimitPartition.GetTokenBucketLimiter(SessionPartition(http, web.CookieName),
                 _ => new TokenBucketRateLimiterOptions { TokenLimit = 120, TokensPerPeriod = 10, ReplenishmentPeriod = TimeSpan.FromSeconds(1) }));
             // V7 · Registro de cuentas de cliente: 5 por hora por IP (cuenta cada intento, también los rechazados)
@@ -72,17 +80,25 @@ public static class CloudServerApp
         return app;
     }
 
+    /// <summary>Configuración del tope de peticiones por minuto y por IP real de todo el servidor.</summary>
+    public const string RequestsPerMinutePerIpKey = "Minv:RequestsPerMinutePerIp";
+
+    /// <summary>Tope por defecto: 40 por segundo en promedio, lo que gastan cuatro sesiones a su ritmo máximo sostenido.</summary>
+    public const int DefaultRequestsPerMinutePerIp = 2400;
+
     private static string Ip(HttpContext http) => http.Connection.RemoteIpAddress?.ToString() ?? "?";
 
-    /// <summary>Partición del límite de comandos: los últimos caracteres del token de la sesión (de la cabecera del escritorio o
-    /// de la cookie de la web; el limitador corre ANTES de autenticar y no toca la base) o la IP.</summary>
+    /// <summary>Partición del límite de comandos (el limitador corre ANTES de autenticar y no toca la base): los últimos caracteres
+    /// de la credencial con la que ESA ruta autentica, o la IP si no la trae. Las rutas de la web (<c>/api/v1/web</c>) solo miran
+    /// la cookie y las del escritorio solo la cabecera <c>Authorization</c>: una credencial que la ruta ignora no cambia la
+    /// cubeta. Cambiar la credencial en cada petición lo frena el tope por IP (<see cref="RequestsPerMinutePerIpKey"/>).</summary>
     private static string SessionPartition(HttpContext http, string cookieName)
     {
-        if (http.Request.Headers.Authorization.ToString() is { Length: > 20 } header)
+        if (http.Request.Path.StartsWithSegments(WebEndpoints.Prefix))
         {
-            return header[^16..];
+            return http.Request.Cookies[cookieName] is { Length: > 20 } cookie ? "web:" + cookie[^16..] : "ip:" + Ip(http);
         }
-        return http.Request.Cookies[cookieName] is { Length: > 20 } cookie ? "web:" + cookie[^16..] : Ip(http);
+        return http.Request.Headers.Authorization.ToString() is { Length: > 20 } header ? "bearer:" + header[^16..] : "ip:" + Ip(http);
     }
 
     public static async Task RunAsync(WebApplication app)

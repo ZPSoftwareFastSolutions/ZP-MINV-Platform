@@ -43,6 +43,9 @@ export default defineConfig(({ mode }) => {
       globals: true,
       setupFiles: ['./src/test-setup.ts'],
       css: false,
+      // V7: las pruebas que montan la aplicación completa descargan el panel entero (27 módulos); con toda la batería en
+      // paralelo tardan más que los 5 s por defecto sin estar mal
+      testTimeout: 20_000,
     },
   };
 });

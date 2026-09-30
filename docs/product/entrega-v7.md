@@ -1,58 +1,64 @@
 # Entrega de la V7 — Algoritmo y Usuarios de Prueba
 
-Este documento formaliza la entrega de la **versión 7.0.0-alpha.1 (Plataforma Web)** y describe el paso a paso para probar el ciclo completo de la aplicación, así como los usuarios de prueba disponibles.
+Este documento formaliza la entrega de la **versión 7.0.0-alpha.1 (Plataforma Web)** y describe el paso a paso para probar el ciclo completo de la aplicación, así como los usuarios de prueba disponibles. La guía detallada está en `docs/deployment/inicio-rapido-v7.md`.
 
 ## 1. Usuarios de Prueba
 
-> **Importante:** Las contraseñas de todos los usuarios se generan aleatoriamente en su equipo al ejecutar `tools\bd_local.ps1 -Accion recrear` por razones de seguridad. Puede consultar todas las contraseñas activas en cualquier momento abriendo el archivo local:
+> **Importante:** Las contraseñas de todos los usuarios se generan al azar en su equipo al ejecutar `tools\bd_local.ps1 -Accion recrear`, por seguridad nunca se escriben en el repositorio. Consúltelas en el archivo local:
 > `%LOCALAPPDATA%\M-INV\usuarios-prueba.txt`
 
-### 1.1 Personal (Panel Web y Escritorio)
-Todos pertenecen a la empresa de prueba **Tech Zone Gaming S.R.L. (`TECHZONE`)**.
+### 1.1 Personal (panel web `/panel` y escritorio `M-INV.exe`)
+Todos pertenecen a la empresa de prueba **Tech Zone Gaming S.R.L. (`TECHZONE`)**. El administrador tiene un correo fijo; el resto del personal recibe en cada carga un nombre al azar con el correo `nombre.apellido@techzone.example`. Los nombres exactos, sus sucursales y las contraseñas están en `usuarios-prueba.txt`.
 
-| Rol en el sistema | Nombre de Prueba | Correo Electrónico | Módulos Principales (Panel Web) |
-|:---|:---|:---|:---|
-| **Administrador General** | Andrea Quiroga | `andrea@techzone.bo` | Acceso TOTAL a todos los módulos y configuración global. |
-| **Gerente de Sucursal** | Carlos Mendoza | `carlos@techzone.bo` | Catálogo, Compras, Transferencias, Reportes y Aprobaciones. |
-| **Encargado de Bodega** | Luis Navarro | `luis@techzone.bo` | Stock, Toma Física, Movimientos, Recepción/Despacho. |
-| **Operador de Ventas** | Diego Flores | `diego@techzone.bo` | Caja, Ventas, Reservas, Clientes, SIAT. |
-| **Contador** | Roberto Silva | `roberto@techzone.bo` | Libros Fiscales, Documentos Fiscales, Contabilidad y Asientos. |
+| Rol en el sistema | Cuántos | Correo | Sucursales | Qué ve en el panel web |
+|:---|:---:|:---|:---|:---|
+| **Administrador** | 1 | `admin@techzone.example` | Todas | Todos los módulos, incluidos Usuarios, Integraciones, Configuración, SIAT, Homologación, Libros y Contabilidad. |
+| **Gerencia** | 1 | `nombre.apellido@techzone.example` | Todas (gerencia global) | Todas las sucursales: Reportes, Ventas, Reservas, Compras, Stock, Transferencias, Series, Garantías, Contabilidad, Actividad y anulación de facturas. |
+| **Bodega** | 3 | `nombre.apellido@techzone.example` | CM, CB y SC (uno por sucursal) | Stock, Alertas, Movimientos, Toma física, Compras, Transferencias, Series, Garantías y Reportes. |
+| **Ventas** | 2 | `nombre.apellido@techzone.example` | CM y SC | Caja, Ventas, Reservas, Clientes, Armador de PC, Documentos fiscales, Garantías (abrir casos), Stock y Reportes. |
+| **Cajero** | 4 | `nombre.apellido@techzone.example` | 2 en CM, 1 en CB y 1 en SC | Caja (turno, cobro y venta de reservas), Ventas, Reservas, Clientes, Documentos fiscales y Stock. |
+| **Consulta** | 1 | `nombre.apellido@techzone.example` | CM, CB y SC | Solo lectura: Stock, Catálogo, Series, Documentos fiscales y Reportes. |
 
-### 1.2 Clientes (Tienda Web)
+### 1.2 Clientes (tienda web, botón «Ingresar»)
+Estas cuentas NO ingresan al escritorio ni al panel del personal. Sus contraseñas están en la sección «Clientes de la tienda web» de `usuarios-prueba.txt`.
 
-| Tipo de Cliente | Nombre | Correo Electrónico | Uso en Pruebas |
-|:---|:---|:---|:---|
-| **Cliente Frecuente** | Ana López | `ana.lopez@example.com` | Tiene historial de reservas y compras anteriores. |
-| **Cliente Nuevo** | (Registro manual) | (Cualquiera real) | Úselo para probar el flujo de registro desde `/registrarse`. |
+| Cliente | Correo | Uso en pruebas |
+|:---|:---|:---|
+| **Rocío Villca Choque** | `rocio.villca@correo.example` | Tiene reservas propias para ver en «Mi cuenta». |
+| **Marcelo Quisbert Loza** | `marcelo.quisbert@correo.example` | Segunda cuenta con reservas propias. |
+| Cliente nuevo | el que usted registre | Para probar «Crear cuenta» desde «Ingresar». |
 
 ---
 
 ## 2. Algoritmo Paso a Paso (Flujo Completo Extremo a Extremo)
 
-Siga este orden lógico para comprobar que todos los módulos de la V7 interactúan correctamente entre sí.
+Siga este orden para comprobar que todos los módulos de la V7 interactúan correctamente entre sí.
 
 ### Preparación del Entorno
-1. **Servicios Docker:** Ejecute `docker compose -f deploy/docker-compose.yml up -d --build`. Compruebe que el proxy web, API Gateway, CloudServer, y la base de datos están corriendo.
-2. **Recrear BD Local:** Ejecute `tools\bd_local.ps1 -Accion recrear` para poblar la base de datos con los datos de prueba iniciales. Anote las contraseñas generadas de `%LOCALAPPDATA%\M-INV\usuarios-prueba.txt`.
+1. **Recrear la base local:** `powershell -ExecutionPolicy Bypass -File tools\bd_local.ps1 -Accion recrear`. Antes de borrar, respalda la base anterior en `%LOCALAPPDATA%\M-INV\respaldos`. Las contraseñas quedan en `usuarios-prueba.txt`.
+2. **Docker:** `powershell -ExecutionPolicy Bypass -File tools\docker_local.ps1 -Accion subir -Correo prueba -ReiniciarSimulador`. Al terminar muestra el enlace público; la web local es http://localhost:5173 y el buzón de correo de prueba http://127.0.0.1:8025.
 
 ### Fase A: La Tienda Web (El Cliente)
-3. **Registro:** Entre a `http://localhost/` (o su túnel de Cloudflare) y haga clic en **«Ingresar»**. Vaya a «Registrarse» y cree un nuevo usuario cliente.
-4. **Reserva Unitaria:** Navegue por el catálogo, abra la ficha de una Laptop y presione **«Reservar ahora»**. Llene los datos opcionales de facturación y el plazo de recojo. Obtendrá el código `RES-WEB-...`.
-5. **Carrito de Compras:** Agregue varios productos sueltos al carrito y proceda a reservar el lote completo.
+3. **Registro:** Entre a http://localhost:5173 (o al enlace público), pulse **«Ingresar»** y luego **«Crear cuenta»**. Una contraseña o un correo equivocados nunca dejan pasar.
+4. **Compra de un solo producto:** Abra la ficha de un producto (por ejemplo un monitor), agréguelo al carrito y pulse **«Reservar»**. La pantalla de reserva muestra SOLO ese producto (no obliga a pasar por «Arma tu PC»). Complete sus datos y los de la factura y el plazo para recoger (1 a 3 días). Obtendrá el código `RES-WEB-…`.
+5. **Correo:** En http://127.0.0.1:8025 verá el correo con el código y el detalle de la reserva (con `-Correo real` sale desde zapasoftwarefastsolutions@gmail.com).
+6. **Buscar la reserva:** En «Mi reserva» búsquela con el **código de reserva O con el número de celular** (basta uno de los dos). Para cancelarla se piden ambos.
+7. **Carrito de varios productos:** Agregue varios productos sueltos al carrito y reserve el lote completo.
 
-### Fase B: El Panel Web (El Personal Operativo)
-6. **Revisión de Reserva:** Abra una ventana en Incógnito, ingrese a `/panel` e inicie sesión como **Operador de Ventas** (Diego Flores).
-7. **Caja y Facturación:** Vaya al módulo **«Caja»**, cargue la reserva web (busque el código). La caja pre-llenará los datos del cliente. Complete el cobro para emitir la factura computarizada (SIAT).
-8. **Documentos Fiscales:** Vaya a **«Documentos Fiscales»** y busque la venta recién hecha. Abra el detalle e imprima el comprobante (`PrintDialog`).
+### Fase B: El Panel Web (El Personal)
+8. **Revisión de la reserva:** En una ventana de incógnito, entre a `/panel` con un usuario **Cajero** de CM. Las funciones son botones; las estadísticas aparecen solo al pulsar «Ver estadísticas ^».
+9. **Caja y facturación:** En **«Caja»** abra el turno, cargue la reserva por su código (la caja precarga los datos de factura) y cobre: se emite la factura computarizada (SIAT, simulador).
+10. **Documentos fiscales:** En **«Documentos fiscales»** busque la venta, abra el detalle e imprima el comprobante.
+11. **El cliente la ve «Vendida»:** Vuelva a la tienda con la cuenta del cliente: en «Mi cuenta» la reserva figura como vendida.
 
-### Fase C: Compras e Inventario (La Bodega y Gerencia)
-9. **Crear Orden:** Inicie sesión como **Gerente de Sucursal** (Carlos Mendoza). Vaya a **«Compras»** y cree una nueva Orden de Compra para reabastecer los productos vendidos. Apruébela.
-10. **Recepción:** Cambie la sesión a **Encargado de Bodega** (Luis Navarro). Abra la Orden de Compra y confirme la **Recepción de Mercadería**. Verifique en el módulo **«Stock»** que el inventario se ha incrementado.
-11. **Toma Física:** En **«Toma Física»**, inicie un conteo ciego, registre una diferencia intencional y vea cómo el sistema genera el ajuste de stock.
+### Fase C: Compras e Inventario
+12. **Crear orden:** Con el **Administrador** (o Gerencia), en **«Compras»** cree una orden de compra para reponer lo vendido y apruébela.
+13. **Recepción:** Con un usuario **Bodega** de CM, abra la orden y registre la recepción (series o IMEI cuando el producto las lleva). Verifique en **«Stock»** que subió el inventario.
+14. **Toma física:** En **«Toma física»** inicie un conteo, registre una diferencia y genere el ajuste.
 
-### Fase D: Análisis Contable y SIAT (El Contador y Administrador)
-12. **Asientos Automáticos:** Inicie sesión como **Contador** (Roberto Silva). Vaya a **«Contabilidad»** y revise el **Libro Diario**. Verifique que la Venta y la Compra generaron asientos contables automáticamente.
-13. **Verificación SIAT:** Inicie sesión como **Administrador General** (Andrea Quiroga). En el módulo **«SIAT»**, verifique que el estado del CUFD sea «Activo» y que no haya paquetes pendientes de envío en contingencia.
-14. **Reportes:** Vaya a **«Reportes»**, genere el informe de Ventas del mes y expórtelo a archivo **CSV** para comprobar el formato de columnas.
+### Fase D: Contabilidad, SIAT y Reportes (Administrador)
+15. **Asientos:** En **«Contabilidad»** revise el **Libro diario**: la venta y la compra generaron sus asientos.
+16. **SIAT:** En **«SIAT»** verifique que el CUFD esté vigente y que no haya paquetes pendientes.
+17. **Reportes:** En **«Reportes»** abra las ventas del mes y expórtelas a **CSV**.
 
-> **Finalización exitosa:** Al completar este algoritmo, habrá verificado la funcionalidad end-to-end (E2E) abarcando M1, M3, M4, M6, M7, M8, M9, M10, B1-B5 y W1-W3.
+> **Finalización exitosa:** Al completar este algoritmo habrá recorrido la tienda (cuenta, carrito, reserva, correo y búsqueda), el panel por rol, la caja con factura y los módulos de compras, inventario, contabilidad, SIAT y reportes.

@@ -123,7 +123,7 @@ function Responde {
 function Iniciar {
     if (Responde) { Write-Output ('PostgreSQL ya responde en localhost:' + $Puerto); return }
     # Sin redirigir la salida: el servidor hereda los handles y una tuberia nunca se cerraria.
-    $argumentos = 'start -D "' + $data + '" -l "' + $log + '" -w -t 60 -o "-p ' + $Puerto + ' -c listen_addresses=localhost"'
+    $argumentos = 'start -D "' + $data + '" -l "' + $log + '" -w -t 60 -o "-p ' + $Puerto + ' -c listen_addresses=*"'
     $p = Start-Process -FilePath (Join-Path $pgBin 'pg_ctl.exe') -ArgumentList $argumentos -WindowStyle Hidden -PassThru
     $p.WaitForExit(70000) | Out-Null
     if (-not (Responde)) { throw ('PostgreSQL no inicio. Revise ' + $log) }

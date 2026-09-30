@@ -178,6 +178,48 @@ public sealed class ModelTests
         At(down, "DELETE FROM iam.roles WHERE code = 'CLIENTE'");
     }
 
+    /// <summary>V7 · El arrendamiento del correo va en una migración NUEVA (la V7WebPlatform publicada no se edita, A-07): agrega la
+    /// columna y su CHECK y, como la función cambia el tipo que devuelve, la borra antes de crearla de nuevo con SECURITY DEFINER,
+    /// search_path fijo, sin EXECUTE para PUBLIC y con EXECUTE solo para minv_server (B-13); la reversa deja la función de la
+    /// V7WebPlatform con los mismos privilegios.</summary>
+    [Fact]
+    public void La_migracion_del_arrendamiento_del_correo_recrea_la_funcion_con_sus_privilegios()
+    {
+        var migrator = Db.GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>();
+        static string Lf(string text) => text.Replace("\r\n", "\n", StringComparison.Ordinal);
+        var v7 = Lf(migrator.GenerateScript("20260927173304_V6Storefront", "20260929025923_V7WebPlatform"));
+        var up = Lf(migrator.GenerateScript("20260929025923_V7WebPlatform", "20260930211805_V7MailLease"));
+        var down = Lf(migrator.GenerateScript("20260930211805_V7MailLease", "20260929025923_V7WebPlatform"));
+        int At(string script, string fragment, int from = 0)
+        {
+            var index = script.IndexOf(fragment, from, StringComparison.Ordinal);
+            Assert.True(index >= 0, $"Falta en el script: {fragment}");
+            return index;
+        }
+        // La V7WebPlatform sigue como se publicó: sin la columna y con la función de (empresa, correo)
+        Assert.DoesNotContain("leased_until", v7, StringComparison.Ordinal);
+        At(v7, "RETURNS TABLE (tenant_id uuid, outgoing_mail_id uuid)\n");
+        // Subida: columna y CHECK antes de la función; DROP antes de CREATE; privilegios después de crearla
+        Assert.True(At(up, "ADD leased_until timestamp with time zone") < At(up, "CREATE FUNCTION integration.claim_outgoing_mails"));
+        At(up, "ADD CONSTRAINT ck_outgoing_mail_dispatch_arrendamiento CHECK (leased_until IS NULL OR status = 'Pending')");
+        var create = At(up, "CREATE FUNCTION integration.claim_outgoing_mails(p_limit integer, p_lease_seconds integer)");
+        Assert.True(At(up, "DROP FUNCTION IF EXISTS integration.claim_outgoing_mails(integer, integer);") < create);
+        At(up, "RETURNS TABLE (tenant_id uuid, outgoing_mail_id uuid, leased_until timestamptz)", create);
+        At(up, "LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, integration AS $$\n#variable_conflict use_column", create);
+        At(up, "FOR UPDATE SKIP LOCKED)", create);
+        At(up, "RETURNING d.tenant_id, d.outgoing_mail_id, d.leased_until;", create);
+        var revoke = At(up, "REVOKE ALL ON FUNCTION integration.claim_outgoing_mails(integer, integer) FROM PUBLIC;", create);
+        At(up, "GRANT EXECUTE ON FUNCTION integration.claim_outgoing_mails(integer, integer) TO minv_server;", revoke);
+        Assert.DoesNotContain("minv_app", up, StringComparison.Ordinal);
+        // Reversa: la función de la V7WebPlatform (sin arrendamiento) con sus privilegios, y después la columna fuera
+        var restore = At(down, "CREATE FUNCTION integration.claim_outgoing_mails(p_limit integer, p_lease_seconds integer)");
+        Assert.True(At(down, "DROP FUNCTION IF EXISTS integration.claim_outgoing_mails(integer, integer);") < restore);
+        At(down, "RETURNS TABLE (tenant_id uuid, outgoing_mail_id uuid)\n", restore);
+        At(down, "RETURNING d.tenant_id, d.outgoing_mail_id;", restore);
+        At(down, "GRANT EXECUTE ON FUNCTION integration.claim_outgoing_mails(integer, integer) TO minv_server;", restore);
+        Assert.True(restore < At(down, "DROP COLUMN leased_until"));
+    }
+
     /// <summary>V6 · La migración siembra en las empresas existentes los mismos permisos, la misma matriz rol-permiso, el mismo rol
     /// TIENDA_WEB y el mismo usuario técnico que el aprovisionamiento.</summary>
     [Fact]
