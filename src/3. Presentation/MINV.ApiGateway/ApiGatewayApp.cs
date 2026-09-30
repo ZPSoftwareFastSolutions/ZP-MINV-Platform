@@ -108,6 +108,7 @@ public static class ApiGatewayApp
         });
         var reads = Math.Max(1, storefront.ReadsPerMinute);
         var reserves = Math.Max(1, storefront.ReservationsPerMinute);
+        var lookups = Math.Max(1, storefront.LookupsPerMinute);
         builder.Services.AddRateLimiter(options =>
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -124,13 +125,17 @@ public static class ApiGatewayApp
             options.AddPolicy("api-key", http => RateLimitPartition.GetTokenBucketLimiter(
                 KeyPartition(http) ?? http.Connection.RemoteIpAddress?.ToString() ?? "?",
                 _ => new TokenBucketRateLimiterOptions { TokenLimit = 100, TokensPerPeriod = 10, ReplenishmentPeriod = TimeSpan.FromSeconds(1), QueueLimit = 0 }));
-            // V6 · Tienda web: lecturas y reservas por minuto y por IP
+            // V6 · Tienda web: lecturas y reservas por minuto y por IP (V7: y consultas de una reserva)
             options.AddPolicy(StorefrontEndpoints.ReadPolicy, http => RateLimitPartition.GetFixedWindowLimiter(
                 "sf-read:" + (http.Connection.RemoteIpAddress?.ToString() ?? "?"),
                 _ => new FixedWindowRateLimiterOptions { PermitLimit = reads, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
             options.AddPolicy(StorefrontEndpoints.ReservePolicy, http => RateLimitPartition.GetFixedWindowLimiter(
                 "sf-reserve:" + (http.Connection.RemoteIpAddress?.ToString() ?? "?"),
                 _ => new FixedWindowRateLimiterOptions { PermitLimit = reserves, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+            // V7 · Consultas de una reserva (código O teléfono, regla S-06): presupuesto propio y más bajo que el de lecturas
+            options.AddPolicy(StorefrontEndpoints.LookupPolicy, http => RateLimitPartition.GetFixedWindowLimiter(
+                "sf-lookup:" + (http.Connection.RemoteIpAddress?.ToString() ?? "?"),
+                _ => new FixedWindowRateLimiterOptions { PermitLimit = lookups, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
         });
         builder.Services.ConfigureHttpJsonOptions(o =>
         {

@@ -145,7 +145,7 @@ export interface StorefrontReservationLineDto {
   subtotal: number;
 }
 
-/** `StorefrontReservationView`: respuesta de crear, consultar y cancelar. */
+/** `StorefrontReservationView`: respuesta de crear, consultar y cancelar (V7: la consulta por teléfono devuelve una lista). */
 export interface StorefrontReservationViewDto {
   number: string;
   status: string;
@@ -163,6 +163,12 @@ export interface StorefrontReservationViewDto {
   kind?: string;
   /** V7: el servidor encoló el correo de confirmación. */
   mailQueued?: boolean;
+  /** V7 · Solo en una consulta: el celular enmascarado (`•••••567`). */
+  maskedPhone?: string | null;
+  /** V7 · Solo en una consulta: el correo enmascarado (`v•••@correo.example`) o null. */
+  maskedEmail?: string | null;
+  /** V7 · La consulta no se hizo con el código Y el celular: nombre enmascarado y sin notas. */
+  masked?: boolean;
 }
 
 export interface StorefrontShortageDto {

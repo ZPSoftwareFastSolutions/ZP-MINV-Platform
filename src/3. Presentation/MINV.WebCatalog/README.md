@@ -247,7 +247,7 @@ const filas: RpcResponseOf<'GetMyReservationsQuery'> = await rpc.send('GetMyRese
 - **Errores.** Toda falla llega como `WebApiError` (`1-domain/auth/errors.ts`) con `kind`, `message`, `errors`, `code`,
   `status` y `requestId`; `describeWebApiError(error, 'store' | 'panel')` da el texto para mostrar.
 - **Contrato.** `3-infrastructure/http/contract.generated.ts` lo genera `minv contrato-web` desde `RpcCatalog` del
-  servidor (192 operaciones con sus tipos, permisos, módulos y si las puede usar un cliente; regla P-07) y no se edita a
+  servidor (193 operaciones con sus tipos, permisos, módulos y si las puede usar un cliente; regla P-07) y no se edita a
   mano: `dotnet run --project "src/4. Tools/MINV.Cli" -- contrato-web` lo regenera y la prueba del servidor
   `WebContractTests` falla si quedó desactualizado. Solo lo importa el adaptador `3-infrastructure/http/contract.ts`, que
   además tiene una sección «ajustes de la web» con alias para algunas operaciones de la cuenta y la sesión; la

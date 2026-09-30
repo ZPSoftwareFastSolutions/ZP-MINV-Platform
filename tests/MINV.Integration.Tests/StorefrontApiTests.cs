@@ -22,7 +22,8 @@ namespace MINV.Integration.Tests;
 /// <summary>
 /// V6 · API pública de tienda (<c>/storefront/v1</c>) sobre el gateway REAL (Kestrel, base en memoria, empresa NUBE): catálogo,
 /// producto, imagen, CORS, reservar (idempotente), insuficiente (409), consultar y cancelar con el teléfono, vencimiento por el
-/// trabajo en segundo plano y la venta en caja que consume la reserva (regla S-10, recorrido de punta a punta).
+/// trabajo en segundo plano y la venta en caja que consume la reserva (regla S-10, recorrido de punta a punta). V7: la consulta
+/// con el código O el teléfono (regla S-06) con el contacto enmascarado.
 /// </summary>
 public sealed class StorefrontApiTests(ApiGatewayFixture server) : IClassFixture<ApiGatewayFixture>
 {
@@ -286,6 +287,77 @@ public sealed class StorefrontApiTests(ApiGatewayFixture server) : IClassFixture
             detail.History!.Select(h => h.Action));
         Assert.Equal(HttpStatusCode.UnprocessableEntity, (await http.PostAsJsonAsync($"/storefront/v1/reservations/{number}/cancel", new { phone = "72223334" })).StatusCode);
     }
+
+    [Fact]
+    public async Task V7_la_reserva_se_consulta_con_el_codigo_O_el_telefono_y_sin_los_dos_el_contacto_sale_enmascarado()
+    {
+        var http = Client();
+        const string phone = "76300400";   // un teléfono que ninguna otra prueba usa
+        var numbers = new List<string>();
+        foreach (var written in new[] { "+591 76300400", "7630-0400" })
+        {
+            var created = await http.SendAsync(Post("/storefront/v1/reservations", Reservation(written, email: "valentina@correo.example"), "web-" + Guid.NewGuid().ToString("N")));
+            Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+            numbers.Add((await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("number").GetString()!);
+        }
+        var number = numbers[0];
+        string[] secrets = [phone, "valentina@", "Valentina", "Aguirre", "Pruebas de integración"];
+
+        // 1. Solo el código (la ruta de siempre sin ?phone=): la misma reserva, con el contacto enmascarado
+        var byCode = await http.GetAsync($"/storefront/v1/reservations/{number}");
+        Assert.Equal(HttpStatusCode.OK, byCode.StatusCode);
+        var masked = await byCode.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal((number, "Reserved", "build", "CM"), (masked.GetProperty("number").GetString(), masked.GetProperty("status").GetString(),
+            masked.GetProperty("kind").GetString(), masked.GetProperty("branch").GetString()));
+        Assert.True(masked.GetProperty("masked").GetBoolean());
+        Assert.Equal(("V••• A•••", "•••••400", "v•••@correo.example"), (masked.GetProperty("contactName").GetString(),
+            masked.GetProperty("maskedPhone").GetString(), masked.GetProperty("maskedEmail").GetString()));
+        Assert.Equal(JsonValueKind.Null, masked.GetProperty("notes").ValueKind);
+        Assert.Single(masked.GetProperty("lines").EnumerateArray());
+        foreach (var secret in secrets)
+        {
+            Assert.DoesNotContain(secret, masked.GetRawText(), StringComparison.Ordinal);
+        }
+
+        // 2. Con el código Y el teléfono: la vista completa de la V6 (más el contacto enmascarado)
+        var full = await http.GetFromJsonAsync<JsonElement>($"/storefront/v1/reservations/{number}?phone={Uri.EscapeDataString("+591 " + phone)}");
+        Assert.False(full.GetProperty("masked").GetBoolean());
+        Assert.Equal(("Valentina Aguirre", "Pruebas de integración"), (full.GetProperty("contactName").GetString(), full.GetProperty("notes").GetString()));
+        Assert.DoesNotContain(phone, full.GetRawText(), StringComparison.Ordinal);
+
+        // 3. Solo el teléfono (la colección): sus reservas web, las más nuevas primero, enmascaradas
+        var list = await http.GetAsync($"/storefront/v1/reservations?phone={Uri.EscapeDataString("+591 7630-0400")}");
+        Assert.Equal(HttpStatusCode.OK, list.StatusCode);
+        var body = await list.Content.ReadAsStringAsync();
+        var items = JsonDocument.Parse(body).RootElement.EnumerateArray().ToList();
+        Assert.Equal(Enumerable.Reverse(numbers), items.Select(i => i.GetProperty("number").GetString()));
+        Assert.All(items, i => Assert.True(i.GetProperty("masked").GetBoolean()));
+        foreach (var secret in secrets)
+        {
+            Assert.DoesNotContain(secret, body, StringComparison.Ordinal);
+        }
+
+        // 4. No existe no revela nada; teléfono sin reservas = lista vacía; sin teléfono = 400; mal formado = 422
+        Assert.Equal(HttpStatusCode.NotFound, (await http.GetAsync("/storefront/v1/reservations/RES-WEB-999999")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await http.GetAsync($"/storefront/v1/reservations/{number}?phone=79999999")).StatusCode);
+        Assert.Empty((await http.GetFromJsonAsync<JsonElement>("/storefront/v1/reservations?phone=79999999")).EnumerateArray());
+        var missing = await http.GetAsync("/storefront/v1/reservations");
+        Assert.Equal(HttpStatusCode.BadRequest, missing.StatusCode);
+        Assert.Equal("validation", (await missing.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("title").GetString());
+        var invalid = await http.GetAsync("/storefront/v1/reservations?phone=12");
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, invalid.StatusCode);
+        Assert.Equal("pcbuild.contact_phone", (await invalid.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString());
+
+        // 5. Cancelar sigue exigiendo el código Y el teléfono (sin él o con otro, 404 y la reserva sigue)
+        Assert.Equal(HttpStatusCode.NotFound, (await http.PostAsJsonAsync($"/storefront/v1/reservations/{number}/cancel", new { })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await http.PostAsJsonAsync($"/storefront/v1/reservations/{number}/cancel", new { phone = "" })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await http.PostAsJsonAsync($"/storefront/v1/reservations/{number}/cancel", new { phone = "79999999" })).StatusCode);
+        Assert.Equal("Reserved", (await http.GetFromJsonAsync<JsonElement>($"/storefront/v1/reservations/{number}")).GetProperty("status").GetString());
+        foreach (var reservation in numbers)
+        {
+            Assert.Equal(HttpStatusCode.OK, (await http.PostAsJsonAsync($"/storefront/v1/reservations/{reservation}/cancel", new { phone })).StatusCode);
+        }
+    }
 }
 
 /// <summary>Gateway con límites bajos para probar el 429 de la tienda sin afectar a las demás pruebas (otra instancia, otro puerto).</summary>
@@ -325,5 +397,36 @@ public sealed class StorefrontLimitsTests(StorefrontLimitsFixture server) : ICla
         Assert.Contains(HttpStatusCode.TooManyRequests, reads);
         // El resto del gateway no se ve afectado
         Assert.Equal(HttpStatusCode.OK, (await http.GetAsync("/health")).StatusCode);
+    }
+}
+
+/// <summary>V7 · Gateway con un límite bajo de consultas de reserva (y el de lecturas de siempre) para probar su 429 aparte.</summary>
+public sealed class StorefrontLookupLimitsFixture : SeededServer
+{
+    protected override string[] ExtraArgs => ["--Minv:Storefront:LookupsPerMinute", "2"];
+
+    protected override SeedOptions Options => new("NUBE", Days: 2, Seed: 12, Billing: false);
+
+    protected override WebApplication Build(string[] args) => ApiGatewayApp.Build(args);
+}
+
+public sealed class StorefrontLookupLimitsTests(StorefrontLookupLimitsFixture server) : IClassFixture<StorefrontLookupLimitsFixture>
+{
+    [Fact]
+    public async Task Las_consultas_de_una_reserva_por_codigo_o_por_telefono_comparten_un_limite_por_IP_mas_bajo_que_el_de_lecturas()
+    {
+        var http = server.CreateClient();
+        // 2 consultas por minuto, sea por código, por teléfono o con los dos: la tercera se rechaza aunque las anteriores no
+        // encontraran nada (frena el barrido de códigos y teléfonos, regla S-06)
+        var lookups = new List<HttpStatusCode>
+        {
+            (await http.GetAsync("/storefront/v1/reservations/RES-WEB-999999")).StatusCode,
+            (await http.GetAsync("/storefront/v1/reservations?phone=79999999")).StatusCode,
+            (await http.GetAsync("/storefront/v1/reservations/RES-WEB-999998?phone=79999999")).StatusCode,
+            (await http.GetAsync("/storefront/v1/reservations?phone=79999998")).StatusCode,
+        };
+        Assert.Equal([HttpStatusCode.NotFound, HttpStatusCode.OK, HttpStatusCode.TooManyRequests, HttpStatusCode.TooManyRequests], lookups);
+        // Las demás lecturas de la tienda siguen con su propio presupuesto
+        Assert.Equal(HttpStatusCode.OK, (await http.GetAsync("/storefront/v1/presets")).StatusCode);
     }
 }

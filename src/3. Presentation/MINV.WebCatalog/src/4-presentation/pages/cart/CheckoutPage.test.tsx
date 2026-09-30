@@ -50,6 +50,7 @@ function recordingGateway(real: IReservationGateway, respond?: (request: Reserva
       return respond?.(request, requests.length) ?? real.create(request);
     },
     get: (number, phone) => real.get(number, phone),
+    findByPhone: (phone) => real.findByPhone(phone),
     cancel: (number, phone) => real.cancel(number, phone),
   };
   return { gateway, requests };
@@ -147,8 +148,8 @@ describe('carrito', () => {
 
     fireEvent.click(within(done).getByRole('link', { name: 'Mi reserva' }));
     await waitFor(() => expect(app.location()).toBe('/reserva/RES-WEB-000001'));
-    fireEvent.change(screen.getByLabelText(/Teléfono con el que reservaste/), { target: { value: '71234567' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Ver estado' }));
+    fireEvent.change(screen.getByLabelText('Número de celular'), { target: { value: '71234567' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Buscar reserva' }));
     const summary = await screen.findByTestId('resumen-reserva');
     expect(within(summary).getByTestId('tipo-reserva')).toHaveTextContent('Compra');
     expect(summary).toHaveTextContent('se guarda 48 h');

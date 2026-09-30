@@ -42,6 +42,10 @@ public sealed class StorefrontSettings
     /// <summary>Reservas (y cancelaciones) por minuto y por IP (10).</summary>
     public int ReservationsPerMinute { get; set; } = 10;
 
+    /// <summary>V7 · Consultas de una reserva (por código, por teléfono o con los dos) por minuto y por IP (20): frena el
+    /// barrido de códigos o teléfonos (regla S-06).</summary>
+    public int LookupsPerMinute { get; set; } = 20;
+
     /// <summary>Cada cuántos minutos se cierran las reservas vencidas (5).</summary>
     public int ExpiryMinutes { get; set; } = 5;
 

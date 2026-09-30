@@ -155,23 +155,44 @@ internal static class StorefrontReservationViews
     };
 
     /// <summary>V7: <paramref name="mailQueued"/> lo decide quien encola el correo de confirmación (al reservar); las
-    /// consultas posteriores no lo informan. Los datos para la factura NUNCA salen en esta vista (regla P-05).</summary>
+    /// consultas posteriores no lo informan. Los datos para la factura NUNCA salen en esta vista (regla P-05).
+    /// <paramref name="lookup"/> (regla S-06): <see cref="ReservationLookup.None"/> para quien ya probó ser el dueño (reservar,
+    /// cancelar, la cuenta del cliente: la vista de siempre); en una consulta pública, el teléfono y el correo enmascarados y, si
+    /// la consulta NO se hizo con el código Y el teléfono (<see cref="ReservationLookup.Partial"/>), también el nombre, sin notas.</summary>
     public static async Task<StorefrontReservationView> ViewAsync(IMinvDbContext db, PcBuild build, DateTimeOffset now, CancellationToken ct,
-        bool mailQueued = false)
+        bool mailQueued = false, ReservationLookup lookup = ReservationLookup.None)
     {
         var names = await PcBuildStock.NamesAsync(db, build.Lines.Select(l => l.VariantId).Distinct().ToList(), ct);
         var branch = db.Set<Branch>().Local.FirstOrDefault(b => b.Id == build.BranchId)?.Code
                      ?? await db.Set<Branch>().Where(b => b.Id == build.BranchId).Select(b => b.Code).FirstAsync(ct);
         var status = StatusOf(build, now);
-        return new StorefrontReservationView(build.Number, status, StatusText(status), build.CreatedAt, build.ReservedUntil, build.Total,
-            build.ContactName ?? string.Empty, branch, build.Notes, build.QuotedWithErrors,
+        var partial = lookup == ReservationLookup.Partial;
+        var view = new StorefrontReservationView(build.Number, status, StatusText(status), build.CreatedAt, build.ReservedUntil, build.Total,
+            partial ? StorefrontPrivacy.MaskName(build.ContactName) : build.ContactName ?? string.Empty, branch, partial ? null : build.Notes,
+            build.QuotedWithErrors,
             build.Lines.OrderBy(l => l.Slot).ThenBy(l => l.Id).Select(l =>
             {
                 var (sku, name) = names.GetValueOrDefault(l.VariantId, ("?", "?"));
                 return new StorefrontReservationLine(l.Slot is { } slot ? StorefrontCatalogReader.WebSlots[slot] : null, sku, name, l.Quantity,
                     l.QuotedUnitPrice, l.Subtotal);
             }).ToList(), build.CancelReason, StorefrontKinds.Text(build.Kind), mailQueued);
+        return lookup == ReservationLookup.None
+            ? view
+            : view with
+            {
+                MaskedPhone = StorefrontPrivacy.MaskPhone(build.ContactPhone), MaskedEmail = StorefrontPrivacy.MaskEmail(build.ContactEmail),
+                Masked = partial,
+            };
     }
+}
+
+/// <summary>V7 · Cómo se llegó a una reserva (regla S-06): no es una consulta pública, consulta con el código Y el teléfono, o
+/// consulta con solo uno de los dos (código o teléfono).</summary>
+internal enum ReservationLookup
+{
+    None,
+    Full,
+    Partial,
 }
 
 /// <summary>V6 · Ranura del dominio para cada pieza de la web: la indicada por la web o, si no viene, la que dice la ficha
@@ -452,11 +473,17 @@ public sealed class GetStorefrontReservationHandler(IMinvDbContext db, IClock cl
 {
     public async Task<StorefrontReservationView> Handle(GetStorefrontReservationQuery request, CancellationToken ct)
     {
-        var build = await FindAsync(db, request.Number, request.Phone, tracking: false, ct);
-        return await StorefrontReservationViews.ViewAsync(db, build, clock.UtcNow, ct);
+        // V7 · Sin teléfono se consulta solo por el código: la misma reserva con el contacto enmascarado (regla S-06)
+        var byCode = string.IsNullOrWhiteSpace(request.Phone);
+        var build = byCode
+            ? await FindByNumberAsync(db, request.Number, ct)
+            : await FindAsync(db, request.Number, request.Phone!, tracking: false, ct);
+        return await StorefrontReservationViews.ViewAsync(db, build, clock.UtcNow, ct,
+            lookup: byCode ? ReservationLookup.Partial : ReservationLookup.Full);
     }
 
-    /// <summary>La reserva por su número y el teléfono con que se hizo; si no coinciden, «no existe» (no se revela más, regla S-06).</summary>
+    /// <summary>La reserva por su número y el teléfono con que se hizo; si no coinciden, «no existe» (no se revela más, regla S-06).
+    /// Un teléfono vacío o nulo nunca coincide: cancelar SIEMPRE exige los dos.</summary>
     internal static async Task<PcBuild> FindAsync(IMinvDbContext db, string number, string phone, bool tracking, CancellationToken ct)
     {
         var code = number.Trim().ToUpperInvariant();
@@ -464,9 +491,50 @@ public sealed class GetStorefrontReservationHandler(IMinvDbContext db, IClock cl
         var build = await query.Include(b => b.Lines).FirstOrDefaultAsync(b => b.Number == code && b.Channel == PcBuildChannel.Web, ct);
         if (build is null || !build.MatchesPhone(phone))
         {
-            throw new NotFoundException($"La reserva {code} no existe o el teléfono no coincide.");
+            throw new NotFoundException(NotFoundMessage(code));
         }
         return build;
+    }
+
+    /// <summary>V7 · La reserva web por su número solo (para la consulta con el contacto enmascarado); el mismo «no existe».</summary>
+    private static async Task<PcBuild> FindByNumberAsync(IMinvDbContext db, string number, CancellationToken ct)
+    {
+        var code = number.Trim().ToUpperInvariant();
+        return await db.Set<PcBuild>().AsNoTracking().Include(b => b.Lines)
+                   .FirstOrDefaultAsync(b => b.Number == code && b.Channel == PcBuildChannel.Web, ct)
+               ?? throw new NotFoundException(NotFoundMessage(code));
+    }
+
+    private static string NotFoundMessage(string code) => $"La reserva {code} no existe o el teléfono no coincide.";
+}
+
+/// <summary>
+/// V7 · Reservas web hechas con un teléfono (regla S-06): el teléfono se normaliza como al reservar (7 u 8 dígitos, con o sin
+/// +591; si no es válido, 422 <c>pcbuild.contact_phone</c>) y coincide con o sin el código de país. Solo el canal Web de la
+/// empresa de la tienda, los últimos <see cref="StorefrontPrivacy.PhoneLookupDays"/> días, las más nuevas primero y como máximo
+/// <see cref="StorefrontPrivacy.PhoneLookupLimit"/>; siempre con el contacto enmascarado (no se probó el código).
+/// </summary>
+public sealed class GetStorefrontReservationsByPhoneHandler(IMinvDbContext db, IClock clock)
+    : IRequestHandler<GetStorefrontReservationsByPhoneQuery, IReadOnlyList<StorefrontReservationView>>
+{
+    public async Task<IReadOnlyList<StorefrontReservationView>> Handle(GetStorefrontReservationsByPhoneQuery request, CancellationToken ct)
+    {
+        var normalized = PcBuild.NormalizePhone(request.Phone)
+                         ?? throw new RequestValidationException(["Indique el código de la reserva o el teléfono con que la hizo."]);
+        var local = normalized.StartsWith("+591", StringComparison.Ordinal) ? normalized[4..] : normalized;
+        var international = "+591" + local;
+        var now = clock.UtcNow;
+        var since = now.AddDays(-StorefrontPrivacy.PhoneLookupDays);
+        var builds = await db.Set<PcBuild>().AsNoTracking().Include(b => b.Lines)
+            .Where(b => b.Channel == PcBuildChannel.Web && (b.ContactPhone == local || b.ContactPhone == international) && b.CreatedAt >= since)
+            .OrderByDescending(b => b.CreatedAt).ThenByDescending(b => b.Number)
+            .Take(StorefrontPrivacy.PhoneLookupLimit).ToListAsync(ct);
+        var views = new List<StorefrontReservationView>(builds.Count);
+        foreach (var build in builds)
+        {
+            views.Add(await StorefrontReservationViews.ViewAsync(db, build, now, ct, lookup: ReservationLookup.Partial));
+        }
+        return views;
     }
 }
 

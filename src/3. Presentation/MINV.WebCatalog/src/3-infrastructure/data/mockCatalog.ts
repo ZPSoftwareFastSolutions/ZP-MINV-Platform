@@ -1,6 +1,7 @@
 // Mock de la V5 como fuente de la V6 (`VITE_API_URL=mock` y pruebas): la misma instantánea que daría la API, pero desde
 // los *.data.ts generados, y una pasarela de reservas EN MEMORIA que respeta el contrato (todo o nada, número
-// ARM-WEB-n, consulta y cancelación con el teléfono). Sin red ni almacenamiento: al recargar se pierde todo.
+// ARM-WEB-n, consulta y cancelación con el teléfono; V7: consulta con el código O el teléfono, con el contacto
+// enmascarado). Sin red ni almacenamiento: al recargar se pierde todo.
 // V7: reservas de carrito (`kind = "cart"`, número RES-WEB-n, líneas sin ranura), días para recoger (1 a 3), datos para
 // la factura con las reglas del SIN, texto libre sin caracteres de control (400) y `mailQueued` cuando hay correo.
 // `hold`/`release` dejan que la cuenta del cliente del modo mock (mockWeb.ts) reserve sobre el MISMO stock.
@@ -94,8 +95,36 @@ export class MockCatalogSource implements ICatalogSource {
 interface StoredReservation {
   reservation: Reservation;
   phone: string;
+  /** Correo que dejó quien reservó (solo para enmascararlo en una consulta, como el servidor). */
+  email: string | null;
   key: string;
   fingerprint: string;
+}
+
+/** Consulta por teléfono: como el servidor, como máximo 10 reservas de los últimos 90 días, las más nuevas primero. */
+const PHONE_LOOKUP_LIMIT = 10;
+const PHONE_LOOKUP_DAYS = 90;
+const DOT = '•';
+
+/** `71234567` → `•••••567` (como `StorefrontPrivacy.MaskPhone`). */
+function maskPhone(phone: string): string {
+  return phone.length <= 3 ? DOT.repeat(3) : DOT.repeat(phone.length - 3) + phone.slice(-3);
+}
+
+/** `rosa@correo.example` → `r•••@correo.example`. */
+function maskEmail(email: string | null): string | null {
+  if (!email) return null;
+  const at = email.lastIndexOf('@');
+  return at <= 0 ? DOT.repeat(3) : `${email[0]}${DOT.repeat(3)}${email.slice(at)}`;
+}
+
+/** `Valentina Aguirre` → `V••• A•••`. */
+function maskName(name: string): string {
+  return name
+    .split(' ')
+    .filter(Boolean)
+    .map((word) => `${word[0].toUpperCase()}${DOT.repeat(3)}`)
+    .join(' ');
 }
 
 /** Una línea que otra vía del modo mock (la cuenta del cliente) quiere reservar sobre el stock compartido. */
@@ -295,7 +324,7 @@ export class InMemoryReservationGateway implements IReservationGateway {
       // Como el servidor: el correo con el código y el detalle se encola solo si la persona dejó uno.
       mailQueued: Boolean(request.contact.email?.trim()),
     };
-    this.reservations.set(number, { reservation, phone, key: request.idempotencyKey, fingerprint });
+    this.reservations.set(number, { reservation, phone, email: request.contact.email?.trim() || null, key: request.idempotencyKey, fingerprint });
     this.byKey.set(request.idempotencyKey, number);
     return reservation;
   }
@@ -308,12 +337,38 @@ export class InMemoryReservationGateway implements IReservationGateway {
     return stored;
   }
 
-  async get(number: string, phone: string): Promise<Reservation> {
-    const stored = this.find(number, phone);
+  async get(number: string, phone?: string): Promise<Reservation> {
+    // V7 · Sin teléfono, la misma reserva con el contacto enmascarado (regla S-06); el «no existe» es el mismo.
+    const stored = phone?.trim() ? this.find(number, phone) : this.findByNumber(number);
+    return this.lookupView(stored, !phone?.trim());
+  }
+
+  async findByPhone(phone: string): Promise<Reservation[]> {
+    const local = normalizeBolivianPhone(phone);
+    if (!local) {
+      throw new StorefrontError({ kind: 'domain', status: 422, code: 'pcbuild.contact_phone', detail: 'El teléfono debe tener 7 u 8 dígitos (Bolivia), con o sin +591.' });
+    }
+    const since = this.now().getTime() - PHONE_LOOKUP_DAYS * 86_400_000;
+    return [...this.reservations.values()]
+      .filter((stored) => stored.phone === local && stored.reservation.createdAt.getTime() >= since)
+      .sort((a, b) => b.reservation.createdAt.getTime() - a.reservation.createdAt.getTime() || b.reservation.number.localeCompare(a.reservation.number))
+      .slice(0, PHONE_LOOKUP_LIMIT)
+      .map((stored) => this.lookupView(stored, true));
+  }
+
+  /** Vista de una consulta: vence «al leer» como la API y agrega el contacto enmascarado (y, sin los dos datos, el nombre). */
+  private lookupView(stored: StoredReservation, partial: boolean): Reservation {
     if (stored.reservation.status === 'Reserved' && stored.reservation.reservedUntil.getTime() <= this.now().getTime()) {
       stored.reservation = { ...stored.reservation, status: 'Expired', statusText: STATUS_TEXT.Expired, cancelReason: 'Vencida' };
     }
-    return { ...stored.reservation, replayed: false };
+    const view: Reservation = { ...stored.reservation, replayed: false, maskedPhone: maskPhone(stored.phone), maskedEmail: maskEmail(stored.email) };
+    return partial ? { ...view, contactName: maskName(view.contactName), notes: null, masked: true } : view;
+  }
+
+  private findByNumber(number: string): StoredReservation {
+    const stored = this.reservations.get(number.trim().toUpperCase());
+    if (!stored) throw new StorefrontError({ kind: 'not_found', status: 404, detail: `La reserva ${number} no existe o el teléfono no coincide.` });
+    return stored;
   }
 
   async cancel(number: string, phone: string): Promise<Reservation> {

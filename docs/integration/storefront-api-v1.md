@@ -8,8 +8,9 @@
 >
 > **V7 · carrito** (diseño `docs/architecture/plataforma-web-v7.md` §5, regla P-05 de `.claude/v7-web-platform-rules.md`): la
 > misma ruta de reservas admite un **carrito** con cualquier producto (`kind = "cart"`), los **días para recogerlo**
-> (`holdDays`) y los **datos para la factura** (`buyer`). Es un cambio **compatible**: solo se agregan campos opcionales a la
-> petición y campos nuevos a las respuestas; una web de la V6 sigue funcionando sin tocar nada. Resumen en §7.
+> (`holdDays`) y los **datos para la factura** (`buyer`); la reserva se **consulta con el código O el teléfono** (§4.6 y
+> §4.6.1). Es un cambio **compatible**: solo se agregan campos opcionales a la petición, una ruta nueva y campos nuevos a las
+> respuestas; una web de la V6 sigue funcionando sin tocar nada. Resumen en §7.
 
 ## 1. Conexión
 
@@ -30,6 +31,7 @@
 |---|---|
 | Lecturas por IP | 300 por minuto (`Minv:Storefront:ReadsPerMinute`) sobre todo `/storefront/v1`; al superarlo, `429` sin cuerpo. |
 | Reservas por IP | 10 por minuto (`Minv:Storefront:ReservationsPerMinute`) para `POST /reservations` y `POST /reservations/{number}/cancel` (cuentan también las rechazadas). |
+| Consultas de una reserva por IP (V7) | 20 por minuto (`Minv:Storefront:LookupsPerMinute`) para `GET /reservations/{number}` y `GET /reservations?phone=`, en un solo presupuesto (cuentan también los 404): frena el barrido de códigos o teléfonos. Siguen contando, además, en las 300 lecturas. |
 | Instantánea | `Cache-Control: public, max-age=30`: la web la refresca al volver a la pestaña y cada 60 s. |
 | Producto | `Cache-Control: no-cache`: la ficha consulta la disponibilidad fresca al abrirse. |
 | Imagen | `Cache-Control: public, max-age=3600` y `ETag` (el id de la imagen): con `If-None-Match` responde `304`. |
@@ -692,6 +694,8 @@ quien reserva que solo ve el personal con `sales.pcbuild.manage` (reglas S-06 y 
 | `cancelReason` | Motivo del cierre («Vencida», «Cancelada por el cliente desde la tienda web», el del vendedor) o null. |
 | `kind` | V7 · `"build"` o `"cart"`. |
 | `mailQueued` | V7 · `true` si al reservar se encoló el correo de confirmación (sale después, en segundo plano). Por ahora siempre `false`: lo activa el correo de la reserva (diseño §6). En la consulta y la cancelación no se informa (`false`). |
+| `maskedPhone`, `maskedEmail` | V7 · Solo en las consultas (§4.6 y §4.6.1): el teléfono con sus 3 últimos dígitos (`•••••567`, sin el código de país) y el correo con la primera letra y el dominio (`v•••@correo.example`, `null` si no dejó). Al reservar y cancelar van en `null`. |
+| `masked` | V7 · `true` si la consulta NO se hizo con el número Y el teléfono (regla S-06): `contactName` llega con las iniciales (`V••• A•••`) y `notes` en `null`. |
 
 Petición y respuesta reales de un armado:
 
@@ -923,12 +927,19 @@ V7 · Días fuera de rango o notas con un salto de línea (`400`) y CI con letra
 }
 ```
 
-### 4.6 `GET /storefront/v1/reservations/{number}?phone=…` · estado de una reserva
+### 4.6 `GET /storefront/v1/reservations/{number}[?phone=…]` · estado de una reserva
 
-Solo con el número **y** el teléfono con que se hizo (con o sin `+591`; en la URL codifique el `+` como `%2B`). Si no
-coinciden, `404` (no se revela si el número existe). Sirve igual para un armado (`ARM-WEB-…`) y para un carrito
-(`RES-WEB-…`); las reservas hechas en el mostrador (`RES-CM-…`) no se consultan por aquí. Devuelve
-`StorefrontReservationView` (con `kind` y, en esta ruta, `mailQueued` siempre `false`):
+V7 (regla S-06): se consulta con el código **o** el teléfono; esta ruta es la del código y el teléfono es **opcional**.
+
+| Petición | Respuesta |
+|---|---|
+| `GET /reservations/ARM-WEB-000004?phone=71234567` (código **y** teléfono, con o sin `+591`; en la URL codifique el `+` como `%2B`) | La vista completa de siempre (`masked` = `false`, nombre y notas) más `maskedPhone` y `maskedEmail`. Si el teléfono no coincide, `404`. |
+| `GET /reservations/ARM-WEB-000004` (solo el código; un `phone` vacío cuenta igual) | La MISMA reserva con el contacto enmascarado: `masked` = `true`, `contactName` con las iniciales, `notes` = `null`, `maskedPhone` y `maskedEmail`. Estado, líneas, totales, vencimiento y sucursal, como siempre. |
+| Código que no existe (con o sin teléfono) | `404` con el mismo texto que el teléfono que no coincide: no se revela si el código existe. |
+
+Sirve igual para un armado (`ARM-WEB-…`) y para un carrito (`RES-WEB-…`); las reservas hechas en el mostrador (`RES-CM-…`)
+no se consultan por aquí. Devuelve `StorefrontReservationView` (con `kind` y, en esta ruta, `mailQueued` siempre `false`).
+Con el código y el teléfono (los valores de `maskedPhone` y `maskedEmail` se agregaron a la ejecución real de la V6):
 
 ```json
 {
@@ -962,7 +973,24 @@ coinciden, `404` (no se revela si el número existe). Sirve igual para un armado
   ],
   "cancelReason": null,
   "kind": "build",
-  "mailQueued": false
+  "mailQueued": false,
+  "maskedPhone": "•••••567",
+  "maskedEmail": "v•••@correo.example",
+  "masked": false
+}
+```
+
+Solo con el código, lo que cambia:
+
+```json
+{
+  "number": "ARM-WEB-000004",
+  "status": "Reserved",
+  "contactName": "V••• A•••",
+  "notes": null,
+  "maskedPhone": "•••••567",
+  "maskedEmail": "v•••@correo.example",
+  "masked": true
 }
 ```
 
@@ -978,11 +1006,53 @@ coinciden, `404` (no se revela si el número existe). Sirve igual para un armado
 }
 ```
 
+### 4.6.1 `GET /storefront/v1/reservations?phone=…` · reservas hechas con un teléfono (V7)
+
+Solo con el teléfono (obligatorio; 7 u 8 dígitos, con o sin `+591`, espacios o guiones; se normaliza como al reservar y
+coincide con o sin el código de país). Devuelve un arreglo de `StorefrontReservationView` con las reservas del canal Web de
+la empresa de la tienda hechas con ese teléfono en los **últimos 90 días**, las **más nuevas primero** y como **máximo 10**,
+SIEMPRE con el contacto enmascarado (`masked` = `true`, como en §4.6 solo con el código). Las reservas de mostrador no salen.
+
+| Caso | Respuesta |
+|---|---|
+| Hay reservas | `200` con el arreglo (vencidas, vendidas y canceladas incluidas: cada una con su `status`). |
+| No hay ninguna | `200` con `[]` (no se revela nada más). |
+| Sin `phone` o vacío | `400 validation` («Indique el código de la reserva o el teléfono con que la hizo.»). |
+| Teléfono mal formado | `422 domain` con `code` = `pcbuild.contact_phone`, el mismo error que al reservar. |
+
+```json
+[
+  {
+    "number": "RES-WEB-000003",
+    "status": "Reserved",
+    "statusText": "Reservada",
+    "createdAt": "2026-09-30T14:12:03.118+00:00",
+    "reservedUntil": "2026-10-02T14:12:03.118+00:00",
+    "total": 1299.0,
+    "contactName": "V••• A•••",
+    "branch": "CM",
+    "notes": null,
+    "hasCompatibilityWarnings": false,
+    "lines": [{ "slot": null, "sku": "MON-LG-24GS60F", "name": "Monitor LG UltraGear 24GS60F", "quantity": 1, "unitPrice": 1299.0, "subtotal": 1299.0 }],
+    "cancelReason": null,
+    "kind": "cart",
+    "mailQueued": false,
+    "maskedPhone": "•••••567",
+    "maskedEmail": "v•••@correo.example",
+    "masked": true
+  }
+]
+```
+
+La web («Mi reserva») muestra esa lista para abrir una; para liberarla ya tiene el teléfono que escribió la persona.
+
 ### 4.7 `POST /storefront/v1/reservations/{number}/cancel` · el cliente libera su reserva
 
 Cuerpo `{ "phone": "71234567" }`. Pasa la reserva a `Cancelled` (motivo «Cancelada por el cliente desde la tienda web») y
 el stock vuelve a estar disponible en el acto. `404` si el teléfono no coincide; `422 pcbuild.state` si ya no estaba
-reservada (vendida, cancelada o vencida).
+reservada (vendida, cancelada o vencida). V7: aunque la consulta admita solo el código, cancelar **sigue exigiendo el número
+Y el teléfono** (sin `phone`, vacío u otro: `404`); la web pide el celular antes de liberar si se buscó solo con el código.
+La respuesta es la vista de siempre (sin `maskedPhone` ni `maskedEmail`, `masked` = `false`).
 
 ```json
 {
@@ -1072,5 +1142,6 @@ la consulta devuelve `status` = `Sold` y `kind` = `cart`. Lo recorren `tests/MIN
 | Catálogo | Campos nuevos `reservationHours` y `maxHoldDays`. |
 | Numeración | Carritos `RES-WEB-000001`; los armados conservan `ARM-WEB-000001`. |
 | Validación | Nombre de contacto, notas, nombre de la reserva y razón social: una sola línea, sin caracteres de control. Es el ÚNICO cambio que puede rechazar una petición que la V6 aceptaba (unas notas con saltos de línea). |
-| Configuración | `Minv:Storefront:MaxReservationHours` (72): tope de cualquier reserva de la tienda. |
+| Configuración | `Minv:Storefront:MaxReservationHours` (72): tope de cualquier reserva de la tienda. `Minv:Storefront:LookupsPerMinute` (20): consultas de una reserva por minuto y por IP. |
+| Consulta de una reserva | `GET /reservations/{number}` con `phone` **opcional** (sin él, el contacto enmascarado) y la ruta nueva `GET /reservations?phone=` (las 10 más nuevas de 90 días). Campos nuevos en las consultas: `maskedPhone`, `maskedEmail` y `masked`. Una web de la V6 (que siempre manda número y teléfono) recibe lo mismo que antes más esos campos. Cancelar no cambia. |
 | Idempotencia | El contenido incluye los campos nuevos; una petición sin ellos conserva el mismo contenido que en la V6. |

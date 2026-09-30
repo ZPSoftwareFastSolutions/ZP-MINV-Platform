@@ -24,7 +24,7 @@ servidor de la empresa o el de `Minv:Mail`), plantilla fija sin datos del client
 empresa cada 24 h; `ResendReservationMailCommand` y `GetOutgoingMailsQuery`. Migración `V7WebPlatform`: **157 tablas en 10
 esquemas** (+ 25 CHECK y un índice de la comprobación de normalización: `scripts/verificar_normalizacion.sql`,
 `docs/database/normalizacion-v7.md`, `NormalizationTests`). Contrato TypeScript GENERADO por `minv contrato-web`
-(`3-infrastructure/http/contract.generated.ts`, 192 operaciones; `WebContractTests`; la web lo usa solo por `contract.ts`, P-07).
+(`3-infrastructure/http/contract.generated.ts`, 193 operaciones; `WebContractTests`; la web lo usa solo por `contract.ts`, P-07).
 Web: sesión y RPC solo en `3-infrastructure/http/webApi.ts` (mismo origen), carrito en `3-infrastructure/storage/cartStorage.ts`
 (el único `localStorage`), panel en `4-presentation/panel/` (`registry/`, `shell/`, `kit/`, `hooks/`, `lib/` y
 `modules/<clave>/module.tsx`, que se registran solos; guía `panel/README.md` de esa carpeta, P-09/P-10). Docker: el nginx

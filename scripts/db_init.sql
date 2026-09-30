@@ -12202,14 +12202,11 @@ START TRANSACTION;
 DO $EF$
 BEGIN
     IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260930211805_V7MailLease') THEN
-    ALTER TABLE integration.outgoing_mail_dispatch ADD leased_until timestamp with time zone;
-    END IF;
-END $EF$;
-
-DO $EF$
-BEGIN
-    IF NOT EXISTS(SELECT 1 FROM iam.__ef_migrations_history WHERE "MigrationId" = '20260930211805_V7MailLease') THEN
-    ALTER TABLE integration.outgoing_mail_dispatch ADD CONSTRAINT ck_outgoing_mail_dispatch_arrendamiento CHECK (leased_until IS NULL OR status = 'Pending');
+    ALTER TABLE integration.outgoing_mail_dispatch ADD COLUMN IF NOT EXISTS leased_until timestamp with time zone NULL;
+    ALTER TABLE integration.outgoing_mail_dispatch DROP CONSTRAINT IF EXISTS ck_outgoing_mail_dispatch_arrendamiento;
+    UPDATE integration.outgoing_mail_dispatch SET leased_until = NULL WHERE status <> 'Pending' AND leased_until IS NOT NULL;
+    ALTER TABLE integration.outgoing_mail_dispatch ADD CONSTRAINT ck_outgoing_mail_dispatch_arrendamiento
+        CHECK (leased_until IS NULL OR status = 'Pending');
     END IF;
 END $EF$;
 

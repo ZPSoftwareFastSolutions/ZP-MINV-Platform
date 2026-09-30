@@ -144,10 +144,63 @@ public sealed record StorefrontReservationLine(string? Slot, string Sku, string 
 
 /// <summary>Estado de una reserva web tal como lo ve el cliente. <see cref="Status"/>: Reserved, Sold, Cancelled o Expired;
 /// <see cref="StatusText"/> en español. Nunca incluye el teléfono ni el correo completos, ni los datos para la factura. V7:
-/// <see cref="Kind"/> (<c>build</c> o <c>cart</c>) y <see cref="MailQueued"/> (se encoló el correo de confirmación).</summary>
+/// <see cref="Kind"/> (<c>build</c> o <c>cart</c>) y <see cref="MailQueued"/> (se encoló el correo de confirmación).
+/// <para>V7 · Consulta con el código O el teléfono (regla S-06): las consultas traen <see cref="MaskedPhone"/> y
+/// <see cref="MaskedEmail"/> enmascarados (<c>•••••567</c>, <c>a•••@correo.example</c>) para que el cliente reconozca su
+/// reserva. Si la consulta NO se hizo con el código Y el teléfono, <see cref="Masked"/> es <c>true</c>: el nombre de contacto
+/// sale enmascarado (<c>V••• A•••</c>) y las notas no salen.</para></summary>
 public sealed record StorefrontReservationView(string Number, string Status, string StatusText, DateTimeOffset CreatedAt, DateTimeOffset? ReservedUntil,
     decimal Total, string ContactName, string Branch, string? Notes, bool HasCompatibilityWarnings, IReadOnlyList<StorefrontReservationLine> Lines,
-    string? CancelReason = null, string Kind = StorefrontKinds.Build, bool MailQueued = false);
+    string? CancelReason = null, string Kind = StorefrontKinds.Build, bool MailQueued = false, string? MaskedPhone = null, string? MaskedEmail = null,
+    bool Masked = false);
+
+/// <summary>
+/// V7 · Privacidad de la consulta pública de reservas (regla S-06): cómo se enmascaran el teléfono, el correo y el nombre de
+/// quien reservó cuando la consulta no se hizo con el código Y el teléfono, y los límites de la consulta por teléfono.
+/// </summary>
+public static class StorefrontPrivacy
+{
+    /// <summary>Carácter con que se tapan los datos enmascarados.</summary>
+    public const char Dot = '•';
+
+    /// <summary>La consulta por teléfono devuelve como máximo estas reservas (las más nuevas primero).</summary>
+    public const int PhoneLookupLimit = 10;
+
+    /// <summary>... y solo las creadas en estos últimos días.</summary>
+    public const int PhoneLookupDays = 90;
+
+    /// <summary>Teléfono con solo los 3 últimos dígitos (sin el código de país): <c>+59171234567</c> → <c>•••••567</c>.</summary>
+    public static string? MaskPhone(string? phone)
+    {
+        var digits = new string((phone ?? string.Empty).Where(char.IsDigit).ToArray());
+        if (digits.Length == 0)
+        {
+            return null;
+        }
+        if (digits.Length > 8 && digits.StartsWith("591", StringComparison.Ordinal))
+        {
+            digits = digits[3..];
+        }
+        return digits.Length <= 3 ? new string(Dot, 3) : new string(Dot, digits.Length - 3) + digits[^3..];
+    }
+
+    /// <summary>Correo con la primera letra y el dominio: <c>rosa@correo.example</c> → <c>r•••@correo.example</c>.</summary>
+    public static string? MaskEmail(string? email)
+    {
+        var text = email?.Trim();
+        if (string.IsNullOrEmpty(text))
+        {
+            return null;
+        }
+        var at = text.LastIndexOf('@');
+        return at <= 0 ? new string(Dot, 3) : text[0] + new string(Dot, 3) + text[at..];
+    }
+
+    /// <summary>Nombre con la inicial de cada palabra (el largo no se revela): <c>Valentina Aguirre</c> → <c>V••• A•••</c>.</summary>
+    public static string MaskName(string? name) =>
+        string.Join(' ', (name ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(word => char.ToUpperInvariant(word[0]) + new string(Dot, 3)));
+}
 
 public sealed record StorefrontReservationResult(StorefrontReservationView Reservation, bool Replayed);
 
@@ -255,9 +308,35 @@ public sealed record CancelStorefrontReservationCommand(string Number, string Ph
     public object AuditDetails => new { Number, Phone = CreateStorefrontReservationCommand.Mask(Phone) };
 }
 
-/// <summary>Estado de una reserva: solo con el número Y el teléfono con que se hizo (regla S-06).</summary>
+/// <summary>Estado de una reserva por su número (regla S-06). Con el teléfono con que se hizo, la vista completa de siempre
+/// (si no coincide, «no existe»); V7: sin teléfono, la MISMA reserva con el contacto enmascarado (<see cref="StorefrontReservationView.Masked"/>).
+/// Cancelar sigue exigiendo el número Y el teléfono.</summary>
 [RequiresPermission(PermissionCodes.StorefrontRead)]
-public sealed record GetStorefrontReservationQuery(string Number, string Phone) : IRequest<StorefrontReservationView>;
+public sealed record GetStorefrontReservationQuery(string Number, string? Phone = null) : IRequest<StorefrontReservationView>;
+
+public sealed class GetStorefrontReservationValidator : AbstractValidator<GetStorefrontReservationQuery>
+{
+    public GetStorefrontReservationValidator()
+    {
+        RuleFor(x => x.Number).NotEmpty().WithMessage("Indique el código de la reserva.").MaximumLength(40);
+        RuleFor(x => x.Phone).MaximumLength(30);
+    }
+}
+
+/// <summary>V7 · Reservas web hechas con un teléfono (regla S-06), sin el código: las de la empresa de la tienda de los últimos
+/// <see cref="StorefrontPrivacy.PhoneLookupDays"/> días, las más nuevas primero y como máximo
+/// <see cref="StorefrontPrivacy.PhoneLookupLimit"/>, siempre con el contacto enmascarado. Sin reservas, la lista vacía (no se
+/// revela nada más).</summary>
+[RequiresPermission(PermissionCodes.StorefrontRead)]
+public sealed record GetStorefrontReservationsByPhoneQuery(string Phone) : IRequest<IReadOnlyList<StorefrontReservationView>>;
+
+public sealed class GetStorefrontReservationsByPhoneValidator : AbstractValidator<GetStorefrontReservationsByPhoneQuery>
+{
+    public GetStorefrontReservationsByPhoneValidator()
+    {
+        RuleFor(x => x.Phone).NotEmpty().WithMessage("Indique el código de la reserva o el teléfono con que la hizo.").MaximumLength(30);
+    }
+}
 
 /// <summary>Trabajo del sistema (cada 5 min en el gateway): cierra las reservas vencidas (<c>Cancelled</c> con motivo
 /// «Vencida») y devuelve el stock (regla S-04: una reserva vencida nunca se cierra «al leer»). Devuelve cuántas cerró.</summary>

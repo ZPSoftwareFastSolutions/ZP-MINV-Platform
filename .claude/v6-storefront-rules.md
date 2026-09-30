@@ -32,8 +32,17 @@
   reserva PUEDE tener como máximo 16 unidades por línea (`PcBuild.MaxQuantity`) y 20 líneas.
 
 ### S-06 · Privacidad del contacto
-- El teléfono y el correo del cliente web solo se muestran en el escritorio a quien tiene `sales.pcbuild.manage`; la API
-  pública solo devuelve el estado de una reserva si recibe el número Y el teléfono con que se hizo.
+- El teléfono y el correo del cliente web solo se muestran completos en el escritorio (y en el panel) a quien tiene
+  `sales.pcbuild.manage`. La API pública NUNCA devuelve el teléfono, el correo ni los datos para la factura completos.
+- V7 · La API pública consulta una reserva web con el código O el teléfono (al menos uno). Con el código Y el teléfono con
+  que se hizo devuelve la vista completa (nombre y notas); con uno solo DEBE enmascarar el contacto: nombre con las
+  iniciales (`V••• A•••`), sin notas, teléfono con los 3 últimos dígitos (`•••••567`) y correo con la primera letra y el
+  dominio (`v•••@correo.example`). Estado, líneas, totales, vencimiento y sucursal PUEDEN mostrarse siempre.
+- La consulta por teléfono devuelve solo las reservas del canal Web de la empresa de la tienda, de los últimos 90 días, las
+  más nuevas primero y como máximo 10. Un código inexistente y un teléfono que no coincide DEBEN responder el MISMO 404 (no se
+  revela si el código existe); un teléfono sin reservas, la lista vacía.
+- Cancelar DEBE exigir siempre el código Y el teléfono. Las consultas tienen su propio límite por IP, más bajo que el de las
+  lecturas (`Minv:Storefront:LookupsPerMinute`, 20).
 
 ### S-07 · Web: infraestructura HTTP aislada
 - Solo `src/3-infrastructure/http/*` PUEDE usar `fetch`; el resto de la web sigue sin red ni storage (prueba de

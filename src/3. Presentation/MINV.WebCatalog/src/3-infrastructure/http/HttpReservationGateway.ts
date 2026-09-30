@@ -1,5 +1,6 @@
-// IReservationGateway sobre `/storefront/v1/reservations`: crear (con `Idempotency-Key`), consultar (número + teléfono
-// en la URL, con el «+» codificado) y cancelar. Los errores del contrato llegan como StorefrontError desde el cliente.
+// IReservationGateway sobre `/storefront/v1/reservations`: crear (con `Idempotency-Key`), consultar (número y, si lo hay,
+// teléfono en la URL, con el «+» codificado; V7: o solo el teléfono, `GET /reservations?phone=`) y cancelar. Los errores del
+// contrato llegan como StorefrontError desde el cliente.
 
 import type { IReservationGateway } from '@/1-domain/ports/IReservationGateway';
 import type { Reservation, ReservationRequest } from '@/1-domain/storefront/types';
@@ -27,11 +28,15 @@ export class HttpReservationGateway implements IReservationGateway {
     return toReservation(body, replayed);
   }
 
-  async get(number: string, phone: string): Promise<Reservation> {
-    const { body } = await this.api.get<StorefrontReservationViewDto>(
-      `/reservations/${encodeURIComponent(number)}?phone=${encodeURIComponent(phone)}`,
-    );
+  async get(number: string, phone?: string): Promise<Reservation> {
+    const query = phone ? `?phone=${encodeURIComponent(phone)}` : '';
+    const { body } = await this.api.get<StorefrontReservationViewDto>(`/reservations/${encodeURIComponent(number)}${query}`);
     return toReservation(body);
+  }
+
+  async findByPhone(phone: string): Promise<Reservation[]> {
+    const { body } = await this.api.get<StorefrontReservationViewDto[]>(`/reservations?phone=${encodeURIComponent(phone)}`);
+    return Array.isArray(body) ? body.map((dto) => toReservation(dto)) : [];
   }
 
   async cancel(number: string, phone: string): Promise<Reservation> {

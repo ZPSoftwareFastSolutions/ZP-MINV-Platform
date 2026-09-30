@@ -153,7 +153,7 @@ describe('ajustar a lo disponible', () => {
 
 describe('reservar un carrito', () => {
   it('por la tienda pública: kind «cart», líneas sin ranura, días, factura y notas en una línea', async () => {
-    const gateway: IReservationGateway = { create: vi.fn().mockResolvedValue(RESERVATION), get: vi.fn(), cancel: vi.fn() };
+    const gateway: IReservationGateway = { create: vi.fn().mockResolvedValue(RESERVATION), get: vi.fn(), findByPhone: vi.fn(), cancel: vi.fn() };
     const useCases = createReservationUseCases(gateway);
     await useCases.reserveCart({
       items: [{ sku: CPU.sku, quantity: 2 }],

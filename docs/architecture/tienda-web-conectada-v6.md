@@ -66,10 +66,14 @@ Catálogo web (React, V5)  ──HTTP──▶  MINV.ApiGateway  /storefront/v1/
   en `iam.processed_requests` (la misma tabla del RPC del servidor en la nube) con un id determinista (16 bytes del SHA-256
   de `storefront-reservation:<llave>`), el hash del contenido normalizado y la respuesta guardada: repetir igual devuelve
   la misma reserva con `200` e `Idempotent-Replayed: true`; la misma llave con otro contenido, `422 idempotency`.
-- **Consulta y cancelación** (`GetStorefrontReservationQuery`, `CancelStorefrontReservationCommand`): solo con el número Y
-  el teléfono con que se hizo (`PcBuild.MatchesPhone`); si no coinciden, 404 sin revelar si existe (regla S-06). Cancelar
-  pasa el armado a `Cancelled` con motivo «Cancelada por el cliente desde la tienda web» y devuelve el stock; una reserva
-  que ya no está `Reserved` responde `422 pcbuild.state`.
+- **Consulta y cancelación** (`GetStorefrontReservationQuery`, `CancelStorefrontReservationCommand`): en la V6, solo con el
+  número Y el teléfono con que se hizo (`PcBuild.MatchesPhone`); si no coinciden, 404 sin revelar si existe (regla S-06).
+  **V7**: la consulta acepta el código O el teléfono (`GET /reservations/{number}` con `phone` opcional y
+  `GET /reservations?phone=` → `GetStorefrontReservationsByPhoneQuery`, las últimas 10 de 90 días); sin los dos, el contacto
+  sale enmascarado (`masked`, `maskedPhone`, `maskedEmail`; `StorefrontPrivacy`) y las consultas tienen su propio límite por
+  IP (`LookupsPerMinute`). Cancelar SIGUE exigiendo el número Y el teléfono: pasa el armado a `Cancelled` con motivo
+  «Cancelada por el cliente desde la tienda web» y devuelve el stock; una reserva que ya no está `Reserved` responde
+  `422 pcbuild.state`.
 - **Vencimiento**: `StorefrontReservationExpiryService` (gateway, cada `ExpiryMinutes`) corre como el principal técnico y
   ejecuta `ExpirePcBuildReservationsCommand`: los armados `Reserved` con `ReservedUntil` pasado quedan `Cancelled` con motivo
   «Vencida» y el stock vuelve. La API muestra `Expired` tanto a la reserva ya cerrada por el trabajo como a la vencida que
@@ -81,7 +85,8 @@ Catálogo web (React, V5)  ──HTTP──▶  MINV.ApiGateway  /storefront/v1/
 - **Bitácora**: `sales.pc_build_events` (append-only): `Created`, `Quoted`, `Reserved`, `Released`, `Expired`, `Sold`,
   `Cancelled`, `Published`, `Unpublished`; la escribe solo `PcBuild`.
 - **Privacidad**: el teléfono y el correo van enmascarados a la auditoría (`AuditDetails`), la API pública nunca los
-  devuelve y el escritorio los muestra solo a quien tiene `sales.pcbuild.manage` (Ventas, Cajero, Gerencia y Administrador).
+  devuelve completos (V7: solo enmascarados en las consultas) y el escritorio los muestra solo a quien tiene
+  `sales.pcbuild.manage` (Ventas, Cajero, Gerencia y Administrador).
 
 ## 3. Modelo de datos (migración `V6Storefront`)
 
@@ -162,7 +167,8 @@ Fase A dejó el contrato; la web (`src/3. Presentation/MINV.WebCatalog/README.md
   opcional, notas), aviso de vigencia («te lo guardamos 48 h; se confirma y paga en la tienda»), envío con `Idempotency-Key`
   (UUID por intento), errores del contrato (409: marca las piezas y cuánto hay), éxito con número, vencimiento, líneas y
   total; vacía el armado; enlaces «Consultar mi reserva» y WhatsApp. Página `/reserva/:numero` (teléfono → estado; «Liberar
-  mi reserva» con confirmación). Estado en memoria, nada de storage.
+  mi reserva» con confirmación; V7: código O celular, «Complete al menos uno», lista por celular y el celular pedido antes de
+  liberar si se buscó solo con el código). Estado en memoria, nada de storage.
 - Armados sugeridos desde la API (si no hay, la sección se oculta); textos: la reserva se guarda en la tienda y se confirma en
   persona; sucursal de retiro = la de la instantánea.
 
@@ -170,8 +176,8 @@ Fase A dejó el contrato; la web (`src/3. Presentation/MINV.WebCatalog/README.md
 
 - Una reserva no elige series: las series se asignan al vender en caja (la reserva es por cantidad).
 - La tienda muestra el stock de UNA sucursal (la configurada); no hay retiro en otra sucursal ni stock consolidado.
-- Sin pagos en línea ni cuentas de cliente: la reserva se confirma y cobra en la tienda física; se consulta o libera con el
-  número y el teléfono.
+- Sin pagos en línea ni cuentas de cliente: la reserva se confirma y cobra en la tienda física; se libera con el número y el
+  teléfono (V7: se consulta con cualquiera de los dos).
 - La compatibilidad se informa, no bloquea (el vendedor la revisa en el escritorio).
 - Una reserva vencida se cierra en la pasada siguiente del trabajo del gateway (hasta `ExpiryMinutes`); entre tanto la API la
   muestra `Expired` y el stock sigue reservado.

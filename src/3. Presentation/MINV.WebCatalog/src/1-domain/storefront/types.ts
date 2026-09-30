@@ -124,7 +124,11 @@ export interface ReservationLine {
   subtotal: number;
 }
 
-/** Una reserva tal como la devuelve la tienda: nunca trae el teléfono ni el correo (regla S-06). */
+/**
+ * Una reserva tal como la devuelve la tienda: nunca trae el teléfono ni el correo completos (regla S-06). V7: la consulta
+ * trae el celular y el correo enmascarados; si no se hizo con el código Y el celular (`masked`), también el nombre y sin
+ * notas.
+ */
 export interface Reservation {
   /** `ARM-WEB-000001` (armado) o `RES-WEB-000001` (carrito). */
   number: string;
@@ -147,6 +151,12 @@ export interface Reservation {
   replayed: boolean;
   /** V7: el servidor dejó en cola el correo con el código y el detalle de la reserva. */
   mailQueued: boolean;
+  /** V7 · Celular con que se hizo, enmascarado (`•••••567`); solo en una consulta. */
+  maskedPhone?: string | null;
+  /** V7 · Correo enmascarado (`v•••@correo.example`); solo en una consulta y si dejó uno. */
+  maskedEmail?: string | null;
+  /** V7 · La consulta no se hizo con el código Y el celular: el nombre viene enmascarado y sin notas. */
+  masked?: boolean;
 }
 
 /** Pieza a la que le falta stock cuando la tienda rechaza una reserva (409). */

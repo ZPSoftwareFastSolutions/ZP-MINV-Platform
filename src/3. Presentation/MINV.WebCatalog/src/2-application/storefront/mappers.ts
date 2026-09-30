@@ -240,6 +240,10 @@ export function toReservation(dto: StorefrontReservationViewDto, replayed = fals
     cancelReason: dto.cancelReason ?? null,
     replayed,
     mailQueued: dto.mailQueued === true,
+    // V7 · Solo en una consulta (regla S-06): el contacto enmascarado; las demás respuestas no los traen.
+    ...(typeof dto.maskedPhone === 'string' ? { maskedPhone: dto.maskedPhone } : {}),
+    ...(typeof dto.maskedEmail === 'string' ? { maskedEmail: dto.maskedEmail } : {}),
+    ...(dto.masked === true ? { masked: true } : {}),
   };
 }
 

@@ -199,9 +199,12 @@ public sealed class ModelTests
         // La V7WebPlatform sigue como se publicó: sin la columna y con la función de (empresa, correo)
         Assert.DoesNotContain("leased_until", v7, StringComparison.Ordinal);
         At(v7, "RETURNS TABLE (tenant_id uuid, outgoing_mail_id uuid)\n");
-        // Subida: columna y CHECK antes de la función; DROP antes de CREATE; privilegios después de crearla
-        Assert.True(At(up, "ADD leased_until timestamp with time zone") < At(up, "CREATE FUNCTION integration.claim_outgoing_mails"));
-        At(up, "ADD CONSTRAINT ck_outgoing_mail_dispatch_arrendamiento CHECK (leased_until IS NULL OR status = 'Pending')");
+        // Subida (tolerante con una base que ya tenga la columna): columna y CHECK antes de la función; DROP antes de CREATE;
+        // privilegios después de crearla
+        Assert.True(At(up, "ADD COLUMN IF NOT EXISTS leased_until timestamp with time zone NULL") < At(up, "CREATE FUNCTION integration.claim_outgoing_mails"));
+        At(up, "DROP CONSTRAINT IF EXISTS ck_outgoing_mail_dispatch_arrendamiento;");
+        At(up, "ADD CONSTRAINT ck_outgoing_mail_dispatch_arrendamiento");
+        At(up, "CHECK (leased_until IS NULL OR status = 'Pending')");
         var create = At(up, "CREATE FUNCTION integration.claim_outgoing_mails(p_limit integer, p_lease_seconds integer)");
         Assert.True(At(up, "DROP FUNCTION IF EXISTS integration.claim_outgoing_mails(integer, integer);") < create);
         At(up, "RETURNS TABLE (tenant_id uuid, outgoing_mail_id uuid, leased_until timestamptz)", create);

@@ -35,7 +35,7 @@ sin desplazamiento horizontal desde 360 px.
 | `/arma-tu-pc` | **Armá tu PC** | Igual que la V6: una ranura por pieza, armados sugeridos y **«Reservar armado»** (`ARM-WEB-…`). Las horas que se guarda salen del catálogo |
 | `/carrito` | **Carrito** (V7) | Ver §3.1 |
 | `/reservar` | **Reservar** (V7) | La reserva del carrito o de un artículo suelto (`?sku=…&cantidad=…`): ver §3.2 |
-| `/reserva` · `/reserva/:numero` | **Mi reserva** | Con el número y el teléfono: estado (Reservada, Vendida, Cancelada, Vencida), productos, total, dónde se retira y «Liberar mi reserva». Acepta `RES-WEB-…` y `ARM-WEB-…` |
+| `/reserva` · `/reserva/:numero` | **Mi reserva** | Dos campos, «Código de reserva» y «Número de celular», con la pista «Complete al menos uno». Con el código (y, si se quiere, el celular): estado (Reservada, Vendida, Cancelada, Vencida), productos, total, dónde se retira y «Liberar mi reserva». Solo con el celular: la lista de sus reservas (las 10 más nuevas de los últimos 90 días) para abrir una. Sin los dos datos el nombre sale con iniciales, sin notas, y el celular y el correo enmascarados; para liberar se pide el celular si no se escribió. Acepta `RES-WEB-…` y `ARM-WEB-…` |
 | `/ingresar` | **Ingresar** (V7) | Correo y contraseña (mostrar u ocultar). Ante cualquier falla, un solo mensaje: «Correo o contraseña incorrectos», y no se sale de la pantalla. A los 5 intentos fallidos la cuenta se bloquea 15 minutos y la página lo avisa. Enlace a «Crear cuenta». Olvidó la contraseña: se pide en la tienda (el Administrador asigna una temporal) |
 | `/registrarse` | **Crear cuenta** (V7) | Nombre, correo, teléfono de Bolivia, contraseña y repetirla (8 a 128 caracteres con letras y números, con indicador de requisitos). Crea SIEMPRE una **cuenta de cliente**. Si el correo ya tiene cuenta: «Ese correo ya tiene una cuenta» con enlace a ingresar |
 | `/cambiar-contrasena` | **Cambiar contraseña** (V7) | Para cualquier sesión; obligatoria si el Administrador asignó una temporal |
@@ -106,8 +106,11 @@ abre sola). **«Confirmar reserva»** envía la reserva **una sola vez** aunque 
 
 ### 3.4 Después de reservar
 
-- **Consultar** en «Mi reserva» (`/reserva`, con el número y el teléfono) o, con cuenta, en «Mis reservas».
-- **Liberar**: «Liberar mi reserva» (con confirmación); el stock vuelve al instante.
+- **Consultar** en «Mi reserva» (`/reserva`, con el código O el número de celular; con uno solo, el contacto sale
+  enmascarado) o, con cuenta, en «Mis reservas».
+- El enlace «Ver mi reserva» del correo abre `/reserva/<código>` con el código ya escrito: basta con «Buscar reserva».
+- **Liberar**: «Liberar mi reserva» (con confirmación; SIEMPRE con el código y el celular: si se buscó solo con el código,
+  la confirmación pide el celular); el stock vuelve al instante.
 - **Vencer**: pasado el plazo, la cierra sola el trabajo automático (cada 5 minutos); mientras tanto se muestra «Vencida».
 - **Comprar**: se paga en la tienda. El personal la vende en caja (panel o escritorio) y la reserva pasa a **«Vendida»**.
 
@@ -312,6 +315,8 @@ Reglas que no dependen de la tabla:
   su contraseña y cerrar sesión), en la web y en cualquier otra ruta del servidor. El Administrador tiene los permisos de la
   cuenta, pero su sesión es del personal.
 - El **teléfono, el correo y los datos para la factura** de una reserva solo los ven quienes tienen `sales.pcbuild.manage`.
+  En «Mi reserva» el celular y el correo salen siempre enmascarados, y el nombre y las notas solo completos si se buscó con el
+  código Y el celular (regla S-06).
 - Los botones ocultos son comodidad: el servidor comprueba permisos, módulo comercial y sucursal en cada pedido.
 
 ## 7. Qué no hace

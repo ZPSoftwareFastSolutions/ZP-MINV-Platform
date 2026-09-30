@@ -19,7 +19,8 @@ namespace MINV.ApiGateway.Endpoints;
 public sealed record StorefrontReservationRequest(IReadOnlyList<StorefrontReservationLineInput> Lines, StorefrontContactInput Contact, string? Notes = null,
     string? Name = null, string? IdempotencyKey = null, string? Kind = null, int? HoldDays = null, ReservationBuyerInput? Buyer = null);
 
-/// <summary>El cliente cancela su reserva con el teléfono con que la hizo.</summary>
+/// <summary>El cliente cancela su reserva con el teléfono con que la hizo (V7: sigue siendo obligatorio aunque la consulta admita
+/// solo el código).</summary>
 public sealed record StorefrontCancelRequest(string Phone);
 
 /// <summary>
@@ -33,6 +34,9 @@ public static class StorefrontEndpoints
     public const string Prefix = "/storefront/v1";
     public const string ReadPolicy = "storefront";
     public const string ReservePolicy = "storefront-reserve";
+
+    /// <summary>V7 · Consultas de una reserva (por código, por teléfono o con los dos) por minuto y por IP.</summary>
+    public const string LookupPolicy = "storefront-lookup";
     public const string CorsPolicy = "storefront";
     public const string Tag = "Tienda web";
 
@@ -93,12 +97,25 @@ public static class StorefrontEndpoints
             .ProducesProblem(StatusCodes.Status409Conflict).ProducesProblem(StatusCodes.Status422UnprocessableEntity)
             .WithSummary("Reserva un armado (kind = build, ARM-WEB) o un carrito con cualquier producto (kind = cart, RES-WEB): el stock de cada línea queda " +
                          "reservado los días pedidos (holdDays 1 a 3; sin valor, 48 h). Idempotente por Idempotency-Key; 409 si falta stock");
-        sf.MapGet("/reservations/{number}", (ISender s, string number, string phone, CancellationToken ct) =>
+        // V7 · Consulta con el código O el teléfono (regla S-06): el teléfono es opcional en la ruta de siempre y la colección se
+        // filtra por teléfono; sin los dos, el contacto sale enmascarado. Límite propio por IP (LookupPolicy)
+        sf.MapGet("/reservations/{number}", (ISender s, string number, string? phone, CancellationToken ct) =>
                 s.Send(new GetStorefrontReservationQuery(number, phone), ct))
-            .WithSummary("Estado de una reserva (Reserved, Sold, Cancelled o Expired) con el número y el teléfono con que se hizo");
+            .RequireRateLimiting(LookupPolicy)
+            .Produces<StorefrontReservationView>().ProducesProblem(StatusCodes.Status400BadRequest).ProducesProblem(StatusCodes.Status404NotFound)
+            .WithSummary("Estado de una reserva (Reserved, Sold, Cancelled o Expired) por su número. Con el teléfono con que se hizo (phone), la vista " +
+                         "completa; sin él, la misma reserva con el contacto enmascarado (masked = true). 404 si no existe o el teléfono no coincide");
+        sf.MapGet("/reservations", (ISender s, string? phone, CancellationToken ct) =>
+                s.Send(new GetStorefrontReservationsByPhoneQuery(phone ?? string.Empty), ct))
+            .RequireRateLimiting(LookupPolicy)
+            .Produces<IReadOnlyList<StorefrontReservationView>>().ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .WithSummary($"V7 · Reservas web hechas con un teléfono (phone, obligatorio): las de los últimos {StorefrontPrivacy.PhoneLookupDays} días, " +
+                         $"las más nuevas primero y como máximo {StorefrontPrivacy.PhoneLookupLimit}, con el contacto enmascarado; lista vacía si no hay ninguna");
         sf.MapPost("/reservations/{number}/cancel", (ISender s, string number, StorefrontCancelRequest body, CancellationToken ct) =>
                 s.Send(new CancelStorefrontReservationCommand(number, body.Phone), ct))
             .RequireRateLimiting(ReservePolicy)
-            .WithSummary("El cliente libera su reserva (el stock vuelve a estar disponible)");
+            .Produces<StorefrontReservationView>().ProducesProblem(StatusCodes.Status404NotFound).ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .WithSummary("El cliente libera su reserva con el número Y el teléfono con que la hizo (el stock vuelve a estar disponible)");
     }
 }

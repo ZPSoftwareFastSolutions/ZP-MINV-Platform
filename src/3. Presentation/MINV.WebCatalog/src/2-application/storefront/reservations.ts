@@ -1,7 +1,7 @@
 // Casos de uso de las reservas (V6): reservar el armado, consultar y liberar una reserva, sobre el puerto
 // IReservationGateway. Sin React ni red. Los errores llegan como StorefrontError (los deja pasar).
 // V7: reservar un CARRITO (o un artículo suelto) por la tienda pública, con los días para recogerlo y los datos
-// opcionales para la factura.
+// opcionales para la factura; consultar con el código O el teléfono (liberar sigue pidiendo los dos).
 
 import type { BuildLine } from '@/1-domain/builder/types';
 import type { CartItem } from '@/1-domain/cart/types';
@@ -41,8 +41,10 @@ export interface ReservationUseCases {
   reserve(input: ReserveBuildInput): Promise<Reservation>;
   /** V7: reserva un carrito (o un artículo suelto) en la tienda, todo o nada, con `kind = "cart"`. */
   reserveCart(input: ReserveCartInput): Promise<Reservation>;
-  /** Estado de una reserva por número y teléfono. */
-  lookup(number: string, phone: string): Promise<Reservation>;
+  /** Estado de una reserva por número; V7: el teléfono es opcional (sin él, el contacto sale enmascarado). */
+  lookup(number: string, phone?: string): Promise<Reservation>;
+  /** V7 · Reservas hechas con un teléfono (las más nuevas primero), con el contacto enmascarado. */
+  lookupByPhone(phone: string): Promise<Reservation[]>;
   /** Libera una reserva activa (el stock vuelve). */
   release(number: string, phone: string): Promise<Reservation>;
 }
@@ -109,7 +111,11 @@ export function createReservationUseCases(gateway: IReservationGateway): Reserva
         ...(input.buyer ? { buyer: input.buyer } : {}),
       });
     },
-    lookup: (number, phone) => gateway.get(number.trim().toUpperCase(), phone.trim()),
+    lookup: (number, phone) => {
+      const withPhone = phone?.trim();
+      return withPhone ? gateway.get(number.trim().toUpperCase(), withPhone) : gateway.get(number.trim().toUpperCase());
+    },
+    lookupByPhone: (phone) => gateway.findByPhone(phone.trim()),
     release: (number, phone) => gateway.cancel(number.trim().toUpperCase(), phone.trim()),
   };
 }

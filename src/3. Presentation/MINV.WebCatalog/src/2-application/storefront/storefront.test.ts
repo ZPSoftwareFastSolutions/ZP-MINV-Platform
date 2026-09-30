@@ -136,6 +136,7 @@ describe('casos de uso de reservas', () => {
     const gateway: IReservationGateway = {
       create: vi.fn().mockResolvedValue(created),
       get: vi.fn().mockResolvedValue(created),
+      findByPhone: vi.fn().mockResolvedValue([created]),
       cancel: vi.fn().mockResolvedValue({ ...created, status: 'Cancelled' }),
     };
     const useCases = createReservationUseCases(gateway);
@@ -165,6 +166,13 @@ describe('casos de uso de reservas', () => {
 
     await useCases.lookup(' arm-web-000004 ', ' 71234567 ');
     expect(gateway.get).toHaveBeenCalledWith('ARM-WEB-000004', '71234567');
+    // V7 · Con el código solo (o un celular en blanco) la pasarela consulta sin teléfono; con el celular solo, la lista
+    await useCases.lookup('res-web-000001');
+    expect(gateway.get).toHaveBeenLastCalledWith('RES-WEB-000001');
+    await useCases.lookup('res-web-000002', '   ');
+    expect(gateway.get).toHaveBeenLastCalledWith('RES-WEB-000002');
+    expect(await useCases.lookupByPhone(' +591 71234567 ')).toEqual([created]);
+    expect(gateway.findByPhone).toHaveBeenCalledWith('+591 71234567');
     const released = await useCases.release('arm-web-000004', '71234567');
     expect(released.status).toBe('Cancelled');
     expect(gateway.cancel).toHaveBeenCalledWith('ARM-WEB-000004', '71234567');

@@ -41,6 +41,13 @@ avance: `docs/product/plan-v7.md` · normalización: `docs/database/normalizacio
   detalle y «Te enviamos un correo a …» solo si el servidor lo encoló (`mailQueued`).
 - «Mi reserva» (`/reserva`) acepta `RES-WEB-…` y `ARM-WEB-…`; las horas de la tienda salen del catálogo (`reservationHours`,
   `maxHoldDays`): la web ya no tiene una constante de 48 h. Las notas se unen en una línea antes de enviarse.
+- **«Mi reserva» con el código O el celular** (regla S-06 actualizada): «Código de reserva» y «Número de celular» con «Complete
+  al menos uno». Solo el código → `GET /storefront/v1/reservations/{number}` (el `phone` pasa a opcional) con el contacto
+  enmascarado (`masked`, `maskedPhone` `•••••567`, `maskedEmail` `v•••@correo.example`, nombre con iniciales y sin notas);
+  solo el celular → `GET /storefront/v1/reservations?phone=` (`GetStorefrontReservationsByPhoneQuery`: canal Web, últimos 90
+  días, las 10 más nuevas, enmascaradas); los dos → la vista completa de siempre. Cancelar sigue exigiendo código Y teléfono
+  (la web pide el celular si se buscó solo con el código). Límite propio de consultas por IP
+  (`Minv:Storefront:LookupsPerMinute`, 20). El 404 no cambia.
 - La tienda caída ya no bloquea el sitio: `/ingresar`, `/registrarse`, `/mi-cuenta` y `/panel` funcionan aunque el catálogo
   no cargue (`CatalogStateProvider` + `CatalogGate`).
 
@@ -115,7 +122,7 @@ avance: `docs/product/plan-v7.md` · normalización: `docs/database/normalizacio
 ### Agregado · contrato TypeScript generado
 
 - `minv contrato-web [--salida <archivo>]` (sin base de datos) genera por reflexión sobre `RpcCatalog`
-  `src/3. Presentation/MINV.WebCatalog/src/3-infrastructure/http/contract.generated.ts`: **192 operaciones y 407 tipos**, con
+  `src/3. Presentation/MINV.WebCatalog/src/3-infrastructure/http/contract.generated.ts`: **193 operaciones y 408 tipos**, con
   `RpcOperations`, `RPC_META` (nombre completo, si es comando, permisos, módulos y si la puede usar un cliente), `WebSession`,
   el sobre del RPC y las listas `PERMISSIONS` y `ROLES`, con la serialización exacta de `RpcJson.Options` (regla P-07).
   `WebContractTests` falla si el archivo quedó desactualizado. La web lo usa solo a través de `contract.ts`.

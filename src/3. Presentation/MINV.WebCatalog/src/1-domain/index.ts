@@ -25,6 +25,7 @@ export * from './storefront/errors';
 export * from './storefront/contact';
 export * from './storefront/policy';
 export * from './storefront/checkoutForm';
+export * from './storefront/lookup';
 export * from './auth/permissions';
 export * from './auth/errors';
 export * from './auth/validation';

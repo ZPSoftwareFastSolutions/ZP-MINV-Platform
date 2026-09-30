@@ -771,6 +771,10 @@ export class InMemoryWebBackend {
       cancelReason: null,
       kind,
       mailQueued: true,
+      // Como el servidor: la cuenta del cliente ve su reserva completa (no es una consulta pública, regla S-06)
+      maskedPhone: null,
+      maskedEmail: null,
+      masked: false,
     };
     user.reservations.unshift(reservation);
     return reservation;
@@ -799,6 +803,9 @@ export class InMemoryWebBackend {
         cancelReason: status === 'Expired' ? 'Venció el plazo de la reserva' : null,
         kind,
         mailQueued: true,
+        maskedPhone: null,
+        maskedEmail: null,
+        masked: false,
       };
     };
     return [

@@ -1137,6 +1137,11 @@ export interface GetStorefrontProductQuery {
 /** MINV.Application.Storefront.GetStorefrontReservationQuery */
 export interface GetStorefrontReservationQuery {
   number: string;
+  phone?: string | null;
+}
+
+/** MINV.Application.Storefront.GetStorefrontReservationsByPhoneQuery */
+export interface GetStorefrontReservationsByPhoneQuery {
   phone: string;
 }
 
@@ -3071,6 +3076,9 @@ export interface StorefrontReservationView {
   kind: string;
   lines: StorefrontReservationLine[];
   mailQueued: boolean;
+  masked: boolean;
+  maskedEmail: string | null;
+  maskedPhone: string | null;
   notes: string | null;
   number: string;
   reservedUntil: string | null;
@@ -3601,6 +3609,7 @@ export interface RpcOperations {
   GetStorefrontProductImageQuery: { request: GetStorefrontProductImageQuery; response: StorefrontImage };
   GetStorefrontProductQuery: { request: GetStorefrontProductQuery; response: StorefrontProduct };
   GetStorefrontReservationQuery: { request: GetStorefrontReservationQuery; response: StorefrontReservationView };
+  GetStorefrontReservationsByPhoneQuery: { request: GetStorefrontReservationsByPhoneQuery; response: StorefrontReservationView[] };
   GetSupplierInvoicesQuery: { request: GetSupplierInvoicesQuery; response: SupplierInvoiceRow[] };
   GetSuppliersQuery: { request: GetSuppliersQuery; response: SupplierRow[] };
   GetTaxSummaryQuery: { request: GetTaxSummaryQuery; response: TaxSummaryView };
@@ -3811,6 +3820,7 @@ export const RPC_META = {
   GetStorefrontProductImageQuery: { type: 'MINV.Application.Storefront.GetStorefrontProductImageQuery', command: false, permissions: ['storefront.read'], modules: [], customer: false },
   GetStorefrontProductQuery: { type: 'MINV.Application.Storefront.GetStorefrontProductQuery', command: false, permissions: ['storefront.read'], modules: [], customer: false },
   GetStorefrontReservationQuery: { type: 'MINV.Application.Storefront.GetStorefrontReservationQuery', command: false, permissions: ['storefront.read'], modules: [], customer: false },
+  GetStorefrontReservationsByPhoneQuery: { type: 'MINV.Application.Storefront.GetStorefrontReservationsByPhoneQuery', command: false, permissions: ['storefront.read'], modules: [], customer: false },
   GetSupplierInvoicesQuery: { type: 'MINV.Application.Billing.GetSupplierInvoicesQuery', command: false, permissions: ['purchasing.manage'], modules: [], customer: false },
   GetSuppliersQuery: { type: 'MINV.Application.Partners.GetSuppliersQuery', command: false, permissions: ['inventory.stock.view'], modules: [], customer: false },
   GetTaxSummaryQuery: { type: 'MINV.Application.Billing.GetTaxSummaryQuery', command: false, permissions: ['billing.view'], modules: [], customer: false },

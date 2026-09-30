@@ -40,8 +40,8 @@ public abstract class SeededServer : IAsyncLifetime
             "--Minv:Webhooks:AllowPrivateTargets", "true", "--Minv:LoginsPerMinute", "1000", "--Minv:Siat:Background", "false", "--Logging:LogLevel:Default", "Warning",
             "--Minv:Storefront:TenantCode", "NUBE", "--Minv:Storefront:BranchCode", "CM", "--Minv:Storefront:AllowedOrigins:0", "http://localhost:5173",
             "--Minv:Storefront:ExpiryMinutes", "60",
-            // Las pruebas de la tienda hacen muchas reservas seguidas desde la misma IP; el límite se prueba aparte (StorefrontLimitsFixture)
-            "--Minv:Storefront:ReservationsPerMinute", "1000",
+            // Las pruebas de la tienda hacen muchas reservas y consultas seguidas desde la misma IP; el límite se prueba aparte (StorefrontLimitsFixture)
+            "--Minv:Storefront:ReservationsPerMinute", "1000", "--Minv:Storefront:LookupsPerMinute", "1000",
         ];
         App = Build([.. args, .. ExtraArgs]);
         await App.StartAsync();
