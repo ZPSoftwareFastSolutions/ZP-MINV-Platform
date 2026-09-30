@@ -2,7 +2,11 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:c="clr-namespace:MINV.DesktopClient.Controls"
-             xmlns:vm="clr-namespace:MINV.DesktopClient.ViewModels">
+             xmlns:vm="clr-namespace:MINV.DesktopClient.ViewModels"
+             xmlns:v="clr-namespace:MINV.DesktopClient.Views">
+    <UserControl.Resources>
+        <v:BindingProxy x:Key="Page" Data="{Binding}" />
+    </UserControl.Resources>
     <!-- V7 · Reservas: carritos (RES-…) y armados (ARM-…) reservados de la tienda web y del mostrador -->
     <Grid Margin="28,6,28,24">
         <Grid.RowDefinitions>
@@ -69,7 +73,7 @@
                 <Grid>
                     <DataGrid ItemsSource="{Binding Rows}" SelectedItem="{Binding Selected}" RowHeight="56">
                         <DataGrid.Columns>
-                            <DataGridTemplateColumn Header="NÚMERO" Width="136" SortMemberPath="Number" CanUserSort="True">
+                            <DataGridTemplateColumn Header="NÚMERO" Width="160" SortMemberPath="Number" CanUserSort="True">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate DataType="{x:Type vm:ReservationItem}">
                                         <Border Style="{StaticResource Pill}" Background="{DynamicResource BrandSoft}">
@@ -78,7 +82,7 @@
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
-                            <DataGridTemplateColumn Header="TIPO" Width="98" SortMemberPath="KindText" CanUserSort="True">
+                            <DataGridTemplateColumn Header="TIPO" Width="108" SortMemberPath="KindText" CanUserSort="True" Visibility="{Binding Data.HasSelection, Source={StaticResource Page}, Converter={StaticResource Hidden}}">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate DataType="{x:Type vm:ReservationItem}">
                                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
@@ -88,7 +92,7 @@
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
-                            <DataGridTemplateColumn Header="CANAL" Width="112" SortMemberPath="ChannelText" CanUserSort="True">
+                            <DataGridTemplateColumn Header="CANAL" Width="100" SortMemberPath="ChannelText" CanUserSort="True" Visibility="{Binding Data.HasSelection, Source={StaticResource Page}, Converter={StaticResource Hidden}}">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate DataType="{x:Type vm:ReservationItem}">
                                         <Grid VerticalAlignment="Center">
@@ -115,7 +119,8 @@
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
-                            <DataGridTextColumn Header="TELÉFONO" Binding="{Binding PhoneText}" Width="118" SortMemberPath="Phone" ElementStyle="{StaticResource CellText}" />
+                            <DataGridTextColumn Header="TELÉFONO" Binding="{Binding PhoneText}" Width="118" SortMemberPath="Phone" ElementStyle="{StaticResource CellText}"
+                                                Visibility="{Binding Data.HasSelection, Source={StaticResource Page}, Converter={StaticResource Hidden}}" />
                             <DataGridTextColumn Header="TOTAL" Binding="{Binding TotalText}" Width="112" SortMemberPath="Total"
                                                 HeaderStyle="{StaticResource HeaderRight}" ElementStyle="{StaticResource CellRight}" />
                             <DataGridTemplateColumn Header="RESERVADO HASTA" Width="170" SortMemberPath="ReservedUntilSort" CanUserSort="True">
@@ -133,7 +138,7 @@
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
-                            <DataGridTemplateColumn Header="ESTADO" Width="148" SortMemberPath="StatusText" CanUserSort="True">
+                            <DataGridTemplateColumn Header="ESTADO" Width="128" SortMemberPath="StatusText" CanUserSort="True">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate DataType="{x:Type vm:ReservationItem}">
                                         <Border Style="{StaticResource StatusPill}" c:Ui.BrushKey="{Binding StatusSoftBrush}">
@@ -142,7 +147,7 @@
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
-                            <DataGridTemplateColumn Header="CORREO" Width="112" SortMemberPath="MailText" CanUserSort="True">
+                            <DataGridTemplateColumn Header="CORREO" Width="112" SortMemberPath="MailText" CanUserSort="True" Visibility="{Binding Data.HasSelection, Source={StaticResource Page}, Converter={StaticResource Hidden}}">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate DataType="{x:Type vm:ReservationItem}">
                                         <Border Style="{StaticResource StatusPill}" c:Ui.BrushKey="{Binding MailSoftBrush}" ToolTip="{Binding MailTooltip}">

@@ -147,3 +147,19 @@ public sealed class DetailVisibilityConverter : IMultiValueConverter
 
     public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture) => throw new NotSupportedException();
 }
+
+/// <summary>V7 · Lleva el DataContext de la página a lo que no está en el árbol visual (las columnas de un DataGrid): así una
+/// columna puede ocultarse con un enlace (p. ej. las secundarias de Reservas mientras el detalle está abierto).</summary>
+public sealed class BindingProxy : Freezable
+{
+    public static readonly DependencyProperty DataProperty =
+        DependencyProperty.Register(nameof(Data), typeof(object), typeof(BindingProxy), new UIPropertyMetadata(null));
+
+    public object? Data
+    {
+        get => GetValue(DataProperty);
+        set => SetValue(DataProperty, value);
+    }
+
+    protected override Freezable CreateInstanceCore() => new BindingProxy();
+}
